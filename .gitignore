@@ -1,0 +1,9 @@
+/bin
+/bin_
+*.pyc
+/__pycache__/
+logs/
+*.http
+/pid
+note.py
+pickles/
