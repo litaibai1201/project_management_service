@@ -1,0 +1,149 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Base Resets ─────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, 'Noto Sans', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #f1f5f9;
+  color: #0f172a;
+}
+
+/* ─── Sidebar fixed ───────────────────────────────────────────────────────── */
+.ant-layout-sider {
+  position: fixed !important;
+  height: 100vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.ant-layout-sider::-webkit-scrollbar { width: 3px; }
+.ant-layout-sider::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.12);
+  border-radius: 2px;
+}
+
+/* ─── Scrollbar ───────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* ─── Table ───────────────────────────────────────────────────────────────── */
+.ant-table-thead > tr > th {
+  font-weight: 600 !important;
+  font-size: 12px !important;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #475569 !important;
+}
+
+/* ─── Card elevation variants ─────────────────────────────────────────────── */
+.card-flat {
+  box-shadow: none !important;
+  border: 1px solid #e2e8f0 !important;
+}
+.card-elevated {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08) !important;
+}
+
+/* ─── Priority left border on cards ──────────────────────────────────────── */
+.priority-border-1 { border-left: 3px solid #22c55e !important; }
+.priority-border-2 { border-left: 3px solid #f59e0b !important; }
+.priority-border-3 { border-left: 3px solid #ef4444 !important; }
+.priority-border-4 { border-left: 3px solid #7c3aed !important; }
+
+/* ─── Kanban column ───────────────────────────────────────────────────────── */
+.kanban-col {
+  min-height: 200px;
+  flex: 1;
+  min-width: 220px;
+  max-width: 280px;
+}
+.kanban-card {
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.kanban-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0,0,0,0.1) !important;
+}
+
+/* ─── Status dot ──────────────────────────────────────────────────────────── */
+.status-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-right: 5px;
+  vertical-align: middle;
+}
+
+/* ─── Activity feed ───────────────────────────────────────────────────────── */
+.feed-item {
+  padding: 10px 0;
+  border-bottom: 1px solid #f1f5f9;
+  transition: background 0.15s;
+}
+.feed-item:last-child { border-bottom: none; }
+.feed-item:hover { background: #f8fafc; border-radius: 8px; padding-left: 8px; }
+
+/* ─── Days badge ──────────────────────────────────────────────────────────── */
+.days-overdue {
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  padding: 1px 7px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.days-warning {
+  background: #fffbeb;
+  color: #d97706;
+  border: 1px solid #fde68a;
+  border-radius: 6px;
+  padding: 1px 7px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.days-ok {
+  background: #f0fdf4;
+  color: #16a34a;
+  border: 1px solid #bbf7d0;
+  border-radius: 6px;
+  padding: 1px 7px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* ─── Stat card gradient accents ─────────────────────────────────────────── */
+.stat-card-blue   { background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%); }
+.stat-card-purple { background: linear-gradient(135deg, #faf5ff 0%, #ede9fe 100%); }
+.stat-card-orange { background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%); }
+.stat-card-green  { background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%); }
+
+/* ─── Utilities ───────────────────────────────────────────────────────────── */
+@layer utilities {
+  .truncate-2 {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+  }
+  .text-gradient {
+    background: linear-gradient(135deg, #2563eb, #7c3aed);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+}
