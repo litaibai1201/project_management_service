@@ -12,16 +12,36 @@ import traceback
 from flask import current_app as app
 from sqlalchemy import func, or_
 
-from common.common_tools import TryExcept, get_now
+from common.common_tools import TryExcept, get_now, member_match
 from dbs.mysql_db import db
-from dbs.mysql_db.model_tables import (FunctionDataModel, OperRecordModel,
+from dbs.mysql_db.model_tables import (DutyApplyReviewerModel,
+                                       DutyProgressReaderModel,
+                                       DutyResponsibleModel,
+                                       FunctionDataModel,
+                                       FunctionDeveloperModel,
+                                       OperRecordModel,
+                                       ProgressReaderModel,
                                        ProgressRecordDataModel,
                                        ProjectApplyRecordModel,
+                                       ProjectApplyReviewerModel,
                                        ProjectDataModel, ProjectGroupModel,
                                        ReviewRecordModel,
                                        TemporaryDutyApplyRecordModel,
                                        TemporaryDutyModel,
-                                       TemporaryDutyRecordDataModel)
+                                       TemporaryDutyRecordDataModel,
+                                       UserHierarchyModel, UserProfileModel)
+
+
+def get_user_name(work_no):
+    """根據工號從本地 UserProfileModel 查詢員工姓名。"""
+    user = db.session.query(UserProfileModel).filter_by(work_no=work_no).first()
+    return user.name if user else work_no
+
+
+def get_subordinate_ids(empid):
+    """根據工號從本地 UserHierarchyModel 查詢所有直屬下屬工號列表（含本人）。"""
+    rows = db.session.query(UserHierarchyModel).filter_by(supervisor_work_no=empid).all()
+    return [empid] + [row.subordinate_work_no for row in rows]
 
 
 class OperModel:
@@ -43,8 +63,12 @@ class OperTempDutyModel:
     def query_dev_tasks_by_emp(self, empid):
         data = (
             db.session.query(TemporaryDutyModel.status)
+            .join(
+                DutyResponsibleModel,
+                DutyResponsibleModel.duty_id == TemporaryDutyModel.id,
+            )
             .filter(
-                TemporaryDutyModel.responsible.contains(empid),
+                DutyResponsibleModel.work_no == empid,
                 TemporaryDutyModel.progress < 100,
                 TemporaryDutyModel.status.in_([1, 2]),
             )
@@ -53,12 +77,17 @@ class OperTempDutyModel:
         return data
 
     def query_task_num_by_emp_n_status(self, empid, status):
+        responsible_subq = (
+            db.session.query(DutyResponsibleModel.duty_id)
+            .filter(DutyResponsibleModel.work_no == empid)
+            .subquery()
+        )
         data = (
             db.session.query(TemporaryDutyModel.id)
             .filter(
                 or_(
-                    TemporaryDutyModel.responsible.contains(empid),
-                    TemporaryDutyModel.creator.contains(empid),
+                    TemporaryDutyModel.id.in_(responsible_subq),
+                    TemporaryDutyModel.creator == empid,
                 ),
                 TemporaryDutyModel.status == status,
             )
@@ -88,9 +117,13 @@ class OperFunctionDataModel:
         data = (
             db.session.query(FunctionDataModel.status)
             .join(ProjectDataModel, ProjectDataModel.id == FunctionDataModel.project_id)
+            .join(
+                FunctionDeveloperModel,
+                FunctionDeveloperModel.function_id == FunctionDataModel.id,
+            )
             .filter(
                 ProjectDataModel.status == 5,
-                FunctionDataModel.developers.contains(empid),
+                FunctionDeveloperModel.work_no == empid,
                 FunctionDataModel.progress < 100,
                 FunctionDataModel.status.in_([1, 2]),
             )
@@ -105,8 +138,12 @@ class OperFunctionDataModel:
     def query_dev_pid_by_emp(self, empid):
         data = (
             db.session.query(FunctionDataModel.project_id)
+            .join(
+                FunctionDeveloperModel,
+                FunctionDeveloperModel.function_id == FunctionDataModel.id,
+            )
             .filter(
-                FunctionDataModel.developers.contains(empid),
+                FunctionDeveloperModel.work_no == empid,
                 FunctionDataModel.status != 0,
             )
             .all()
@@ -116,7 +153,8 @@ class OperFunctionDataModel:
 
     def query_progress_n_status_by_pid(self, pid):
         data = (
-            db.session.query(FunctionDataModel.progress, FunctionDataModel.status)
+            db.session.query(FunctionDataModel.progress,
+                             FunctionDataModel.status)
             .filter(FunctionDataModel.project_id == pid)
             .all()
         )
@@ -124,7 +162,8 @@ class OperFunctionDataModel:
 
     def search_nm_by_fid_list(self, fid_list):
         data = (
-            db.session.query(FunctionDataModel.id, FunctionDataModel.function_nm)
+            db.session.query(FunctionDataModel.id,
+                             FunctionDataModel.function_nm)
             .filter(FunctionDataModel.id.in_(fid_list))
             .all()
         )
@@ -144,22 +183,36 @@ class OperTwoTableModel:
         data = (
             db.session.query(ProjectDataModel.id)
             .join(
-                FunctionDataModel, 
+                FunctionDataModel,
                 FunctionDataModel.project_id == ProjectDataModel.id
             )
             .join(
                 ProgressRecordDataModel,
                 ProgressRecordDataModel.function_id == FunctionDataModel.id,
             )
+            .outerjoin(
+                ProgressReaderModel,
+                and_(
+                    ProgressReaderModel.progress_id == ProgressRecordDataModel.id,
+                    ProgressReaderModel.work_no == empid,
+                ),
+            )
+            .outerjoin(
+                FunctionDeveloperModel,
+                and_(
+                    FunctionDeveloperModel.function_id == FunctionDataModel.id,
+                    FunctionDeveloperModel.work_no == empid,
+                ),
+            )
             .filter(
                 ProjectDataModel.status != 0,
                 FunctionDataModel.status != 0,
-                ~ProgressRecordDataModel.reader.contains(empid),
+                ProgressReaderModel.id.is_(None),  # 未读
                 or_(
                     ProjectDataModel.product_pm == empid,
                     ProjectDataModel.project_pm == empid,
                     ProjectDataModel.creator == empid,
-                    FunctionDataModel.developers.contains(empid),
+                    FunctionDeveloperModel.work_no == empid,
                 ),
             )
             .count()
@@ -167,18 +220,24 @@ class OperTwoTableModel:
         return data
 
     def query_temp_unread_record(self, empid):
+        read_subq = (
+            db.session.query(DutyProgressReaderModel.progress_id)
+            .filter(DutyProgressReaderModel.work_no == empid)
+            .subquery()
+        )
         data = (
             db.session.query(TemporaryDutyRecordDataModel.id)
             .join(
                 TemporaryDutyModel,
                 TemporaryDutyModel.id == TemporaryDutyRecordDataModel.duty_id,
             )
+            .join(
+                DutyResponsibleModel,
+                DutyResponsibleModel.duty_id == TemporaryDutyModel.id,
+            )
             .filter(
-                TemporaryDutyModel.responsible.contains(empid),
-                or_(
-                    ~TemporaryDutyRecordDataModel.reader.contains(empid),
-                    TemporaryDutyRecordDataModel.reader.is_(None),
-                ),
+                DutyResponsibleModel.work_no == empid,
+                ~TemporaryDutyRecordDataModel.id.in_(read_subq),
             )
             .all()
         )
@@ -200,8 +259,12 @@ class OperProjectApplyRecordModel:
         apply_id_list = [i[0] for i in apply_id_list if i]
         subquery = (
             db.session.query(ProjectApplyRecordModel.id)
+            .join(
+                ProjectApplyReviewerModel,
+                ProjectApplyReviewerModel.apply_id == ProjectApplyRecordModel.id,
+            )
             .filter(
-                ProjectApplyRecordModel.reviewer.contains(empid),
+                ProjectApplyReviewerModel.work_no == empid,
                 ProjectApplyRecordModel.status == 1,
                 ~ProjectApplyRecordModel.id.in_(apply_id_list),
             )
@@ -272,8 +335,12 @@ class OperTemporaryDutyApplyRecordModel:
         apply_id_list = [i[0] for i in apply_id_list if i]
         subquery = (
             db.session.query(TemporaryDutyApplyRecordModel.id)
+            .join(
+                DutyApplyReviewerModel,
+                DutyApplyReviewerModel.apply_id == TemporaryDutyApplyRecordModel.id,
+            )
             .filter(
-                TemporaryDutyApplyRecordModel.reviewer.contains(empid),
+                DutyApplyReviewerModel.work_no == empid,
                 TemporaryDutyApplyRecordModel.status == 1,
                 ~TemporaryDutyApplyRecordModel.id.in_(apply_id_list),
             )
@@ -299,7 +366,8 @@ class OperTemporaryDutyApplyRecordModel:
             .filter(TemporaryDutyApplyRecordModel.submitter == user_id)
         )
         if status:
-            query = query.filter(TemporaryDutyApplyRecordModel.status == status)
+            query = query.filter(
+                TemporaryDutyApplyRecordModel.status == status)
         data = query.slice((page - 1) * size, page * size).all()
         total = query.count()
         return data, total
@@ -454,9 +522,9 @@ class OperProjectDataModel:
             db.session.query(ProjectDataModel.id)
             .filter(
                 or_(
-                    ProjectDataModel.creator.contains(empid),
-                    ProjectDataModel.product_pm.contains(empid),
-                    ProjectDataModel.project_pm.contains(empid),
+                    ProjectDataModel.creator == empid,
+                    member_match(ProjectDataModel.product_pm, empid),
+                    member_match(ProjectDataModel.project_pm, empid),
                     ProjectDataModel.id.in_(dev_pids),
                 ),
                 ProjectDataModel.status.in_(status),
@@ -484,10 +552,13 @@ class OperTemporaryDutyModel:
                 TemporaryDutyModel.revision_count,
                 TemporaryDutyModel.start_time,
                 TemporaryDutyModel.status
+            ).outerjoin(
+                DutyResponsibleModel,
+                DutyResponsibleModel.duty_id == TemporaryDutyModel.id,
             ).filter(
                 or_(
                     TemporaryDutyModel.creator == empid,
-                    TemporaryDutyModel.responsible.contains(empid),
+                    DutyResponsibleModel.work_no == empid,
                 ),
                 TemporaryDutyModel.status == status,
             )
@@ -510,6 +581,206 @@ class OperRecordFormModel:
         return data
 
 
-class OperProjectGroupModel:
-    def obtain_project_group_data(self):
-        return db.session.query(ProjectGroupModel).all()
+# ──────────────────────────────────────────────
+#  用戶管理相關 DB 操作
+# ──────────────────────────────────────────────
+
+class OperUserProfileModel:
+    """用戶資料表操作"""
+
+    @TryExcept("新增用戶失敗")
+    def add_user(self, data: dict):
+        user = UserProfileModel(**data)
+        db.session.add(user)
+        db.session.commit()
+        return True
+
+    def query_user_by_work_no(self, work_no: str):
+        """查詢單個正常狀態的用戶"""
+        return (
+            db.session.query(UserProfileModel)
+            .filter(UserProfileModel.work_no == work_no, UserProfileModel.status == 1)
+            .first()
+        )
+
+    def check_work_no_exists(self, work_no: str) -> bool:
+        """檢查工號是否已存在（含已刪除）"""
+        return (
+            db.session.query(UserProfileModel)
+            .filter(UserProfileModel.work_no == work_no)
+            .first()
+        ) is not None
+
+    def query_users(self, page: int, size: int, keyword: str = "", department: str = ""):
+        """查詢用戶列表，支持關鍵字搜尋和部門過濾"""
+        from sqlalchemy import or_
+        query = db.session.query(UserProfileModel).filter(
+            UserProfileModel.status == 1)
+        if keyword:
+            query = query.filter(
+                or_(
+                    UserProfileModel.name.contains(keyword),
+                    UserProfileModel.work_no.contains(keyword),
+                )
+            )
+        if department:
+            query = query.filter(UserProfileModel.department == department)
+        total = query.count()
+        data = (
+            query.order_by(UserProfileModel.created_at.desc())
+            .offset((page - 1) * size)
+            .limit(size)
+            .all()
+        )
+        return data, total
+
+    @TryExcept("更新用戶失敗")
+    def update_user(self, work_no: str, update_dict: dict):
+        update_dict["updated_at"] = get_now()
+        db.session.query(UserProfileModel).filter(
+            UserProfileModel.work_no == work_no
+        ).update(update_dict)
+        db.session.commit()
+        return True
+
+    @TryExcept("刪除用戶失敗")
+    def soft_delete_user(self, work_no: str):
+        db.session.query(UserProfileModel).filter(
+            UserProfileModel.work_no == work_no
+        ).update({"status": 0, "status_update_at": get_now()})
+        db.session.commit()
+        return True
+
+    def query_all_departments(self):
+        """取得所有部門列表（去重）"""
+        rows = (
+            db.session.query(UserProfileModel.department)
+            .filter(UserProfileModel.status == 1, UserProfileModel.department.isnot(None))
+            .distinct()
+            .all()
+        )
+        return [r[0] for r in rows if r[0]]
+
+
+class OperUserHierarchyModel:
+    """用戶層級關係表操作"""
+
+    def check_relation_exists(self, supervisor_work_no: str, subordinate_work_no: str) -> bool:
+        """檢查某主管-下屬關係是否已存在"""
+        return (
+            db.session.query(UserHierarchyModel)
+            .filter(
+                UserHierarchyModel.supervisor_work_no == supervisor_work_no,
+                UserHierarchyModel.subordinate_work_no == subordinate_work_no,
+            )
+            .first()
+        ) is not None
+
+    @TryExcept("新增層級關係失敗")
+    def add_relation(self, supervisor_work_no: str, subordinate_work_no: str, remark: str = ""):
+        relation = UserHierarchyModel(
+            id=get_timestamp(),
+            supervisor_work_no=supervisor_work_no,
+            subordinate_work_no=subordinate_work_no,
+            remark=remark,
+        )
+        db.session.add(relation)
+        db.session.commit()
+        return True
+
+    def get_relation_by_id(self, relation_id: str):
+        return (
+            db.session.query(UserHierarchyModel)
+            .filter(UserHierarchyModel.id == relation_id)
+            .first()
+        )
+
+    @TryExcept("刪除層級關係失敗")
+    def delete_relation(self, relation_id: str):
+        db.session.query(UserHierarchyModel).filter(
+            UserHierarchyModel.id == relation_id
+        ).delete()
+        db.session.commit()
+        return True
+
+    def get_direct_subordinates(self, supervisor_work_no: str):
+        """取得直屬下屬（含 relation_id、remark）"""
+        return (
+            db.session.query(
+                UserHierarchyModel.id,
+                UserHierarchyModel.subordinate_work_no,
+                UserHierarchyModel.remark,
+                UserHierarchyModel.created_at,
+            )
+            .filter(UserHierarchyModel.supervisor_work_no == supervisor_work_no)
+            .all()
+        )
+
+    def get_direct_supervisors(self, subordinate_work_no: str):
+        """取得直屬主管（含 relation_id、remark）"""
+        return (
+            db.session.query(
+                UserHierarchyModel.id,
+                UserHierarchyModel.supervisor_work_no,
+                UserHierarchyModel.remark,
+                UserHierarchyModel.created_at,
+            )
+            .filter(UserHierarchyModel.subordinate_work_no == subordinate_work_no)
+            .all()
+        )
+
+    def get_all_subordinates(self, supervisor_work_no: str, max_depth: int = 5) -> list:
+        """
+        遞歸取得所有層級的下屬工號集合（含直屬及多級）
+        :param max_depth: 最大遞歸深度，防止循環依賴造成死循環
+        """
+        visited = set()
+
+        def _recurse(work_no: str, depth: int):
+            if depth > max_depth or work_no in visited:
+                return
+            visited.add(work_no)
+            rows = (
+                db.session.query(UserHierarchyModel.subordinate_work_no)
+                .filter(UserHierarchyModel.supervisor_work_no == work_no)
+                .all()
+            )
+            for (sub_wn,) in rows:
+                if sub_wn not in visited:
+                    _recurse(sub_wn, depth + 1)
+
+        _recurse(supervisor_work_no, 0)
+        visited.discard(supervisor_work_no)
+        return list(visited)
+
+    def get_all_supervisors(self, subordinate_work_no: str, max_depth: int = 5) -> list:
+        """
+        遞歸取得所有層級的主管工號集合
+        :param max_depth: 最大遞歸深度
+        """
+        visited = set()
+
+        def _recurse(work_no: str, depth: int):
+            if depth > max_depth or work_no in visited:
+                return
+            visited.add(work_no)
+            rows = (
+                db.session.query(UserHierarchyModel.supervisor_work_no)
+                .filter(UserHierarchyModel.subordinate_work_no == work_no)
+                .all()
+            )
+            for (sup_wn,) in rows:
+                if sup_wn not in visited:
+                    _recurse(sup_wn, depth + 1)
+
+        _recurse(subordinate_work_no, 0)
+        visited.discard(subordinate_work_no)
+        return list(visited)
+
+    def is_supervisor_of(self, supervisor_work_no: str, target_work_no: str) -> bool:
+        """
+        檢查 supervisor_work_no 是否是 target_work_no 的主管（直屬或多級）
+        可用於權限判斷：主管可查看下屬的更新內容
+        """
+        all_subs = self.get_all_subordinates(supervisor_work_no)
+        return target_work_no in all_subs

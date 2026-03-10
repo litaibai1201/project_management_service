@@ -11,7 +11,8 @@ from flask import request
 
 from apps.project_app.models import OperFunctionDataModel, OperProjectDataModel
 from common.common_minio import OperMinio
-from common.common_tools import CommonTools, get_empid_department_info
+from common.common_tools import CommonTools
+from apps.user_app.models import get_user_name
 from configs.const_conf import ENV, send_message_link
 from configs.constant import BUCKET
 from configs.senddingplus import SendMessageNotice
@@ -46,7 +47,7 @@ class FunctionUpdateController:
 
     def __send_message_to_developers(self, pro_data, fun_data, empid, developers):
         link = f"{send_message_link[ENV]}projects/{pro_data.id}"
-        content = get_empid_department_info(empid)
+        name = get_user_name(empid)
         if fun_data.developers:
             fun_developers = fun_data.developers.split(";")
             if len(developers) > len(fun_developers):
@@ -54,12 +55,12 @@ class FunctionUpdateController:
                     dev for dev in developers if dev not in fun_developers
                 ]
                 developers = [dev for dev in developers if dev in fun_developers]
-                message = f"您好，{content['chnname']}在({pro_data.project_nm}-{fun_data.function_nm})任務中新增開發者，[点击查看]({link})。"
+                message = f"您好，{name}在({pro_data.project_nm}-{fun_data.function_nm})任務中新增開發者，[点击查看]({link})。"
                 SendMessageNotice.send_single_markdown(message, developers)
-                message = f"您好，{content['chnname']}在({pro_data.project_nm})專案中給您分配了一項待處理任務({fun_data.function_nm})，請及时处理，[点击查看]({link})。"
+                message = f"您好，{name}在({pro_data.project_nm})專案中給您分配了一項待處理任務({fun_data.function_nm})，請及时处理，[点击查看]({link})。"
                 SendMessageNotice.send_single_markdown(message, missing_developers)
         else:
-            message = f"您好，{content['chnname']}在({pro_data.project_nm})專案中給您分配了一項待處理任務({fun_data.function_nm})，請及时处理，[点击查看]({link})。"
+            message = f"您好，{name}在({pro_data.project_nm})專案中給您分配了一項待處理任務({fun_data.function_nm})，請及时处理，[点击查看]({link})。"
             SendMessageNotice.send_single_markdown(message, developers)
 
     def record_to_mysql(self, pid, fid, payload, pro_data, fun_data, empid):

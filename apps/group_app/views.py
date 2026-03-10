@@ -28,7 +28,6 @@ from apps.group_app.serializes import (MemberApiSchema,
                                        OverviewApiSchema, SendReportApiSchema,
                                        StatisticalDataApiSchema)
 from common.common_method import fail_response_result, response_data_result
-from configs.constant import MANAGERS
 from serialize.response_serialize import (RspBaseSchema, RspMsgDictSchema,
                                           RspMsgListSchema)
 
@@ -46,8 +45,6 @@ class MemberApi(MethodView):
     @blp.response(200, RspMsgDictSchema)
     def get(self, payload):
         user_id = get_jwt_identity()["empid"]
-        if user_id in MANAGERS:
-            user_id = "L2300045"
         mc = MemberController()
         result, flag = mc.get_member(user_id)
         if not flag:

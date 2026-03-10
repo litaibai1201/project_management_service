@@ -15,8 +15,8 @@ from apps.project_app.models import (OperFunctionDataModel,
                                      OperProjectApplyRecordModel,
                                      OperProjectDataModel)
 from common.common_minio import OperMinio
-from common.common_tools import (CommonTools, get_empid_department_info,
-                                 get_now, get_timestamp)
+from common.common_tools import CommonTools, get_now, get_timestamp
+from apps.user_app.models import get_user_name
 from configs.const_conf import ENV, send_message_link
 from configs.constant import BUCKET
 from configs.senddingplus import SendMessageNotice
@@ -126,7 +126,7 @@ class CreateProgressController:
 
     def __send_notice_to_relevant_people(self, empid, pid, fid, payload):
         progress = payload.get("progress")
-        content = get_empid_department_info(empid)
+        name = get_user_name(empid)
         link = f"{send_message_link[ENV]}projects/{pid}"
         pro_data = self.opdm.search_data_by_id(pid)
         fun_data = self.opfm.search_fun_data_by_fid(pid, fid)
@@ -137,15 +137,15 @@ class CreateProgressController:
         ids = list(set(product_pm + project_pm + creator))
         if progress == 100:
             link = f"{send_message_link[ENV]}approal"
-            message = f"{content['chnname']}提交了({pro_data.project_nm})專案中({fun_data.function_nm})的任務完結申請，請及時處理，[点击查看]({link})。"
+            message = f"{name}提交了({pro_data.project_nm})專案中({fun_data.function_nm})的任務完結申請，請及時處理，[点击查看]({link})。"
             SendMessageNotice.send_single_markdown(message, project_pm)
         else:
-            message = f"{content['chnname']}更新了({pro_data.project_nm})專案中({fun_data.function_nm})的進度至{progress}%，請查閱，[点击查看]({link})。"
+            message = f"{name}更新了({pro_data.project_nm})專案中({fun_data.function_nm})的進度至{progress}%，請查閱，[点击查看]({link})。"
             SendMessageNotice.send_single_markdown(message, ids)
             if len(developers) > 1:
                 if empid in developers:
                     developers.remove(empid)
-                message = f"{content['chnname']}更新了({pro_data.project_nm})專案中({fun_data.function_nm})的進度至{progress}%，請查閱，[点击查看]({link})。"
+                message = f"{name}更新了({pro_data.project_nm})專案中({fun_data.function_nm})的進度至{progress}%，請查閱，[点击查看]({link})。"
                 SendMessageNotice.send_single_markdown(message, developers)
 
     def create_progress(self, payload, pid, fid, empid, fdict):

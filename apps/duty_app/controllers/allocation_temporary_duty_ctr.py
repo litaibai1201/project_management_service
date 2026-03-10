@@ -8,7 +8,8 @@
 import time
 
 from apps.duty_app.models import OperTemporaryDutyModel
-from common.common_tools import CommonTools, get_empid_department_info
+from common.common_tools import CommonTools
+from apps.user_app.models import get_user_name
 from configs.const_conf import ENV, send_message_link
 from configs.senddingplus import SendMessageNotice
 from dbs.mysql_db import DBFunction
@@ -45,7 +46,7 @@ class AllocationTemporaryDutyController:
 
     def __send_message_to_developers(self, duty_data, responsible, user_id):
         link = f"{send_message_link[ENV]}task/{duty_data['id']}"
-        content = get_empid_department_info(user_id)
+        name = get_user_name(user_id)
         if duty_data["responsible"]:
             duty_responsible = duty_data["responsible"].split(";")
             if len(responsible) > len(duty_responsible):
@@ -53,12 +54,12 @@ class AllocationTemporaryDutyController:
                     res for res in responsible if res not in duty_responsible
                 ]
                 responsible = [res for res in responsible if res in duty_responsible]
-                message = f"您好，{content['chnname']}在({duty_data['duty_nm']})任務中新增開發者，[点击查看]({link})。"
+                message = f"您好，{name}在({duty_data['duty_nm']})任務中新增開發者，[点击查看]({link})。"
                 SendMessageNotice.send_single_markdown(message, responsible)
-                message = f"您好，{content['chnname']}在({duty_data['duty_nm']})給您分配了一項臨時任務，請及时处理，[点击查看]({link})。"
+                message = f"您好，{name}在({duty_data['duty_nm']})給您分配了一項臨時任務，請及时处理，[点击查看]({link})。"
                 SendMessageNotice.send_single_markdown(message, miss_responsible)
         else:
-            message = f"您好，{content['chnname']}在({duty_data['duty_nm']})給您分配了一項臨時任務，請及时处理，[点击查看]({link})。"
+            message = f"您好，{name}在({duty_data['duty_nm']})給您分配了一項臨時任務，請及时处理，[点击查看]({link})。"
             SendMessageNotice.send_single_markdown(message, responsible)
 
     def allocation_duty(self, user_id, duty_id):

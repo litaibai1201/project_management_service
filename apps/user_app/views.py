@@ -15,6 +15,7 @@ from apps.user_app.controllers.audit_record_duty import \
     DutyAuditRecordController
 from apps.user_app.controllers.audit_record_project import \
     ProjectAuditRecordController
+from apps.user_app.controllers.hierarchy_ctr import HierarchyController
 from apps.user_app.controllers.index_ctr import UserIndexController
 from apps.user_app.controllers.latest_news_ctr import UserLatestNewsController
 from apps.user_app.controllers.login_ctr import LogInController
@@ -28,11 +29,20 @@ from apps.user_app.controllers.my_apply_project_ctr import \
 from apps.user_app.controllers.project_ctr import UserProjectController
 from apps.user_app.controllers.statistical_ctr import UserStatisticalController
 from apps.user_app.controllers.temp_duty_ctr import UserTempDutyController
-from apps.user_app.serializes import (AuditRecordSchema, LogInSchema,
-                                      MyApplySchema, RspLogInLogOutSchema,
+from apps.user_app.controllers.user_mgmt_ctr import UserMgmtController
+from apps.user_app.serializes import (AuditRecordSchema,
+                                      CheckPermissionSchema,
+                                      CreateHierarchySchema,
+                                      CreateUserMgmtSchema, LogInSchema,
+                                      MyApplySchema, QuerySubordinatesSchema,
+                                      QueryUsersMgmtSchema,
+                                      RspLogInLogOutSchema,
+                                      RspPermissionSchema,
                                       RspUserLstestNewsSchema,
-                                      RspUserPageSchema,
+                                      RspUserMgmtSchema, RspUserPageSchema,
+                                      RspUsersMgmtSchema,
                                       RspUserStatisticalSchema,
+                                      UpdateUserMgmtSchema,
                                       UserLstestNewsSchema, UserProjectSchema,
                                       UserTempDutySchema)
 from common.common_method import fail_response_result, response_data_result
@@ -255,3 +265,170 @@ class DutyAuditRecordApi(MethodView):
         darc = DutyAuditRecordController(user_id, payload)
         req = darc.audit_record_duty()
         return response_data_result(content=req)
+
+
+# ──────────────────────────────────────────────────────────────
+#  用戶管理 API（前綴 /api/user/mgmt）
+# ──────────────────────────────────────────────────────────────
+
+@blp.route("/mgmt/user")
+class UserMgmtApi(MethodView):
+    """新增用戶"""
+
+    @jwt_required()
+    @blp.arguments(CreateUserMgmtSchema)
+    @blp.response(200, RspMsgDictSchema)
+    def post(self, payload):
+        umc = UserMgmtController()
+        result, flag = umc.create_user(payload)
+        if not flag:
+            return fail_response_result(msg=result)
+        return response_data_result(content=result, msg="新增用戶成功")
+
+
+@blp.route("/mgmt/users")
+class UsersMgmtApi(MethodView):
+    """查詢用戶列表（分頁 + 搜尋 + 部門過濾）"""
+
+    @jwt_required()
+    @blp.arguments(QueryUsersMgmtSchema, location="query")
+    @blp.response(200, RspUsersMgmtSchema)
+    def get(self, payload):
+        umc = UserMgmtController()
+        result = umc.get_users(payload)
+        return response_data_result(content=result, msg="查詢成功")
+
+
+@blp.route("/mgmt/user/<string:work_no>")
+class UserMgmtDetailApi(MethodView):
+    """查詢 / 更新 / 刪除單個用戶"""
+
+    @jwt_required()
+    @blp.response(200, RspUserMgmtSchema)
+    def get(self, work_no):
+        umc = UserMgmtController()
+        result, flag = umc.get_user(work_no)
+        if not flag:
+            return fail_response_result(msg=result)
+        return response_data_result(content=result, msg="查詢成功")
+
+    @jwt_required()
+    @blp.arguments(UpdateUserMgmtSchema)
+    @blp.response(200, RspMsgSchema)
+    def put(self, payload, work_no):
+        umc = UserMgmtController()
+        result, flag = umc.update_user(work_no, payload)
+        if not flag:
+            return fail_response_result(msg=result)
+        return response_data_result(msg=result)
+
+    @jwt_required()
+    @blp.response(200, RspMsgSchema)
+    def delete(self, work_no):
+        umc = UserMgmtController()
+        result, flag = umc.delete_user(work_no)
+        if not flag:
+            return fail_response_result(msg=result)
+        return response_data_result(msg=result)
+
+
+@blp.route("/mgmt/departments")
+class DepartmentsMgmtApi(MethodView):
+    """查詢所有部門清單"""
+
+    @jwt_required()
+    @blp.response(200, RspMsgListSchema)
+    def get(self):
+        umc = UserMgmtController()
+        departments = umc.get_departments()
+        return response_data_result(content=departments, msg="查詢成功")
+
+
+@blp.route("/mgmt/hierarchy")
+class HierarchyApi(MethodView):
+    """設定主管-下屬關係"""
+
+    @jwt_required()
+    @blp.arguments(CreateHierarchySchema)
+    @blp.response(200, RspMsgDictSchema)
+    def post(self, payload):
+        hc = HierarchyController()
+        result, flag = hc.set_relation(payload)
+        if not flag:
+            return fail_response_result(msg=result)
+        return response_data_result(content=result, msg="層級關係設定成功")
+
+
+@blp.route("/mgmt/hierarchy/<string:relation_id>")
+class HierarchyDeleteApi(MethodView):
+    """刪除層級關係"""
+
+    @jwt_required()
+    @blp.response(200, RspMsgSchema)
+    def delete(self, relation_id):
+        hc = HierarchyController()
+        result, flag = hc.remove_relation(relation_id)
+        if not flag:
+            return fail_response_result(msg=result)
+        return response_data_result(msg=result)
+
+
+@blp.route("/mgmt/<string:work_no>/subordinates")
+class SubordinatesApi(MethodView):
+    """獲取下屬列表（?all_levels=true 返回所有層級）"""
+
+    @jwt_required()
+    @blp.arguments(QuerySubordinatesSchema, location="query")
+    @blp.response(200, RspMsgListSchema)
+    def get(self, payload, work_no):
+        hc = HierarchyController()
+        users, flag, msg = hc.get_subordinates(work_no, payload.get("all_levels", False))
+        if not flag:
+            return fail_response_result(msg=msg)
+        return response_data_result(content=users, msg="查詢成功")
+
+
+@blp.route("/mgmt/<string:work_no>/supervisors")
+class SupervisorsApi(MethodView):
+    """獲取直屬主管列表"""
+
+    @jwt_required()
+    @blp.response(200, RspMsgListSchema)
+    def get(self, work_no):
+        hc = HierarchyController()
+        users, flag, msg = hc.get_supervisors(work_no)
+        if not flag:
+            return fail_response_result(msg=msg)
+        return response_data_result(content=users, msg="查詢成功")
+
+
+@blp.route("/mgmt/<string:work_no>/team")
+class TeamTreeApi(MethodView):
+    """獲取以該用戶為根的完整層級樹"""
+
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def get(self, work_no):
+        hc = HierarchyController()
+        tree = hc.get_team_tree(work_no)
+        if not tree:
+            return fail_response_result(msg="用戶不存在或無下屬")
+        return response_data_result(content=tree, msg="查詢成功")
+
+
+@blp.route("/mgmt/check_permission")
+class CheckPermissionApi(MethodView):
+    """
+    判斷 requester 是否有權查看 target 的更新內容
+    返回 content: true / false
+    """
+
+    @jwt_required()
+    @blp.arguments(CheckPermissionSchema, location="query")
+    @blp.response(200, RspPermissionSchema)
+    def get(self, payload):
+        hc = HierarchyController()
+        allowed = hc.check_view_permission(
+            payload.get("requester"), payload.get("target")
+        )
+        return response_data_result(content=allowed, msg="查詢成功")

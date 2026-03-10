@@ -15,7 +15,8 @@ db_account = secrets.db_account
 
 db_config_dict = {
     "project_management_db": {
-        "host": "10.182.190.176",
+        "host": "localhost",
+        # "host": "10.182.190.176",
         # "host": "10.126.1.128",
         "port": "3306",
         "database_name": environment_dict["DB"][ENV],
@@ -23,14 +24,16 @@ db_config_dict = {
         "password": db_account["mysql_db"]["password"],
     },
     "redis": {
-        "host": "10.126.1.128",
+        "host": "localhost",
+        # "host": "10.126.1.128",
         "port": "6379",
         "database_name": "0",
         "username": db_account["redis"]["username"],
         "password": db_account["redis"]["password"],
     },
     "minio": {
-        "host": "10.126.1.128",
+        "host": "localhost",
+        # "host": "10.126.1.128",
         "port": "9000",
         "database_name": "",
         "username": db_account["minio"]["username"],
@@ -43,7 +46,8 @@ db_config_dict = {
         "token": db_account["influxdb"]["token"],
     },
     "mongodb": {
-        "host": "10.182.190.177",
+        "host": "localhost",
+        # "host": "10.182.190.177",
         "port": "27017",
         "database_name": "project_management",
         "username": "",

@@ -11,7 +11,8 @@ from flask import request
 
 from apps.duty_app.models import OperTemporaryDutyModel
 from common.common_minio import OperMinio
-from common.common_tools import get_empid_department_info, get_now
+from common.common_tools import get_now
+from apps.user_app.models import get_user_name
 from configs.const_conf import ENV, send_message_link
 from configs.constant import BUCKET
 from configs.senddingplus import SendMessageNotice
@@ -84,7 +85,7 @@ class UpdateTemporaryDutyController:
 
     def __send_message_to_developers(self, duty_info):
         link = f"{send_message_link[ENV]}task/{duty_info['id']}"
-        content = get_empid_department_info(self.user_id)
+        name = get_user_name(self.user_id)
         responsible = self.payload.get("responsible", [])
         if duty_info["responsible"]:
             duty_responsible = duty_info["responsible"].split(";")
@@ -93,12 +94,12 @@ class UpdateTemporaryDutyController:
                     res for res in responsible if res not in duty_responsible
                 ]
                 responsible = [res for res in responsible if res in duty_responsible]
-                message = f"您好，{content['chnname']}在({duty_info['duty_nm']})任務中新增開發者，[点击查看]({link})。"
+                message = f"您好，{name}在({duty_info['duty_nm']})任務中新增開發者，[点击查看]({link})。"
                 SendMessageNotice.send_single_markdown(message, responsible)
-                message = f"您好，{content['chnname']}在({duty_info['duty_nm']})給您分配了一項臨時任務，請及时处理，[点击查看]({link})。"
+                message = f"您好，{name}在({duty_info['duty_nm']})給您分配了一項臨時任務，請及时处理，[点击查看]({link})。"
                 SendMessageNotice.send_single_markdown(message, miss_responsible)
         else:
-            message = f"您好，{content['chnname']}在({duty_info['duty_nm']})給您分配了一項臨時任務，請及时处理，[点击查看]({link})。"
+            message = f"您好，{name}在({duty_info['duty_nm']})給您分配了一項臨時任務，請及时处理，[点击查看]({link})。"
             SendMessageNotice.send_single_markdown(message, responsible)
 
     def __handle_update_content(self, duty_info):

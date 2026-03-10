@@ -33,14 +33,14 @@ class BaseMixinModel(BaseModel):
     updated_at = db.Column(db.String(19), comment="更新時間")
 
 
-class BaseMaxinModel(BaseModel):
+class BaseStatusMixin(BaseModel):
     __abstract__ = True
 
     status = db.Column(db.Integer, default=1, comment="状态: 0--刪除,1--存在")
     status_update_at = db.Column(db.String(19), comment="状态更新時間")
 
 
-class ProjectDataModel(BaseMaxinModel, BaseMixinModel):
+class ProjectDataModel(BaseStatusMixin, BaseMixinModel):
     __tablename__ = "project_data_form"
 
     id = db.Column(
@@ -76,7 +76,7 @@ class ProjectDataModel(BaseMaxinModel, BaseMixinModel):
     last_status = db.Column(db.Integer, comment="記錄暫停前專案的狀態")
 
 
-class FunctionDataModel(BaseMaxinModel, BaseMixinModel):
+class FunctionDataModel(BaseStatusMixin, BaseMixinModel):
     __tablename__ = "function_data_form"
 
     id = db.Column(
@@ -168,7 +168,7 @@ class ProjectApplyRecordModel(BaseModel):
     )
 
 
-class TemporaryDutyModel(BaseMaxinModel, BaseMixinModel):
+class TemporaryDutyModel(BaseStatusMixin, BaseMixinModel):
     __tablename__ = "temporary_duty_form"
 
     duty_nm = db.Column(db.String(128), nullable=False, comment="任務名稱")
@@ -264,7 +264,7 @@ class PermissionModel(db.Model):
     )
 
 
-class UserPermissionRelationalModel(BaseMaxinModel, BaseMixinModel):
+class UserPermissionRelationalModel(BaseStatusMixin, BaseMixinModel):
     __tablename__ = "user_permission_relational_form"
 
     foreign_id = db.Column(
@@ -300,7 +300,7 @@ class RoleModel(db.Model):
     review_data = db.relationship("UserRoleModel", backref="role_form")
 
 
-class UserRoleModel(BaseMaxinModel):
+class UserRoleModel(BaseStatusMixin):
     __tablename__ = "user_role_form"
 
     work_no = db.Column(db.String(16), nullable=False, comment="用戶工號")
@@ -340,3 +340,184 @@ class ProjectGroupModel(BaseModel):
         db.Integer, primary_key=True, autoincrement=True, comment="主鍵，自增"
     )
     group_name = db.Column(db.String(32), nullable=False, comment="組名")
+
+
+class UserProfileModel(db.Model):
+    __tablename__ = "user_profile_form"
+
+    work_no = db.Column(
+        db.String(16), nullable=False, primary_key=True, comment="工號，主鍵"
+    )
+    name = db.Column(db.String(64), nullable=False, comment="姓名")
+    department = db.Column(db.String(128), comment="部門")
+    position = db.Column(db.String(64), comment="職位")
+    email = db.Column(db.String(128), comment="郵箱")
+    phone = db.Column(db.String(32), comment="電話")
+    remark = db.Column(db.String(256), comment="備注")
+    status = db.Column(db.Integer, default=1, comment="狀態: 0--已刪除, 1--正常")
+    status_update_at = db.Column(db.String(19), comment="狀態更新時間")
+    created_at = db.Column(
+        db.String(19), default=get_now, nullable=False, comment="創建時間"
+    )
+    updated_at = db.Column(db.String(19), comment="更新時間")
+    as_supervisor = db.relationship(
+        "UserHierarchyModel",
+        foreign_keys="UserHierarchyModel.supervisor_work_no",
+        backref="supervisor_user",
+    )
+    as_subordinate = db.relationship(
+        "UserHierarchyModel",
+        foreign_keys="UserHierarchyModel.subordinate_work_no",
+        backref="subordinate_user",
+    )
+
+
+class UserHierarchyModel(BaseModel):
+    __tablename__ = "user_hierarchy_form"
+
+    supervisor_work_no = db.Column(
+        db.String(16),
+        db.ForeignKey("user_profile_form.work_no"),
+        nullable=False,
+        comment="主管工號",
+    )
+    subordinate_work_no = db.Column(
+        db.String(16),
+        db.ForeignKey("user_profile_form.work_no"),
+        nullable=False,
+        comment="下屬工號",
+    )
+    remark = db.Column(db.String(256), comment="備注")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  A-02 修復：多值字段關聯表（替代分號拼接反模式）
+#  原字段（developers / responsible / reviewer / reader）暫時保留，
+#  新增關聯表用於精確查詢，等穩定後可廢棄原字段。
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class FunctionDeveloperModel(db.Model):
+    """功能開發人員關聯表（替代 function_data_form.developers）"""
+
+    __tablename__ = "function_developer_form"
+    __table_args__ = (
+        db.UniqueConstraint("function_id", "work_no", name="uq_function_developer"),
+    )
+
+    id = db.Column(
+        db.String(16), nullable=False, primary_key=True, default=get_timestamp, comment="主鍵"
+    )
+    function_id = db.Column(
+        db.String(16),
+        db.ForeignKey("function_data_form.id"),
+        nullable=False,
+        comment="外鍵: function_data_form",
+    )
+    work_no = db.Column(db.String(16), nullable=False, comment="開發人員工號")
+    created_at = db.Column(db.String(19), default=get_now, nullable=False, comment="創建時間")
+
+
+class DutyResponsibleModel(db.Model):
+    """臨時任務責任人關聯表（替代 temporary_duty_form.responsible）"""
+
+    __tablename__ = "duty_responsible_form"
+    __table_args__ = (
+        db.UniqueConstraint("duty_id", "work_no", name="uq_duty_responsible"),
+    )
+
+    id = db.Column(
+        db.String(16), nullable=False, primary_key=True, default=get_timestamp, comment="主鍵"
+    )
+    duty_id = db.Column(
+        db.String(16),
+        db.ForeignKey("temporary_duty_form.id"),
+        nullable=False,
+        comment="外鍵: temporary_duty_form",
+    )
+    work_no = db.Column(db.String(16), nullable=False, comment="責任人工號")
+    created_at = db.Column(db.String(19), default=get_now, nullable=False, comment="創建時間")
+
+
+class ProjectApplyReviewerModel(db.Model):
+    """專案申請審批人關聯表（替代 project_apply_record_form.reviewer）"""
+
+    __tablename__ = "project_apply_reviewer_form"
+    __table_args__ = (
+        db.UniqueConstraint("apply_id", "work_no", name="uq_project_apply_reviewer"),
+    )
+
+    id = db.Column(
+        db.String(16), nullable=False, primary_key=True, default=get_timestamp, comment="主鍵"
+    )
+    apply_id = db.Column(
+        db.String(16),
+        db.ForeignKey("project_apply_record_form.id"),
+        nullable=False,
+        comment="外鍵: project_apply_record_form",
+    )
+    work_no = db.Column(db.String(16), nullable=False, comment="審批人工號")
+    created_at = db.Column(db.String(19), default=get_now, nullable=False, comment="創建時間")
+
+
+class DutyApplyReviewerModel(db.Model):
+    """臨時任務申請審批人關聯表（替代 temporary_duty_apply_record_form.reviewer）"""
+
+    __tablename__ = "duty_apply_reviewer_form"
+    __table_args__ = (
+        db.UniqueConstraint("apply_id", "work_no", name="uq_duty_apply_reviewer"),
+    )
+
+    id = db.Column(
+        db.String(16), nullable=False, primary_key=True, default=get_timestamp, comment="主鍵"
+    )
+    apply_id = db.Column(
+        db.String(16),
+        db.ForeignKey("temporary_duty_apply_record_form.id"),
+        nullable=False,
+        comment="外鍵: temporary_duty_apply_record_form",
+    )
+    work_no = db.Column(db.String(16), nullable=False, comment="審批人工號")
+    created_at = db.Column(db.String(19), default=get_now, nullable=False, comment="創建時間")
+
+
+class ProgressReaderModel(db.Model):
+    """專案進度記錄已讀人員關聯表（替代 progress_record_data_form.reader）"""
+
+    __tablename__ = "progress_reader_form"
+    __table_args__ = (
+        db.UniqueConstraint("progress_id", "work_no", name="uq_progress_reader"),
+    )
+
+    id = db.Column(
+        db.String(16), nullable=False, primary_key=True, default=get_timestamp, comment="主鍵"
+    )
+    progress_id = db.Column(
+        db.String(16),
+        db.ForeignKey("progress_record_data_form.id"),
+        nullable=False,
+        comment="外鍵: progress_record_data_form",
+    )
+    work_no = db.Column(db.String(16), nullable=False, comment="已讀人員工號")
+    created_at = db.Column(db.String(19), default=get_now, nullable=False, comment="創建時間")
+
+
+class DutyProgressReaderModel(db.Model):
+    """臨時任務進度記錄已讀人員關聯表（替代 temporary_duty_record_form.reader）"""
+
+    __tablename__ = "duty_progress_reader_form"
+    __table_args__ = (
+        db.UniqueConstraint("progress_id", "work_no", name="uq_duty_progress_reader"),
+    )
+
+    id = db.Column(
+        db.String(16), nullable=False, primary_key=True, default=get_timestamp, comment="主鍵"
+    )
+    progress_id = db.Column(
+        db.String(16),
+        db.ForeignKey("temporary_duty_record_form.id"),
+        nullable=False,
+        comment="外鍵: temporary_duty_record_form",
+    )
+    work_no = db.Column(db.String(16), nullable=False, comment="已讀人員工號")
+    created_at = db.Column(db.String(19), default=get_now, nullable=False, comment="創建時間")

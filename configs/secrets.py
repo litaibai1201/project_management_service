@@ -8,7 +8,8 @@
 
 
 db_account = {
-    "mysql_db": {"username": "root", "password": "avary88!"},
+    "mysql_db": {"username": "root", "password": "12345678"},
+    # "mysql_db": {"username": "root", "password": "avary88!"},
     "redis": {"username": "", "password": "avary88!"},
     "minio": {"username": "minioadmin", "password": "minioadmin"},
     "influxdb": {

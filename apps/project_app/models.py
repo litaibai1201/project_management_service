@@ -9,9 +9,13 @@ from sqlalchemy import and_, asc, desc, func, not_, or_
 
 from common.common_tools import TryExcept, get_now
 from dbs.mysql_db import db
-from dbs.mysql_db.model_tables import (FunctionDataModel, OperRecordModel,
+from dbs.mysql_db.model_tables import (FunctionDataModel,
+                                       FunctionDeveloperModel,
+                                       OperRecordModel,
+                                       ProgressReaderModel,
                                        ProgressRecordDataModel,
                                        ProjectApplyRecordModel,
+                                       ProjectApplyReviewerModel,
                                        ProjectDataModel, ProjectGroupModel,
                                        ReviewRecordModel)
 
@@ -56,11 +60,13 @@ class OperProjectDataModel:
 
     @TryExcept("專案开发人员更新失敗")
     def update_developers_by_pid(self, pid, data):
-        db.session.query(ProjectDataModel).filter(ProjectDataModel.id == pid).update(data)
+        db.session.query(ProjectDataModel).filter(
+            ProjectDataModel.id == pid).update(data)
 
     @TryExcept("專案更新失敗")
     def update_status_by_pid(self, pid, status):
-        db.session.query(ProjectDataModel).filter(ProjectDataModel.id == pid).update({"status": status, "status_update_at": get_now()})
+        db.session.query(ProjectDataModel).filter(ProjectDataModel.id == pid).update(
+            {"status": status, "status_update_at": get_now()})
 
     def search_project_data_by_pid(self, project_id):
         data = db.session.query(ProjectDataModel).filter(
@@ -93,9 +99,13 @@ class OperProjectDataModel:
             .join(
                 FunctionDataModel, FunctionDataModel.project_id == ProjectDataModel.id
             )
+            .join(
+                FunctionDeveloperModel,
+                FunctionDeveloperModel.function_id == FunctionDataModel.id,
+            )
             .filter(
                 ProjectDataModel.status == 5,
-                FunctionDataModel.developers.contains(empid),
+                FunctionDeveloperModel.work_no == empid,
                 FunctionDataModel.status.in_(status),
             )
             .distinct()
@@ -111,8 +121,12 @@ class OperProjectDataModel:
                 FunctionDataModel,
                 FunctionDataModel.project_id == ProjectDataModel.id
             )
+            .join(
+                FunctionDeveloperModel,
+                FunctionDeveloperModel.function_id == FunctionDataModel.id,
+            )
             .filter(
-                FunctionDataModel.developers.contains(empid),
+                FunctionDeveloperModel.work_no == empid,
                 FunctionDataModel.status.in_(status),
                 ProjectDataModel.id.in_(pro_id_list),
             )
@@ -126,9 +140,13 @@ class OperProjectDataModel:
             .join(
                 FunctionDataModel, FunctionDataModel.project_id == ProjectDataModel.id
             )
+            .join(
+                FunctionDeveloperModel,
+                FunctionDeveloperModel.function_id == FunctionDataModel.id,
+            )
             .filter(
                 ~ProjectDataModel.status.in_([0, 7]),
-                FunctionDataModel.developers.contains(empid),
+                FunctionDeveloperModel.work_no == empid,
                 FunctionDataModel.status.in_(status),
             )
             .distinct()
@@ -137,11 +155,18 @@ class OperProjectDataModel:
         return count
 
     def __format_empid_filter(self, empid_list):
+        dev_subq = (
+            db.session.query(FunctionDeveloperModel.function_id)
+            .join(FunctionDataModel, FunctionDataModel.id == FunctionDeveloperModel.function_id)
+            .join(ProjectDataModel, ProjectDataModel.id == FunctionDataModel.project_id)
+            .filter(FunctionDeveloperModel.work_no.in_(empid_list))
+            .subquery()
+        )
         filter_data = or_(
             or_(ProjectDataModel.creator == empid for empid in empid_list),
             or_(ProjectDataModel.product_pm == empid for empid in empid_list),
             or_(ProjectDataModel.project_pm == empid for empid in empid_list),
-            or_(ProjectDataModel.developers.contains(empid) for empid in empid_list),
+            FunctionDataModel.id.in_(dev_subq),
         )
         return filter_data
 
@@ -238,15 +263,29 @@ class OperProjectDataModel:
                 ProgressRecordDataModel,
                 ProgressRecordDataModel.function_id == FunctionDataModel.id,
             )
+            .outerjoin(
+                ProgressReaderModel,
+                and_(
+                    ProgressReaderModel.progress_id == ProgressRecordDataModel.id,
+                    ProgressReaderModel.work_no == empid,
+                ),
+            )
+            .outerjoin(
+                FunctionDeveloperModel,
+                and_(
+                    FunctionDeveloperModel.function_id == FunctionDataModel.id,
+                    FunctionDeveloperModel.work_no == empid,
+                ),
+            )
             .filter(
                 ProjectDataModel.status != 0,
                 FunctionDataModel.status != 0,
-                ~ProgressRecordDataModel.reader.contains(empid),
+                ProgressReaderModel.id.is_(None),  # 未读
                 or_(
                     ProjectDataModel.product_pm == empid,
                     ProjectDataModel.project_pm == empid,
                     ProjectDataModel.creator == empid,
-                    FunctionDataModel.developers.contains(empid),
+                    FunctionDeveloperModel.work_no == empid,
                 ),
             )
             .group_by(ProjectDataModel.id, ProjectDataModel.project_nm)
@@ -309,7 +348,11 @@ class OperFunctionDataModel:
             or_(
                 ProjectDataModel.product_pm == user_id,
                 ProjectDataModel.project_pm == user_id,
-                FunctionDataModel.developers.contains(user_id)
+                FunctionDataModel.id.in_(
+                    db.session.query(FunctionDeveloperModel.function_id)
+                    .filter(FunctionDeveloperModel.work_no == user_id)
+                    .subquery()
+                ),
             )
         ).first()
         return data
@@ -426,8 +469,13 @@ class OperFunctionDataModel:
             session_data = session_data.filter(FunctionDataModel.status != 0)
         developers = kwargs.get("developers", "")
         if developers:
+            dev_subq = (
+                db.session.query(FunctionDeveloperModel.function_id)
+                .filter(FunctionDeveloperModel.work_no == developers)
+                .subquery()
+            )
             session_data = session_data.filter(
-                or_(FunctionDataModel.developers.contains(developers))
+                FunctionDataModel.id.in_(dev_subq)
             )
         priority = kwargs.get("priority")
         if priority is not None:
@@ -466,8 +514,13 @@ class OperFunctionDataModel:
             FunctionDataModel.project_id == project_id
         )
         if empid not in id_list:
+            dev_subq = (
+                db.session.query(FunctionDeveloperModel.function_id)
+                .filter(FunctionDeveloperModel.work_no == empid)
+                .subquery()
+            )
             session_data = session_data.filter(
-                FunctionDataModel.developers.contains(empid)
+                FunctionDataModel.id.in_(dev_subq)
             )
         session_data = self.__format_filter_data(session_data, **kwargs)
         order_list = kwargs.get("orderby", list())
@@ -502,15 +555,27 @@ class OperFunctionDataModel:
             ).join(
                 ProgressRecordDataModel,
                 ProgressRecordDataModel.function_id == FunctionDataModel.id,
+            ).outerjoin(
+                ProgressReaderModel,
+                and_(
+                    ProgressReaderModel.progress_id == ProgressRecordDataModel.id,
+                    ProgressReaderModel.work_no == empid,
+                ),
+            ).outerjoin(
+                FunctionDeveloperModel,
+                and_(
+                    FunctionDeveloperModel.function_id == FunctionDataModel.id,
+                    FunctionDeveloperModel.work_no == empid,
+                ),
             ).filter(
                 FunctionDataModel.status != 0,
                 FunctionDataModel.project_id == project_id,
-                ~ProgressRecordDataModel.reader.contains(empid),
+                ProgressReaderModel.id.is_(None),  # 未读
                 or_(
                     ProjectDataModel.product_pm == empid,
                     ProjectDataModel.project_pm == empid,
                     ProjectDataModel.creator == empid,
-                    FunctionDataModel.developers.contains(empid),
+                    FunctionDeveloperModel.work_no == empid,
                 ),
             )
             .group_by(FunctionDataModel.id, FunctionDataModel.function_nm)
@@ -540,8 +605,13 @@ class OperProgressRecordDataModel:
     def __search_data(self, function_id, empid, unread):
         session_data = self.__session_data(function_id)
         if unread == 1:
+            read_subq = (
+                db.session.query(ProgressReaderModel.progress_id)
+                .filter(ProgressReaderModel.work_no == empid)
+                .subquery()
+            )
             session_data = session_data.filter(
-                not_(ProgressRecordDataModel.reader.contains(empid))
+                ~ProgressRecordDataModel.id.in_(read_subq)
             )
         session_data = session_data.order_by(ProgressRecordDataModel.id.desc())
         return session_data
@@ -629,9 +699,13 @@ class OperProjectApplyRecordModel:
                 ProjectDataModel,
                 ProjectDataModel.id == ProjectApplyRecordModel.project_id,
             )
+            .join(
+                ProjectApplyReviewerModel,
+                ProjectApplyReviewerModel.apply_id == ProjectApplyRecordModel.id,
+            )
             .filter(
                 ProjectApplyRecordModel.status == 1,
-                ProjectApplyRecordModel.reviewer.contains(empid),
+                ProjectApplyReviewerModel.work_no == empid,
                 ~ProjectApplyRecordModel.id.in_(apply_id_list),
             )
         )

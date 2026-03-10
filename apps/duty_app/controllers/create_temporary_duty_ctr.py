@@ -13,7 +13,8 @@ from flask import request
 from apps.duty_app.models import (OperTemporaryDutyApplyRecordModel,
                                   OperTemporaryDutyModel)
 from common.common_minio import OperMinio
-from common.common_tools import CommonTools, get_empid_department_info
+from common.common_tools import CommonTools
+from apps.user_app.models import get_user_name
 from configs.const_conf import ENV, send_message_link
 from configs.constant import BUCKET
 from configs.senddingplus import SendMessageNotice
@@ -102,14 +103,14 @@ class CreateTemporaryDutyController:
     def __send_notice_to_relevant_people(self, duty_info):
         reviewer = self.payload.get("reviewer", [])
         responsible = self.payload.get("responsible", [])
-        content = get_empid_department_info(self.user_id)
+        name = get_user_name(self.user_id)
         link = f"{send_message_link[ENV]}task/{duty_info['id']}"
         if len(responsible) > 0:
-            message = f"您好，{content['chnname']}給您分配了一項臨時任務({self.payload['duty_nm']})，請您及時處理，[点击查看]({link})。"
+            message = f"您好，{name}給您分配了一項臨時任務({self.payload['duty_nm']})，請您及時處理，[点击查看]({link})。"
             SendMessageNotice.send_single_markdown(message, responsible)
         if len(reviewer) > 0:
             link = f"{send_message_link[ENV]}approal"
-            message = f"您好，{content['chnname']}提交了一條關於新增臨時任務({self.payload['duty_nm']})的立案申請，請您及時處理，[点击查看]({link})。"
+            message = f"您好，{name}提交了一條關於新增臨時任務({self.payload['duty_nm']})的立案申請，請您及時處理，[点击查看]({link})。"
             SendMessageNotice.send_single_markdown(message, reviewer)
 
     def __write_data_to_influxdb(self, duty_info):

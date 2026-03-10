@@ -10,7 +10,8 @@
 import math
 from datetime import datetime
 
-from apps.group_app.models import OperMemberDataModel, OperProjectGroupModel
+from apps.group_app.models import OperMemberDataModel
+from apps.project_app.models import OperProjectGroupModel
 from common.common_tools import CommonTools
 from serialize.model_serizlize import (FunctionDataModelSchema,
                                        ProgressRecordDataModelSchema,

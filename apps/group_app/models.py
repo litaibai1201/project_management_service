@@ -11,9 +11,11 @@ from functools import cached_property
 
 from sqlalchemy import and_, asc, desc, func, or_
 
-from common.common_tools import CommonTools
+from common.common_tools import CommonTools, member_match
 from dbs.mysql_db import db
-from dbs.mysql_db.model_tables import (FunctionDataModel,
+from dbs.mysql_db.model_tables import (DutyResponsibleModel,
+                                       FunctionDataModel,
+                                       FunctionDeveloperModel,
                                        ProgressRecordDataModel,
                                        ProjectDataModel, ProjectGroupModel,
                                        TemporaryDutyModel,
@@ -27,6 +29,10 @@ class OperMemberDataModel:
             .outerjoin(
                 FunctionDataModel, FunctionDataModel.project_id == ProjectDataModel.id
             )
+            .outerjoin(
+                FunctionDeveloperModel,
+                FunctionDeveloperModel.function_id == FunctionDataModel.id,
+            )
             .filter(
                 func.str_to_date(ProjectDataModel.created_at, "%Y-%m-%d")
                 <= func.str_to_date(end_date, "%Y-%m-%d"),
@@ -34,7 +40,7 @@ class OperMemberDataModel:
                     ProjectDataModel.creator == user_id,
                     ProjectDataModel.product_pm == user_id,
                     ProjectDataModel.project_pm == user_id,
-                    FunctionDataModel.developers.contains(user_id),
+                    FunctionDeveloperModel.work_no == user_id,
                 ),
             )
             .distinct()
@@ -44,9 +50,11 @@ class OperMemberDataModel:
                 ~ProjectDataModel.status.in_([0, 7]),
                 and_(
                     ProjectDataModel.status.in_([0, 7]),
-                    func.str_to_date(ProjectDataModel.status_update_at, "%Y-%m-%d")
+                    func.str_to_date(
+                        ProjectDataModel.status_update_at, "%Y-%m-%d")
                     >= func.str_to_date(start_date, "%Y-%m-%d"),
-                    func.str_to_date(ProjectDataModel.status_update_at, "%Y-%m-%d")
+                    func.str_to_date(
+                        ProjectDataModel.status_update_at, "%Y-%m-%d")
                     <= func.str_to_date(end_date, "%Y-%m-%d"),
                 ),
             )
@@ -56,8 +64,12 @@ class OperMemberDataModel:
     def search_function_data(self, user_id):
         function_data = (
             db.session.query(FunctionDataModel)
+            .join(
+                FunctionDeveloperModel,
+                FunctionDeveloperModel.function_id == FunctionDataModel.id,
+            )
             .filter(
-                FunctionDataModel.developers.contains(user_id),
+                FunctionDeveloperModel.work_no == user_id,
             )
             .all()
         )
@@ -66,10 +78,14 @@ class OperMemberDataModel:
     def search_duty_data(self, user_id):
         duty_data = (
             db.session.query(TemporaryDutyModel)
+            .outerjoin(
+                DutyResponsibleModel,
+                DutyResponsibleModel.duty_id == TemporaryDutyModel.id,
+            )
             .filter(
                 or_(
                     TemporaryDutyModel.creator == user_id,
-                    TemporaryDutyModel.responsible.contains(user_id),
+                    DutyResponsibleModel.work_no == user_id,
                 ),
             )
             .all()
@@ -79,17 +95,148 @@ class OperMemberDataModel:
     def search_func_data(self, user_id, now_time):
         return (
             db.session.query(FunctionDataModel)
+            .join(
+                FunctionDeveloperModel,
+                FunctionDeveloperModel.function_id == FunctionDataModel.id,
+            )
             .filter(
                 or_(
                     FunctionDataModel.status == 1,
                     FunctionDataModel.status == 2,
                     FunctionDataModel.status == 4,
                 ),
-                FunctionDataModel.developers.contains(user_id),
+                FunctionDeveloperModel.work_no == user_id,
                 FunctionDataModel.expected_end_date < now_time,
             )
             .first()
         )
+
+    # ── 批量查询方法（解决 N+1 问题）────────────────────────────
+    def batch_search_project_total_num(self, member_list, start_date, end_date):
+        """
+        批量查询每个成员的参与项目总数，返回 {work_no: count} 字典。
+        一次 SQL 替代原先 N 次 COUNT 查询。
+        """
+        if not member_list:
+            return {}
+        rows = (
+            db.session.query(
+                ProjectDataModel.id,
+                ProjectDataModel.creator,
+                ProjectDataModel.product_pm,
+                ProjectDataModel.project_pm,
+                FunctionDeveloperModel.work_no.label("dev_work_no"),
+            )
+            .outerjoin(
+                FunctionDataModel, FunctionDataModel.project_id == ProjectDataModel.id
+            )
+            .outerjoin(
+                FunctionDeveloperModel,
+                FunctionDeveloperModel.function_id == FunctionDataModel.id,
+            )
+            .filter(
+                func.str_to_date(ProjectDataModel.created_at, "%Y-%m-%d")
+                <= func.str_to_date(end_date, "%Y-%m-%d"),
+                or_(
+                    ~ProjectDataModel.status.in_([0, 7]),
+                    and_(
+                        ProjectDataModel.status.in_([0, 7]),
+                        func.str_to_date(
+                            ProjectDataModel.status_update_at, "%Y-%m-%d")
+                        >= func.str_to_date(start_date, "%Y-%m-%d"),
+                        func.str_to_date(
+                            ProjectDataModel.status_update_at, "%Y-%m-%d")
+                        <= func.str_to_date(end_date, "%Y-%m-%d"),
+                    ),
+                ),
+            )
+            .all()
+        )
+        # Python 侧归类：对每个成员统计其参与的不重复项目数
+        member_project_sets = {m: set() for m in member_list}
+        for pid, creator, product_pm, project_pm, dev_work_no in rows:
+            for m in member_list:
+                if m in (creator, product_pm, project_pm) or m == dev_work_no:
+                    member_project_sets[m].add(pid)
+        return {m: len(pids) for m, pids in member_project_sets.items()}
+
+    def batch_search_function_data(self, member_list):
+        """
+        批量查询所有相关成员的功能数据，返回 {work_no: [FunctionDataModel, ...]} 字典。
+        一次 SQL 替代原先 N 次查询。
+        """
+        if not member_list:
+            return {m: [] for m in member_list}
+        rows = (
+            db.session.query(FunctionDataModel, FunctionDeveloperModel.work_no)
+            .join(
+                FunctionDeveloperModel,
+                FunctionDeveloperModel.function_id == FunctionDataModel.id,
+            )
+            .filter(FunctionDeveloperModel.work_no.in_(member_list))
+            .all()
+        )
+        result = {m: [] for m in member_list}
+        for func_obj, work_no in rows:
+            if work_no in result:
+                result[work_no].append(func_obj)
+        return result
+
+    def batch_search_duty_data(self, member_list):
+        """
+        批量查询所有相关成员的临时任务数据，返回 {work_no: [TemporaryDutyModel, ...]} 字典。
+        一次 SQL 替代原先 N 次查询。
+        """
+        if not member_list:
+            return {m: [] for m in member_list}
+        rows = (
+            db.session.query(TemporaryDutyModel, DutyResponsibleModel.work_no)
+            .outerjoin(
+                DutyResponsibleModel,
+                DutyResponsibleModel.duty_id == TemporaryDutyModel.id,
+            )
+            .filter(
+                or_(
+                    TemporaryDutyModel.creator.in_(member_list),
+                    DutyResponsibleModel.work_no.in_(member_list),
+                )
+            )
+            .all()
+        )
+        result = {m: [] for m in member_list}
+        seen = set()  # (duty_id, member) dedup
+        for duty_obj, resp_work_no in rows:
+            for m in member_list:
+                if m in (duty_obj.creator, resp_work_no):
+                    key = (duty_obj.id, m)
+                    if key not in seen:
+                        seen.add(key)
+                        result[m].append(duty_obj)
+        return result
+
+    def batch_search_overdue_members(self, member_list, now_time):
+        """
+        批量查询哪些成员存在已超期的功能任务，返回超期成员工号的集合。
+        一次 SQL 替代原先 N 次 first() 查询。
+        """
+        if not member_list:
+            return set()
+        rows = (
+            db.session.query(FunctionDeveloperModel.work_no)
+            .join(
+                FunctionDataModel,
+                FunctionDataModel.id == FunctionDeveloperModel.function_id,
+            )
+            .filter(
+                FunctionDataModel.status.in_([1, 2, 4]),
+                FunctionDataModel.expected_end_date < now_time,
+                FunctionDeveloperModel.work_no.in_(member_list),
+            )
+            .distinct()
+            .all()
+        )
+        overdue_members = {work_no for (work_no,) in rows}
+        return overdue_members
 
     def search_pro_data_by_developers(self, user_id, page, size):
         query = (
@@ -98,9 +245,13 @@ class OperMemberDataModel:
                 FunctionDataModel,
                 FunctionDataModel.project_id == ProjectDataModel.id,
             )
+            .join(
+                FunctionDeveloperModel,
+                FunctionDeveloperModel.function_id == FunctionDataModel.id,
+            )
             .filter(
                 ~ProjectDataModel.status.in_([0, 7]),
-                FunctionDataModel.developers.contains(user_id),
+                FunctionDeveloperModel.work_no == user_id,
             )
             .order_by(ProjectDataModel.group_id.desc())
             .distinct()
@@ -119,8 +270,12 @@ class OperMemberDataModel:
     def search_fun_data_by_pro_id(self, user_id, pro_id):
         data = (
             db.session.query(FunctionDataModel)
+            .join(
+                FunctionDeveloperModel,
+                FunctionDeveloperModel.function_id == FunctionDataModel.id,
+            )
             .filter(
-                FunctionDataModel.developers.contains(user_id),
+                FunctionDeveloperModel.work_no == user_id,
                 FunctionDataModel.project_id == pro_id,
             )
             .order_by(
@@ -151,12 +306,19 @@ class OperMemberDataModel:
         return data
 
     def search_duty_data_by_responsible(self, user_id, page, size):
-        query = db.session.query(TemporaryDutyModel).filter(
-            or_(
-                TemporaryDutyModel.creator == user_id,
-                TemporaryDutyModel.responsible.contains(user_id),
-            ),
-            TemporaryDutyModel.status != 0,
+        query = (
+            db.session.query(TemporaryDutyModel)
+            .outerjoin(
+                DutyResponsibleModel,
+                DutyResponsibleModel.duty_id == TemporaryDutyModel.id,
+            )
+            .filter(
+                or_(
+                    TemporaryDutyModel.creator == user_id,
+                    DutyResponsibleModel.work_no == user_id,
+                ),
+                TemporaryDutyModel.status != 0,
+            )
         )
         data = query.slice((page - 1) * size, page * size).all()
         total = query.count()
@@ -185,11 +347,15 @@ class OperMemberDataModel:
                 FunctionDataModel,
                 FunctionDataModel.project_id == ProjectDataModel.id,
             )
+            .join(
+                FunctionDeveloperModel,
+                FunctionDeveloperModel.function_id == FunctionDataModel.id,
+            )
             .filter(
                 FunctionDataModel.status.in_([1, 2, 4]),
                 or_(
                     ProjectDataModel.project_pm == user_id,
-                    FunctionDataModel.developers.contains(user_id),
+                    FunctionDeveloperModel.work_no == user_id,
                 ),
             )
             .all()
@@ -199,11 +365,15 @@ class OperMemberDataModel:
     def search_duty_data_by_user_id(self, user_id):
         return (
             db.session.query(TemporaryDutyModel)
+            .outerjoin(
+                DutyResponsibleModel,
+                DutyResponsibleModel.duty_id == TemporaryDutyModel.id,
+            )
             .filter(
                 TemporaryDutyModel.status.in_([1, 2, 4]),
                 or_(
                     TemporaryDutyModel.creator == user_id,
-                    TemporaryDutyModel.responsible.contains(user_id),
+                    DutyResponsibleModel.work_no == user_id,
                 ),
             )
             .all()
@@ -227,7 +397,7 @@ class OperMemberDataModel:
             .filter(
                 or_(
                     ProgressRecordDataModel.submitter == user_id,
-                    ProgressRecordDataModel.cooperator.contains(user_id),
+                    member_match(ProgressRecordDataModel.cooperator, user_id),
                 )
             )
         )
@@ -250,7 +420,7 @@ class OperMemberDataModel:
             .filter(
                 or_(
                     TemporaryDutyRecordDataModel.submitter == user_id,
-                    TemporaryDutyRecordDataModel.cooperator.contains(user_id),
+                    member_match(TemporaryDutyRecordDataModel.cooperator, user_id),
                 )
             )
         )
@@ -269,9 +439,11 @@ class OperMemberDataModel:
                 ProgressRecordDataModel.time_consum, ProgressRecordDataModel.submitter
             )
             .filter(
-                func.str_to_date(ProgressRecordDataModel.created_at, "%Y-%m-%d")
+                func.str_to_date(
+                    ProgressRecordDataModel.created_at, "%Y-%m-%d")
                 >= func.str_to_date(start_date, "%Y-%m-%d"),
-                func.str_to_date(ProgressRecordDataModel.created_at, "%Y-%m-%d")
+                func.str_to_date(
+                    ProgressRecordDataModel.created_at, "%Y-%m-%d")
                 <= func.str_to_date(end_date, "%Y-%m-%d"),
                 ProgressRecordDataModel.submitter.in_(member_list),
             )
@@ -290,9 +462,11 @@ class OperMemberDataModel:
                 ProgressRecordDataModel.function_id == FunctionDataModel.id,
             )
             .filter(
-                func.str_to_date(ProgressRecordDataModel.created_at, "%Y-%m-%d")
+                func.str_to_date(
+                    ProgressRecordDataModel.created_at, "%Y-%m-%d")
                 >= func.str_to_date(start_date, "%Y-%m-%d"),
-                func.str_to_date(ProgressRecordDataModel.created_at, "%Y-%m-%d")
+                func.str_to_date(
+                    ProgressRecordDataModel.created_at, "%Y-%m-%d")
                 <= func.str_to_date(end_date, "%Y-%m-%d"),
                 ProgressRecordDataModel.submitter.in_(member_list),
                 ~FunctionDataModel.id.in_(fid_list),
@@ -308,7 +482,11 @@ class OperMemberDataModel:
             db.session.query(
                 FunctionDataModel.start_time,
                 FunctionDataModel.end_time,
-                FunctionDataModel.developers,
+                FunctionDeveloperModel.work_no.label("dev_work_no"),
+            )
+            .join(
+                FunctionDeveloperModel,
+                FunctionDeveloperModel.function_id == FunctionDataModel.id,
             )
             .filter(
                 func.str_to_date(FunctionDataModel.created_at, "%Y-%m-%d")
@@ -316,12 +494,7 @@ class OperMemberDataModel:
                 func.str_to_date(FunctionDataModel.created_at, "%Y-%m-%d")
                 <= func.str_to_date(end_date, "%Y-%m-%d"),
                 ~FunctionDataModel.id.in_(unique_third_items),
-                or_(
-                    *[
-                        FunctionDataModel.developers.contains(member)
-                        for member in member_list
-                    ]
-                ),
+                FunctionDeveloperModel.work_no.in_(member_list),
             )
             .all()
         )
@@ -334,9 +507,11 @@ class OperMemberDataModel:
                 TemporaryDutyRecordDataModel.submitter,
             )
             .filter(
-                func.str_to_date(TemporaryDutyRecordDataModel.created_at, "%Y-%m-%d")
+                func.str_to_date(
+                    TemporaryDutyRecordDataModel.created_at, "%Y-%m-%d")
                 >= func.str_to_date(start_date, "%Y-%m-%d"),
-                func.str_to_date(TemporaryDutyRecordDataModel.created_at, "%Y-%m-%d")
+                func.str_to_date(
+                    TemporaryDutyRecordDataModel.created_at, "%Y-%m-%d")
                 <= func.str_to_date(end_date, "%Y-%m-%d"),
                 TemporaryDutyRecordDataModel.submitter.in_(member_list),
             )
@@ -351,7 +526,11 @@ class OperMemberDataModel:
             db.session.query(
                 TemporaryDutyModel.start_time,
                 TemporaryDutyModel.end_time,
-                TemporaryDutyModel.responsible,
+                DutyResponsibleModel.work_no.label("resp_work_no"),
+            )
+            .join(
+                DutyResponsibleModel,
+                DutyResponsibleModel.duty_id == TemporaryDutyModel.id,
             )
             .filter(
                 func.str_to_date(TemporaryDutyModel.created_at, "%Y-%m-%d")
@@ -359,23 +538,11 @@ class OperMemberDataModel:
                 func.str_to_date(TemporaryDutyModel.created_at, "%Y-%m-%d")
                 <= func.str_to_date(end_date, "%Y-%m-%d"),
                 ~TemporaryDutyModel.id.in_(unique_duty_list),
-                or_(
-                    *[
-                        TemporaryDutyModel.responsible.contains(member)
-                        for member in member_list
-                    ]
-                ),
+                DutyResponsibleModel.work_no.in_(member_list),
             )
             .all()
         )
         return data
-
-
-class OperProjectGroupModel:
-    def obtain_project_group_data(self):
-        return db.session.query(
-            ProjectGroupModel.id, ProjectGroupModel.group_name
-        ).all()
 
 
 class OperFunctionDataModel:
@@ -403,8 +570,13 @@ class OperFunctionDataModel:
         return stats
 
     def calculate_statistics(self, empid, payload):
-        stats = self.session_data.filter(
-            FunctionDataModel.developers.contains(empid)
+        stats = (
+            self.session_data
+            .join(
+                FunctionDeveloperModel,
+                FunctionDeveloperModel.function_id == FunctionDataModel.id,
+            )
+            .filter(FunctionDeveloperModel.work_no == empid)
         )
         stats = self.__format_filter_data(stats, payload)
         all_t_num = stats.count()
@@ -454,12 +626,15 @@ class OperFunctionDataModel:
             FunctionDataModel.latest_expected_end_date,
             FunctionDataModel.status,
             FunctionDataModel.priority
+        ).join(
+            FunctionDeveloperModel,
+            FunctionDeveloperModel.function_id == FunctionDataModel.id,
         ).filter(
             FunctionDataModel.project_id == ProjectDataModel.id
         )
         stats = self.__format_filter_data(stats, payload)
         datalist = stats.filter(
-            FunctionDataModel.developers.contains(empid),
+            FunctionDeveloperModel.work_no == empid,
             FunctionDataModel.status.in_([1, 2, 4])
         ).all()
         return datalist
@@ -474,11 +649,14 @@ class OperFunctionDataModel:
         ).outerjoin(
             ProgressRecordDataModel,
             FunctionDataModel.id == ProgressRecordDataModel.function_id
+        ).join(
+            FunctionDeveloperModel,
+            FunctionDeveloperModel.function_id == FunctionDataModel.id,
         ).group_by(
             ProjectDataModel.id, FunctionDataModel.id
         ).filter(
             ProjectDataModel.id == FunctionDataModel.project_id,
-            FunctionDataModel.developers.contains(empid)
+            FunctionDeveloperModel.work_no == empid
         )
         page = payload.pop("page", 1)
         size = payload.pop("size", 10)
@@ -517,9 +695,16 @@ class OperTemporaryDutyModel:
         return stats
 
     def search(self, payload, empid):
-        stats = self.session_data.filter(
-            TemporaryDutyModel.responsible.contains(empid),
-            TemporaryDutyModel.status.in_([1, 2, 4])
+        stats = (
+            self.session_data
+            .join(
+                DutyResponsibleModel,
+                DutyResponsibleModel.duty_id == TemporaryDutyModel.id,
+            )
+            .filter(
+                DutyResponsibleModel.work_no == empid,
+                TemporaryDutyModel.status.in_([1, 2, 4])
+            )
         )
         stats = self.__format_filter_data(stats, payload)
         datalist = stats.all()

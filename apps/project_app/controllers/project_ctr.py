@@ -7,7 +7,6 @@
 """
 
 import math
-import time
 from datetime import datetime
 from functools import cached_property
 
@@ -22,7 +21,8 @@ from apps.project_app.models import (OperFunctionDataModel,
                                      OperRecordFormModel,
                                      OperReviewRecordFormModel)
 from common.common_minio import OperMinio
-from common.common_tools import CommonTools, get_empid_department_info, get_now
+from common.common_tools import CommonTools, get_now
+from apps.user_app.models import get_subordinate_ids, get_user_name
 from configs.const_conf import ENV, send_message_link
 from configs.constant import BUCKET
 from configs.senddingplus import SendMessageNotice
@@ -60,10 +60,10 @@ class ProjectFinishController:
         return self.OPPM.update_data_by_id(project_id, update_data)
 
     def __send_notice_to_pm(self, empid, product_pm, serialize_data):
-        content = get_empid_department_info(empid)
+        name = get_user_name(empid)
         product_pm = product_pm.split(";")
         link = f"{send_message_link[ENV]}approal"
-        message = f"您好，{content['chnname']}提交了關於({serialize_data['project_nm']})專案的完結申請，請及時處理，[点击查看]({link})。"
+        message = f"您好，{name}提交了關於({serialize_data['project_nm']})專案的完結申請，請及時處理，[点击查看]({link})。"
         SendMessageNotice.send_single_markdown(message, product_pm)
 
     def finish_project(self, empid, project_id):
@@ -328,19 +328,6 @@ class ProjectListController:
         pdms = ProjectDataModelSchema(many=True, only=dump_fields)
         return pdms
 
-    def get_group_mem(self, empid):
-        url = "http://10.126.1.237:13570/api/searchSubordinates"
-        data = {"empid": empid}
-        for _ in range(3):
-            result, flag = CommonTools.send_get_request(url, data=data)
-            if flag:
-                empid_list = [empid]
-                for k in result["content"].keys():
-                    empid_list.append(k)
-                return empid_list, flag
-            time.sleep(1)
-        return f"{url}: {result}, 查詢下屬成員失敗", flag
-
     def __search_function(self, pro_id_list):
         result_dict = dict()
         datalist = self.ofdm.search_data_by_pro_id_list(pro_id_list)
@@ -402,11 +389,9 @@ class ProjectListController:
             data["group_name"] = group_dict.get(data["group_id"], "")
 
     def search_project_list(self, empid, payload):
-        # 判斷登錄者的身份
-        result, flag = self.get_group_mem(empid)
-        if not flag:
-            return result, flag
-        datalist, total_count = self.opdm.search_data_list(result, **payload)
+        # 從本地表查詢本人及下屬的工號列表
+        empid_list = get_subordinate_ids(empid)
+        datalist, total_count = self.opdm.search_data_list(empid_list, **payload)
         datalist = self.pro_data_schems.dump(datalist)
         pro_id_list = [data["id"] for data in datalist]
         if not pro_id_list:
@@ -851,12 +836,9 @@ class ProjectMemberDynamicsController:
         member_dynamics_data = self.rrms.dump(datalist)
         return member_dynamics_data
 
-    def __get_operator_data(self, operator):
-        return get_empid_department_info(operator) if operator else None
-
     def __handle_member_dynamics_data(self, member_dynamics):
-        operator_data = self.__get_operator_data(member_dynamics["operator"])
-        operator = operator_data.get("chname") if operator_data else ""
+        operator = member_dynamics["operator"]
+        operator = get_user_name(operator) if operator else ""
         return {
             "operator": operator,
             "matter": member_dynamics["matter"],

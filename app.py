@@ -158,7 +158,7 @@ def your_task_function_week():
 
 if __name__ == "__main__":
     app = create_app()
-    scheduler.start()
+    # scheduler.start()  # A-05: 暫無排程任務，註釋避免空轉
     with open("./pid", "w") as f:
         pid = str(os.getpid())
         f.write(pid)

@@ -284,3 +284,89 @@ class MyApplySchema(Schema):
 class AuditRecordSchema(Schema):
     page = fields.Int()
     size = fields.Int()
+
+
+# ──────────────────────────────────────────────
+#  用戶管理 - 請求 Schema
+# ──────────────────────────────────────────────
+
+class CreateUserMgmtSchema(Schema):
+    """POST /api/user/mgmt/user - 新增用戶"""
+    work_no    = fields.Str(required=True, metadata={"description": "工號"})
+    name       = fields.Str(required=True, metadata={"description": "姓名"})
+    department = fields.Str(load_default=None, metadata={"description": "部門"})
+    position   = fields.Str(load_default=None, metadata={"description": "職位"})
+    email      = fields.Str(load_default=None, metadata={"description": "郵箱"})
+    phone      = fields.Str(load_default=None, metadata={"description": "電話"})
+    remark     = fields.Str(load_default=None, metadata={"description": "備注"})
+
+
+class UpdateUserMgmtSchema(Schema):
+    """PUT /api/user/mgmt/user/<work_no> - 更新用戶資料"""
+    name       = fields.Str(load_default=None)
+    department = fields.Str(load_default=None)
+    position   = fields.Str(load_default=None)
+    email      = fields.Str(load_default=None)
+    phone      = fields.Str(load_default=None)
+    remark     = fields.Str(load_default=None)
+
+
+class QueryUsersMgmtSchema(Schema):
+    """GET /api/user/mgmt/users - 用戶列表查詢參數"""
+    page       = fields.Int(load_default=1)
+    size       = fields.Int(load_default=20)
+    keyword    = fields.Str(load_default="", metadata={"description": "按姓名/工號模糊搜尋"})
+    department = fields.Str(load_default="", metadata={"description": "按部門過濾"})
+
+
+class CreateHierarchySchema(Schema):
+    """POST /api/user/mgmt/hierarchy - 設置主管-下屬關係"""
+    supervisor_work_no  = fields.Str(required=True, metadata={"description": "主管工號"})
+    subordinate_work_no = fields.Str(required=True, metadata={"description": "下屬工號"})
+    remark              = fields.Str(load_default="", metadata={"description": "備注"})
+
+
+class QuerySubordinatesSchema(Schema):
+    """GET /api/user/mgmt/<work_no>/subordinates - 查詢下屬"""
+    all_levels = fields.Bool(load_default=False, metadata={"description": "是否返回所有層級下屬"})
+
+
+class CheckPermissionSchema(Schema):
+    """GET /api/user/mgmt/check_permission - 權限確認"""
+    requester = fields.Str(required=True, metadata={"description": "發起查看的用戶工號"})
+    target    = fields.Str(required=True, metadata={"description": "被查看的用戶工號"})
+
+
+# ──────────────────────────────────────────────
+#  用戶管理 - 響應 Schema
+# ──────────────────────────────────────────────
+
+class UserProfileContentSchema(Schema):
+    work_no    = fields.Str()
+    name       = fields.Str()
+    department = fields.Str()
+    position   = fields.Str()
+    email      = fields.Str()
+    phone      = fields.Str()
+    remark     = fields.Str()
+    status     = fields.Int()
+    created_at = fields.Str()
+    updated_at = fields.Str()
+
+
+class RspUserMgmtSchema(Schema):
+    code    = fields.Str()
+    msg     = fields.Str()
+    content = fields.Nested(UserProfileContentSchema)
+
+
+class RspUsersMgmtSchema(Schema):
+    code    = fields.Str()
+    msg     = fields.Str()
+    content = fields.Dict()
+
+
+class RspPermissionSchema(Schema):
+    code    = fields.Str()
+    msg     = fields.Str()
+    content = fields.Bool()

@@ -3,7 +3,8 @@ import requests
 from common.common_tools import CommonTools
 from configs.constant import conf
 from configs.senddingplus import SendMessageNotice
-from scheduled_tasks.models import OperFunctionDataModel, OperProjectDataModel
+from scheduled_tasks.models import (OperFunctionDataModel, OperProjectDataModel,
+                                    OperUserHierarchyModel)
 from serialize.model_serizlize import (FunctionDataModelSchema,
                                        ProjectDataModelSchema)
 
@@ -26,10 +27,10 @@ class SummarizeDailyProgress:
             many=True,
         )
         self.pdms = ProjectDataModelSchema(many=True)
+        self.ouhrm = OperUserHierarchyModel()
         self.date = CommonTools.get_now("date")
         self.after_week_date = CommonTools.get_now("date", 7)
         self.url = conf["search_name"]["url"]
-        self.user_ids = ["12390105", "L2300045", "A2320699", "A2318182", "A2440333"]
 
     def __search_username(self, developers):
         developers = developers.split(";")
@@ -136,6 +137,10 @@ class SummarizeDailyProgress:
         return daily_message, week_message
 
     def main(self):
+        # 從本地層級表動態獲取頂層主管工號，取代原先的硬編碼列表
+        user_ids = self.ouhrm.get_top_level_supervisors()
+        if not user_ids:
+            return
         pro_list, pid_list = self.obtain_pro_data_from_db()
         if pid_list:
             daily_data_dict = self.__hadle_daily_fun_data(pid_list)
@@ -145,4 +150,4 @@ class SummarizeDailyProgress:
             )
             if daily_message or week_message:
                 text = f"副理，您好！以下为專案進度匯總：\n\n {daily_message} \n\n {week_message}"
-                SendMessageNotice.send_single_markdown(text, self.user_ids)
+                SendMessageNotice.send_single_markdown(text, user_ids)

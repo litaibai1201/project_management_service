@@ -8,7 +8,8 @@
 from apps.project_app.models import (OperProjectApplyRecordModel,
                                      OperProjectDataModel)
 from common.common_minio import OperMinio
-from common.common_tools import get_empid_department_info, get_now
+from common.common_tools import get_now
+from apps.user_app.models import get_user_name
 from configs.const_conf import ENV, send_message_link
 from configs.constant import BUCKET
 from configs.senddingplus import SendMessageNotice
@@ -71,8 +72,8 @@ class SubmitForReviewController:
             mesaage_type = f"新增專案({project_db.project_nm})的立案申請"
         elif bc_status == 4:
             mesaage_type = f"({project_db.project_nm})的架構及任務排程申請"
-        content = get_empid_department_info(self.user_id)
-        message = f"您好，{content['chnname']}在專案管理系統上提交了一條關於{mesaage_type}，請您及時處理，[点击查看]({link})。"
+        name = get_user_name(self.user_id)
+        message = f"您好，{name}在專案管理系統上提交了一條關於{mesaage_type}，請您及時處理，[点击查看]({link})。"
         SendMessageNotice.send_single_markdown(message, self.reviewer)
 
     def submit_for_review(self, project_id):

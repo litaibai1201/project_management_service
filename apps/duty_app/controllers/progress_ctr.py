@@ -10,7 +10,8 @@ from apps.duty_app.models import (OperTemporaryDutyApplyRecordModel,
                                   OperTemporaryDutyModel,
                                   OperTemporaryDutyRecordModel)
 from common.common_minio import OperMinio
-from common.common_tools import CommonTools, get_empid_department_info
+from common.common_tools import CommonTools
+from apps.user_app.models import get_user_name
 from configs.const_conf import ENV, send_message_link
 from configs.constant import BUCKET
 from configs.senddingplus import SendMessageNotice
@@ -133,14 +134,14 @@ class ProgressController:
     def __send_notice_to_relevant_people(self, duty_id, user_id, duty_info):
         responsible = duty_info.get("responsible", "").split(";")
         progress = self.payload.get("progress")
-        content = get_empid_department_info(user_id)
+        name = get_user_name(user_id)
         link = f"{send_message_link[ENV]}approal"
         if progress == 100:
-            message = f"{content['chnname']}提交了({duty_info['duty_nm']})的任務完結申請，請及時處理，[点击查看]({link})。"
+            message = f"{name}提交了({duty_info['duty_nm']})的任務完結申請，請及時處理，[点击查看]({link})。"
             SendMessageNotice.send_single_markdown(message, [duty_info["creator"]])
         else:
             link = f"{send_message_link[ENV]}task/{duty_id}"
-            message = f"{content['chnname']}更新了({duty_info['duty_nm']})的進度至{progress}%，請查閱，[点击查看]({link})。"
+            message = f"{name}更新了({duty_info['duty_nm']})的進度至{progress}%，請查閱，[点击查看]({link})。"
             if len(responsible) > 1:
                 if user_id in responsible:
                     responsible.remove(user_id)

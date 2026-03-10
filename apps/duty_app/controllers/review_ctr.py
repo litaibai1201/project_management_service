@@ -10,7 +10,7 @@ from functools import cached_property
 from apps.duty_app.models import (OperReviewRecordFormModel,
                                   OperTemporaryDutyApplyRecordModel,
                                   OperTemporaryDutyModel)
-from common.common_tools import CommonTools, get_empid_department_info
+from common.common_tools import CommonTools
 from configs.const_conf import ENV, send_message_link
 from configs.senddingplus import SendMessageNotice
 from dbs.mysql_db import DBFunction

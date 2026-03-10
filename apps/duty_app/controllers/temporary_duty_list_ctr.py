@@ -7,6 +7,7 @@
 """
 from apps.duty_app.models import OperTemporaryDutyModel
 from common.common_tools import CommonTools
+from apps.user_app.models import get_subordinate_ids
 from serialize.model_serizlize import TemporaryDutyModelSchema
 
 
@@ -20,22 +21,10 @@ class TemporaryDutyListController:
         ]
         self.tdms = TemporaryDutyModelSchema(only=self.dump_fields, many=True)
 
-    def get_group_mem(self, empid):
-        url = "http://10.126.1.237:13570/api/searchSubordinates"
-        result, flag = CommonTools.send_get_request(url, data={"empid": empid})
-        if flag:
-            empid_list = [empid]
-            for k in result["content"].keys():
-                empid_list.append(k)
-            return empid_list, flag
-        return f"{url}: {result}, 查詢下屬成員失敗", flag
-
     def temporary_duty_list(self, empid, payload):
-        # 判斷登錄者的身份
-        result, flag = self.get_group_mem(empid)
-        if not flag:
-            return result, flag
-        datalist, total_count = self.otdm.search_data_list(result, **payload)
+        # 從本地表查詢本人及下屬的工號列表
+        empid_list = get_subordinate_ids(empid)
+        datalist, total_count = self.otdm.search_data_list(empid_list, **payload)
         datalist = self.tdms.dump(datalist)
         count = payload.get("size", 10)
         total_page = CommonTools.get_total_page(count, total_count)

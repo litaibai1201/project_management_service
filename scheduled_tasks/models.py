@@ -7,6 +7,7 @@ from dbs.mysql_db.model_tables import (
     FunctionDataModel,
     ProjectDataModel,
     TemporaryDutyModel,
+    UserHierarchyModel,
 )
 from dbs.mysql_db import db
 
@@ -108,6 +109,28 @@ class OperFunctionDataModel:
             .all()
         )
         return fun_data
+
+
+class OperUserHierarchyModel:
+    def get_top_level_supervisors(self):
+        """
+        查询顶层主管工号列表：
+        在层级表中作为主管（supervisor_work_no）出现，
+        但从未作为下属（subordinate_work_no）出现的用户，
+        即组织架构中没有上级的最高层主管。
+        """
+        subordinate_wn = db.session.query(
+            UserHierarchyModel.subordinate_work_no
+        ).subquery()
+        rows = (
+            db.session.query(UserHierarchyModel.supervisor_work_no)
+            .filter(
+                ~UserHierarchyModel.supervisor_work_no.in_(subordinate_wn)
+            )
+            .distinct()
+            .all()
+        )
+        return [r[0] for r in rows]
 
 
 class OperTemporaryDutyModel:

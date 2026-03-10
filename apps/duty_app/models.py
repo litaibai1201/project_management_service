@@ -12,7 +12,10 @@ from sqlalchemy import and_, asc, desc, func, not_, or_
 
 from common.common_tools import CommonTools, TryExcept
 from dbs.mysql_db import db
-from dbs.mysql_db.model_tables import (ReviewRecordModel,
+from dbs.mysql_db.model_tables import (DutyApplyReviewerModel,
+                                       DutyProgressReaderModel,
+                                       DutyResponsibleModel,
+                                       ReviewRecordModel,
                                        TemporaryDutyApplyRecordModel,
                                        TemporaryDutyModel,
                                        TemporaryDutyRecordDataModel)
@@ -25,8 +28,11 @@ class OperTemporaryDutyModel:
         return db.session.query(TemporaryDutyModel)
 
     def search_data_by_status(self, user_id, page, size, status):
-        session_data = self.session_data.filter(
-            TemporaryDutyModel.responsible.contains(user_id),
+        session_data = self.session_data.join(
+            DutyResponsibleModel,
+            DutyResponsibleModel.duty_id == TemporaryDutyModel.id,
+        ).filter(
+            DutyResponsibleModel.work_no == user_id,
             TemporaryDutyModel.status == status,
         )
         data_list = session_data.slice((page - 1) * size, page * size).all()
@@ -60,11 +66,16 @@ class OperTemporaryDutyModel:
         return data
 
     def search_pause_by_id(self, user_id, duty_id, status=[1, 2, 4]):
+        responsible_subq = (
+            db.session.query(DutyResponsibleModel.duty_id)
+            .filter(DutyResponsibleModel.work_no == user_id)
+            .subquery()
+        )
         data = db.session.query(TemporaryDutyModel).filter(
             TemporaryDutyModel.id == duty_id,
             or_(
                 TemporaryDutyModel.creator == user_id,
-                TemporaryDutyModel.responsible.contains(user_id)
+                TemporaryDutyModel.id.in_(responsible_subq),
             ),
             TemporaryDutyModel.status.in_(status)
         ).first()
@@ -77,7 +88,8 @@ class OperTemporaryDutyModel:
 
     @TryExcept("更新臨時任務失敗")
     def update_data_by_id(self, duty_id, update_data):
-        self.session_data.filter(TemporaryDutyModel.id == duty_id).update(update_data)
+        self.session_data.filter(
+            TemporaryDutyModel.id == duty_id).update(update_data)
         return True
 
     @TryExcept("刪除臨時任務失敗")
@@ -88,9 +100,14 @@ class OperTemporaryDutyModel:
         return True
 
     def __format_empid_filter(self, empid_list):
+        responsible_subq = (
+            db.session.query(DutyResponsibleModel.duty_id)
+            .filter(DutyResponsibleModel.work_no.in_(empid_list))
+            .subquery()
+        )
         filter_data = or_(
             or_(TemporaryDutyModel.creator == empid for empid in empid_list),
-            or_(TemporaryDutyModel.responsible.contains(empid) for empid in empid_list),
+            TemporaryDutyModel.id.in_(responsible_subq),
         )
         return filter_data
 
@@ -115,8 +132,13 @@ class OperTemporaryDutyModel:
             )
         responsible = kwargs.get("responsible")
         if responsible:
+            responsible_subq = (
+                db.session.query(DutyResponsibleModel.duty_id)
+                .filter(DutyResponsibleModel.work_no == responsible)
+                .subquery()
+            )
             session_data = session_data.filter(
-                TemporaryDutyModel.responsible.contains(responsible)
+                TemporaryDutyModel.id.in_(responsible_subq)
             )
         return session_data
 
@@ -179,12 +201,23 @@ class OperTemporaryDutyModel:
                 TemporaryDutyRecordDataModel,
                 TemporaryDutyRecordDataModel.duty_id == TemporaryDutyModel.id,
             )
+            .outerjoin(
+                DutyProgressReaderModel,
+                and_(
+                    DutyProgressReaderModel.progress_id == TemporaryDutyRecordDataModel.id,
+                    DutyProgressReaderModel.work_no == empid,
+                ),
+            )
+            .join(
+                DutyResponsibleModel,
+                DutyResponsibleModel.duty_id == TemporaryDutyModel.id,
+            )
             .filter(
                 TemporaryDutyModel.status != 0,
-                ~TemporaryDutyRecordDataModel.reader.contains(empid),
+                DutyProgressReaderModel.id.is_(None),  # 未读: 关联表无记录
                 or_(
                     TemporaryDutyModel.creator == empid,
-                    TemporaryDutyModel.responsible.contains(empid),
+                    DutyResponsibleModel.work_no == empid,
                 ),
             )
             .group_by(TemporaryDutyModel.id, TemporaryDutyModel.duty_nm)
@@ -210,10 +243,16 @@ class OperTemporaryDutyRecordModel:
 
     def __search_data(self, session_data, empid, unread):
         if unread == 1:
-            session_data = session_data.filter(
-                not_(TemporaryDutyRecordDataModel.reader.contains(empid))
+            read_subq = (
+                db.session.query(DutyProgressReaderModel.progress_id)
+                .filter(DutyProgressReaderModel.work_no == empid)
+                .subquery()
             )
-        session_data = session_data.order_by(TemporaryDutyRecordDataModel.id.desc())
+            session_data = session_data.filter(
+                ~TemporaryDutyRecordDataModel.id.in_(read_subq)
+            )
+        session_data = session_data.order_by(
+            TemporaryDutyRecordDataModel.id.desc())
         return session_data
 
     def search_data_by_duty_id(self, duty_id, empid, page, size, unread):
@@ -254,10 +293,14 @@ class OperTemporaryDutyApplyRecordModel:
                 TemporaryDutyModel,
                 TemporaryDutyModel.id == TemporaryDutyApplyRecordModel.duty_id,
             )
+            .join(
+                DutyApplyReviewerModel,
+                DutyApplyReviewerModel.apply_id == TemporaryDutyApplyRecordModel.id,
+            )
             .filter(
                 TemporaryDutyApplyRecordModel.status == 1,
                 ~TemporaryDutyApplyRecordModel.id.in_(apply_id_list),
-                TemporaryDutyApplyRecordModel.reviewer.contains(empid),
+                DutyApplyReviewerModel.work_no == empid,
             )
         )
         datalist = session_data.slice((page - 1) * size, page * size).all()

@@ -7,14 +7,23 @@
 """
 
 import datetime
+import random
 import time
 import traceback
 from functools import wraps
 
 import requests
 from flask import current_app as app
+from sqlalchemy import func, literal
 
-from configs.constant import hr_info
+
+def member_match(column, empid):
+    """
+    精確匹配分號分隔的多值字段中的某個成員。
+    等價 SQL: FIND_IN_SET(:empid, REPLACE(column, ';', ',')) > 0
+    避免 .contains() 產生的子串誤匹配（如 '123' 命中 '1234'）。
+    """
+    return func.find_in_set(literal(empid), func.replace(column, ";", ",")) > 0
 
 
 def timeit(func):
@@ -33,7 +42,9 @@ def timeit(func):
 
 
 def get_timestamp():
-    return str(int(datetime.datetime.now().timestamp() * 1000))
+    ts = str(int(datetime.datetime.now().timestamp() * 1000))
+    suffix = str(random.randint(100, 999))
+    return ts + suffix
 
 
 def get_now(data=None, days=0):
@@ -54,25 +65,6 @@ def get_now(data=None, days=0):
         return now_time.strftime("%Y%m%d")
     else:
         return now_time.strftime("%Y-%m-%d %H:%M:%S")
-
-
-def get_dep_dict():
-    url = hr_info.get("dep_url", "http://10.126.1.237:13570/api/searchDepData")
-    rsp = requests.get(url)
-    rsp_data = rsp.json()
-    if rsp_data.get("code", "") != "S10000":
-        return False
-    return rsp_data.get("content").get("dep_dict")
-
-
-def get_empid_department_info(empid):
-    url = hr_info.get("url", "http://10.126.1.237:13570/api/searchData")
-    param = {"workno": empid}
-    rsp = requests.get(url, params=param)
-    rsp_data = rsp.json()
-    if rsp_data.get("code", "") != "S10000":
-        return False
-    return rsp_data.get("content")
 
 
 def extract_req_files(files):
@@ -131,7 +123,9 @@ class CommonTools:
 
     @staticmethod
     def get_timestamp():
-        return str(int(datetime.datetime.now().timestamp() * 1000))
+        ts = str(int(datetime.datetime.now().timestamp() * 1000))
+        suffix = str(random.randint(100, 999))
+        return ts + suffix
 
     @staticmethod
     def get_now(data=None, days=0):

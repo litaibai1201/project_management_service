@@ -10,6 +10,7 @@ from datetime import datetime
 from functools import cached_property
 
 from apps.group_app.models import OperMemberDataModel
+from apps.user_app.models import OperUserHierarchyModel, OperUserProfileModel
 from common.common_tools import CommonTools
 from serialize.model_serizlize import (
     ProjectDataModelSchema,
@@ -30,13 +31,20 @@ class MemberController:
         return CommonTools.get_now("date")
 
     def get_member(self, user_id):
-        url = "http://10.126.1.237:13570/api/searchSubordinates"
-        data = {"empid": user_id}
-        for _ in range(3):
-            result, flag = CommonTools.send_get_request(url, data)
-            if flag:
-                return result, flag
-        return result, flag
+        """
+        從本地 user_hierarchy_form / user_profile_form 取得直屬下屬列表，
+        返回與原 HR 接口相同的格式：{"content": {work_no: name, ...}}
+        """
+        ouhm = OperUserHierarchyModel()
+        oupm = OperUserProfileModel()
+        rows = ouhm.get_direct_subordinates(user_id)
+        content = {}
+        for row in rows:
+            sub_work_no = row[1]
+            user = oupm.query_user_by_work_no(sub_work_no)
+            if user:
+                content[sub_work_no] = user.name
+        return {"content": content}, True
 
     def __get_members(self, payload, result):
         content = result.get("content", dict())
@@ -163,25 +171,32 @@ class MemberController:
     def __handle_members_data(
         self, members, start_date, end_date, pro_hour_dict, duty_hour_dict, time_type
     ):
+        member_list = list(members.keys())
+
+        # 批量查询：4 次 SQL 取代原先 N×4 次（N = 成员数）
+        pro_total_dict = self.omdm.batch_search_project_total_num(
+            member_list, start_date, end_date
+        )
+        fun_data_dict = self.omdm.batch_search_function_data(member_list)
+        duty_data_dict = self.omdm.batch_search_duty_data(member_list)
+        overdue_members = self.omdm.batch_search_overdue_members(
+            member_list, self.now_time
+        )
+
         datalist = list()
         for member, name in members.items():
-            project_num = self.omdm.search_project_total_num(
-                member, start_date, end_date
-            )
-            fun_data_list = self.omdm.search_function_data(member)
+            project_num = pro_total_dict.get(member, 0)
             fun_data_list = self.__format_function_dict(
-                fun_data_list, start_date, end_date, time_type
+                fun_data_dict.get(member, []), start_date, end_date, time_type
             )
-            duty_list = self.omdm.search_duty_data(member)
             duty_dict, is_delay = self.__format_duty_dict(
-                duty_list, start_date, end_date, time_type
+                duty_data_dict.get(member, []), start_date, end_date, time_type
             )
+            if not is_delay and member in overdue_members:
+                is_delay = True
             pro_total_hour = self.__get_member_project_hour(member, pro_hour_dict)
             duty_total_hour = self.__get_member_project_hour(member, duty_hour_dict)
             total_hour = pro_total_hour + duty_total_hour
-            if not is_delay:
-                if self.omdm.search_func_data(member, self.now_time):
-                    is_delay = True
             member_dict = self.__format_member_dict(
                 pro_total_num=project_num,
                 name=name,

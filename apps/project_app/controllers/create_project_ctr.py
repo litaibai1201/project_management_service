@@ -12,7 +12,8 @@ from flask import request
 from apps.project_app.models import (OperProjectApplyRecordModel,
                                      OperProjectDataModel)
 from common.common_minio import OperMinio
-from common.common_tools import get_empid_department_info, get_timestamp
+from common.common_tools import get_timestamp
+from apps.user_app.models import get_user_name
 from configs.const_conf import ENV, send_message_link
 from configs.constant import BUCKET
 from configs.senddingplus import SendMessageNotice
@@ -73,13 +74,13 @@ class CreateProjectController:
 
     def __send_message_to_related_personnel(self, project_info):
         link = f"{send_message_link[ENV]}projects/{project_info['id']}"
-        content = get_empid_department_info(self.user_id)
+        name = get_user_name(self.user_id)
         product_pm, project_pm, project_nm = (
             self.payload.get("product_pm", ""),
             self.payload.get("project_pm", ""),
             self.payload.get("project_nm", ""),
         )
-        same_message = f"您好，{content['chnname']}創建了新的專案({project_nm})"
+        same_message = f"您好，{name}創建了新的專案({project_nm})"
         if project_pm == product_pm:
             message = f"{same_message}，您被其分配為專案PM和系統分析師，請您及時處理，[点击查看]({link})。"
             SendMessageNotice.send_single_markdown(message, [product_pm])

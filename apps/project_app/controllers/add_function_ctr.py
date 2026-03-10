@@ -9,7 +9,8 @@ from apps.project_app.models import (
     OperProjectDataModel,
 )
 from common.common_minio import OperMinio
-from common.common_tools import get_empid_department_info, get_timestamp
+from common.common_tools import get_timestamp
+from apps.user_app.models import get_user_name
 from configs.const_conf import ENV, send_message_link
 from configs.constant import BUCKET
 from configs.senddingplus import SendMessageNotice
@@ -115,14 +116,14 @@ class AddFunctionController:
         developers = payload.get("developers", [])
         function_nm = payload["function_nm"]
         reviewer = payload.get("reviewer", [])
-        content = get_empid_department_info(empid)
+        name = get_user_name(empid)
         if len(developers) > 0:
             link = f"{send_message_link[ENV]}projects/{project_data['id']}"
-            message = f"{content['chnname']}在({project_data['project_nm']})專案中給您分配了一項待處理任務({function_nm})，請及时处理，[点击查看]({link})。"
+            message = f"{name}在({project_data['project_nm']})專案中給您分配了一項待處理任務({function_nm})，請及时处理，[点击查看]({link})。"
             SendMessageNotice.send_single_markdown(message, developers)
         elif len(reviewer) > 0:
             link = f"{send_message_link[ENV]}approal"
-            message = f"{content['chnname']}在({project_data['project_nm']})專案中新增一项任務({function_nm})，請及时处理，[点击查看]({link})。"
+            message = f"{name}在({project_data['project_nm']})專案中新增一项任務({function_nm})，請及时处理，[点击查看]({link})。"
             SendMessageNotice.send_single_markdown(message, reviewer)
 
     def __write_data_to_influxdb(self, user_id, function_info):
