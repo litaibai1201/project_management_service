@@ -14,6 +14,7 @@ import { showToast } from '@/utils/toast'
 import dayjs from 'dayjs'
 
 const { Search } = Input
+const PRIORITY_COLORS = ['', '#22c55e', '#f59e0b', '#ef4444', '#7c3aed']
 
 const DaysLeftBadge: React.FC<{ date?: string }> = ({ date }) => {
   if (!date) return <span className="text-slate-300 text-xs">—</span>
@@ -74,10 +75,13 @@ const DutyListPage: React.FC = () => {
     {
       title: '任務名稱', dataIndex: 'duty_nm', ellipsis: true,
       render: (name: string, record) => (
-        <Button type="link" style={{ padding: 0, fontWeight: 500 }}
-          onClick={() => navigate(`/duties/${record.id}`)}>
-          {name}
-        </Button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ width: 3, height: 24, borderRadius: 2, flexShrink: 0, background: PRIORITY_COLORS[record.priority] }} />
+          <Button type="link" style={{ padding: 0, fontWeight: 500 }}
+            onClick={() => navigate(`/duties/${record.id}`)}>
+            {name}
+          </Button>
+        </div>
       ),
     },
     {

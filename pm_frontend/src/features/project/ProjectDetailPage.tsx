@@ -18,6 +18,8 @@ import { FUNCTION_STATUS_MAP, PRIORITY_MAP } from '@/utils/status'
 import { showToast } from '@/utils/toast'
 import FunctionDetailDrawer from './FunctionDetailDrawer'
 
+const PRIORITY_COLORS = ['', '#22c55e', '#f59e0b', '#ef4444', '#7c3aed']
+
 // ─── Status Steps ─────────────────────────────────────────────────────────────
 const STATUS_STEPS = [
   { title: '草稿',     statuses: [1] },
@@ -107,7 +109,10 @@ const ProjectDetailPage: React.FC = () => {
     {
       title: '功能名稱', dataIndex: 'function_nm',
       render: (name: string, r) => (
-        <Button type="link" style={{ padding: 0, fontWeight: 500 }} onClick={() => setSelectedFid(r.id)}>{name}</Button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ width: 3, height: 24, borderRadius: 2, flexShrink: 0, background: PRIORITY_COLORS[r.priority] }} />
+          <Button type="link" style={{ padding: 0, fontWeight: 500 }} onClick={() => setSelectedFid(r.id)}>{name}</Button>
+        </div>
       ),
     },
     {

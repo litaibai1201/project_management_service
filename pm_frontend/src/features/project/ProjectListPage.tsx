@@ -23,6 +23,7 @@ const { Search } = Input
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+const PRIORITY_COLORS = ['', '#22c55e', '#f59e0b', '#ef4444', '#7c3aed']
 
 const DaysLeftBadge: React.FC<{ date?: string }> = ({ date }) => {
   if (!date) return <span className="text-slate-300 text-xs">—</span>
@@ -153,10 +154,13 @@ const ProjectListPage: React.FC = () => {
     {
       title: '專案名稱', dataIndex: 'project_nm', ellipsis: true,
       render: (name: string, record) => (
-        <Button type="link" style={{ padding: 0, fontWeight: 500 }}
-          onClick={() => navigate(`/projects/${record.id}`)}>
-          {name}
-        </Button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ width: 3, height: 28, borderRadius: 2, flexShrink: 0, background: PRIORITY_COLORS[record.priority] }} />
+          <Button type="link" style={{ padding: 0, fontWeight: 500 }}
+            onClick={() => navigate(`/projects/${record.id}`)}>
+            {name}
+          </Button>
+        </div>
       ),
     },
     { title: '部門', dataIndex: 'department', width: 110, render: (v: string) => <span className="text-slate-500 text-sm">{v}</span> },

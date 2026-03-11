@@ -90,7 +90,7 @@ const DashboardPage: React.FC = () => {
         {[
           { title:'參與專案', value: indexData?.project_count ?? 0,  gradient:'stat-card-blue',   iconBg:'bg-blue-100',   icon:<FolderIcon className="w-5 h-5 text-blue-600" />,                  trend:'較上週 +2' },
           { title:'臨時任務', value: indexData?.duty_count ?? 0,     gradient:'stat-card-purple', iconBg:'bg-purple-100', icon:<ClipboardDocumentListIcon className="w-5 h-5 text-purple-600" />, trend:'較上週 +1' },
-          { title:'待審核',   value: indexData?.pending_review ?? 0, gradient:'stat-card-orange', iconBg:'bg-orange-100', icon:<ClockIcon className="w-5 h-5 text-orange-500" /> },
+          { title:'待審核',   value: indexData?.pending_review ?? 0, gradient:'stat-card-orange', iconBg:'bg-orange-100', icon:<ClockIcon className="w-5 h-5 text-orange-500" />,            trend:'需盡快處理' },
           { title:'進行中',   value: indexData?.in_progress ?? 0,    gradient:'stat-card-green',  iconBg:'bg-green-100',  icon:<CheckCircleIcon className="w-5 h-5 text-green-600" />,            trend:'本週完成 3 項' },
         ].map((s) => (
           <Col xs={24} sm={12} xl={6} key={s.title}>
