@@ -8,7 +8,8 @@ import {
   HomeIcon, FolderIcon, ClipboardDocumentListIcon, UsersIcon,
   UserGroupIcon, ClipboardDocumentCheckIcon, MagnifyingGlassIcon,
   BellIcon, ArrowRightStartOnRectangleIcon, Bars3Icon,
-  ChevronDoubleLeftIcon,
+  ChevronDoubleLeftIcon, ChartBarIcon, PencilSquareIcon,
+  ExclamationTriangleIcon, TableCellsIcon,
 } from '@heroicons/react/24/outline'
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
 import { logout } from '@/features/auth/authSlice'
@@ -21,12 +22,16 @@ interface NavItem { key: string; icon: React.ReactNode; label: string; path: str
 interface Notification { id: string; title: string; desc: string; time: string; read: boolean }
 
 const NAV_ITEMS: NavItem[] = [
-  { key: '/',         icon: <HomeIcon className="w-[18px] h-[18px]" />,                   label: '首頁',     path: '/'         },
-  { key: '/projects', icon: <FolderIcon className="w-[18px] h-[18px]" />,                 label: '專案管理', path: '/projects' },
-  { key: '/duties',   icon: <ClipboardDocumentListIcon className="w-[18px] h-[18px]" />,  label: '臨時任務', path: '/duties'   },
-  { key: '/review',   icon: <ClipboardDocumentCheckIcon className="w-[18px] h-[18px]" />, label: '審核管理', path: '/review'   },
-  { key: '/members',  icon: <UserGroupIcon className="w-[18px] h-[18px]" />,              label: '成員管理', path: '/members'  },
-  { key: '/users',    icon: <UsersIcon className="w-[18px] h-[18px]" />,                  label: '用戶管理', path: '/users'    },
+  { key: '/',            icon: <HomeIcon className="w-[18px] h-[18px]" />,                   label: '首頁',     path: '/'            },
+  { key: '/projects',    icon: <FolderIcon className="w-[18px] h-[18px]" />,                 label: '專案管理', path: '/projects'    },
+  { key: '/daily-log',   icon: <PencilSquareIcon className="w-[18px] h-[18px]" />,           label: '工作日誌', path: '/daily-log'   },
+  { key: '/duties',      icon: <ClipboardDocumentListIcon className="w-[18px] h-[18px]" />,  label: '臨時任務', path: '/duties'      },
+  { key: '/review',      icon: <ClipboardDocumentCheckIcon className="w-[18px] h-[18px]" />, label: '審核管理', path: '/review'      },
+  { key: '/wbs',          icon: <TableCellsIcon className="w-[18px] h-[18px]" />,             label: '專案進度總覽', path: '/wbs'       },
+  { key: '/statistics',  icon: <ChartBarIcon className="w-[18px] h-[18px]" />,               label: '工作量統計', path: '/statistics' },
+  { key: '/anomaly',     icon: <ExclamationTriangleIcon className="w-[18px] h-[18px]" />,    label: '異常管理', path: '/anomaly'     },
+  { key: '/members',     icon: <UserGroupIcon className="w-[18px] h-[18px]" />,              label: '成員管理', path: '/members'     },
+  { key: '/users',       icon: <UsersIcon className="w-[18px] h-[18px]" />,                  label: '用戶管理', path: '/users'       },
 ]
 
 const INIT_NOTIFS: Notification[] = [

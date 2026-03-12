@@ -7,6 +7,7 @@ import {
   PaginatedContent,
   ApplyRecord,
   ReviewPayload,
+  CountersignPayload,
 } from '@/types/api.types'
 
 // ─── DEV mock ─────────────────────────────────────────────────────────────────
@@ -155,6 +156,12 @@ export const dutyApi = {
   approveReview: async (reviewId: string, payload: ReviewPayload): Promise<ApiResponse<null>> => {
     if (IS_DEV) { await devDelay(); const { ok } = await import('@/mocks/mockData'); return ok(null) }
     return put(`/temporary_duty/review/${reviewId}`, payload)
+  },
+
+  /** POST /api/temporary_duty/review/:id/countersign — 加簽 */
+  countersignReview: async (reviewId: string, payload: CountersignPayload): Promise<ApiResponse<null>> => {
+    if (IS_DEV) { await devDelay(); const { ok } = await import('@/mocks/mockData'); return ok(null) }
+    return post(`/temporary_duty/review/${reviewId}/countersign`, payload)
   },
 
   /** GET /api/temporary_duty/tasklist */

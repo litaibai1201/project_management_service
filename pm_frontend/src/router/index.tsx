@@ -17,6 +17,10 @@ const DutyDetailPage   = lazy(() => import('@/features/duty/DutyDetailPage'))
 const UserMgmtPage     = lazy(() => import('@/features/user/UserManagementPage'))
 const GroupMembersPage = lazy(() => import('@/features/group/GroupMembersPage'))
 const SearchPage       = lazy(() => import('@/features/search/SearchPage'))
+const StatisticsPage   = lazy(() => import('@/features/statistics/StatisticsPage'))
+const DailyLogPage     = lazy(() => import('@/features/dailylog/DailyLogPage'))
+const AnomalyPage      = lazy(() => import('@/features/anomaly/AnomalyPage'))
+const WbsOverviewPage  = lazy(() => import('@/features/wbs/WbsOverviewPage'))
 
 // ─── Loading Fallback ─────────────────────────────────────────────────────────
 const PageLoader: React.FC = () => (
@@ -53,6 +57,10 @@ const router = createBrowserRouter([
           { path: 'users',            element: <Suspense fallback={<PageLoader />}><UserMgmtPage /></Suspense> },
           { path: 'members',          element: <Suspense fallback={<PageLoader />}><GroupMembersPage /></Suspense> },
           { path: 'search',           element: <Suspense fallback={<PageLoader />}><SearchPage /></Suspense> },
+          { path: 'statistics',       element: <Suspense fallback={<PageLoader />}><StatisticsPage /></Suspense> },
+          { path: 'daily-log',        element: <Suspense fallback={<PageLoader />}><DailyLogPage /></Suspense> },
+          { path: 'anomaly',          element: <Suspense fallback={<PageLoader />}><AnomalyPage /></Suspense> },
+          { path: 'wbs',              element: <Suspense fallback={<PageLoader />}><WbsOverviewPage /></Suspense> },
         ],
       },
     ],

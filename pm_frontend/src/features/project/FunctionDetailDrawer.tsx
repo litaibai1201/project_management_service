@@ -4,6 +4,7 @@ import {
   Timeline, Avatar, Typography, Tag, Upload, Spin, Divider, Steps,
 } from 'antd'
 import { PlusIcon, PaperClipIcon } from '@heroicons/react/24/outline'
+import AttachmentPreview from '@/components/ui/AttachmentPreview'
 import type { UploadFile } from 'antd'
 import { projectApi } from '@/api/project.api'
 import { ProjectFunction, ProgressRecord } from '@/types/api.types'
@@ -183,16 +184,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
                       <p className="text-sm text-slate-600 mt-1 mb-1 leading-relaxed">{item.progress_record}</p>
                     )}
                     <span className="text-xs text-slate-300">{item.created_at}</span>
-                    {item.files && item.files.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 mt-1.5">
-                        {item.files.map((f) => (
-                          <a key={f.url} href={f.url} target="_blank" rel="noreferrer"
-                            className="flex items-center gap-1 text-xs text-blue-500 bg-blue-50 border border-blue-100 rounded-lg px-2 py-0.5 hover:bg-blue-100">
-                            <PaperClipIcon className="w-3 h-3" />{f.name}
-                          </a>
-                        ))}
-                      </div>
-                    )}
+                    <AttachmentPreview files={item.files} images={item.images} />
                   </div>
                 ),
               }))}

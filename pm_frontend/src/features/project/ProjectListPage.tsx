@@ -51,10 +51,13 @@ const StatusDot: React.FC<{ status: number }> = ({ status }) => {
 // ─── Kanban Column ────────────────────────────────────────────────────────────
 
 const KANBAN_COLS = [
+  { status: 1, title: '草稿',     color: '#94a3b8' },
   { status: 2, title: '立案審核', color: '#2563eb' },
   { status: 3, title: '規劃中',   color: '#8b5cf6' },
+  { status: 4, title: '規劃審核', color: '#f59e0b' },
   { status: 5, title: '執行中',   color: '#16a34a' },
-  { status: 7, title: '已完結',   color: '#94a3b8' },
+  { status: 6, title: '完結審核', color: '#d97706' },
+  { status: 7, title: '已完結',   color: '#64748b' },
 ]
 
 const KanbanView: React.FC<{

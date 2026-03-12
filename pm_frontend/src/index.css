@@ -133,6 +133,38 @@ body {
 .stat-card-orange { background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%); }
 .stat-card-green  { background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%); }
 
+/* ─── Keyword highlight (SearchPage) ─────────────────────────────────────── */
+mark {
+  background: #fef08a;
+  color: #78350f;
+  padding: 0 2px;
+  border-radius: 3px;
+  font-weight: 600;
+}
+
+/* ─── Result card hover (SearchPage) ─────────────────────────────────────── */
+.search-result-card {
+  transition: box-shadow 0.15s, border-color 0.15s, transform 0.1s;
+}
+.search-result-card:hover {
+  transform: translateY(-1px);
+}
+
+/* ─── Drawer body scrollbar ───────────────────────────────────────────────── */
+.ant-drawer-body::-webkit-scrollbar { width: 4px; }
+.ant-drawer-body::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 4px; }
+
+/* ─── Ant Design Tabs card style override ─────────────────────────────────── */
+.ant-tabs-card > .ant-tabs-nav .ant-tabs-tab {
+  border-radius: 8px 8px 0 0 !important;
+  font-size: 13px;
+}
+
+/* ─── Gantt chart container ───────────────────────────────────────────────── */
+.gantt-name-col {
+  user-select: none;
+}
+
 /* ─── Utilities ───────────────────────────────────────────────────────────── */
 @layer utilities {
   .truncate-2 {

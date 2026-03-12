@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react'
-import { Modal, Form, Input, Select, DatePicker, Button } from 'antd'
+import { Modal, Form, Input, Select, DatePicker, Button, InputNumber } from 'antd'
 import { useForm, Controller } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -19,6 +19,8 @@ const schema = z.object({
   priority:           z.number().min(1).max(4),
   group_id:           z.string().min(1, '請選擇專案分組'),
   code_url:           z.string().url('請輸入正確的代碼庫網址').optional().or(z.literal('')),
+  expected_benefit:   z.string().optional(),
+  benefit_amount:     z.number().optional(),
 })
 
 type FormValues = z.infer<typeof schema>
@@ -198,6 +200,42 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ open, onClose, 
               name="code_url"
               control={control}
               render={({ field }) => <Input {...field} placeholder="https://..." />}
+            />
+          </Form.Item>
+
+          {/* 預估效益 */}
+          <Form.Item
+            label="預估效益金額"
+            validateStatus={errors.benefit_amount ? 'error' : ''}
+            help={errors.benefit_amount?.message}
+          >
+            <Controller
+              name="benefit_amount"
+              control={control}
+              render={({ field }) => (
+                <InputNumber
+                  {...field}
+                  style={{ width: '100%' }}
+                  placeholder="預估節省/產生的金額"
+                  formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                  parser={(v) => Number(v?.replace(/,/g, '') ?? 0)}
+                  addonAfter="元/年"
+                  min={0}
+                />
+              )}
+            />
+          </Form.Item>
+
+          {/* 預估效益描述 */}
+          <Form.Item
+            label="效益說明"
+          >
+            <Controller
+              name="expected_benefit"
+              control={control}
+              render={({ field }) => (
+                <Input.TextArea {...field} rows={2} placeholder="例：預計減少人工作業30%，每年節省約50萬元" />
+              )}
             />
           </Form.Item>
 

@@ -7,6 +7,8 @@ import {
 } from 'antd'
 import type { UploadFile } from 'antd'
 import { ArrowLeftIcon, PlusIcon, PaperClipIcon } from '@heroicons/react/24/outline'
+import AttachmentPreview from '@/components/ui/AttachmentPreview'
+import type { FileInfo } from '@/types/api.types'
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
 import { fetchDutyThunk, clearCurrentDuty } from './dutySlice'
 import { dutyApi } from '@/api/duty.api'
@@ -197,6 +199,10 @@ const DutyDetailPage: React.FC = () => {
                     <p className="text-sm text-slate-600 mt-1 mb-1 leading-relaxed">{String(item.progress_record)}</p>
                   )}
                   <span className="text-xs text-slate-300">{String(item.created_at ?? '')}</span>
+                  <AttachmentPreview
+                    files={(item.files as FileInfo[] | undefined)}
+                    images={(item.images as FileInfo[] | undefined)}
+                  />
                 </div>
               ),
             }))}

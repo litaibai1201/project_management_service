@@ -13,7 +13,11 @@ import {
   CreateProgressPayload,
   ApplyRecord,
   ReviewPayload,
+  CountersignPayload,
   ProjectGroup,
+  Milestone,
+  CreateMilestonePayload,
+  MemberWorkStat,
 } from '@/types/api.types'
 
 // ─── DEV mock ─────────────────────────────────────────────────────────────────
@@ -269,9 +273,71 @@ export const projectApi = {
     return get('/project/review_list', { params })
   },
 
+  /** GET /api/project/all_reviews — combined project+duty reviews */
+  allReviews: async (): Promise<ApiResponse<ApplyRecord[]>> => {
+    if (IS_DEV) {
+      const { getAllReviews, delay } = await import('@/mocks/mockData')
+      await delay(200)
+      return { code: '200', msg: 'success', content: getAllReviews() }
+    }
+    return get('/project/all_reviews')
+  },
+
   /** PUT /api/project/review/:review_id */
   approveReview: async (reviewId: string, payload: ReviewPayload): Promise<ApiResponse<null>> => {
     if (IS_DEV) { await devDelay(); const { ok } = await import('@/mocks/mockData'); return ok(null) }
     return put(`/project/review/${reviewId}`, payload)
+  },
+
+  /** POST /api/project/review/:review_id/countersign — 加簽 */
+  countersignReview: async (reviewId: string, payload: CountersignPayload): Promise<ApiResponse<null>> => {
+    if (IS_DEV) { await devDelay(); const { ok } = await import('@/mocks/mockData'); return ok(null) }
+    return post(`/project/review/${reviewId}/countersign`, payload)
+  },
+
+  // ─── Milestone ───────────────────────────────────────────────────────────────
+
+  /** GET /api/project/:pid/milestones */
+  getMilestones: async (pid: string): Promise<ApiResponse<Milestone[]>> => {
+    if (IS_DEV) {
+      const { getMockMilestones, ok, delay } = await import('@/mocks/mockData')
+      await delay(200)
+      return ok(getMockMilestones(pid))
+    }
+    return get(`/project/${pid}/milestones`)
+  },
+
+  /** POST /api/project/:pid/milestones */
+  createMilestone: async (pid: string, payload: CreateMilestonePayload): Promise<ApiResponse<{ milestone_id: string }>> => {
+    if (IS_DEV) {
+      const { ok, delay } = await import('@/mocks/mockData')
+      await delay(300)
+      return ok({ milestone_id: `m_mock_${Date.now()}` })
+    }
+    return post(`/project/${pid}/milestones`, payload)
+  },
+
+  /** PUT /api/project/:pid/milestones/:mid */
+  updateMilestone: async (pid: string, mid: string, payload: Partial<CreateMilestonePayload>): Promise<ApiResponse<null>> => {
+    if (IS_DEV) { await devDelay(); const { ok } = await import('@/mocks/mockData'); return ok(null) }
+    return put(`/project/${pid}/milestones/${mid}`, payload)
+  },
+
+  /** DELETE /api/project/:pid/milestones/:mid */
+  deleteMilestone: async (pid: string, mid: string): Promise<ApiResponse<null>> => {
+    if (IS_DEV) { await devDelay(); const { ok } = await import('@/mocks/mockData'); return ok(null) }
+    return del(`/project/${pid}/milestones/${mid}`)
+  },
+
+  // ─── Statistics ──────────────────────────────────────────────────────────────
+
+  /** GET /api/statistics/member_stats */
+  memberStats: async (_params?: { start_date?: string; end_date?: string }): Promise<ApiResponse<MemberWorkStat[]>> => {
+    if (IS_DEV) {
+      const { MOCK_MEMBER_STATS, ok, delay } = await import('@/mocks/mockData')
+      await delay(300)
+      return ok(MOCK_MEMBER_STATS)
+    }
+    return get('/statistics/member_stats', { params: _params })
   },
 }

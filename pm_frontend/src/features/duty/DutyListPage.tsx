@@ -1,11 +1,11 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Table, Button, Input, Select, Space, Tooltip, Popconfirm,
-  Progress, Modal, Form, Tag, Avatar,
+  Progress, Modal, Form, Tag, Avatar, Segmented, Collapse, AutoComplete, Spin, Empty,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { PlusIcon, MagnifyingGlassIcon, TrashIcon, EyeIcon } from '@heroicons/react/24/outline'
+import { PlusIcon, MagnifyingGlassIcon, TrashIcon, EyeIcon, FolderIcon } from '@heroicons/react/24/outline'
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
 import { fetchDutyListThunk, deleteDutyThunk, setDutyQuery, createDutyThunk } from './dutySlice'
 import { TemporaryDuty } from '@/types/api.types'
@@ -42,8 +42,55 @@ const DutyListPage: React.FC = () => {
   const dispatch = useAppDispatch()
   const navigate = useNavigate()
   const { list, totalCount, isLoading, isSaving, query } = useAppSelector((s) => s.duty)
+  const workNo = useAppSelector((s) => s.auth.workNo) ?? ''
+  const [dutyView, setDutyView]     = useState<'all' | 'mine'>('all')
+  const [groupMode, setGroupMode]   = useState<'flat' | 'grouped'>('grouped')
+  const [filterGroup, setFilterGroup] = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [form] = Form.useForm()
+
+  const myList = useMemo(
+    () => list.filter((d) => (d.responsible ?? '').split(';').some((r) => r.trim() === workNo)),
+    [list, workNo],
+  )
+
+  // Apply view filter + group filter
+  const displayedList = useMemo(() => {
+    let result = dutyView === 'mine' ? myList : list
+    if (filterGroup) result = result.filter((d) => (d.group ?? '未分組') === filterGroup)
+    return result
+  }, [dutyView, myList, list, filterGroup])
+
+  // Unique groups from the full list
+  const existingGroups = useMemo(
+    () => Array.from(new Set(list.map((d) => d.group).filter(Boolean) as string[])),
+    [list],
+  )
+  const groupFilterOptions = useMemo(
+    () => existingGroups.map((g) => ({ label: g, value: g })),
+    [existingGroups],
+  )
+  const groupAutoOptions = useMemo(
+    () => existingGroups.map((g) => ({ value: g, label: g })),
+    [existingGroups],
+  )
+
+  // Grouped data
+  const groupedDuties = useMemo(() => {
+    const map = new Map<string, TemporaryDuty[]>()
+    displayedList.forEach((d) => {
+      const g = d.group || '未分組'
+      if (!map.has(g)) map.set(g, [])
+      map.get(g)!.push(d)
+    })
+    return Array.from(map.entries()).map(([name, items]) => ({
+      name,
+      items,
+      count: items.length,
+      avgProgress: Math.round(items.reduce((s, d) => s + (d.progress ?? 0), 0) / items.length),
+      overdueCount: items.filter((d) => d.expected_end_date && new Date(d.expected_end_date) < new Date() && d.status !== 3).length,
+    }))
+  }, [displayedList])
 
   useEffect(() => { dispatch(fetchDutyListThunk(query)) }, [dispatch, query])
 
@@ -60,6 +107,7 @@ const DutyListPage: React.FC = () => {
         payload: {
           duty_nm:             values.duty_nm as string,
           describe:            values.describe as string | undefined,
+          group:               values.group as string | undefined,
           priority:            values.priority as number,
           expected_start_date: values.expected_start_date as string | undefined,
           expected_end_date:   values.expected_end_date as string | undefined,
@@ -83,6 +131,12 @@ const DutyListPage: React.FC = () => {
           </Button>
         </div>
       ),
+    },
+    {
+      title: '分組', dataIndex: 'group', width: 100,
+      render: (v: string) => v ? (
+        <Tag style={{ fontSize: 10, lineHeight: '16px', padding: '0 5px', margin: 0 }} color="processing">{v}</Tag>
+      ) : <span className="text-slate-300 text-xs">—</span>,
     },
     {
       title: '狀態', dataIndex: 'status', width: 110,
@@ -131,6 +185,9 @@ const DutyListPage: React.FC = () => {
     },
   ]
 
+  // In grouped mode, hide the group column since it's shown as the panel header
+  const groupedColumns = columns.filter((c) => (c as { dataIndex?: string }).dataIndex !== 'group')
+
   return (
     <div className="p-6">
       {/* Header */}
@@ -146,7 +203,27 @@ const DutyListPage: React.FC = () => {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap gap-3 mb-4 bg-white p-3 rounded-xl shadow-sm border border-slate-100">
+      <div className="flex flex-wrap items-center gap-3 mb-4 bg-white p-3 rounded-xl shadow-sm border border-slate-100">
+        {/* 全部/我的 切換 */}
+        <Segmented
+          value={dutyView}
+          onChange={(v) => setDutyView(v as 'all' | 'mine')}
+          options={[
+            { label: `全部 (${list.length})`, value: 'all'  },
+            { label: `我的 (${myList.length})`, value: 'mine' },
+          ]}
+        />
+        <div className="w-px h-5 bg-slate-200" />
+        <Segmented
+          size="small"
+          value={groupMode}
+          onChange={(v) => setGroupMode(v as 'flat' | 'grouped')}
+          options={[
+            { label: '分組', value: 'grouped' },
+            { label: '平面', value: 'flat'    },
+          ]}
+        />
+        <div className="w-px h-5 bg-slate-200" />
         <Search placeholder="搜索任務名稱..." allowClear style={{ width: 220 }}
           prefix={<MagnifyingGlassIcon className="w-4 h-4 text-slate-400" />}
           onSearch={(v) => dispatch(setDutyQuery({ keyword: v, page: 1 }))}
@@ -159,20 +236,76 @@ const DutyListPage: React.FC = () => {
           onChange={(v) => dispatch(setDutyQuery({ priority: v, page: 1 }))}
           options={[{value:1,label:'低'},{value:2,label:'中'},{value:3,label:'高'},{value:4,label:'緊急'}]}
         />
+        {/* Group filter */}
+        {groupFilterOptions.length > 0 && (
+          <Select
+            placeholder="分組"
+            allowClear
+            style={{ width: 120 }}
+            value={filterGroup}
+            onChange={(v) => setFilterGroup(v ?? null)}
+            options={groupFilterOptions}
+          />
+        )}
       </div>
 
-      {/* Table */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-1">
-        <Table
-          rowKey="id" columns={columns} dataSource={list} loading={isLoading}
-          pagination={{
-            current: query.page, pageSize: query.size ?? 10, total: totalCount,
-            showSizeChanger: true, showTotal: (t) => `共 ${t} 條`,
-            onChange: (page, size) => dispatch(setDutyQuery({ page, size })),
-          }}
-          scroll={{ x: 860 }} size="middle"
-        />
-      </div>
+      {/* Table / Grouped display */}
+      {groupMode === 'flat' ? (
+        <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-1">
+          <Table
+            rowKey="id" columns={columns} dataSource={displayedList} loading={isLoading}
+            pagination={{
+              current: query.page, pageSize: query.size ?? 10,
+              total: dutyView === 'mine' ? myList.length : totalCount,
+              showSizeChanger: true, showTotal: (t) => `共 ${t} 條`,
+              onChange: (page, size) => dispatch(setDutyQuery({ page, size })),
+            }}
+            scroll={{ x: 920 }} size="middle"
+          />
+        </div>
+      ) : (
+        <div>
+          {isLoading ? (
+            <div className="flex justify-center py-12"><Spin size="large" /></div>
+          ) : groupedDuties.length === 0 ? (
+            <Empty description="暫無任務" className="py-12" />
+          ) : (
+            <Collapse
+              defaultActiveKey={groupedDuties.map((g) => g.name)}
+              className="bg-transparent border-0"
+              expandIconPosition="start"
+            >
+              {groupedDuties.map((g) => (
+                <Collapse.Panel
+                  key={g.name}
+                  header={
+                    <div className="flex items-center gap-3">
+                      <FolderIcon className="w-4 h-4 text-blue-500" />
+                      <span className="font-semibold text-slate-700">{g.name}</span>
+                      <Tag color="blue" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>
+                        {g.count} 項
+                      </Tag>
+                      <Progress
+                        percent={g.avgProgress} size="small" showInfo={false}
+                        style={{ width: 80 }} strokeColor="#2563eb" trailColor="#e2e8f0"
+                      />
+                      <span className="text-xs text-slate-400">{g.avgProgress}%</span>
+                      {g.overdueCount > 0 && (
+                        <Tag color="error" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>
+                          超時 {g.overdueCount}
+                        </Tag>
+                      )}
+                    </div>
+                  }
+                >
+                  <Table rowKey="id" columns={groupedColumns} dataSource={g.items}
+                    pagination={false} size="small" scroll={{ x: 820 }} />
+                </Collapse.Panel>
+              ))}
+            </Collapse>
+          )}
+        </div>
+      )}
 
       {/* Create Modal */}
       <Modal title="新建臨時任務" open={showCreate}
@@ -185,6 +318,13 @@ const DutyListPage: React.FC = () => {
           <div className="grid grid-cols-2 gap-x-4">
             <Form.Item name="priority" label="優先級" rules={[{ required: true }]} initialValue={2}>
               <Select options={[{value:1,label:'低'},{value:2,label:'中'},{value:3,label:'高'},{value:4,label:'緊急'}]} />
+            </Form.Item>
+            <Form.Item name="group" label="任務分組">
+              <AutoComplete
+                options={groupAutoOptions}
+                placeholder="選擇或輸入分組"
+                filterOption={(input, option) => (option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
+              />
             </Form.Item>
             <Form.Item name="expected_start_date" label="預計開始"><Input type="date" /></Form.Item>
             <Form.Item name="expected_end_date" label="預計完成"><Input type="date" /></Form.Item>

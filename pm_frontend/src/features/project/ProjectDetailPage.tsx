@@ -1,22 +1,24 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   Tabs, Descriptions, Button, Tag, Progress, Spin, Empty, Table,
   Space, Tooltip, Popconfirm, Modal, Form, Input, Select, Steps, Avatar,
-  Timeline, Card,
+  Timeline, Card, Segmented, Collapse, AutoComplete,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import {
   ArrowLeftIcon, PlusIcon, EyeIcon, TrashIcon,
-  CodeBracketIcon, UserCircleIcon,
+  CodeBracketIcon, UserCircleIcon, FolderIcon,
 } from '@heroicons/react/24/outline'
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
 import { fetchProjectThunk, clearCurrent } from './projectSlice'
 import { projectApi } from '@/api/project.api'
-import { ProjectFunction } from '@/types/api.types'
+import { ProjectFunction, Milestone } from '@/types/api.types'
 import { FUNCTION_STATUS_MAP, PRIORITY_MAP } from '@/utils/status'
 import { showToast } from '@/utils/toast'
 import FunctionDetailDrawer from './FunctionDetailDrawer'
+import GanttChart from './GanttChart'
+import MilestoneTab from './MilestoneTab'
 
 const PRIORITY_COLORS = ['', '#22c55e', '#f59e0b', '#ef4444', '#7c3aed']
 
@@ -43,10 +45,14 @@ const ProjectDetailPage: React.FC = () => {
   const navigate = useNavigate()
   const dispatch = useAppDispatch()
   const { current, isLoading } = useAppSelector((s) => s.project)
+  const workNo = useAppSelector((s) => s.auth.workNo) ?? ''
 
   const [functions,       setFunctions]       = useState<ProjectFunction[]>([])
+  const [funcView,        setFuncView]         = useState<'all' | 'mine'>('all')
+  const [funcGroupMode,   setFuncGroupMode]    = useState<'flat' | 'grouped'>('grouped')
   const [funcLoading,     setFuncLoading]      = useState(false)
   const [dynamics,        setDynamics]         = useState<Record<string, unknown>[]>([])
+  const [milestones,      setMilestones]       = useState<Milestone[]>([])
   const [selectedFid,     setSelectedFid]      = useState<string | null>(null)
   const [showAddFunc,     setShowAddFunc]      = useState(false)
   const [addFuncLoading,  setAddFuncLoading]   = useState(false)
@@ -57,6 +63,7 @@ const ProjectDetailPage: React.FC = () => {
       dispatch(fetchProjectThunk(id))
       loadFunctions(id)
       loadDynamics(id)
+      loadMilestones(id)
     }
     return () => { dispatch(clearCurrent()) }
   }, [id, dispatch])
@@ -76,6 +83,13 @@ const ProjectDetailPage: React.FC = () => {
       const res = await projectApi.memberDynamics(pid, { page: 1, size: 20 })
       const c = res.content as { data_list?: Record<string, unknown>[] }
       setDynamics((c.data_list ?? []) as Record<string, unknown>[])
+    } catch { /* global */ }
+  }
+
+  const loadMilestones = async (pid: string) => {
+    try {
+      const res = await projectApi.getMilestones(pid)
+      setMilestones(res.content as Milestone[])
     } catch { /* global */ }
   }
 
@@ -104,6 +118,37 @@ const ProjectDetailPage: React.FC = () => {
       showToast.success('功能刪除成功'); loadFunctions(id)
     } catch { /* global */ }
   }
+
+  const myFunctions = useMemo(
+    () => functions.filter((f) => (f.developers ?? '').split(';').some((d) => d.trim() === workNo)),
+    [functions, workNo],
+  )
+  const displayedFunctions = funcView === 'mine' ? myFunctions : functions
+
+  // Group-related computed data
+  const existingGroups = useMemo(
+    () => Array.from(new Set(functions.map((f) => f.group1).filter(Boolean))),
+    [functions],
+  )
+  const groupAutoOptions = useMemo(
+    () => existingGroups.map((g) => ({ value: g, label: g })),
+    [existingGroups],
+  )
+  const groupedFunctions = useMemo(() => {
+    const map = new Map<string, ProjectFunction[]>()
+    displayedFunctions.forEach((f) => {
+      const g = f.group1 || '未分組'
+      if (!map.has(g)) map.set(g, [])
+      map.get(g)!.push(f)
+    })
+    return Array.from(map.entries()).map(([name, items]) => ({
+      name,
+      items,
+      count: items.length,
+      avgProgress: Math.round(items.reduce((s, f) => s + (f.progress ?? 0), 0) / items.length),
+      overdueCount: items.filter((f) => f.expected_end_date && new Date(f.expected_end_date) < new Date() && f.status !== 4).length,
+    }))
+  }, [displayedFunctions])
 
   const funcColumns: ColumnsType<ProjectFunction> = [
     {
@@ -231,14 +276,77 @@ const ProjectDetailPage: React.FC = () => {
             children: (
               <Card bordered={false} className="shadow-sm" bodyStyle={{ padding: 0 }}>
                 <div className="flex justify-between items-center px-4 py-3 border-b border-slate-100">
-                  <span className="font-medium text-slate-700 text-sm">功能列表</span>
+                  <div className="flex items-center gap-3">
+                    <Segmented
+                      size="small"
+                      value={funcView}
+                      onChange={(v) => setFuncView(v as 'all' | 'mine')}
+                      options={[
+                        { label: `全部 (${functions.length})`, value: 'all'  },
+                        { label: `我的 (${myFunctions.length})`,     value: 'mine' },
+                      ]}
+                    />
+                    <div className="w-px h-5 bg-slate-200" />
+                    <Segmented
+                      size="small"
+                      value={funcGroupMode}
+                      onChange={(v) => setFuncGroupMode(v as 'flat' | 'grouped')}
+                      options={[
+                        { label: '分組', value: 'grouped' },
+                        { label: '平面', value: 'flat'    },
+                      ]}
+                    />
+                  </div>
                   <Button type="primary" icon={<PlusIcon className="w-4 h-4" />}
                     onClick={() => setShowAddFunc(true)} size="small" style={{ background: '#2563eb' }}>
                     新增功能
                   </Button>
                 </div>
-                <Table rowKey="id" columns={funcColumns} dataSource={functions}
-                  loading={funcLoading} pagination={{ pageSize: 10 }} size="middle" scroll={{ x: 800 }} />
+
+                {funcGroupMode === 'flat' ? (
+                  <Table rowKey="id" columns={funcColumns} dataSource={displayedFunctions}
+                    loading={funcLoading} pagination={{ pageSize: 10 }} size="middle" scroll={{ x: 800 }} />
+                ) : (
+                  <div className="px-2 py-2">
+                    {funcLoading ? (
+                      <div className="flex justify-center py-8"><Spin /></div>
+                    ) : groupedFunctions.length === 0 ? (
+                      <Empty description="暫無功能任務" className="py-8" />
+                    ) : (
+                      <Collapse
+                        defaultActiveKey={groupedFunctions.map((g) => g.name)}
+                        className="bg-transparent border-0"
+                        expandIconPosition="start"
+                      >
+                        {groupedFunctions.map((g) => (
+                          <Collapse.Panel
+                            key={g.name}
+                            header={
+                              <div className="flex items-center gap-3">
+                                <FolderIcon className="w-4 h-4 text-blue-500" />
+                                <span className="font-semibold text-slate-700">{g.name}</span>
+                                <Tag color="blue" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>{g.count} 項</Tag>
+                                <Progress
+                                  percent={g.avgProgress} size="small" showInfo={false}
+                                  style={{ width: 80 }} strokeColor="#2563eb" trailColor="#e2e8f0"
+                                />
+                                <span className="text-xs text-slate-400">{g.avgProgress}%</span>
+                                {g.overdueCount > 0 && (
+                                  <Tag color="error" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>
+                                    超時 {g.overdueCount}
+                                  </Tag>
+                                )}
+                              </div>
+                            }
+                          >
+                            <Table rowKey="id" columns={funcColumns} dataSource={g.items}
+                              pagination={false} size="small" scroll={{ x: 800 }} />
+                          </Collapse.Panel>
+                        ))}
+                      </Collapse>
+                    )}
+                  </div>
+                )}
               </Card>
             ),
           },
@@ -270,6 +378,24 @@ const ProjectDetailPage: React.FC = () => {
               </Card>
             ),
           },
+          {
+            key: 'gantt',
+            label: '甘特圖',
+            children: (
+              <Card bordered={false} className="shadow-sm" bodyStyle={{ padding: 16 }}>
+                <GanttChart functions={functions} milestones={milestones} />
+              </Card>
+            ),
+          },
+          {
+            key: 'milestones',
+            label: `里程碑 (${milestones.length})`,
+            children: (
+              <Card bordered={false} className="shadow-sm" bodyStyle={{ padding: 20 }}>
+                {id && <MilestoneTab projectId={id} functions={functions} />}
+              </Card>
+            ),
+          },
         ]}
       />
 
@@ -286,7 +412,11 @@ const ProjectDetailPage: React.FC = () => {
               <Select options={[{value:1,label:'低'},{value:2,label:'中'},{value:3,label:'高'},{value:4,label:'緊急'}]} />
             </Form.Item>
             <Form.Item name="group1" label="任務分組" rules={[{ required: true }]}>
-              <Input placeholder="分組名稱" />
+              <AutoComplete
+                options={groupAutoOptions}
+                placeholder="選擇或輸入分組名稱"
+                filterOption={(input, option) => (option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
+              />
             </Form.Item>
             <Form.Item name="expected_start_date" label="預計開始"><Input type="date" /></Form.Item>
             <Form.Item name="expected_end_date"   label="預計結束"><Input type="date" /></Form.Item>
