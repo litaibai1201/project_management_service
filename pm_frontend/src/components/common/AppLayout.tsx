@@ -6,7 +6,7 @@ import {
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import {
   HomeIcon, FolderIcon, ClipboardDocumentListIcon, UsersIcon,
-  UserGroupIcon, ClipboardDocumentCheckIcon, MagnifyingGlassIcon,
+  ClipboardDocumentCheckIcon, MagnifyingGlassIcon,
   BellIcon, ArrowRightStartOnRectangleIcon, Bars3Icon,
   ChevronDoubleLeftIcon, ChartBarIcon, PencilSquareIcon,
   ExclamationTriangleIcon, TableCellsIcon,
@@ -28,9 +28,8 @@ const NAV_ITEMS: NavItem[] = [
   { key: '/duties',      icon: <ClipboardDocumentListIcon className="w-[18px] h-[18px]" />,  label: '臨時任務', path: '/duties'      },
   { key: '/review',      icon: <ClipboardDocumentCheckIcon className="w-[18px] h-[18px]" />, label: '審核管理', path: '/review'      },
   { key: '/wbs',          icon: <TableCellsIcon className="w-[18px] h-[18px]" />,             label: '專案進度總覽', path: '/wbs'       },
-  { key: '/statistics',  icon: <ChartBarIcon className="w-[18px] h-[18px]" />,               label: '工作量統計', path: '/statistics' },
+  { key: '/statistics',  icon: <ChartBarIcon className="w-[18px] h-[18px]" />,               label: '統計與成員', path: '/statistics' },
   { key: '/anomaly',     icon: <ExclamationTriangleIcon className="w-[18px] h-[18px]" />,    label: '異常管理', path: '/anomaly'     },
-  { key: '/members',     icon: <UserGroupIcon className="w-[18px] h-[18px]" />,              label: '成員管理', path: '/members'     },
   { key: '/users',       icon: <UsersIcon className="w-[18px] h-[18px]" />,                  label: '用戶管理', path: '/users'       },
 ]
 

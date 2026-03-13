@@ -15,7 +15,7 @@ const ReviewListPage   = lazy(() => import('@/features/project/ReviewListPage'))
 const DutyListPage     = lazy(() => import('@/features/duty/DutyListPage'))
 const DutyDetailPage   = lazy(() => import('@/features/duty/DutyDetailPage'))
 const UserMgmtPage     = lazy(() => import('@/features/user/UserManagementPage'))
-const GroupMembersPage = lazy(() => import('@/features/group/GroupMembersPage'))
+// GroupMembersPage merged into StatisticsPage as "成員總覽" tab
 const SearchPage       = lazy(() => import('@/features/search/SearchPage'))
 const StatisticsPage   = lazy(() => import('@/features/statistics/StatisticsPage'))
 const DailyLogPage     = lazy(() => import('@/features/dailylog/DailyLogPage'))
@@ -55,7 +55,7 @@ const router = createBrowserRouter([
           { path: 'duties',           element: <Suspense fallback={<PageLoader />}><DutyListPage /></Suspense> },
           { path: 'duties/:id',       element: <Suspense fallback={<PageLoader />}><DutyDetailPage /></Suspense> },
           { path: 'users',            element: <Suspense fallback={<PageLoader />}><UserMgmtPage /></Suspense> },
-          { path: 'members',          element: <Suspense fallback={<PageLoader />}><GroupMembersPage /></Suspense> },
+          { path: 'members',          element: <Navigate to="/statistics" replace /> },
           { path: 'search',           element: <Suspense fallback={<PageLoader />}><SearchPage /></Suspense> },
           { path: 'statistics',       element: <Suspense fallback={<PageLoader />}><StatisticsPage /></Suspense> },
           { path: 'daily-log',        element: <Suspense fallback={<PageLoader />}><DailyLogPage /></Suspense> },
