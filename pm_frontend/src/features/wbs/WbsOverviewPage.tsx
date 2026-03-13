@@ -11,17 +11,18 @@
  *   - 角色控制：僅主管可見
  *   - 支援「全部顯示」模式（含歷史任務）
  *   - 可跳轉專案詳情，可展開任務進度追蹤記錄
+ *   - 會議備注：任務行快速記錄 + 專案維度彙整
  */
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useCallback } from 'react'
 import {
-  Tag, Tooltip, Progress, Collapse, Empty, Segmented, Input, Button, Timeline,
+  Tag, Tooltip, Progress, Collapse, Empty, Segmented, Input, Button, Timeline, Popover,
 } from 'antd'
 import {
   FolderIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon,
   ExclamationTriangleIcon, CheckCircleIcon,
   ArrowTrendingUpIcon, CalendarDaysIcon,
   ChartBarIcon, MagnifyingGlassIcon, ArrowDownTrayIcon,
-  EyeIcon,
+  EyeIcon, ChatBubbleOvalLeftEllipsisIcon, PlusIcon, CheckIcon, XMarkIcon,
 } from '@heroicons/react/24/outline'
 import { useNavigate } from 'react-router-dom'
 import dayjs from 'dayjs'
@@ -36,6 +37,8 @@ const { Panel } = Collapse
 
 type WeekTag = 'last_week' | 'this_week' | 'next_week'
 type TaskStatus = 'completed' | 'in_progress' | 'not_started' | 'overdue'
+type NoteType = '決策' | '行動項' | '風險' | '待確認'
+type NoteStatus = 'pending' | 'resolved'
 
 interface TaskProgressEntry {
   date: string
@@ -78,6 +81,18 @@ interface WbsProject {
   functions: WbsFunction[]
 }
 
+interface MeetingNote {
+  id: string
+  projectId: string
+  type: NoteType
+  content: string
+  taskId?: string
+  taskName?: string
+  author: string
+  createdAt: string   // ISO datetime string
+  status: NoteStatus
+}
+
 // ─── Week markers ───────────────────────────────────────────────────────────
 
 const WEEK_TAG_CONFIG: Record<WeekTag, { label: string; color: string; bg: string }> = {
@@ -91,6 +106,13 @@ const STATUS_CONFIG: Record<TaskStatus, { label: string; color: string; icon: Re
   in_progress: { label: '進行中', color: '#2563eb', icon: <ArrowTrendingUpIcon className="w-3.5 h-3.5 text-blue-500" /> },
   not_started: { label: '未開始', color: '#94a3b8', icon: <ClockIcon className="w-3.5 h-3.5 text-slate-400" /> },
   overdue:     { label: '超時',   color: '#dc2626', icon: <ExclamationTriangleIcon className="w-3.5 h-3.5 text-red-500" /> },
+}
+
+const NOTE_TYPE_CONFIG: Record<NoteType, { antColor: string; bg: string; color: string }> = {
+  '決策':   { antColor: 'blue',   bg: '#eff6ff', color: '#2563eb' },
+  '行動項': { antColor: 'green',  bg: '#f0fdf4', color: '#16a34a' },
+  '風險':   { antColor: 'red',    bg: '#fef2f2', color: '#dc2626' },
+  '待確認': { antColor: 'orange', bg: '#fff7ed', color: '#d97706' },
 }
 
 // ─── Mock Data ──────────────────────────────────────────────────────────────
@@ -319,6 +341,204 @@ const TaskProgressDetail: React.FC<{ task: WbsTask }> = ({ task }) => {
   )
 }
 
+// ─── Note Add Popover ────────────────────────────────────────────────────────
+
+const NoteAddPopover: React.FC<{
+  taskName?: string
+  onAdd: (type: NoteType, content: string) => void
+  children: React.ReactNode
+}> = ({ taskName, onAdd, children }) => {
+  const [open, setOpen] = useState(false)
+  const [noteType, setNoteType] = useState<NoteType>('行動項')
+  const [noteContent, setNoteContent] = useState('')
+
+  const handleAdd = () => {
+    if (!noteContent.trim()) return
+    onAdd(noteType, noteContent.trim())
+    setNoteContent('')
+    setOpen(false)
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      handleAdd()
+    }
+  }
+
+  const handleOpenChange = (v: boolean) => {
+    setOpen(v)
+    if (!v) setNoteContent('')
+  }
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={handleOpenChange}
+      trigger="click"
+      placement="bottomRight"
+      title={
+        <div className="flex items-center gap-2">
+          <ChatBubbleOvalLeftEllipsisIcon className="w-4 h-4 text-blue-500" />
+          <span className="text-xs font-semibold text-slate-700">
+            {taskName ? `會議備注 · ${taskName}` : '新增專案備注'}
+          </span>
+        </div>
+      }
+      content={
+        <div className="w-64">
+          <div className="flex gap-1 mb-2 flex-wrap">
+            {(['決策', '行動項', '風險', '待確認'] as NoteType[]).map((t) => (
+              <Tag
+                key={t}
+                color={noteType === t ? NOTE_TYPE_CONFIG[t].antColor : 'default'}
+                style={{ fontSize: 10, lineHeight: '18px', margin: 0, padding: '0 6px', cursor: 'pointer' }}
+                onClick={() => setNoteType(t)}
+              >
+                {t}
+              </Tag>
+            ))}
+          </div>
+          <Input.TextArea
+            rows={3}
+            placeholder={`記錄${noteType === '決策' ? '決策結果與依據' : noteType === '行動項' ? '待辦事項與負責人' : noteType === '風險' ? '風險點與應對方案' : '待確認的問題'}... (⌘Enter 快速提交)`}
+            value={noteContent}
+            onChange={(e) => setNoteContent(e.target.value)}
+            onKeyDown={handleKeyDown}
+            size="small"
+            autoFocus
+          />
+          <div className="flex justify-end mt-2 gap-1.5">
+            <Button size="small" onClick={() => { setOpen(false); setNoteContent('') }}>取消</Button>
+            <Button size="small" type="primary" onClick={handleAdd} disabled={!noteContent.trim()}>
+              記錄
+            </Button>
+          </div>
+          <p className="text-[9px] text-slate-300 mt-1 text-right">⌘Enter 快速提交</p>
+        </div>
+      }
+    >
+      {children}
+    </Popover>
+  )
+}
+
+// ─── Meeting Notes Panel ─────────────────────────────────────────────────────
+
+const MeetingNotesPanel: React.FC<{
+  notes: MeetingNote[]
+  onAddProjectNote: (type: NoteType, content: string) => void
+  onResolve: (noteId: string) => void
+  onDelete: (noteId: string) => void
+}> = ({ notes, onAddProjectNote, onResolve, onDelete }) => {
+  const pendingNotes = notes.filter((n) => n.status === 'pending')
+  const resolvedNotes = notes.filter((n) => n.status === 'resolved')
+  const [showResolved, setShowResolved] = useState(false)
+
+  const displayedNotes = showResolved ? notes : pendingNotes
+
+  return (
+    <div className="border border-dashed border-blue-200 rounded-lg overflow-hidden bg-blue-50/20">
+      {/* Panel header */}
+      <div className="flex items-center justify-between px-3 py-2 bg-blue-50/60 border-b border-blue-100">
+        <div className="flex items-center gap-2">
+          <ChatBubbleOvalLeftEllipsisIcon className="w-4 h-4 text-blue-500" />
+          <span className="text-xs font-semibold text-blue-700">會議備注</span>
+          {pendingNotes.length > 0 && (
+            <span className="text-[10px] font-bold bg-blue-500 text-white rounded-full px-1.5 py-0.5 leading-none min-w-[18px] text-center">
+              {pendingNotes.length}
+            </span>
+          )}
+          {resolvedNotes.length > 0 && (
+            <button
+              className="border-0 bg-transparent cursor-pointer text-[10px] text-slate-400 hover:text-slate-600 transition-colors"
+              onClick={() => setShowResolved(!showResolved)}
+            >
+              {showResolved ? '隱藏已處理' : `+${resolvedNotes.length} 已處理`}
+            </button>
+          )}
+        </div>
+        <NoteAddPopover onAdd={onAddProjectNote}>
+          <button
+            className="border-0 bg-transparent cursor-pointer flex items-center gap-1 text-[11px] font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-100 rounded px-2 py-1 transition-colors"
+          >
+            <PlusIcon className="w-3 h-3" />
+            新增備注
+          </button>
+        </NoteAddPopover>
+      </div>
+
+      {/* Notes list */}
+      {displayedNotes.length === 0 ? (
+        <div className="px-4 py-4 text-center">
+          <ChatBubbleOvalLeftEllipsisIcon className="w-6 h-6 text-slate-200 mx-auto mb-1" />
+          <p className="text-[11px] text-slate-400">
+            {notes.length === 0
+              ? '懸停任務名稱旁的 💬 圖標，或點擊「新增備注」記錄會議要點'
+              : '所有備注均已處理完成'}
+          </p>
+        </div>
+      ) : (
+        <div className="divide-y divide-blue-50">
+          {displayedNotes.map((note) => (
+            <div
+              key={note.id}
+              className={`px-3 py-2.5 flex gap-2.5 items-start transition-colors hover:bg-blue-50/30 ${note.status === 'resolved' ? 'opacity-50' : ''}`}
+            >
+              <Tag
+                color={NOTE_TYPE_CONFIG[note.type].antColor}
+                style={{ fontSize: 9, lineHeight: '14px', margin: 0, padding: '0 4px', flexShrink: 0, marginTop: 2 }}
+              >
+                {note.type}
+              </Tag>
+              <div className="flex-1 min-w-0">
+                <p className={`text-[11px] leading-relaxed ${note.status === 'resolved' ? 'line-through text-slate-400' : 'text-slate-700'}`}>
+                  {note.content}
+                </p>
+                <div className="flex items-center gap-2 mt-1 flex-wrap">
+                  {note.taskName && (
+                    <span className="text-[9px] text-blue-500 bg-blue-50 border border-blue-100 rounded px-1.5 py-0.5">
+                      📌 {note.taskName}
+                    </span>
+                  )}
+                  {!note.taskName && (
+                    <span className="text-[9px] text-slate-400 bg-slate-50 border border-slate-100 rounded px-1.5 py-0.5">
+                      專案層級
+                    </span>
+                  )}
+                  <span className="text-[9px] text-slate-300">
+                    {note.author} · {dayjs(note.createdAt).format('HH:mm')}
+                  </span>
+                  {note.status === 'resolved' && (
+                    <span className="text-[9px] text-green-500">✓ 已處理</span>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-0.5 flex-shrink-0">
+                <Tooltip title={note.status === 'pending' ? '標記為已處理' : '撤銷處理'}>
+                  <button
+                    className={`border-0 bg-transparent cursor-pointer p-1 rounded transition-colors ${note.status === 'resolved' ? 'text-green-500 hover:bg-green-50' : 'text-slate-300 hover:text-green-500 hover:bg-green-50'}`}
+                    onClick={() => onResolve(note.id)}
+                  >
+                    <CheckIcon className="w-3.5 h-3.5" />
+                  </button>
+                </Tooltip>
+                <Tooltip title="刪除備注">
+                  <button
+                    className="border-0 bg-transparent cursor-pointer p-1 rounded text-slate-300 hover:text-red-400 hover:bg-red-50 transition-colors"
+                    onClick={() => onDelete(note.id)}
+                  >
+                    <XMarkIcon className="w-3.5 h-3.5" />
+                  </button>
+                </Tooltip>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Task Row Component ─────────────────────────────────────────────────────
 
 const TaskRow: React.FC<{
@@ -326,7 +546,9 @@ const TaskRow: React.FC<{
   onWeekTagClick?: (wt: WeekTag) => void
   expanded?: boolean
   onToggleExpand?: () => void
-}> = ({ task, onWeekTagClick, expanded = false, onToggleExpand }) => {
+  noteCount?: number
+  onAddNote?: (type: NoteType, content: string) => void
+}> = ({ task, onWeekTagClick, expanded = false, onToggleExpand, noteCount = 0, onAddNote }) => {
   const sc = STATUS_CONFIG[task.status]
   const isOverdue = task.status === 'overdue'
   const isCompleted = task.status === 'completed'
@@ -334,7 +556,7 @@ const TaskRow: React.FC<{
 
   return (
     <>
-      <div className={`flex items-start gap-3 px-4 py-2.5 border-b border-slate-50 last:border-b-0 hover:bg-slate-50/50 transition-colors ${isOverdue ? 'bg-red-50/30' : ''}`}>
+      <div className={`group flex items-start gap-3 px-4 py-2.5 border-b border-slate-50 last:border-b-0 hover:bg-slate-50/50 transition-colors ${isOverdue ? 'bg-red-50/30' : ''}`}>
         {/* Status icon */}
         <div className="mt-0.5 flex-shrink-0">{sc.icon}</div>
 
@@ -410,6 +632,26 @@ const TaskRow: React.FC<{
           )}
         </div>
 
+        {/* Meeting note button */}
+        {onAddNote && (
+          <div className="flex-shrink-0 w-[24px] flex items-center justify-center">
+            <NoteAddPopover taskName={task.name} onAdd={onAddNote}>
+              <button
+                className={`border-0 bg-transparent cursor-pointer relative p-0.5 rounded transition-all ${noteCount > 0 ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} hover:bg-blue-50`}
+                onClick={(e) => e.stopPropagation()}
+                title="新增會議備注"
+              >
+                <ChatBubbleOvalLeftEllipsisIcon className={`w-3.5 h-3.5 transition-colors ${noteCount > 0 ? 'text-blue-500' : 'text-slate-400 hover:text-blue-500'}`} />
+                {noteCount > 0 && (
+                  <span className="absolute -top-1 -right-1 w-3.5 h-3.5 text-[8px] font-bold bg-blue-500 text-white rounded-full flex items-center justify-center leading-none">
+                    {noteCount > 9 ? '9+' : noteCount}
+                  </span>
+                )}
+              </button>
+            </NoteAddPopover>
+          </div>
+        )}
+
       </div>
       {/* Expandable progress detail */}
       {expanded && <TaskProgressDetail task={task} />}
@@ -425,7 +667,9 @@ const FunctionModule: React.FC<{
   onWeekTagClick?: (wt: WeekTag) => void
   expandedTaskId: string | null
   onToggleTaskExpand: (taskId: string) => void
-}> = ({ func, defaultOpen = true, onWeekTagClick, expandedTaskId, onToggleTaskExpand }) => {
+  noteCountByTaskId: Record<string, number>
+  onAddNote: (taskId: string, taskName: string, type: NoteType, content: string) => void
+}> = ({ func, defaultOpen = true, onWeekTagClick, expandedTaskId, onToggleTaskExpand, noteCountByTaskId, onAddNote }) => {
   const [expanded, setExpanded] = useState(defaultOpen)
   const overdueCount = func.tasks.filter((t) => t.status === 'overdue').length
   const completedCount = func.tasks.filter((t) => t.status === 'completed').length
@@ -474,6 +718,8 @@ const FunctionModule: React.FC<{
               onWeekTagClick={onWeekTagClick}
               expanded={expandedTaskId === t.id}
               onToggleExpand={() => onToggleTaskExpand(t.id)}
+              noteCount={noteCountByTaskId[t.id] ?? 0}
+              onAddNote={(type, content) => onAddNote(t.id, t.name, type, content)}
             />
           ))}
         </div>
@@ -490,7 +736,11 @@ const ProjectCard: React.FC<{
   onWeekTagClick?: (wt: WeekTag) => void
   expandedTaskId: string | null
   onToggleTaskExpand: (taskId: string) => void
-}> = ({ project, originalProject, onWeekTagClick, expandedTaskId, onToggleTaskExpand }) => {
+  notes: MeetingNote[]
+  onAddNote: (taskId: string | null, taskName: string | null, type: NoteType, content: string) => void
+  onResolveNote: (noteId: string) => void
+  onDeleteNote: (noteId: string) => void
+}> = ({ project, originalProject, onWeekTagClick, expandedTaskId, onToggleTaskExpand, notes, onAddNote, onResolveNote, onDeleteNote }) => {
   const navigate = useNavigate()
 
   // Use ORIGINAL project data for summary stats to avoid filter distortion
@@ -506,6 +756,29 @@ const ProjectCard: React.FC<{
 
   const priorityColor = originalProject.priority >= 4 ? '#dc2626' : originalProject.priority >= 3 ? '#d97706' : originalProject.priority >= 2 ? '#2563eb' : '#94a3b8'
   const priorityLabel = originalProject.priority >= 4 ? '緊急' : originalProject.priority >= 3 ? '高' : originalProject.priority >= 2 ? '中' : '低'
+
+  const pendingNoteCount = notes.filter((n) => n.status === 'pending').length
+
+  // Build note count by taskId for highlighting task rows
+  const noteCountByTaskId = useMemo(() => {
+    const map: Record<string, number> = {}
+    notes.forEach((n) => {
+      if (n.taskId) {
+        map[n.taskId] = (map[n.taskId] ?? 0) + 1
+      }
+    })
+    return map
+  }, [notes])
+
+  // Auto-expand notes panel when first note is added
+  const [showNotes, setShowNotes] = useState(false)
+  const prevNoteCountRef = React.useRef(notes.length)
+  React.useEffect(() => {
+    if (notes.length > prevNoteCountRef.current) {
+      setShowNotes(true)
+    }
+    prevNoteCountRef.current = notes.length
+  }, [notes.length])
 
   return (
     <Collapse
@@ -533,6 +806,12 @@ const ProjectCard: React.FC<{
               <div className="flex items-center gap-1">
                 <ExclamationTriangleIcon className="w-3.5 h-3.5 text-red-500" />
                 <span className="text-[10px] text-red-500 font-semibold">{overdueTasks} 項超時</span>
+              </div>
+            )}
+            {pendingNoteCount > 0 && (
+              <div className="flex items-center gap-1">
+                <ChatBubbleOvalLeftEllipsisIcon className="w-3.5 h-3.5 text-blue-400" />
+                <span className="text-[10px] text-blue-500 font-semibold">{pendingNoteCount} 條備注</span>
               </div>
             )}
             {isFiltered && (
@@ -593,8 +872,43 @@ const ProjectCard: React.FC<{
             onWeekTagClick={onWeekTagClick}
             expandedTaskId={expandedTaskId}
             onToggleTaskExpand={onToggleTaskExpand}
+            noteCountByTaskId={noteCountByTaskId}
+            onAddNote={(taskId, taskName, type, content) => onAddNote(taskId, taskName, type, content)}
           />
         ))}
+
+        {/* Meeting Notes Section */}
+        <div className="mt-3 px-1">
+          <button
+            className="border-0 bg-transparent cursor-pointer w-full flex items-center gap-2 py-1.5 text-left group/notes"
+            onClick={() => setShowNotes(!showNotes)}
+          >
+            {showNotes
+              ? <ChevronDownIcon className="w-3 h-3 text-blue-400" />
+              : <ChevronRightIcon className="w-3 h-3 text-slate-400 group-hover/notes:text-blue-400 transition-colors" />
+            }
+            <ChatBubbleOvalLeftEllipsisIcon className={`w-3.5 h-3.5 ${showNotes || pendingNoteCount > 0 ? 'text-blue-500' : 'text-slate-400 group-hover/notes:text-blue-400 transition-colors'}`} />
+            <span className={`text-[11px] font-semibold ${showNotes || pendingNoteCount > 0 ? 'text-blue-600' : 'text-slate-400 group-hover/notes:text-blue-500 transition-colors'}`}>
+              會議備注
+            </span>
+            {pendingNoteCount > 0 && (
+              <span className="text-[10px] font-bold bg-blue-500 text-white rounded-full px-1.5 py-0.5 leading-none">
+                {pendingNoteCount}
+              </span>
+            )}
+            {notes.length === 0 && (
+              <span className="text-[10px] text-slate-300">（點擊展開記錄）</span>
+            )}
+          </button>
+          {showNotes && (
+            <MeetingNotesPanel
+              notes={notes}
+              onAddProjectNote={(type, content) => onAddNote(null, null, type, content)}
+              onResolve={onResolveNote}
+              onDelete={onDeleteNote}
+            />
+          )}
+        </div>
       </Panel>
     </Collapse>
   )
@@ -609,10 +923,51 @@ const WbsOverviewPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<TaskStatus | 'all'>('all')
   const [searchKeyword, setSearchKeyword] = useState('')
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null)
+  const [meetingNotes, setMeetingNotes] = useState<Record<string, MeetingNote[]>>({})
 
   const handleToggleTaskExpand = (taskId: string) => {
     setExpandedTaskId((prev) => prev === taskId ? null : taskId)
   }
+
+  const handleAddNote = useCallback((
+    projectId: string,
+    taskId: string | null,
+    taskName: string | null,
+    type: NoteType,
+    content: string
+  ) => {
+    const note: MeetingNote = {
+      id: `note-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      projectId,
+      type,
+      content,
+      taskId: taskId ?? undefined,
+      taskName: taskName ?? undefined,
+      author: '王經理',
+      createdAt: new Date().toISOString(),
+      status: 'pending',
+    }
+    setMeetingNotes((prev) => ({
+      ...prev,
+      [projectId]: [note, ...(prev[projectId] ?? [])],
+    }))
+  }, [])
+
+  const handleResolveNote = useCallback((projectId: string, noteId: string) => {
+    setMeetingNotes((prev) => ({
+      ...prev,
+      [projectId]: (prev[projectId] ?? []).map((n) =>
+        n.id === noteId ? { ...n, status: n.status === 'pending' ? 'resolved' : 'pending' } : n
+      ),
+    }))
+  }, [])
+
+  const handleDeleteNote = useCallback((projectId: string, noteId: string) => {
+    setMeetingNotes((prev) => ({
+      ...prev,
+      [projectId]: (prev[projectId] ?? []).filter((n) => n.id !== noteId),
+    }))
+  }, [])
 
   // Summary stats (always from full data)
   const summary = useMemo(() => {
@@ -629,15 +984,17 @@ const WbsOverviewPage: React.FC = () => {
     }
   }, [])
 
+  // Total pending notes across all projects (for header indicator)
+  const totalPendingNotes = useMemo(() => {
+    return Object.values(meetingNotes).reduce((sum, notes) => sum + notes.filter((n) => n.status === 'pending').length, 0)
+  }, [meetingNotes])
+
   // Apply filters to projects
   const filteredProjects = useMemo(() => {
     const kw = searchKeyword.toLowerCase()
     return MOCK_WBS_DATA.map((project) => {
       const filteredFunctions = project.functions.map((func) => {
         const filteredTasks = func.tasks.filter((task) => {
-          // 'all' = default 3 weeks (tasks with any week_tag OR tasks without week_tag that are in_progress/overdue)
-          // 'show_all' = no week filter at all
-          // specific week = only that week
           const weekMatch =
             weekFilter === 'show_all' ? true :
             weekFilter === 'all' ? (task.week_tag.length > 0 || task.status === 'in_progress' || task.status === 'overdue') :
@@ -689,14 +1046,21 @@ const WbsOverviewPage: React.FC = () => {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            size="small"
-            icon={<ArrowDownTrayIcon className="w-3.5 h-3.5" />}
+          {totalPendingNotes > 0 && (
+            <div className="flex items-center gap-1.5 bg-blue-50 border border-blue-200 rounded-lg px-3 py-1.5">
+              <ChatBubbleOvalLeftEllipsisIcon className="w-3.5 h-3.5 text-blue-500" />
+              <span className="text-xs font-semibold text-blue-600">
+                {totalPendingNotes} 條待處理備注
+              </span>
+            </div>
+          )}
+          <button
             onClick={() => exportWbsCSV(MOCK_WBS_DATA)}
-            className="text-slate-600"
+            className="flex items-center gap-1.5 text-xs text-slate-600 hover:text-slate-800 bg-white border border-slate-200 hover:border-slate-300 rounded-lg px-3 py-1.5 transition-colors"
           >
+            <ArrowDownTrayIcon className="w-3.5 h-3.5" />
             導出 CSV
-          </Button>
+          </button>
           <span className="text-xs text-slate-500 bg-slate-100 rounded-lg px-2 py-1">
             <CalendarDaysIcon className="w-3.5 h-3.5 inline-block mr-1 -mt-0.5" />
             {dayjs().format('YYYY/MM/DD dddd')}
@@ -790,6 +1154,10 @@ const WbsOverviewPage: React.FC = () => {
             onWeekTagClick={handleWeekTagClick}
             expandedTaskId={expandedTaskId}
             onToggleTaskExpand={handleToggleTaskExpand}
+            notes={meetingNotes[p.id] ?? []}
+            onAddNote={(taskId, taskName, type, content) => handleAddNote(p.id, taskId, taskName, type, content)}
+            onResolveNote={(noteId) => handleResolveNote(p.id, noteId)}
+            onDeleteNote={(noteId) => handleDeleteNote(p.id, noteId)}
           />
         ))
       )}
