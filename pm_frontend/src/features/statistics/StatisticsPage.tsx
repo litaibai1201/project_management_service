@@ -616,160 +616,6 @@ const MOCK_OVERTIME_WEEKLY = [
   { week: 'W09', normal: 39, overtime: 3 },
   { week: 'W10', normal: 37, overtime: 5 },
 ]
-const MOCK_MEMBERS_SELECT = [
-  { value: 'DEV001', label: '王小明' },
-  { value: 'DEV002', label: '李大華' },
-  { value: 'DEV003', label: '張美玲' },
-  { value: 'DEV004', label: '陳建國' },
-  { value: 'DEV005', label: '林小芸' },
-]
-
-const PersonalAnalysisTab: React.FC = () => {
-  const [selectedMember, setSelectedMember] = useState('DEV001')
-  const memberName = MOCK_MEMBERS_SELECT.find((m) => m.value === selectedMember)?.label ?? ''
-  const totalHours = MOCK_PERSONAL_PROJECT_DIST.reduce((s, d) => s + d.hours, 0)
-  const totalOvertime = MOCK_OVERTIME_WEEKLY.reduce((s, d) => s + d.overtime, 0)
-  const totalNormal = MOCK_OVERTIME_WEEKLY.reduce((s, d) => s + d.normal, 0)
-
-  return (
-    <div>
-      {/* Member selector */}
-      <div className="flex items-center gap-3 mb-5 bg-white rounded-xl border border-slate-100 shadow-sm px-4 py-3">
-        <UserIcon className="w-4 h-4 text-slate-400" />
-        <span className="text-xs font-semibold text-slate-500">查看成員</span>
-        <select
-          value={selectedMember}
-          onChange={(e) => setSelectedMember(e.target.value)}
-          className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm text-slate-700 bg-white"
-        >
-          {MOCK_MEMBERS_SELECT.map((m) => (
-            <option key={m.value} value={m.value}>{m.label} ({m.value})</option>
-          ))}
-        </select>
-        <span className="ml-auto text-xs text-slate-400">近 5 週數據</span>
-      </div>
-
-      {/* Summary */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-        {[
-          { label: '總工時', value: totalHours, unit: 'h', color: '#2563eb', bg: '#eff6ff', icon: <ClockIcon className="w-4 h-4 text-blue-500" /> },
-          { label: '正常工時', value: totalNormal, unit: 'h', color: '#16a34a', bg: '#f0fdf4', icon: <SunIcon className="w-4 h-4 text-green-500" /> },
-          { label: '加班工時', value: totalOvertime, unit: 'h', color: '#d97706', bg: '#fff7ed', icon: <MoonIcon className="w-4 h-4 text-orange-500" /> },
-          { label: '加班佔比', value: Math.round((totalOvertime / (totalNormal + totalOvertime)) * 100), unit: '%', color: '#dc2626', bg: '#fef2f2', icon: <ExclamationTriangleIcon className="w-4 h-4 text-red-500" /> },
-        ].map((s) => (
-          <div key={s.label} className="bg-white rounded-xl border border-slate-100 shadow-sm px-4 py-3 flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: s.bg }}>{s.icon}</div>
-            <div>
-              <div className="text-[10px] text-slate-400 leading-none mb-0.5">{s.label}</div>
-              <div className="font-bold text-lg leading-none" style={{ color: s.color }}>
-                {s.value}<span className="text-xs font-normal text-slate-400 ml-0.5">{s.unit}</span>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <Row gutter={[16, 16]} className="mb-5">
-        {/* Project distribution pie */}
-        <Col xs={24} md={8}>
-          <Card bordered={false} className="shadow-sm h-full"
-            title={<span className="text-sm font-semibold text-slate-700">專案工時分佈</span>}
-            bodyStyle={{ paddingTop: 4 }}>
-            <ResponsiveContainer width="100%" height={200}>
-              <PieChart>
-                <Pie data={MOCK_PERSONAL_PROJECT_DIST} dataKey="hours" nameKey="name" cx="50%" cy="50%" innerRadius={45} outerRadius={75} paddingAngle={2}>
-                  {MOCK_PERSONAL_PROJECT_DIST.map((d, i) => <Cell key={i} fill={d.color} />)}
-                </Pie>
-                <RTooltip formatter={(v: number) => [`${v}h`, '工時']} contentStyle={{ borderRadius: 8, fontSize: 11, border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }} />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="flex flex-col gap-1 mt-1">
-              {MOCK_PERSONAL_PROJECT_DIST.map((d) => (
-                <div key={d.name} className="flex items-center gap-2 text-xs">
-                  <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: d.color }} />
-                  <span className="text-slate-600 truncate flex-1">{d.name}</span>
-                  <span className="text-slate-400 font-medium">{d.hours}h</span>
-                  <span className="text-slate-300 w-8 text-right">{Math.round((d.hours / totalHours) * 100)}%</span>
-                </div>
-              ))}
-            </div>
-          </Card>
-        </Col>
-
-        {/* BU distribution pie */}
-        <Col xs={24} md={8}>
-          <Card bordered={false} className="shadow-sm h-full"
-            title={<span className="text-sm font-semibold text-slate-700">BU/單位工時分佈</span>}
-            bodyStyle={{ paddingTop: 4 }}>
-            <ResponsiveContainer width="100%" height={200}>
-              <PieChart>
-                <Pie data={MOCK_BU_DIST} dataKey="hours" nameKey="name" cx="50%" cy="50%" innerRadius={45} outerRadius={75} paddingAngle={2}>
-                  {MOCK_BU_DIST.map((d, i) => <Cell key={i} fill={d.color} />)}
-                </Pie>
-                <RTooltip formatter={(v: number) => [`${v}h`, '工時']} contentStyle={{ borderRadius: 8, fontSize: 11, border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }} />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="flex flex-col gap-1 mt-1">
-              {MOCK_BU_DIST.map((d) => (
-                <div key={d.name} className="flex items-center gap-2 text-xs">
-                  <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: d.color }} />
-                  <span className="text-slate-600 truncate flex-1">{d.name}</span>
-                  <span className="text-slate-400 font-medium">{d.hours}h</span>
-                </div>
-              ))}
-            </div>
-          </Card>
-        </Col>
-
-        {/* Work category distribution pie (donut) */}
-        <Col xs={24} md={8}>
-          <Card bordered={false} className="shadow-sm h-full"
-            title={<span className="text-sm font-semibold text-slate-700">工作分類分佈</span>}
-            bodyStyle={{ paddingTop: 4 }}>
-            <ResponsiveContainer width="100%" height={200}>
-              <PieChart>
-                <Pie data={MOCK_CATEGORY_DIST} dataKey="hours" nameKey="name" cx="50%" cy="50%" innerRadius={45} outerRadius={75} paddingAngle={2}>
-                  {MOCK_CATEGORY_DIST.map((d, i) => <Cell key={i} fill={d.color} />)}
-                </Pie>
-                <RTooltip formatter={(v: number) => [`${v}h`, '工時']} contentStyle={{ borderRadius: 8, fontSize: 11, border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }} />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="flex flex-col gap-1 mt-1">
-              {MOCK_CATEGORY_DIST.map((d) => (
-                <div key={d.name} className="flex items-center gap-2 text-xs">
-                  <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: d.color }} />
-                  <span className="text-slate-600 truncate flex-1">{d.name}</span>
-                  <span className="text-slate-400 font-medium">{d.hours}h</span>
-                </div>
-              ))}
-            </div>
-          </Card>
-        </Col>
-      </Row>
-
-      {/* Normal vs Overtime stacked bar chart */}
-      <Card bordered={false} className="shadow-sm"
-        title={<span className="text-sm font-semibold text-slate-700">正常 vs 加班工時（近5週）— {memberName}</span>}
-        bodyStyle={{ paddingTop: 8 }}>
-        <ResponsiveContainer width="100%" height={240}>
-          <BarChart data={MOCK_OVERTIME_WEEKLY} barCategoryGap="25%">
-            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-            <XAxis dataKey="week" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} unit="h" />
-            <RTooltip contentStyle={{ borderRadius: 10, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: 12 }}
-              formatter={(v: number, name: string) => [`${v}h`, name]} />
-            <Legend wrapperStyle={{ fontSize: 12 }} />
-            <Bar dataKey="normal" name="正常工時" stackId="a" fill="#93c5fd" radius={[0, 0, 0, 0]} />
-            <Bar dataKey="overtime" name="加班工時" stackId="a" fill="#fb923c" radius={[4, 4, 0, 0]} />
-            {/* Reference line for standard hours */}
-            <ReferenceLine y={40} stroke="#94a3b8" strokeDasharray="4 4" label={{ value: '標準 40h', position: 'right', fontSize: 10, fill: '#94a3b8' }} />
-          </BarChart>
-        </ResponsiveContainer>
-      </Card>
-    </div>
-  )
-}
-
 // ─── Member Overview Tab (merged from GroupMembersPage) ──────────────────────
 
 const { Search } = Input
@@ -1045,65 +891,6 @@ const MemberOverviewTab: React.FC = () => {
                 ),
               },
               {
-                key: 'hours',
-                label: '工時分析',
-                children: (() => {
-                  const totalHrs = MOCK_OVERTIME_WEEKLY.reduce((s, d) => s + d.normal + d.overtime, 0)
-                  const totalOT = MOCK_OVERTIME_WEEKLY.reduce((s, d) => s + d.overtime, 0)
-                  const totalNormal = MOCK_OVERTIME_WEEKLY.reduce((s, d) => s + d.normal, 0)
-                  const catTotal = MOCK_CATEGORY_DIST.reduce((s, d) => s + d.hours, 0)
-                  return (
-                    <div className="space-y-4 mt-1">
-                      {/* Summary stats */}
-                      <Row gutter={[8, 8]}>
-                        {[
-                          { label: '近5週總工時', value: totalHrs,   unit: 'h',  color: '#2563eb', icon: <ClockIcon className="w-4 h-4" /> },
-                          { label: '正常工時',    value: totalNormal, unit: 'h',  color: '#16a34a', icon: <SunIcon className="w-4 h-4" /> },
-                          { label: '加班工時',    value: totalOT,     unit: 'h',  color: '#d97706', icon: <MoonIcon className="w-4 h-4" /> },
-                          { label: '加班佔比',    value: Math.round(totalOT / totalHrs * 100), unit: '%', color: '#dc2626', icon: <ExclamationTriangleIcon className="w-4 h-4" /> },
-                        ].map((s) => (
-                          <Col span={12} key={s.label}>
-                            <MiniMemberStat label={s.label} value={s.value} unit={s.unit}
-                              icon={s.icon} color={s.color} bg={`bg-white`} />
-                          </Col>
-                        ))}
-                      </Row>
-                      {/* Normal vs Overtime bar chart */}
-                      <div className="bg-white rounded-xl border border-slate-100 p-4">
-                        <div className="text-xs font-semibold text-slate-500 mb-3">正常 vs 加班工時（近5週）</div>
-                        <ResponsiveContainer width="100%" height={160}>
-                          <BarChart data={MOCK_OVERTIME_WEEKLY} barCategoryGap="30%">
-                            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                            <XAxis dataKey="week" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                            <YAxis hide />
-                            <RTooltip contentStyle={{ borderRadius: 8, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: 11 }}
-                              formatter={(v: number, name: string) => [`${v}h`, name]} />
-                            <Bar dataKey="normal" name="正常工時" stackId="a" fill="#93c5fd" />
-                            <Bar dataKey="overtime" name="加班工時" stackId="a" fill="#fb923c" radius={[4, 4, 0, 0]} />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
-                      {/* Category distribution */}
-                      <div className="bg-white rounded-xl border border-slate-100 p-4">
-                        <div className="text-xs font-semibold text-slate-500 mb-3">工作分類分佈</div>
-                        <div className="flex flex-col gap-2">
-                          {MOCK_CATEGORY_DIST.map((d) => (
-                            <div key={d.name} className="flex items-center gap-2">
-                              <div className="w-2 h-2 rounded-sm flex-shrink-0" style={{ background: d.color }} />
-                              <span className="text-xs text-slate-600 flex-1">{d.name}</span>
-                              <div className="w-24 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                <div className="h-full rounded-full" style={{ background: d.color, width: `${Math.round(d.hours / catTotal * 100)}%` }} />
-                              </div>
-                              <span className="text-xs font-medium text-slate-500 w-8 text-right">{d.hours}h</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })(),
-              },
-              {
                 key: 'duties',
                 label: `臨時任務 (${memberDuties.length})`,
                 children: memberDuties.length === 0 ? (
@@ -1241,9 +1028,139 @@ const StatisticsPage: React.FC = () => {
     },
   ]
 
+  // ── Individual member work-hours detail (used in both manager drill-down and engineer self-view) ──
+  const renderPersonalDetail = (workNo: string, memberName: string) => {
+    const projectData = MOCK_PROJECT_HOURS[workNo] ?? MOCK_PERSONAL_PROJECT_DIST
+    const totalProjHours = projectData.reduce((s: number, d: { hours: number }) => s + d.hours, 0)
+    const totalOvertime = MOCK_OVERTIME_WEEKLY.reduce((s, d) => s + d.overtime, 0)
+    const totalNormal   = MOCK_OVERTIME_WEEKLY.reduce((s, d) => s + d.normal, 0)
+    const totalHrs      = totalNormal + totalOvertime
+    return (
+      <div className="space-y-4">
+        {/* 4 personal stat cards */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {[
+            { label: '總工時',   value: totalHrs,     unit: 'h',  color: '#2563eb', bg: '#eff6ff', icon: <ClockIcon className="w-4 h-4 text-blue-500" /> },
+            { label: '正常工時', value: totalNormal,  unit: 'h',  color: '#16a34a', bg: '#f0fdf4', icon: <SunIcon className="w-4 h-4 text-green-500" /> },
+            { label: '加班工時', value: totalOvertime, unit: 'h', color: '#d97706', bg: '#fff7ed', icon: <MoonIcon className="w-4 h-4 text-orange-500" /> },
+            { label: '加班佔比', value: Math.round((totalOvertime / totalHrs) * 100), unit: '%', color: '#dc2626', bg: '#fef2f2', icon: <ExclamationTriangleIcon className="w-4 h-4 text-red-500" /> },
+          ].map((s) => (
+            <div key={s.label} className="bg-white rounded-xl border border-slate-100 shadow-sm px-4 py-3 flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: s.bg }}>{s.icon}</div>
+              <div>
+                <div className="text-[10px] text-slate-400 leading-none mb-0.5">{s.label}</div>
+                <div className="font-bold text-lg leading-none" style={{ color: s.color }}>
+                  {s.value}<span className="text-xs font-normal text-slate-400 ml-0.5">{s.unit}</span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* 3 pie charts */}
+        <Row gutter={[16, 16]}>
+          <Col xs={24} md={8}>
+            <Card bordered={false} className="shadow-sm h-full" title={<span className="text-sm font-semibold text-slate-700">專案工時分佈</span>} bodyStyle={{ paddingTop: 4 }}>
+              <ResponsiveContainer width="100%" height={180}>
+                <PieChart>
+                  <Pie data={projectData} dataKey="hours" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={68} paddingAngle={2}>
+                    {projectData.map((_: unknown, i: number) => <Cell key={i} fill={PIE_PALETTE[i % PIE_PALETTE.length]} />)}
+                  </Pie>
+                  <RTooltip formatter={(v: number) => [`${v}h`, '工時']} contentStyle={{ borderRadius: 8, fontSize: 11, border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="flex flex-col gap-1">
+                {projectData.map((d: { name: string; hours: number }, i: number) => (
+                  <div key={d.name} className="flex items-center gap-2 text-xs">
+                    <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: PIE_PALETTE[i % PIE_PALETTE.length] }} />
+                    <span className="text-slate-600 truncate flex-1">{d.name}</span>
+                    <span className="text-slate-400 font-medium">{d.hours}h</span>
+                    <span className="text-slate-300 w-8 text-right">{Math.round((d.hours / totalProjHours) * 100)}%</span>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          </Col>
+          <Col xs={24} md={8}>
+            <Card bordered={false} className="shadow-sm h-full" title={<span className="text-sm font-semibold text-slate-700">BU / 單位工時分佈</span>} bodyStyle={{ paddingTop: 4 }}>
+              <ResponsiveContainer width="100%" height={180}>
+                <PieChart>
+                  <Pie data={MOCK_BU_DIST} dataKey="hours" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={68} paddingAngle={2}>
+                    {MOCK_BU_DIST.map((d, i) => <Cell key={i} fill={d.color} />)}
+                  </Pie>
+                  <RTooltip formatter={(v: number) => [`${v}h`, '工時']} contentStyle={{ borderRadius: 8, fontSize: 11, border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="flex flex-col gap-1">
+                {MOCK_BU_DIST.map((d) => (
+                  <div key={d.name} className="flex items-center gap-2 text-xs">
+                    <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: d.color }} />
+                    <span className="text-slate-600 truncate flex-1">{d.name}</span>
+                    <span className="text-slate-400 font-medium">{d.hours}h</span>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          </Col>
+          <Col xs={24} md={8}>
+            <Card bordered={false} className="shadow-sm h-full" title={<span className="text-sm font-semibold text-slate-700">工作分類分佈</span>} bodyStyle={{ paddingTop: 4 }}>
+              <ResponsiveContainer width="100%" height={180}>
+                <PieChart>
+                  <Pie data={MOCK_CATEGORY_DIST} dataKey="hours" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={68} paddingAngle={2}>
+                    {MOCK_CATEGORY_DIST.map((d, i) => <Cell key={i} fill={d.color} />)}
+                  </Pie>
+                  <RTooltip formatter={(v: number) => [`${v}h`, '工時']} contentStyle={{ borderRadius: 8, fontSize: 11, border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="flex flex-col gap-1">
+                {MOCK_CATEGORY_DIST.map((d) => (
+                  <div key={d.name} className="flex items-center gap-2 text-xs">
+                    <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: d.color }} />
+                    <span className="text-slate-600 truncate flex-1">{d.name}</span>
+                    <span className="text-slate-400 font-medium">{d.hours}h</span>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          </Col>
+        </Row>
+
+        {/* Normal vs Overtime stacked bar */}
+        <Card bordered={false} className="shadow-sm"
+          title={<span className="text-sm font-semibold text-slate-700">正常 vs 加班工時（近5週）{memberName ? `— ${memberName}` : ''}</span>}
+          bodyStyle={{ paddingTop: 8 }}>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={MOCK_OVERTIME_WEEKLY} barCategoryGap="25%">
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+              <XAxis dataKey="week" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} unit="h" />
+              <RTooltip contentStyle={{ borderRadius: 10, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: 12 }}
+                formatter={(v: number, name: string) => [`${v}h`, name]} />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <Bar dataKey="normal" name="正常工時" stackId="a" fill="#93c5fd" />
+              <Bar dataKey="overtime" name="加班工時" stackId="a" fill="#fb923c" radius={[4, 4, 0, 0]} />
+              <ReferenceLine y={40} stroke="#94a3b8" strokeDasharray="4 4" label={{ value: '標準 40h', position: 'right', fontSize: 10, fill: '#94a3b8' }} />
+            </BarChart>
+          </ResponsiveContainer>
+        </Card>
+      </div>
+    )
+  }
+
   // ─── Tab 1: 工時分析 ───────────────────────────────────────────────────────
   const analysisTab = (
     <>
+      {!isManager && (
+        <div className="mb-2">
+          <div className="flex items-center gap-2 px-1 mb-4">
+            <UserIcon className="w-4 h-4 text-slate-400" />
+            <span className="text-sm font-semibold text-slate-700">我的工時分析</span>
+            <span className="text-xs text-slate-400 font-normal">近 5 週數據</span>
+          </div>
+          {renderPersonalDetail('DEV001', '')}
+        </div>
+      )}
+      {isManager && <>
       {/* Summary cards */}
       <Row gutter={[16, 16]} className="mb-6">
         {[
@@ -1347,57 +1264,16 @@ const StatisticsPage: React.FC = () => {
           expandable={{
             expandedRowKeys: selected ? [selected] : [],
             showExpandColumn: false,
-            expandedRowRender: (record) => {
-              const pieData = MOCK_PROJECT_HOURS[record.work_no] ?? []
-              return (
-                <div className="px-4 py-4 bg-slate-50 border-t border-slate-100">
-                  <p className="text-xs font-semibold text-slate-600 mb-4">詳細分析 — <span className="text-blue-600">{record.name}</span></p>
-                  <div className="flex flex-wrap gap-6">
-                    {pieData.length > 0 && (
-                      <div className="bg-white rounded-xl px-4 pt-3 pb-4 border border-slate-100 flex-shrink-0">
-                        <p className="text-xs text-slate-400 font-semibold mb-2">專案工時分佈</p>
-                        <div className="flex items-center gap-4">
-                          <PieChart width={140} height={140}>
-                            <Pie data={pieData} dataKey="hours" nameKey="name" cx={65} cy={65} innerRadius={36} outerRadius={62} paddingAngle={2}>
-                              {pieData.map((_, i) => <Cell key={i} fill={PIE_PALETTE[i % PIE_PALETTE.length]} />)}
-                            </Pie>
-                            <RTooltip formatter={(v: number) => [`${v}h`, '工時']} contentStyle={{ borderRadius: 8, fontSize: 11, border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }} />
-                          </PieChart>
-                          <div className="flex flex-col gap-1.5">
-                            {pieData.map((d, i) => (
-                              <div key={i} className="flex items-center gap-2">
-                                <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: PIE_PALETTE[i % PIE_PALETTE.length] }} />
-                                <span className="text-xs text-slate-600 truncate max-w-[90px]">{d.name}</span>
-                                <span className="text-xs text-slate-400 ml-auto pl-2 font-medium">{d.hours}h</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                    <div className="bg-white rounded-xl px-4 pt-3 pb-4 border border-slate-100 flex-1 min-w-[240px]">
-                      <p className="text-xs text-slate-400 font-semibold mb-3">週工時明細</p>
-                      <div className="flex items-end gap-3 h-16">
-                        {record.weekly_hours.map((w) => {
-                          const maxH = Math.max(...record.weekly_hours.map((x) => x.hours))
-                          return (
-                            <div key={w.week} className="flex flex-col items-center gap-1 flex-1">
-                              <span className="text-[10px] text-slate-500 font-medium leading-none">{w.hours}h</span>
-                              <div className="w-full rounded-t-sm" style={{ height: `${Math.max(4, (w.hours / maxH) * 44)}px`, background: '#93c5fd' }} />
-                              <span className="text-[10px] text-slate-400 leading-none">{w.week}</span>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )
-            },
+            expandedRowRender: (record) => (
+              <div className="px-4 py-4 bg-slate-50/60 border-t border-slate-100">
+                {renderPersonalDetail(record.work_no, record.name)}
+              </div>
+            ),
           }}
           onRow={(r) => ({ onClick: () => setSelected(r.work_no === selected ? null : r.work_no), style: { cursor: 'pointer' } })}
         />
       </Card>
+      </>}
     </>
   )
 
@@ -1421,15 +1297,6 @@ const StatisticsPage: React.FC = () => {
       ),
       children: <ProgressReportTab />,
     },
-    {
-      key: 'personal',
-      label: (
-        <span className="flex items-center gap-1.5">
-          <UserIcon className="w-4 h-4" />個人工時分析
-        </span>
-      ),
-      children: <PersonalAnalysisTab />,
-    },
   ]
 
   const memberTab = {
@@ -1442,7 +1309,7 @@ const StatisticsPage: React.FC = () => {
     children: <MemberOverviewTab />,
   }
 
-  const tabItems = isManager ? [...managerTabs, memberTab] : [memberTab]
+  const tabItems = isManager ? [...managerTabs, memberTab] : [managerTabs[0], memberTab]
 
   return (
     <div className="p-6 max-w-[1400px] mx-auto">
