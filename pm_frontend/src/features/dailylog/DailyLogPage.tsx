@@ -2,10 +2,10 @@
  * DailyLogPage — 個人工作日誌
  * 三個視圖模式：日視圖（填寫/查看）、週視圖（表格匯總）、月視圖（日曆熱力圖）
  */
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useCallback } from 'react'
 import {
   Card, Button, Tag, Progress, Modal, Form, Select, Input, InputNumber,
-  Switch, Upload, Segmented, Tooltip, Empty, Badge, Popconfirm,
+  Switch, Upload, Segmented, Empty, Badge, Popconfirm,
   AutoComplete, Alert,
 } from 'antd'
 import type { UploadFile } from 'antd'
@@ -20,6 +20,9 @@ import {
 import { useAppSelector } from '@/hooks/redux'
 import type { DailyLog, DailyLogEntry, WorkCategory } from '@/types/api.types'
 import dayjs, { Dayjs } from 'dayjs'
+import isoWeek from 'dayjs/plugin/isoWeek'
+
+dayjs.extend(isoWeek)
 
 const IS_DEV = import.meta.env.DEV
 
@@ -203,246 +206,260 @@ const EntryCard: React.FC<{
   )
 }
 
-// ─── Week View ──────────────────────────────────────────────────────────────
-const WeekView: React.FC<{ weekStart: Dayjs; logs: Record<string, DailyLog> }> = ({ weekStart, logs }) => {
-  const days = Array.from({ length: 7 }, (_, i) => weekStart.add(i, 'day'))
-  const dayLabels = ['週一', '週二', '週三', '週四', '週五', '週六', '週日']
+// ─── Self Report View (週報/月報/季報/年報) ───────────────────────────────────
+// Renders the engineer's own period report in the same format as the manager's
+// MemberReportCard in StatisticsPage — grouped by date, each entry styled as a
+// progress-update card with category, project, description, hours & status.
 
-  // Build category-rows
-  const categoryRows = WORK_CATEGORIES.map((cat) => {
-    const cells = days.map((d) => {
-      const log = logs[d.format('YYYY-MM-DD')]
-      if (!log) return 0
-      return log.entries.filter((e) => e.work_category === cat.value).reduce((s, e) => s + e.hours, 0)
-    })
-    return { ...cat, cells, total: cells.reduce((s, v) => s + v, 0) }
-  })
-
-  const normalHours = days.map((d) => {
-    const log = logs[d.format('YYYY-MM-DD')]
-    return log ? log.total_hours - log.overtime_hours : 0
-  })
-  const overtimeHours = days.map((d) => {
-    const log = logs[d.format('YYYY-MM-DD')]
-    return log ? log.overtime_hours : 0
-  })
-  const totalPerDay = days.map((d) => {
-    const log = logs[d.format('YYYY-MM-DD')]
-    return log ? log.total_hours : 0
-  })
-  const statusPerDay = days.map((d) => {
-    const log = logs[d.format('YYYY-MM-DD')]
-    return log?.status
-  })
-
-  const weekTotalNormal = normalHours.reduce((s, v) => s + v, 0)
-  const weekTotalOT = overtimeHours.reduce((s, v) => s + v, 0)
-
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-xs border-collapse">
-        <thead>
-          <tr className="bg-slate-50">
-            <th className="text-left px-3 py-2.5 text-slate-500 font-semibold w-28 border-b border-slate-200">分類</th>
-            {days.map((d, i) => {
-              const isToday = d.isSame(dayjs(), 'day')
-              const isWeekend = i >= 5
-              return (
-                <th key={i} className={`text-center px-2 py-2.5 border-b border-slate-200 ${isToday ? 'bg-blue-50' : ''}`}>
-                  <div className={`text-[10px] font-medium ${isWeekend ? 'text-orange-400' : 'text-slate-400'}`}>{dayLabels[i]}</div>
-                  <div className={`text-xs font-semibold ${isToday ? 'text-blue-600' : 'text-slate-600'}`}>{d.format('MM/DD')}</div>
-                  {statusPerDay[i] && (
-                    <Tag
-                      color={statusPerDay[i] === 'confirmed' ? 'success' : statusPerDay[i] === 'submitted' ? 'processing' : 'default'}
-                      style={{ fontSize: 9, padding: '0 3px', margin: '2px 0 0', lineHeight: '14px' }}
-                    >
-                      {statusPerDay[i] === 'confirmed' ? '已確認' : statusPerDay[i] === 'submitted' ? '已提交' : '草稿'}
-                    </Tag>
-                  )}
-                </th>
-              )
-            })}
-            <th className="text-center px-2 py-2.5 text-slate-500 font-semibold border-b border-slate-200 w-16">合計</th>
-          </tr>
-        </thead>
-        <tbody>
-          {categoryRows.map((row) => (
-            <tr key={row.value} className="hover:bg-slate-50 transition-colors">
-              <td className="px-3 py-2 border-b border-slate-100">
-                <div className="flex items-center gap-1.5">
-                  <div className="w-2 h-2 rounded-sm" style={{ background: row.color }} />
-                  <span className="text-slate-600 font-medium">{row.label}</span>
-                </div>
-              </td>
-              {row.cells.map((v, i) => (
-                <td key={i} className={`text-center px-2 py-2 border-b border-slate-100 ${days[i].isSame(dayjs(), 'day') ? 'bg-blue-50/50' : ''}`}>
-                  {v > 0 ? <span className="font-semibold" style={{ color: row.color }}>{v}h</span> : <span className="text-slate-200">—</span>}
-                </td>
-              ))}
-              <td className="text-center px-2 py-2 border-b border-slate-100 font-semibold text-slate-600">
-                {row.total > 0 ? `${row.total}h` : '—'}
-              </td>
-            </tr>
-          ))}
-
-          {/* Separator */}
-          <tr><td colSpan={9} className="h-1 bg-slate-100" /></tr>
-
-          {/* Normal hours */}
-          <tr className="bg-blue-50/30">
-            <td className="px-3 py-2 border-b border-slate-100">
-              <div className="flex items-center gap-1.5">
-                <SunIcon className="w-3.5 h-3.5 text-blue-400" />
-                <span className="text-slate-600 font-semibold">正常工時</span>
-              </div>
-            </td>
-            {normalHours.map((v, i) => (
-              <td key={i} className={`text-center px-2 py-2 border-b border-slate-100 font-semibold text-blue-600 ${days[i].isSame(dayjs(), 'day') ? 'bg-blue-50' : ''}`}>
-                {v > 0 ? `${v}h` : '—'}
-              </td>
-            ))}
-            <td className="text-center px-2 py-2 border-b border-slate-100 font-bold text-blue-600">{weekTotalNormal}h</td>
-          </tr>
-
-          {/* Overtime */}
-          <tr className="bg-orange-50/30">
-            <td className="px-3 py-2 border-b border-slate-100">
-              <div className="flex items-center gap-1.5">
-                <MoonIcon className="w-3.5 h-3.5 text-orange-400" />
-                <span className="text-slate-600 font-semibold">加班工時</span>
-              </div>
-            </td>
-            {overtimeHours.map((v, i) => (
-              <td key={i} className={`text-center px-2 py-2 border-b border-slate-100 font-semibold text-orange-500 ${days[i].isSame(dayjs(), 'day') ? 'bg-blue-50' : ''}`}>
-                {v > 0 ? `${v}h` : '—'}
-              </td>
-            ))}
-            <td className="text-center px-2 py-2 border-b border-slate-100 font-bold text-orange-500">{weekTotalOT}h</td>
-          </tr>
-
-          {/* Total */}
-          <tr className="bg-slate-50 font-bold">
-            <td className="px-3 py-2.5 text-slate-700">總計</td>
-            {totalPerDay.map((v, i) => {
-              const sufficient = v >= STANDARD_DAILY_HOURS
-              return (
-                <td key={i} className={`text-center px-2 py-2.5 ${days[i].isSame(dayjs(), 'day') ? 'bg-blue-50' : ''}`}>
-                  <span className={sufficient ? 'text-green-600' : v > 0 ? 'text-red-500' : 'text-slate-300'}>
-                    {v > 0 ? `${v}h` : '—'}
-                  </span>
-                </td>
-              )
-            })}
-            <td className="text-center px-2 py-2.5 text-slate-800">{(weekTotalNormal + weekTotalOT).toFixed(1)}h</td>
-          </tr>
-        </tbody>
-      </table>
-
-      {/* Week summary */}
-      <div className="flex items-center gap-4 mt-4 bg-slate-50 rounded-xl px-4 py-3 border border-slate-100">
-        <span className="text-xs text-slate-400 font-medium">本週合計</span>
-        <span className="text-sm font-bold text-blue-600">正常 {weekTotalNormal}h</span>
-        <span className="text-slate-300">+</span>
-        <span className="text-sm font-bold text-orange-500">加班 {weekTotalOT}h</span>
-        <span className="text-slate-300">=</span>
-        <span className="text-sm font-bold text-slate-800">總計 {(weekTotalNormal + weekTotalOT).toFixed(1)}h</span>
-      </div>
-    </div>
-  )
-}
-
-// ─── Month Heatmap ──────────────────────────────────────────────────────────
-const MonthHeatmap: React.FC<{ month: Dayjs; logs: Record<string, DailyLog>; onDayClick: (d: Dayjs) => void }> = ({ month, logs, onDayClick }) => {
-  const firstDay = month.startOf('month')
-  const daysInMonth = month.daysInMonth()
-  const startPad = (firstDay.day() + 6) % 7 // Monday = 0
-  const dayLabels = ['一', '二', '三', '四', '五', '六', '日']
-
-  const getColor = (hours: number) => {
-    if (hours === 0) return '#f1f5f9'
-    if (hours < 4) return '#bfdbfe'
-    if (hours < 6) return '#93c5fd'
-    if (hours < 8) return '#60a5fa'
-    return '#2563eb'
+const SelfReportView: React.FC<{
+  startDate: Dayjs
+  endDate: Dayjs
+  logs: Record<string, DailyLog>
+}> = ({ startDate, endDate, logs }) => {
+  // Collect logs in range (chronological)
+  const rangeLogs: DailyLog[] = []
+  let cur = startDate
+  while (!cur.isAfter(endDate, 'day')) {
+    const l = logs[cur.format('YYYY-MM-DD')]
+    if (l) rangeLogs.push(l)
+    cur = cur.add(1, 'day')
   }
 
+  const allEntries = rangeLogs.flatMap((l) => l.entries.map((e) => ({ ...e, log_date: l.log_date, log_status: l.status })))
+  const totalHours  = rangeLogs.reduce((s, l) => s + l.total_hours, 0)
+  const totalOT     = rangeLogs.reduce((s, l) => s + l.overtime_hours, 0)
+  const totalNormal = totalHours - totalOT
+  const workedDays  = rangeLogs.length
+
+  const catTotals = WORK_CATEGORIES.map((cat) => ({
+    ...cat,
+    total: allEntries.filter((e) => e.work_category === cat.value).reduce((s, e) => s + e.hours, 0),
+  })).filter((c) => c.total > 0)
+
   return (
-    <div>
-      {/* Day labels */}
-      <div className="grid grid-cols-7 gap-1 mb-1">
-        {dayLabels.map((l) => (
-          <div key={l} className="text-center text-[10px] text-slate-400 font-medium py-1">{l}</div>
-        ))}
-      </div>
-
-      {/* Calendar grid */}
-      <div className="grid grid-cols-7 gap-1">
-        {Array.from({ length: startPad }).map((_, i) => <div key={`pad-${i}`} />)}
-        {Array.from({ length: daysInMonth }, (_, i) => {
-          const d = firstDay.add(i, 'day')
-          const dateStr = d.format('YYYY-MM-DD')
-          const log = logs[dateStr]
-          const hours = log?.total_hours ?? 0
-          const isToday = d.isSame(dayjs(), 'day')
-          const isFuture = d.isAfter(dayjs(), 'day')
-          const isWorkday = d.day() !== 0 && d.day() !== 6
-          const noLog = !log && !isFuture && isWorkday && d.isBefore(dayjs(), 'day')
-
-          return (
-            <Tooltip
-              key={i}
-              title={
-                <div>
-                  <div className="font-semibold">{d.format('YYYY-MM-DD')}</div>
-                  {log ? (
-                    <>
-                      <div>工時: {hours}h {log.overtime_hours > 0 && `(加班 ${log.overtime_hours}h)`}</div>
-                      <div>狀態: {log.status === 'confirmed' ? '已確認' : log.status === 'submitted' ? '已提交' : '草稿'}</div>
-                      <div>{log.entries.length} 條記錄</div>
-                    </>
-                  ) : isFuture ? <div>未到</div> : <div className="text-red-300">未填寫</div>}
-                </div>
-              }
-            >
-              <div
-                className={`aspect-square rounded-lg flex flex-col items-center justify-center cursor-pointer transition-all hover:ring-2 hover:ring-blue-300 ${isToday ? 'ring-2 ring-blue-500' : ''} ${noLog ? 'ring-1 ring-red-300' : ''}`}
-                style={{ background: isFuture ? '#f8fafc' : getColor(hours), minHeight: 44 }}
-                onClick={() => onDayClick(d)}
-              >
-                <span className={`text-xs font-semibold ${hours > 6 ? 'text-white' : isToday ? 'text-blue-600' : 'text-slate-500'}`}>
-                  {i + 1}
-                </span>
-                {hours > 0 && (
-                  <span className={`text-[9px] font-medium ${hours > 6 ? 'text-white/80' : 'text-slate-400'}`}>
-                    {hours}h
-                  </span>
-                )}
-                {noLog && (
-                  <span className="text-[8px] text-red-400 font-bold">缺</span>
-                )}
+    <div className="space-y-4">
+      {/* ── Summary stats ── */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[
+          { label: '本期總工時', value: totalHours.toFixed(1),  unit: 'h',  color: '#2563eb', bg: '#eff6ff', icon: <ClockIcon className="w-4 h-4 text-blue-500" /> },
+          { label: '正常工時',   value: totalNormal.toFixed(1), unit: 'h',  color: '#16a34a', bg: '#f0fdf4', icon: <SunIcon className="w-4 h-4 text-green-500" /> },
+          { label: '加班工時',   value: totalOT.toFixed(1),     unit: 'h',  color: '#d97706', bg: '#fff7ed', icon: <MoonIcon className="w-4 h-4 text-orange-500" /> },
+          { label: '已填報天數', value: workedDays,              unit: '天', color: '#64748b', bg: '#f8fafc', icon: <CalendarDaysIcon className="w-4 h-4 text-slate-500" /> },
+        ].map((s) => (
+          <div key={s.label} className="bg-white rounded-xl border border-slate-100 shadow-sm px-4 py-3 flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: s.bg }}>{s.icon}</div>
+            <div>
+              <div className="text-[10px] text-slate-400">{s.label}</div>
+              <div className="font-bold text-lg leading-tight" style={{ color: s.color }}>
+                {s.value}<span className="text-xs font-normal text-slate-400 ml-0.5">{s.unit}</span>
               </div>
-            </Tooltip>
-          )
-        })}
+            </div>
+          </div>
+        ))}
       </div>
 
-      {/* Legend */}
-      <div className="flex items-center gap-3 mt-4 justify-center">
-        <span className="text-[10px] text-slate-400">少</span>
-        {[0, 4, 6, 8, 10].map((h, i) => (
-          <div key={i} className="w-4 h-4 rounded-sm" style={{ background: getColor(h) }} />
-        ))}
-        <span className="text-[10px] text-slate-400">多</span>
-        <span className="text-[10px] text-slate-400 ml-4">|</span>
-        <div className="w-4 h-4 rounded-sm ring-1 ring-red-300 bg-slate-100" />
-        <span className="text-[10px] text-red-400">缺報</span>
-      </div>
+      {/* ── Category breakdown ── */}
+      {catTotals.length > 0 && (
+        <Card bordered={false} className="shadow-sm" title={<span className="text-sm font-semibold text-slate-700">工作分類分佈</span>}>
+          <div className="flex flex-col gap-2.5">
+            {catTotals.map((c) => (
+              <div key={c.value} className="flex items-center gap-3">
+                <div className="flex items-center gap-1.5 w-28 flex-shrink-0">
+                  <div className="w-2 h-2 rounded-sm" style={{ background: c.color }} />
+                  <span className="text-xs text-slate-600">{c.label}</span>
+                </div>
+                <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+                  <div className="h-full rounded-full" style={{ background: c.color, width: `${Math.round((c.total / totalHours) * 100)}%` }} />
+                </div>
+                <span className="text-xs font-semibold text-slate-500 w-10 text-right">{c.total}h</span>
+                <span className="text-xs text-slate-300 w-8 text-right">{Math.round((c.total / totalHours) * 100)}%</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* ── Progress updates — Project → Function → chronological entries ── */}
+      {(() => {
+        if (rangeLogs.length === 0) {
+          return (
+            <Card bordered={false} className="shadow-sm">
+              <Empty description="此期間尚無日報記錄" className="py-6" />
+            </Card>
+          )
+        }
+
+        type RichEntry = DailyLogEntry & { log_date: string; log_status: DailyLog['status'] }
+        // Level-2: function / duty sub-group
+        type SubGroup = { key: string; label: string; entries: RichEntry[]; totalHours: number }
+        // Level-1: project / category group
+        type ProjectGroup = {
+          key: string
+          cat: typeof WORK_CATEGORIES[0]
+          projectNm: string   // project name, duty name, or '' for pure-category
+          totalHours: number
+          subGroups: Map<string, SubGroup>
+        }
+
+        const catOrder = WORK_CATEGORIES.map((c) => c.value)
+        const projMap = new Map<string, ProjectGroup>()
+
+        for (const log of rangeLogs) {
+          for (const e of log.entries) {
+            // ── Level-1 key (project group) ──
+            let projKey: string
+            let projNm: string
+            let subKey: string
+            let subLabel: string
+
+            if (e.work_category === 'project' || e.work_category === 'cr_ar') {
+              projKey  = `${e.work_category}__${e.project_id ?? 'none'}`
+              projNm   = e.project_nm ?? ''
+              subKey   = e.function_id ?? '__no_func__'
+              subLabel = e.function_nm ?? '（無關聯任務）'
+            } else if (e.work_category === 'duty') {
+              projKey  = `duty__${e.duty_id ?? 'none'}`
+              projNm   = e.duty_nm ?? ''
+              subKey   = '__only__'
+              subLabel = ''
+            } else {
+              projKey  = `cat__${e.work_category}`
+              projNm   = ''
+              subKey   = '__only__'
+              subLabel = ''
+            }
+
+            if (!projMap.has(projKey)) {
+              projMap.set(projKey, {
+                key: projKey,
+                cat: CATEGORY_MAP[e.work_category] ?? WORK_CATEGORIES[0],
+                projectNm: projNm,
+                totalHours: 0,
+                subGroups: new Map(),
+              })
+            }
+            const pg = projMap.get(projKey)!
+            pg.totalHours += e.hours
+
+            if (!pg.subGroups.has(subKey)) {
+              pg.subGroups.set(subKey, { key: subKey, label: subLabel, entries: [], totalHours: 0 })
+            }
+            const sg = pg.subGroups.get(subKey)!
+            sg.entries.push({ ...e, log_date: log.log_date, log_status: log.status })
+            sg.totalHours += e.hours
+          }
+        }
+
+        // Sort project groups by category order, then project name
+        const projectGroups = [...projMap.values()].sort((a, b) => {
+          const ci = catOrder.indexOf(a.cat.value) - catOrder.indexOf(b.cat.value)
+          return ci !== 0 ? ci : a.projectNm.localeCompare(b.projectNm)
+        })
+
+        // Sort sub-groups and their entries chronologically
+        for (const pg of projectGroups) {
+          for (const sg of pg.subGroups.values()) {
+            sg.entries.sort((a, b) => a.log_date.localeCompare(b.log_date))
+          }
+        }
+
+        const DOW = ['日', '一', '二', '三', '四', '五', '六']
+        const totalGroups = projectGroups.reduce((s, pg) => s + pg.subGroups.size, 0)
+
+        return (
+          <div className="space-y-4">
+            {/* Section title */}
+            <div className="flex items-center gap-2 px-1">
+              <DocumentTextIcon className="w-4 h-4 text-slate-400" />
+              <span className="text-sm font-semibold text-slate-700">進度更新</span>
+              <span className="text-xs text-slate-400 font-normal">
+                {allEntries.length} 條記錄 · {totalGroups} 個任務
+              </span>
+            </div>
+
+            {projectGroups.map((pg) => {
+              const subList = [...pg.subGroups.values()]
+              const onlySub = subList.length === 1 && subList[0].key === '__only__'
+              return (
+                <div key={pg.key} className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
+                  {/* ── Level-1: Project / category header ── */}
+                  <div
+                    className="flex items-center gap-2.5 px-4 py-3 flex-wrap"
+                    style={{ background: pg.cat.color + '0e', borderBottom: `2px solid ${pg.cat.color}30` }}
+                  >
+                    <Tag
+                      style={{ fontSize: 10, padding: '0 7px', margin: 0, lineHeight: '22px', background: pg.cat.color + '22', color: pg.cat.color, border: `1px solid ${pg.cat.color}55`, fontWeight: 700 }}
+                    >
+                      {pg.cat.label}
+                    </Tag>
+                    {pg.projectNm && (
+                      <span className="text-sm font-bold text-slate-800">{pg.projectNm}</span>
+                    )}
+                    <div className="ml-auto flex items-center gap-1 text-xs font-bold" style={{ color: pg.cat.color }}>
+                      <ClockIcon className="w-3.5 h-3.5" />
+                      {pg.totalHours}h
+                    </div>
+                  </div>
+
+                  {/* ── Level-2: Function sub-groups ── */}
+                  <div className={onlySub ? '' : 'divide-y divide-slate-100'}>
+                    {subList.map((sg) => (
+                      <div key={sg.key}>
+                        {/* Function sub-header (only shown when project has named sub-tasks) */}
+                        {!onlySub && sg.label && (
+                          <div className="flex items-center gap-2 px-4 py-2 bg-slate-50/70 border-b border-slate-100">
+                            <div className="w-1 h-3.5 rounded-full flex-shrink-0" style={{ background: pg.cat.color }} />
+                            <span className="text-xs font-semibold text-slate-600">{sg.label}</span>
+                            <span className="ml-auto text-[11px] font-semibold text-slate-400">{sg.totalHours}h</span>
+                          </div>
+                        )}
+
+                        {/* Entries sorted by date */}
+                        <div className="divide-y divide-slate-50">
+                          {sg.entries.map((entry) => {
+                            const d = dayjs(entry.log_date)
+                            const dow = DOW[d.day()]
+                            return (
+                              <div key={entry.entry_id} className="px-4 py-3">
+                                <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                                  <span className="text-[11px] font-semibold text-slate-500 tabular-nums">
+                                    {d.format('MM/DD')} 週{dow}
+                                  </span>
+                                  <Tag
+                                    color={entry.log_status === 'confirmed' ? 'success' : entry.log_status === 'submitted' ? 'processing' : 'default'}
+                                    style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px' }}
+                                  >
+                                    {entry.log_status === 'confirmed' ? '已確認' : entry.log_status === 'submitted' ? '已提交' : '草稿'}
+                                  </Tag>
+                                  <div className="ml-auto flex items-center gap-1 text-xs font-semibold" style={{ color: entry.is_overtime ? '#d97706' : '#2563eb' }}>
+                                    <ClockIcon className="w-3 h-3" />
+                                    {entry.hours}h
+                                    {entry.is_overtime && (
+                                      <Tag color="orange" style={{ fontSize: 9, padding: '0 3px', margin: 0, lineHeight: '14px' }}>加班</Tag>
+                                    )}
+                                  </div>
+                                </div>
+                                <p className="text-sm text-slate-700 leading-relaxed">{entry.description}</p>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )
+      })()}
+
     </div>
   )
 }
 
 // ─── Main Page ──────────────────────────────────────────────────────────────
-type ViewMode = 'day' | 'week' | 'month'
+type ViewMode = 'day' | 'week' | 'month' | 'quarter' | 'year'
 
 const DailyLogPage: React.FC = () => {
   const workNo = useAppSelector((s) => s.auth.workNo)
@@ -473,8 +490,26 @@ const DailyLogPage: React.FC = () => {
   const navigate = (delta: number) => {
     if (viewMode === 'day') setCurrentDate((d) => d.add(delta, 'day'))
     else if (viewMode === 'week') setCurrentDate((d) => d.add(delta * 7, 'day'))
+    else if (viewMode === 'quarter') setCurrentDate((d) => d.add(delta * 3, 'month'))
+    else if (viewMode === 'year') setCurrentDate((d) => d.add(delta, 'year'))
     else setCurrentDate((d) => d.add(delta, 'month'))
   }
+
+  // Period range helpers
+  const getPeriodRange = useCallback((date: Dayjs, mode: ViewMode): { start: Dayjs; end: Dayjs } => {
+    if (mode === 'week') {
+      const start = date.startOf('isoWeek')
+      return { start, end: start.add(6, 'day') }
+    }
+    if (mode === 'month') return { start: date.startOf('month'), end: date.endOf('month') }
+    if (mode === 'quarter') {
+      const q = Math.floor(date.month() / 3)
+      const start = date.month(q * 3).startOf('month')
+      return { start, end: start.add(2, 'month').endOf('month') }
+    }
+    if (mode === 'year') return { start: date.startOf('year'), end: date.endOf('year') }
+    return { start: date, end: date }
+  }, [])
 
   const goToday = () => setCurrentDate(dayjs())
 
@@ -482,11 +517,15 @@ const DailyLogPage: React.FC = () => {
   const dateLabel = useMemo(() => {
     if (viewMode === 'day') return currentDate.format('YYYY 年 MM 月 DD 日 dddd')
     if (viewMode === 'week') {
-      const ws = currentDate.startOf('week').add(1, 'day')
-      const we = ws.add(6, 'day')
-      return `${ws.format('MM/DD')} — ${we.format('MM/DD')} (${ws.format('YYYY')})`
+      const ws = currentDate.startOf('isoWeek')
+      return `${ws.format('MM/DD')} — ${ws.add(6, 'day').format('MM/DD')} (${ws.format('YYYY')} W${currentDate.isoWeek()})`
     }
-    return currentDate.format('YYYY 年 MM 月')
+    if (viewMode === 'month') return currentDate.format('YYYY 年 MM 月')
+    if (viewMode === 'quarter') {
+      const q = Math.ceil((currentDate.month() + 1) / 3)
+      return `${currentDate.format('YYYY')} 年 第 ${q} 季度`
+    }
+    return currentDate.format('YYYY 年')
   }, [currentDate, viewMode])
 
   // Open add/edit modal
@@ -590,15 +629,13 @@ const DailyLogPage: React.FC = () => {
     <Tag color="error" style={{ fontSize: 11 }}>⚠️ 未填寫</Tag>
   )
 
-  const weekStart = currentDate.startOf('week').add(1, 'day') // Monday
-
   return (
     <div className="p-6 max-w-5xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">工作日誌</h1>
-          <p className="text-slate-400 text-sm mt-0.5">每日記錄工作內容 · 自動統計工時</p>
+          <p className="text-slate-400 text-sm mt-0.5">每日記錄工作內容 · 週/月/季/年報自動從日報彙整</p>
         </div>
         <div className="flex items-center gap-2">
           <Button icon={<ArrowDownTrayIcon className="w-4 h-4" />} size="small" onClick={handleExport}>
@@ -609,8 +646,10 @@ const DailyLogPage: React.FC = () => {
             onChange={(v) => setViewMode(v as ViewMode)}
             options={[
               { label: '日', value: 'day' },
-              { label: '週', value: 'week' },
-              { label: '月', value: 'month' },
+              { label: '週報', value: 'week' },
+              { label: '月報', value: 'month' },
+              { label: '季報', value: 'quarter' },
+              { label: '年報', value: 'year' },
             ]}
             size="small"
           />
@@ -775,23 +814,26 @@ const DailyLogPage: React.FC = () => {
         </>
       )}
 
-      {/* ─── Week View ─────────────────────────────────────────────── */}
+      {/* ─── Week Report ───────────────────────────────────────────── */}
       {viewMode === 'week' && (
-        <Card bordered={false} className="shadow-sm" title={<span className="text-sm font-semibold text-slate-700">本週工時匯總</span>}>
-          <WeekView weekStart={weekStart} logs={logs} />
-        </Card>
+        <SelfReportView
+          startDate={currentDate.startOf('isoWeek')}
+          endDate={currentDate.startOf('isoWeek').add(6, 'day')}
+          logs={logs}
+        />
       )}
 
-      {/* ─── Month View ────────────────────────────────────────────── */}
-      {viewMode === 'month' && (
-        <Card bordered={false} className="shadow-sm" title={<span className="text-sm font-semibold text-slate-700">月度工時日曆</span>}>
-          <MonthHeatmap
-            month={currentDate}
+      {/* ─── Month / Quarter / Year Report ─────────────────────────── */}
+      {(viewMode === 'month' || viewMode === 'quarter' || viewMode === 'year') && (() => {
+        const { start, end } = getPeriodRange(currentDate, viewMode)
+        return (
+          <SelfReportView
+            startDate={start}
+            endDate={end}
             logs={logs}
-            onDayClick={(d) => { setCurrentDate(d); setViewMode('day') }}
           />
-        </Card>
-      )}
+        )
+      })()}
 
       {/* ─── Entry Modal ───────────────────────────────────────────── */}
       <Modal

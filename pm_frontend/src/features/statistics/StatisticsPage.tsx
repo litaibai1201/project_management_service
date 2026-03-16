@@ -1045,6 +1045,65 @@ const MemberOverviewTab: React.FC = () => {
                 ),
               },
               {
+                key: 'hours',
+                label: '工時分析',
+                children: (() => {
+                  const totalHrs = MOCK_OVERTIME_WEEKLY.reduce((s, d) => s + d.normal + d.overtime, 0)
+                  const totalOT = MOCK_OVERTIME_WEEKLY.reduce((s, d) => s + d.overtime, 0)
+                  const totalNormal = MOCK_OVERTIME_WEEKLY.reduce((s, d) => s + d.normal, 0)
+                  const catTotal = MOCK_CATEGORY_DIST.reduce((s, d) => s + d.hours, 0)
+                  return (
+                    <div className="space-y-4 mt-1">
+                      {/* Summary stats */}
+                      <Row gutter={[8, 8]}>
+                        {[
+                          { label: '近5週總工時', value: totalHrs,   unit: 'h',  color: '#2563eb', icon: <ClockIcon className="w-4 h-4" /> },
+                          { label: '正常工時',    value: totalNormal, unit: 'h',  color: '#16a34a', icon: <SunIcon className="w-4 h-4" /> },
+                          { label: '加班工時',    value: totalOT,     unit: 'h',  color: '#d97706', icon: <MoonIcon className="w-4 h-4" /> },
+                          { label: '加班佔比',    value: Math.round(totalOT / totalHrs * 100), unit: '%', color: '#dc2626', icon: <ExclamationTriangleIcon className="w-4 h-4" /> },
+                        ].map((s) => (
+                          <Col span={12} key={s.label}>
+                            <MiniMemberStat label={s.label} value={s.value} unit={s.unit}
+                              icon={s.icon} color={s.color} bg={`bg-white`} />
+                          </Col>
+                        ))}
+                      </Row>
+                      {/* Normal vs Overtime bar chart */}
+                      <div className="bg-white rounded-xl border border-slate-100 p-4">
+                        <div className="text-xs font-semibold text-slate-500 mb-3">正常 vs 加班工時（近5週）</div>
+                        <ResponsiveContainer width="100%" height={160}>
+                          <BarChart data={MOCK_OVERTIME_WEEKLY} barCategoryGap="30%">
+                            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                            <XAxis dataKey="week" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                            <YAxis hide />
+                            <RTooltip contentStyle={{ borderRadius: 8, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: 11 }}
+                              formatter={(v: number, name: string) => [`${v}h`, name]} />
+                            <Bar dataKey="normal" name="正常工時" stackId="a" fill="#93c5fd" />
+                            <Bar dataKey="overtime" name="加班工時" stackId="a" fill="#fb923c" radius={[4, 4, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                      {/* Category distribution */}
+                      <div className="bg-white rounded-xl border border-slate-100 p-4">
+                        <div className="text-xs font-semibold text-slate-500 mb-3">工作分類分佈</div>
+                        <div className="flex flex-col gap-2">
+                          {MOCK_CATEGORY_DIST.map((d) => (
+                            <div key={d.name} className="flex items-center gap-2">
+                              <div className="w-2 h-2 rounded-sm flex-shrink-0" style={{ background: d.color }} />
+                              <span className="text-xs text-slate-600 flex-1">{d.name}</span>
+                              <div className="w-24 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                <div className="h-full rounded-full" style={{ background: d.color, width: `${Math.round(d.hours / catTotal * 100)}%` }} />
+                              </div>
+                              <span className="text-xs font-medium text-slate-500 w-8 text-right">{d.hours}h</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })(),
+              },
+              {
                 key: 'duties',
                 label: `臨時任務 (${memberDuties.length})`,
                 children: memberDuties.length === 0 ? (

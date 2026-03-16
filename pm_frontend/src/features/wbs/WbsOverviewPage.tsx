@@ -15,7 +15,7 @@
  */
 import React, { useState, useMemo, useCallback } from 'react'
 import {
-  Tag, Tooltip, Progress, Collapse, Empty, Segmented, Input, Button, Timeline, Popover,
+  Tag, Tooltip, Progress, Collapse, Empty, Segmented, Input, Button, Timeline, Popover, Modal,
 } from 'antd'
 import {
   FolderIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon,
@@ -23,6 +23,7 @@ import {
   ArrowTrendingUpIcon, CalendarDaysIcon,
   ChartBarIcon, MagnifyingGlassIcon, ArrowDownTrayIcon,
   EyeIcon, ChatBubbleOvalLeftEllipsisIcon, PlusIcon, CheckIcon, XMarkIcon,
+  PresentationChartBarIcon,
 } from '@heroicons/react/24/outline'
 import { useNavigate } from 'react-router-dom'
 import dayjs from 'dayjs'
@@ -77,6 +78,7 @@ interface WbsProject {
   pm: string
   progress: number
   priority: number
+  start_date?: string
   expected_end: string
   functions: WbsFunction[]
 }
@@ -120,7 +122,7 @@ const NOTE_TYPE_CONFIG: Record<NoteType, { antColor: string; bg: string; color: 
 const MOCK_WBS_DATA: WbsProject[] = [
   {
     id: 'p1', name: 'ERP核心系統改版', department: '資訊部', pm: '王經理',
-    progress: 58, priority: 3, expected_end: '2026-06-30',
+    progress: 58, priority: 3, start_date: '2025-11-01', expected_end: '2026-06-30',
     functions: [
       {
         id: 'f001', name: '採購模塊重構', progress: 100,
@@ -212,7 +214,7 @@ const MOCK_WBS_DATA: WbsProject[] = [
   },
   {
     id: 'p2', name: '行動端 APP 2.0', department: '資訊部', pm: '王經理',
-    progress: 30, priority: 3, expected_end: '2026-08-31',
+    progress: 30, priority: 3, start_date: '2026-01-15', expected_end: '2026-08-31',
     functions: [
       {
         id: 'f007', name: 'iOS 客戶端開發', progress: 35,
@@ -248,7 +250,7 @@ const MOCK_WBS_DATA: WbsProject[] = [
   },
   {
     id: 'p3', name: '報表系統優化', department: '資訊部', pm: '李主管',
-    progress: 45, priority: 2, expected_end: '2026-05-31',
+    progress: 45, priority: 2, start_date: '2025-12-01', expected_end: '2026-05-31',
     functions: [
       {
         id: 'f009', name: '報表引擎重寫', progress: 45,
@@ -290,6 +292,85 @@ function exportWbsCSV(projects: WbsProject[]) {
   const a    = document.createElement('a')
   a.href = url; a.download = `WBS專案進度_${dayjs().format('YYYY-MM-DD')}.csv`; a.click()
   URL.revokeObjectURL(url)
+}
+
+// ─── PPT Export ──────────────────────────────────────────────────────────────
+
+type PptTextRun = {
+  text: string
+  options?: { bold?: boolean; italic?: boolean; color?: string; fontSize?: number }
+}
+
+function buildProgressTextRuns(project: WbsProject): PptTextRun[] {
+  const runs: PptTextRun[] = []
+  project.functions.forEach((func, fi) => {
+    if (fi > 0) runs.push({ text: '\n' })
+    runs.push({ text: `${fi + 1}. ${func.name}\n`, options: { bold: true, color: '1E293B', fontSize: 8 } })
+    func.tasks.forEach((task) => {
+      const statusLabel =
+        task.status === 'completed'   ? '已完成' :
+        task.status === 'in_progress' ? '進行中' :
+        task.status === 'overdue'     ? '超時'   : '未開始'
+      const statusColor =
+        task.status === 'completed'   ? '16A34A' :
+        task.status === 'in_progress' ? '2563EB' :
+        task.status === 'overdue'     ? 'DC2626' : '94A3B8'
+      runs.push({ text: '  - ', options: { color: '94A3B8', fontSize: 8 } })
+      runs.push({ text: `(${statusLabel})`, options: { bold: true, color: statusColor, fontSize: 8 } })
+      runs.push({ text: ` ${task.name}`, options: { color: '1E293B', fontSize: 8 } })
+      const meta: string[] = []
+      if (task.assignee) meta.push(task.assignee)
+      if (task.status === 'overdue' && task.days_overdue) meta.push(`超時${task.days_overdue}天`)
+      else if (task.actual_end) meta.push(`✓${task.actual_end}`)
+      else if (task.expected_end) meta.push(task.expected_end)
+      if (meta.length > 0) runs.push({ text: ` (${meta.join(', ')})`, options: { color: '94A3B8', fontSize: 7, italic: true } })
+      runs.push({ text: '\n' })
+    })
+  })
+  return runs
+}
+
+async function exportWbsPptx(projects: WbsProject[]) {
+  const PptxGenJS = (await import('pptxgenjs')).default
+  const pptx = new PptxGenJS()
+  pptx.layout = 'LAYOUT_WIDE' // 13.33 × 7.5 in
+
+  const slide = pptx.addSlide()
+
+  const mkHdr = (text: string) => ({
+    text,
+    options: { bold: true, color: 'FFFFFF', fill: { color: '1F3864' }, align: 'center' as const, valign: 'middle' as const, fontSize: 8 },
+  })
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const tableRows: any[] = [
+    [mkHdr('進度'), mkHdr('序號'), mkHdr('重點項目\nTOP3'), mkHdr('需求使用者\n專案PM'), mkHdr('DRI'), mkHdr('專案啟動日'), mkHdr('預計結案日'), mkHdr('進度')],
+    ...projects.map((project, idx) => {
+      const hasOverdue = project.functions.some((f) => f.tasks.some((t) => t.status === 'overdue'))
+      const dotColor = hasOverdue ? 'DC2626' : project.progress >= 80 ? '16A34A' : '2563EB'
+      const rowBg = idx % 2 === 0 ? 'F8FAFC' : 'FFFFFF'
+      const cellBase = (extra: object = {}) => ({ valign: 'top' as const, fontSize: 8, fill: { color: rowBg }, ...extra })
+      return [
+        { text: '●', options: { color: dotColor, align: 'center' as const, valign: 'middle' as const, fontSize: 14, fill: { color: rowBg } } },
+        { text: String(idx + 1), options: cellBase({ align: 'center' as const, color: '1E293B' }) },
+        { text: project.name, options: { ...cellBase(), bold: true, color: '1E293B' } },
+        { text: `${project.department}\n${project.pm}`, options: cellBase({ color: '1E293B' }) },
+        { text: project.pm, options: cellBase({ color: '1E293B' }) },
+        { text: project.start_date ?? '-', options: cellBase({ align: 'center' as const, color: '475569' }) },
+        { text: project.expected_end, options: cellBase({ align: 'center' as const, color: '475569' }) },
+        { text: buildProgressTextRuns(project), options: cellBase() },
+      ]
+    }),
+  ]
+
+  slide.addTable(tableRows, {
+    x: 0.15, y: 0.15, w: 13.0,
+    colW: [0.3, 0.3, 1.3, 1.5, 1.0, 0.85, 0.85, 6.9],
+    border: { type: 'solid', color: 'E2E8F0', pt: 0.5 },
+    rowH: 1.3,
+  })
+
+  await pptx.writeFile({ fileName: `專案進度週報_${dayjs().format('YYYY-MM-DD')}.pptx` })
 }
 
 // ─── Week filter type ────────────────────────────────────────────────────────
@@ -914,6 +995,154 @@ const ProjectCard: React.FC<{
   )
 }
 
+// ─── Report Preview Modal ────────────────────────────────────────────────────
+
+const STATUS_COLOR_MAP: Record<TaskStatus, string> = {
+  completed: '#16a34a', in_progress: '#2563eb', overdue: '#dc2626', not_started: '#94a3b8',
+}
+const STATUS_LABEL_MAP: Record<TaskStatus, string> = {
+  completed: '已完成', in_progress: '進行中', overdue: '超時', not_started: '未開始',
+}
+
+const ReportPreviewModal: React.FC<{
+  open: boolean
+  projects: WbsProject[]
+  onClose: () => void
+}> = ({ open, projects, onClose }) => {
+  const [exporting, setExporting] = useState(false)
+
+  const handleExportPptx = async () => {
+    setExporting(true)
+    try { await exportWbsPptx(projects) } finally { setExporting(false) }
+  }
+
+  const handlePrint = () => {
+    const el = document.getElementById('wbs-weekly-report')
+    if (!el) return
+    const win = window.open('', '_blank', 'width=1200,height=800')
+    if (!win) return
+    win.document.write(`<html><head><title>專案進度週報</title><style>
+      *{box-sizing:border-box}body{font-family:Arial,sans-serif;margin:1cm;font-size:10px}
+      h2{text-align:center;color:#1F3864;margin-bottom:4px}
+      .sub{text-align:center;color:#64748b;font-size:9px;margin-bottom:10px}
+      table{border-collapse:collapse;width:100%}
+      th{background:#1F3864;color:#fff;padding:5px 4px;font-size:9px;text-align:center;border:1px solid #1F3864}
+      td{border:1px solid #cbd5e1;padding:4px 5px;vertical-align:top;font-size:9px}
+      tr:nth-child(even) td{background:#f8fafc}
+      @media print{@page{size:A3 landscape;margin:.8cm}}
+    </style></head><body>${el.innerHTML}</body></html>`)
+    win.document.close()
+    setTimeout(() => win.print(), 400)
+  }
+
+  return (
+    <Modal
+      title={
+        <div className="flex items-center gap-2">
+          <PresentationChartBarIcon className="w-5 h-5 text-blue-500" />
+          <span className="font-semibold text-slate-700">專案進度週報預覽</span>
+        </div>
+      }
+      open={open}
+      onCancel={onClose}
+      width="96%"
+      style={{ top: 16 }}
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button onClick={handlePrint} icon={<ArrowDownTrayIcon className="w-3.5 h-3.5" />}>
+            列印 / 存 PDF
+          </Button>
+          <Button
+            type="primary"
+            loading={exporting}
+            onClick={handleExportPptx}
+            icon={<PresentationChartBarIcon className="w-3.5 h-3.5" />}
+            style={{ background: '#2563eb' }}
+          >
+            導出 PPTX
+          </Button>
+          <Button onClick={onClose}>關閉</Button>
+        </div>
+      }
+      destroyOnClose
+    >
+      <div className="overflow-auto max-h-[75vh]">
+        <div id="wbs-weekly-report">
+          <h2 style={{ textAlign: 'center', color: '#1F3864', marginBottom: 4, fontSize: 16, fontWeight: 700 }}>
+            資訊部門 專案進度週報
+          </h2>
+          <p className="sub" style={{ textAlign: 'center', color: '#64748b', fontSize: 11, marginBottom: 12 }}>
+            {dayjs().format('YYYY年MM月DD日')}
+          </p>
+          <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 11 }}>
+            <thead>
+              <tr>
+                {['進度', '序號', '重點項目 TOP3', '需求使用者/專案PM', 'DRI', '專案啟動日', '預計結案日', '進度'].map((h) => (
+                  <th key={h} style={{ background: '#1F3864', color: '#fff', padding: '6px 5px', fontSize: 10, textAlign: 'center', border: '1px solid #1F3864' }}>
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {projects.map((project, idx) => {
+                const hasOverdue = project.functions.some((f) => f.tasks.some((t) => t.status === 'overdue'))
+                const dotColor = hasOverdue ? '#dc2626' : project.progress >= 80 ? '#16a34a' : '#2563eb'
+                const rowBg = idx % 2 === 0 ? '#f8fafc' : '#ffffff'
+                const td = (extra?: React.CSSProperties): React.CSSProperties => ({
+                  background: rowBg, border: '1px solid #e2e8f0', padding: '5px 6px', verticalAlign: 'top', ...extra,
+                })
+                return (
+                  <tr key={project.id}>
+                    <td style={td({ textAlign: 'center', fontSize: 18, lineHeight: 1 })}>
+                      <span style={{ color: dotColor }}>●</span>
+                    </td>
+                    <td style={td({ textAlign: 'center' })}>{idx + 1}</td>
+                    <td style={td({ fontWeight: 600, color: '#1e293b', minWidth: 90 })}>{project.name}</td>
+                    <td style={td({ minWidth: 100 })}>
+                      {project.department}<br />
+                      <span style={{ color: '#2563eb' }}>{project.pm}</span>
+                    </td>
+                    <td style={td()}>{project.pm}</td>
+                    <td style={td({ textAlign: 'center', whiteSpace: 'nowrap', color: '#475569' })}>{project.start_date ?? '-'}</td>
+                    <td style={td({ textAlign: 'center', whiteSpace: 'nowrap', color: '#475569' })}>{project.expected_end}</td>
+                    <td style={td({ minWidth: 320 })}>
+                      {project.functions.map((func, fi) => (
+                        <div key={func.id} style={{ marginTop: fi > 0 ? 6 : 0 }}>
+                          <div style={{ fontWeight: 600, color: '#1e293b', fontSize: 11 }}>
+                            {fi + 1}. {func.name}
+                          </div>
+                          {func.tasks.map((task) => (
+                            <div key={task.id} style={{ marginLeft: 10, marginTop: 2, fontSize: 10 }}>
+                              <span style={{ color: '#94a3b8' }}>- </span>
+                              <span style={{ color: STATUS_COLOR_MAP[task.status], fontWeight: 600 }}>
+                                ({STATUS_LABEL_MAP[task.status]})
+                              </span>
+                              {' '}<span style={{ color: '#1e293b' }}>{task.name}</span>
+                              {' '}<span style={{ color: '#94a3b8', fontSize: 9 }}>
+                                [{task.assignee}
+                                {task.status === 'overdue' && task.days_overdue
+                                  ? `, 超時${task.days_overdue}天`
+                                  : task.actual_end
+                                    ? `, ✓${task.actual_end}`
+                                    : task.expected_end ? `, ${task.expected_end}` : ''}]
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 // ─── Main Page ──────────────────────────────────────────────────────────────
 
 const WbsOverviewPage: React.FC = () => {
@@ -924,6 +1153,7 @@ const WbsOverviewPage: React.FC = () => {
   const [searchKeyword, setSearchKeyword] = useState('')
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null)
   const [meetingNotes, setMeetingNotes] = useState<Record<string, MeetingNote[]>>({})
+  const [previewOpen, setPreviewOpen] = useState(false)
 
   const handleToggleTaskExpand = (taskId: string) => {
     setExpandedTaskId((prev) => prev === taskId ? null : taskId)
@@ -1055,6 +1285,13 @@ const WbsOverviewPage: React.FC = () => {
             </div>
           )}
           <button
+            onClick={() => setPreviewOpen(true)}
+            className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800 bg-blue-50 border border-blue-200 hover:border-blue-300 rounded-lg px-3 py-1.5 transition-colors"
+          >
+            <PresentationChartBarIcon className="w-3.5 h-3.5" />
+            週報預覽
+          </button>
+          <button
             onClick={() => exportWbsCSV(MOCK_WBS_DATA)}
             className="flex items-center gap-1.5 text-xs text-slate-600 hover:text-slate-800 bg-white border border-slate-200 hover:border-slate-300 rounded-lg px-3 py-1.5 transition-colors"
           >
@@ -1161,6 +1398,12 @@ const WbsOverviewPage: React.FC = () => {
           />
         ))
       )}
+
+      <ReportPreviewModal
+        open={previewOpen}
+        projects={MOCK_WBS_DATA}
+        onClose={() => setPreviewOpen(false)}
+      />
     </div>
   )
 }

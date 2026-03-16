@@ -8,7 +8,7 @@ import {
   FolderIcon, ClipboardDocumentListIcon, ClockIcon, CheckCircleIcon,
   ArrowTrendingUpIcon, FireIcon, ExclamationTriangleIcon, BellAlertIcon,
   ChevronDownIcon, ChevronRightIcon, UsersIcon, ChartBarIcon,
-  PencilSquareIcon, SunIcon,
+  PencilSquareIcon, SunIcon, CalendarDaysIcon,
 } from '@heroicons/react/24/outline'
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
 import { fetchIndexThunk } from './authSlice'
@@ -36,6 +36,39 @@ const FEED_ITEMS = [
   { id: 4, user: '陳建國', avatar: '陳', action: '新增了', target: '資料庫優化',  sub: '新增功能任務',        time: '3 小時前',  color: '#7c3aed' },
   { id: 5, user: '林小芸', avatar: '林', action: '審核了', target: '前端重構',    sub: '審核通過',            time: '昨天',      color: '#16a34a' },
 ]
+// ─── Monthly attendance mock (simulate current month logs) ───────────────────
+const buildMonthMock = (): Record<string, { hours: number; ot: number; entries: number; status: 'confirmed' | 'submitted' | 'draft' }> => {
+  const today = dayjs()
+  const firstDay = today.startOf('month')
+  const result: Record<string, { hours: number; ot: number; entries: number; status: 'confirmed' | 'submitted' | 'draft' }> = {}
+  const mockHours = [8, 9.5, 0, 8, 7.5, 8.5, 0, 8, 10, 8, 0, 0, 8, 8.5, 8, 9, 8, 0, 0, 5.5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  for (let i = 0; i < today.date(); i++) {
+    const d = firstDay.add(i, 'day')
+    const dow = d.day()
+    if (dow === 0 || dow === 6) continue
+    const h = mockHours[i] ?? 8
+    if (h === 0) continue
+    const dateStr = d.format('YYYY-MM-DD')
+    const daysAgo = today.diff(d, 'day')
+    result[dateStr] = {
+      hours: h,
+      ot: h > 8 ? h - 8 : 0,
+      entries: Math.floor(h / 2),
+      status: daysAgo >= 3 ? 'confirmed' : daysAgo >= 1 ? 'submitted' : 'draft',
+    }
+  }
+  return result
+}
+const MONTH_MOCK = buildMonthMock()
+
+const getHeatColor = (hours: number) => {
+  if (hours === 0) return '#f1f5f9'
+  if (hours < 4)  return '#bfdbfe'
+  if (hours < 6)  return '#93c5fd'
+  if (hours < 8)  return '#60a5fa'
+  return '#2563eb'
+}
+
 const STATUS_LABEL: Record<number, string> = { 1:'草稿',2:'立案審核',3:'規劃中',4:'規劃審核',5:'執行中',6:'完結審核',7:'已完結' }
 const STATUS_COLOR: Record<number, string> = { 1:'default',2:'processing',3:'blue',4:'orange',5:'green',6:'orange',7:'success' }
 const PRIORITY_COLORS = ['#22c55e', '#f59e0b', '#ef4444', '#7c3aed']
@@ -515,6 +548,115 @@ const TeamDailyLogCard: React.FC = () => {
   )
 }
 
+// ─── Monthly Attendance Calendar Card ─────────────────────────────────────────
+const MonthlyAttendanceCard: React.FC = () => {
+  const navigate = useNavigate()
+  const today = dayjs()
+  const firstDay = today.startOf('month')
+  const daysInMonth = today.daysInMonth()
+  const startPad = (firstDay.day() + 6) % 7   // Mon-first offset
+  const DOW_LABELS = ['一', '二', '三', '四', '五', '六', '日']
+
+  const workedDays  = Object.keys(MONTH_MOCK).length
+  const totalHours  = Object.values(MONTH_MOCK).reduce((s, v) => s + v.hours, 0)
+  const totalOT     = Object.values(MONTH_MOCK).reduce((s, v) => s + v.ot, 0)
+
+  return (
+    <Card
+      bordered={false}
+      className="shadow-sm mb-5"
+      title={
+        <div className="flex items-center gap-2">
+          <CalendarDaysIcon className="w-4 h-4 text-slate-400" />
+          <span className="font-semibold text-slate-700 text-sm">本月出勤日曆</span>
+          <span className="text-xs text-slate-400 font-normal">{today.format('YYYY 年 M 月')}</span>
+        </div>
+      }
+      extra={
+        <span className="text-xs text-blue-500 cursor-pointer hover:underline" onClick={() => navigate('/daily-log')}>
+          填寫日報 →
+        </span>
+      }
+    >
+      {/* Mini stats */}
+      <div className="grid grid-cols-3 gap-3 mb-4">
+        {[
+          { label: '已填報天數', value: workedDays, unit: '天', color: '#2563eb' },
+          { label: '累計工時',   value: totalHours.toFixed(1), unit: 'h',  color: '#16a34a' },
+          { label: '累計加班',   value: totalOT.toFixed(1),   unit: 'h',  color: '#d97706' },
+        ].map((s) => (
+          <div key={s.label} className="text-center">
+            <div className="text-[10px] text-slate-400 mb-0.5">{s.label}</div>
+            <div className="text-lg font-bold" style={{ color: s.color, lineHeight: 1.2 }}>
+              {s.value}<span className="text-xs font-normal text-slate-400 ml-0.5">{s.unit}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Calendar grid */}
+      <div className="grid grid-cols-7 gap-1 mb-1">
+        {DOW_LABELS.map((l) => (
+          <div key={l} className="text-center text-[10px] text-slate-400 font-medium py-0.5">{l}</div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7 gap-1">
+        {Array.from({ length: startPad }).map((_, i) => <div key={`pad-${i}`} />)}
+        {Array.from({ length: daysInMonth }, (_, i) => {
+          const d = firstDay.add(i, 'day')
+          const dateStr = d.format('YYYY-MM-DD')
+          const log = MONTH_MOCK[dateStr]
+          const hours = log?.hours ?? 0
+          const isToday = d.isSame(today, 'day')
+          const isFuture = d.isAfter(today, 'day')
+          const isWeekend = d.day() === 0 || d.day() === 6
+          const noLog = !log && !isFuture && !isWeekend && d.isBefore(today, 'day')
+          return (
+            <Tooltip
+              key={i}
+              title={
+                <div>
+                  <div className="font-semibold">{d.format('MM/DD')}</div>
+                  {log
+                    ? <><div>{hours}h{log.ot > 0 ? ` (+${log.ot}h加班)` : ''}</div><div>{log.entries} 條記錄</div></>
+                    : isFuture ? <div>未到</div>
+                    : isWeekend ? <div>假日</div>
+                    : <div className="text-red-300">未填寫</div>
+                  }
+                </div>
+              }
+            >
+              <div
+                className={`aspect-square rounded-md flex flex-col items-center justify-center cursor-pointer transition-all hover:ring-2 hover:ring-blue-300 ${isToday ? 'ring-2 ring-blue-500' : ''} ${noLog ? 'ring-1 ring-red-200' : ''}`}
+                style={{ background: isFuture || isWeekend ? '#f8fafc' : getHeatColor(hours), minHeight: 32 }}
+                onClick={() => navigate('/daily-log')}
+              >
+                <span className={`text-[10px] font-semibold ${hours > 6 ? 'text-white' : isToday ? 'text-blue-600' : isWeekend ? 'text-slate-300' : 'text-slate-500'}`}>
+                  {i + 1}
+                </span>
+                {hours > 0 && (
+                  <span className={`text-[7px] leading-tight ${hours > 6 ? 'text-white/80' : 'text-slate-400'}`}>{hours}h</span>
+                )}
+                {noLog && <span className="text-[6px] text-red-400 font-bold">缺</span>}
+              </div>
+            </Tooltip>
+          )
+        })}
+      </div>
+
+      {/* Legend */}
+      <div className="flex items-center gap-2 mt-3 justify-center">
+        <span className="text-[10px] text-slate-400">少</span>
+        {[0, 4, 6, 8, 10].map((h, i) => <div key={i} className="w-3 h-3 rounded-sm" style={{ background: getHeatColor(h) }} />)}
+        <span className="text-[10px] text-slate-400">多</span>
+        <span className="text-[10px] text-slate-300 mx-1">|</span>
+        <div className="w-3 h-3 rounded-sm ring-1 ring-red-200 bg-slate-100" />
+        <span className="text-[10px] text-red-400">缺報</span>
+      </div>
+    </Card>
+  )
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 const DashboardPage: React.FC = () => {
@@ -639,8 +781,9 @@ const DashboardPage: React.FC = () => {
           </Card>
         </Col>
 
-        {/* Right: activity feed */}
+        {/* Right: attendance calendar + activity feed */}
         <Col xs={24} lg={9}>
+          <MonthlyAttendanceCard />
           <Card
             bordered={false} className="shadow-sm"
             title={<span className="font-semibold text-slate-700 text-sm">近期動態</span>}
