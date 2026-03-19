@@ -11,6 +11,7 @@ import {
 } from '@heroicons/react/24/outline'
 import { projectApi } from '@/api/project.api'
 import { dutyApi } from '@/api/duty.api'
+import { userApi } from '@/api/user.api'
 import { ApplyRecord, ApprovalNode } from '@/types/api.types'
 import { showToast } from '@/utils/toast'
 
@@ -42,12 +43,7 @@ const APPLY_TYPE_TABS = [
 ]
 
 
-// ─── Mock user list (for 加簽 select) ────────────────────────────────────────
-const MOCK_USERS_COUNTERSIGN = [
-  { value: 'MGR002', label: '陳主管' },
-  { value: 'DIR002', label: '業務總監' },
-  { value: 'ARCH002', label: '資深架構師' },
-]
+// (user options for 加簽 loaded from API in ReviewListPage)
 
 // ─── Apply type → Overall workflow steps mapping ───────────────────────────────
 const WORKFLOW_STEPS: Record<string, string[]> = {
@@ -386,6 +382,16 @@ const ReviewListPage: React.FC = () => {
   const [countersignTarget, setCountersignTarget] = useState<ApplyRecord | null>(null)
   const [actionForm]    = Form.useForm()
   const [csForm]        = Form.useForm()
+  const [userOptions,   setUserOptions]   = useState<{ value: string; label: string }[]>([])
+
+  useEffect(() => {
+    userApi.list({ size: 200 })
+      .then((res) => {
+        const users = (res as { content?: { users?: { work_no: string; name: string }[] } }).content?.users ?? []
+        setUserOptions(users.map((u) => ({ value: u.work_no, label: u.name })))
+      })
+      .catch(() => {})
+  }, [])
 
   const loadData = async () => {
     setIsLoading(true)
@@ -455,7 +461,7 @@ const ReviewListPage: React.FC = () => {
       const isDuty = countersignTarget.apply_type_code === 'duty_complete'
       const payload = {
         approver_work_no: values.work_no as string,
-        approver_name: MOCK_USERS_COUNTERSIGN.find((u) => u.value === values.work_no)?.label ?? values.work_no as string,
+        approver_name: userOptions.find((u) => u.value === values.work_no)?.label ?? values.work_no as string,
       }
       if (isDuty) {
         await dutyApi.countersignReview(countersignTarget.id, payload)
@@ -700,7 +706,7 @@ const ReviewListPage: React.FC = () => {
           <Form.Item name="work_no" label="選擇加簽人員" rules={[{ required: true, message: '請選擇人員' }]}>
             <Select
               placeholder="請選擇審批人員"
-              options={MOCK_USERS_COUNTERSIGN}
+              options={userOptions}
               showSearch
               optionFilterProp="label"
             />

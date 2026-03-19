@@ -34,8 +34,8 @@ class LogInController:
     def get_token_payload(self):
         user_info = {
             "empid": self.payload["work_no"],
-            # "empid": '12390105',
-            # "empid": "L2300045",
+            "username": '李栋',
+            # "role": "L2300045",
             "location": self.payload["location"],
         }
         payload = create_access_token(identity=user_info)

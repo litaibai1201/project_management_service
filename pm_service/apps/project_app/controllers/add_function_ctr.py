@@ -20,7 +20,7 @@ from serialize.model_serizlize import (
     ProjectApplyRecordModelSchema,
     ProjectDataModelSchema,
 )
-from influxDB.influxdb_oper import oper_fluxdb
+from common.oper_log import add_operation_record
 
 
 class AddFunctionController:
@@ -126,13 +126,14 @@ class AddFunctionController:
             message = f"{name}在({project_data['project_nm']})專案中新增一项任務({function_nm})，請及时处理，[点击查看]({link})。"
             SendMessageNotice.send_single_markdown(message, reviewer)
 
-    def __write_data_to_influxdb(self, user_id, function_info):
-        oper_fluxdb.add_record(
-            user_id,
-            "create_function",
-            "success",
-            f"创建名稱為{function_info['function_nm']}({function_info['id']})的任務",
-            request.headers.get("X-Real-IP"),
+    def __write_operation_log(self, user_id, function_info):
+        add_operation_record(
+            operator=user_id,
+            action="create_function",
+            status="success",
+            matter=f"创建名稱為{function_info['function_nm']}({function_info['id']})的任務",
+            ip=request.headers.get("X-Real-IP", ""),
+            matter_id=function_info['id'],
         )
 
     def process_add_function(self, payload, project_id, files_dict, empid):
@@ -162,5 +163,5 @@ class AddFunctionController:
             result = "上傳檔案失敗"
         if flag:
             self.__send_message_to_developers(payload, project_data, empid)
-            self.__write_data_to_influxdb(empid, function_info)
+            self.__write_operation_log(empid, function_info)
         return result, flag

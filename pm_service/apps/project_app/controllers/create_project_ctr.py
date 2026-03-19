@@ -18,7 +18,7 @@ from configs.const_conf import ENV, send_message_link
 from configs.constant import BUCKET
 from configs.senddingplus import SendMessageNotice
 from dbs.mysql_db import DBFunction
-from influxDB.influxdb_oper import oper_fluxdb
+from common.oper_log import add_operation_record
 from serialize.model_serizlize import (ProjectApplyRecordModelSchema,
                                        ProjectDataModelSchema)
 
@@ -90,13 +90,12 @@ class CreateProjectController:
             message = f"{same_message}，您被其分配為系統分析師，請您及時處理，[点击查看]({link})。"
             SendMessageNotice.send_single_markdown(message, [project_pm])
 
-    def __write_data_to_influxdb(self, project_info):
-        oper_fluxdb.add_record(
-            self.user_id,
-            "create_project",
-            "success",
+    def __write_operation_log(self, project_info):
+        add_operation_record(
+            self.user_id, "create_project", "success",
             f"创建名稱為{self.payload['project_nm']}({project_info['id']})的專案",
-            request.headers.get("X-Real-IP"),
+            ip=request.headers.get("X-Real-IP") or '',
+            matter_id=project_info['id'],
         )
 
     def process_create_project(self):
@@ -114,7 +113,7 @@ class CreateProjectController:
         flag = self.__upload_pro_file_to_minio(project_info)
         if flag:
             self.__send_message_to_related_personnel(project_info)
-            self.__write_data_to_influxdb(project_info)
+            self.__write_operation_log(project_info)
             return result, flag
         return "上傳檔案失敗!", flag
 

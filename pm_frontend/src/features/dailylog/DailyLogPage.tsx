@@ -2,11 +2,11 @@
  * DailyLogPage — 個人工作日誌
  * 三個視圖模式：日視圖（填寫/查看）、週視圖（表格匯總）、月視圖（日曆熱力圖）
  */
-import React, { useState, useMemo, useCallback } from 'react'
+import React, { useState, useMemo, useCallback, useEffect } from 'react'
 import {
   Card, Button, Tag, Progress, Modal, Form, Select, Input, InputNumber,
   Switch, Upload, Segmented, Empty, Badge, Popconfirm,
-  AutoComplete, Alert,
+  AutoComplete, Alert, Spin,
 } from 'antd'
 import type { UploadFile } from 'antd'
 import {
@@ -19,12 +19,13 @@ import {
 } from '@heroicons/react/24/outline'
 import { useAppSelector } from '@/hooks/redux'
 import type { DailyLog, DailyLogEntry, WorkCategory } from '@/types/api.types'
+import { dailyLogApi, entriesToBackend, backendDetailToLog } from '@/api/daily_log.api'
+import { projectApi } from '@/api/project.api'
+import { dutyApi } from '@/api/duty.api'
 import dayjs, { Dayjs } from 'dayjs'
 import isoWeek from 'dayjs/plugin/isoWeek'
 
 dayjs.extend(isoWeek)
-
-const IS_DEV = import.meta.env.DEV
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 const STANDARD_DAILY_HOURS = 8.0
@@ -40,74 +41,11 @@ const WORK_CATEGORIES: { value: WorkCategory; label: string; color: string; icon
 
 const CATEGORY_MAP = Object.fromEntries(WORK_CATEGORIES.map((c) => [c.value, c]))
 
-// ─── Mock Projects / Duties for select ──────────────────────────────────────
-const MOCK_PROJECTS_OPTS = [
-  { id: 'p1', name: 'ERP核心系統改版' },
-  { id: 'p2', name: '行動端APP 2.0' },
-  { id: 'p3', name: '報表系統優化' },
-  { id: 'p4', name: '客服平台升級' },
-]
-const MOCK_FUNCTIONS_MAP: Record<string, { id: string; name: string }[]> = {
-  p1: [
-    { id: 'f001', name: '採購模塊重構' }, { id: 'f002', name: '倉庫模塊開發' },
-    { id: 'f003', name: '應收應付模塊' }, { id: 'f004', name: '前端 UI 重設計' },
-  ],
-  p2: [
-    { id: 'f007', name: 'iOS 客戶端開發' }, { id: 'f008', name: 'Android 客戶端' },
-  ],
-  p3: [{ id: 'f009', name: '報表引擎重寫' }],
-  p4: [{ id: 'f010', name: '客服 Chat 模塊' }],
-}
-const MOCK_DUTIES_OPTS = [
-  { id: 'd001', name: '修復線上登入超時問題' },
-  { id: 'd003', name: '優化採購單列表查詢' },
-  { id: 'd004', name: '部署測試環境 Jenkins' },
-  { id: 'd005', name: '編寫單元測試' },
-]
+// ─── Runtime types for API-loaded dropdown options ───────────────────────────
+interface ProjectOpt  { id: string; name: string }
+interface FunctionOpt { id: string; name: string }
+interface DutyOpt     { id: string; name: string }
 const BU_OPTIONS = ['製造部', '品保部', '資訊部', '業務部', '人資部', '財務部', '研發部', '客服中心']
-
-// ─── Mock Daily Logs ────────────────────────────────────────────────────────
-function generateMockLogs(): Record<string, DailyLog> {
-  const logs: Record<string, DailyLog> = {}
-  const today = dayjs().format('YYYY-MM-DD')
-  const yesterday = dayjs().subtract(1, 'day').format('YYYY-MM-DD')
-  const twoDaysAgo = dayjs().subtract(2, 'day').format('YYYY-MM-DD')
-
-  logs[today] = {
-    log_id: 'log-today', work_no: 'DEV001', log_date: today,
-    total_hours: 5.5, overtime_hours: 0, status: 'draft',
-    entries: [
-      { entry_id: 'e1', work_category: 'project', project_id: 'p1', project_nm: 'ERP核心系統改版', function_id: 'f002', function_nm: '倉庫模塊開發', bu_unit: '製造部', description: '倉庫入庫流程開發，完成入庫單據生成邏輯及審核流程', hours: 3, is_overtime: false },
-      { entry_id: 'e2', work_category: 'project', project_id: 'p1', project_nm: 'ERP核心系統改版', function_id: 'f002', function_nm: '倉庫模塊開發', bu_unit: '製造部', description: '參加倉庫模塊 Code Review，修復 3 個審查問題', hours: 1.5, is_overtime: false },
-      { entry_id: 'e3', work_category: 'meeting', description: '每日站會 + 週進度回報', hours: 0.5, is_overtime: false },
-      { entry_id: 'e4', work_category: 'training', description: '參加 React 18 新特性技術分享會', hours: 0.5, is_overtime: false },
-    ],
-  }
-
-  logs[yesterday] = {
-    log_id: 'log-yesterday', work_no: 'DEV001', log_date: yesterday,
-    total_hours: 9.5, overtime_hours: 1.5, status: 'submitted', submitted_at: `${yesterday} 18:30:00`,
-    entries: [
-      { entry_id: 'e5', work_category: 'project', project_id: 'p1', project_nm: 'ERP核心系統改版', function_id: 'f001', function_nm: '採購模塊重構', bu_unit: '製造部', description: '完成採購模塊後端接口重構，統一錯誤處理及分頁查詢', hours: 4, is_overtime: false },
-      { entry_id: 'e6', work_category: 'cr_ar', project_id: 'p1', project_nm: 'ERP核心系統改版', bu_unit: '品保部', description: '處理 CR-2026-0311：採購單列表查詢慢查詢優化，添加複合索引', hours: 2, is_overtime: false },
-      { entry_id: 'e7', work_category: 'meeting', description: '參加跨部門專案週會，匯報 ERP 改版進度', hours: 1, is_overtime: false },
-      { entry_id: 'e8', work_category: 'duty', duty_id: 'd001', duty_nm: '修復線上登入超時問題', description: '排查線程池配置問題，提交修復 PR 並完成自測', hours: 1.5, is_overtime: true, overtime_hours: 1.5 },
-      { entry_id: 'e9', work_category: 'other', description: '整理本週技術文檔，更新 Wiki 頁面', hours: 1, is_overtime: false },
-    ],
-  }
-
-  logs[twoDaysAgo] = {
-    log_id: 'log-2days', work_no: 'DEV001', log_date: twoDaysAgo,
-    total_hours: 8.0, overtime_hours: 0, status: 'confirmed', submitted_at: `${twoDaysAgo} 17:45:00`, confirmed_by: '主管A',
-    entries: [
-      { entry_id: 'e10', work_category: 'project', project_id: 'p1', project_nm: 'ERP核心系統改版', function_id: 'f002', function_nm: '倉庫模塊開發', bu_unit: '製造部', description: '倉庫出庫流程開發，完成出庫單據與庫存扣減邏輯', hours: 5, is_overtime: false },
-      { entry_id: 'e11', work_category: 'project', project_id: 'p2', project_nm: '行動端APP 2.0', function_id: 'f007', function_nm: 'iOS 客戶端開發', bu_unit: '業務部', description: '協助 iOS 端 API 對接問題排查', hours: 1.5, is_overtime: false },
-      { entry_id: 'e12', work_category: 'training', description: 'OJT：新人 Git Flow 流程教學', hours: 1, is_overtime: false },
-      { entry_id: 'e13', work_category: 'meeting', description: '每日站會', hours: 0.5, is_overtime: false },
-    ],
-  }
-  return logs
-}
 
 // ─── CSV Export ──────────────────────────────────────────────────────────────
 function exportDailyLogCSV(logs: DailyLog[], rangeLabel: string) {
@@ -461,24 +399,109 @@ const SelfReportView: React.FC<{
 // ─── Main Page ──────────────────────────────────────────────────────────────
 type ViewMode = 'day' | 'week' | 'month' | 'quarter' | 'year'
 
+// ─── Helpers: map frontend entries ↔ backend payload ────────────────────────
+
+// entriesToPayload delegates to the shared adapter in daily_log.api.ts
+const entriesToPayload = entriesToBackend
+
+// ─── Main Page ──────────────────────────────────────────────────────────────
+
 const DailyLogPage: React.FC = () => {
   const workNo = useAppSelector((s) => s.auth.workNo)
   // Mock: role-based daily log requirement
   // In production this comes from user profile / API
-  const isManager = IS_DEV ? true : false  // mock as manager for dev
+  const isManager = false  // TODO: derive from user role API
   const [dailyLogOptOut, setDailyLogOptOut] = useState(false) // manager opt-out setting
 
   const [currentDate, setCurrentDate] = useState<Dayjs>(dayjs())
   const [viewMode, setViewMode] = useState<ViewMode>('day')
   const [modalOpen, setModalOpen] = useState(false)
   const [editingEntry, setEditingEntry] = useState<DailyLogEntry | null>(null)
-  const [logs, setLogs] = useState<Record<string, DailyLog>>(() => IS_DEV ? generateMockLogs() : {})
+  const [logs, setLogs] = useState<Record<string, DailyLog>>({})
+  const [logsLoading, setLogsLoading] = useState(false)
   const [form] = Form.useForm()
   const [fileList, setFileList] = useState<UploadFile[]>([])
   const [selectedProject, setSelectedProject] = useState<string | null>(null)
 
+  // Dropdown options loaded from real API
+  const [projectOpts, setProjectOpts] = useState<ProjectOpt[]>([])
+  const [functionsMap, setFunctionsMap] = useState<Record<string, FunctionOpt[]>>({})
+  const [dutyOpts, setDutyOpts] = useState<DutyOpt[]>([])
+
+  // Load project list once on mount
+  useEffect(() => {
+    projectApi.list({ page: 1, size: 200, status: 5 })  // status=5 → 執行中
+      .then((res) => {
+        const list = (res.content as { project_list?: { id: string; project_nm: string }[] })?.project_list ?? []
+        setProjectOpts(list.map((p) => ({ id: p.id, name: p.project_nm })))
+      })
+      .catch(() => {})
+  }, [])
+
+  // Load duty list once on mount
+  useEffect(() => {
+    dutyApi.list({ page: 1, size: 200, status: 2 })  // status=2 → 進行中
+      .then((res) => {
+        const list = (res.content as { data_list?: { id: string; duty_nm: string }[] })?.data_list ?? []
+        setDutyOpts(list.map((d) => ({ id: d.id, name: d.duty_nm })))
+      })
+      .catch(() => {})
+  }, [])
+
+  // Load functions when a project is selected
+  useEffect(() => {
+    if (!selectedProject) return
+    if (functionsMap[selectedProject]) return  // already cached
+    projectApi.functionList(selectedProject, { page: 1, size: 200 })
+      .then((res) => {
+        const list = (res.content as { data_list?: { id: string; function_nm: string }[] })?.data_list ?? []
+        setFunctionsMap((prev) => ({
+          ...prev,
+          [selectedProject]: list.map((f) => ({ id: f.id, name: f.function_nm })),
+        }))
+      })
+      .catch(() => {})
+  }, [selectedProject]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const dateStr = currentDate.format('YYYY-MM-DD')
   const currentLog = logs[dateStr]
+
+  // ── Fetch logs for the visible date range ───────────────────────────────────
+  useEffect(() => {
+    const { start, end } = viewMode === 'day'
+      ? { start: currentDate, end: currentDate }
+      : getPeriodRange(currentDate, viewMode)
+    const startStr = start.format('YYYY-MM-DD')
+    const endStr   = end.format('YYYY-MM-DD')
+
+    setLogsLoading(true)
+    dailyLogApi.list({ page: 1, size: 100, start_date: startStr, end_date: endStr })
+      .then(async (res) => {
+        const summaries = res.content?.list ?? []
+        const incoming: Record<string, DailyLog> = {}
+
+        // For each summary, fetch detail to get task_items/free_items → entries
+        await Promise.all(
+          summaries.map(async (s) => {
+            try {
+              const detailRes = await dailyLogApi.detail(s.log_id)
+              incoming[s.log_date] = backendDetailToLog(detailRes.content)
+            } catch {
+              // If detail fails, store a stub so the date shows as existing
+              incoming[s.log_date] = {
+                log_id: s.log_id, work_no: s.work_no, log_date: s.log_date,
+                entries: [], total_hours: Number(s.total_hours), overtime_hours: 0,
+                status: s.status === 2 ? 'submitted' : 'draft',
+              }
+            }
+          }),
+        )
+
+        setLogs((prev) => ({ ...prev, ...incoming }))
+      })
+      .catch(() => { /* silently ignore — user sees empty state */ })
+      .finally(() => setLogsLoading(false))
+  }, [currentDate, viewMode]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const totalHours = currentLog?.total_hours ?? 0
   const overtimeHours = currentLog?.overtime_hours ?? 0
@@ -563,11 +586,11 @@ const DailyLogPage: React.FC = () => {
       entry_id: editingEntry?.entry_id ?? `e-${Date.now()}`,
       work_category: cat,
       project_id: projId,
-      project_nm: MOCK_PROJECTS_OPTS.find((p) => p.id === projId)?.name,
+      project_nm: projectOpts.find((p) => p.id === projId)?.name,
       function_id: funcId,
-      function_nm: MOCK_FUNCTIONS_MAP[projId ?? '']?.find((f) => f.id === funcId)?.name,
+      function_nm: functionsMap[projId ?? '']?.find((f) => f.id === funcId)?.name,
       duty_id: dutyId,
-      duty_nm: MOCK_DUTIES_OPTS.find((d) => d.id === dutyId)?.name,
+      duty_nm: dutyOpts.find((d) => d.id === dutyId)?.name,
       bu_unit: values.bu_unit as string | undefined,
       description: values.description as string,
       hours: values.hours as number,
@@ -585,7 +608,30 @@ const DailyLogPage: React.FC = () => {
         : [...log.entries, newEntry]
       const total = entries.reduce((s, e) => s + e.hours, 0)
       const ot = entries.filter((e) => e.is_overtime).reduce((s, e) => s + (e.overtime_hours ?? e.hours), 0)
-      return { ...prev, [dateStr]: { ...log, entries, total_hours: total, overtime_hours: ot } }
+      const updatedLog = { ...log, entries, total_hours: total, overtime_hours: ot }
+
+      // Persist to backend (uses correct field names via entriesToBackend)
+      {
+        const backendPayload = entriesToPayload(entries, dateStr)
+        const hasRealId = log.log_id && !log.log_id.startsWith('log-')
+        const apiCall = hasRealId
+          ? dailyLogApi.update(log.log_id, {
+              task_items: backendPayload.task_items,
+              free_items: backendPayload.free_items,
+            })
+          : dailyLogApi.create(backendPayload).then((res) => {
+              if (res.content?.log_id) {
+                setLogs((p) => ({
+                  ...p,
+                  [dateStr]: { ...p[dateStr], log_id: res.content.log_id },
+                }))
+              }
+              return res
+            })
+        apiCall.catch(() => { /* toast already shown by httpClient */ })
+      }
+
+      return { ...prev, [dateStr]: updatedLog }
     })
     setModalOpen(false)
     form.resetFields()
@@ -599,12 +645,27 @@ const DailyLogPage: React.FC = () => {
       const entries = log.entries.filter((e) => e.entry_id !== entryId)
       const total = entries.reduce((s, e) => s + e.hours, 0)
       const ot = entries.filter((e) => e.is_overtime).reduce((s, e) => s + (e.overtime_hours ?? e.hours), 0)
-      return { ...prev, [dateStr]: { ...log, entries, total_hours: total, overtime_hours: ot } }
+      const updatedLog = { ...log, entries, total_hours: total, overtime_hours: ot }
+
+      // Sync deletion to backend
+      if (log.log_id && !log.log_id.startsWith('log-')) {
+        const backendPayload = entriesToPayload(entries, dateStr)
+        dailyLogApi.update(log.log_id, {
+          task_items: backendPayload.task_items,
+          free_items: backendPayload.free_items,
+        }).catch(() => { /* handled by httpClient interceptor */ })
+      }
+
+      return { ...prev, [dateStr]: updatedLog }
     })
   }
 
-  // Submit
+  // Submit (mark as submitted — status: 2)
   const handleSubmit = () => {
+    if (currentLog?.log_id && !currentLog.log_id.startsWith('log-')) {
+      dailyLogApi.update(currentLog.log_id, { status: 2 })
+        .catch(() => { /* handled by httpClient interceptor */ })
+    }
     setLogs((prev) => ({
       ...prev,
       [dateStr]: { ...prev[dateStr], status: 'submitted', submitted_at: dayjs().format('YYYY-MM-DD HH:mm:ss') },
@@ -630,6 +691,7 @@ const DailyLogPage: React.FC = () => {
   )
 
   return (
+    <Spin spinning={logsLoading} tip="載入中..." size="large">
     <div className="p-6 max-w-5xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
@@ -883,14 +945,14 @@ const DailyLogPage: React.FC = () => {
                           setSelectedProject(v)
                           form.setFieldsValue({ function_id: undefined })
                         }}>
-                          {MOCK_PROJECTS_OPTS.map((p) => (
+                          {projectOpts.map((p) => (
                             <Select.Option key={p.id} value={p.id}>{p.name}</Select.Option>
                           ))}
                         </Select>
                       </Form.Item>
                       <Form.Item name="function_id" label="關聯任務">
                         <Select placeholder="選擇功能任務" allowClear disabled={!selectedProject}>
-                          {(MOCK_FUNCTIONS_MAP[selectedProject ?? ''] ?? []).map((f) => (
+                          {(functionsMap[selectedProject ?? ''] ?? []).map((f) => (
                             <Select.Option key={f.id} value={f.id}>{f.name}</Select.Option>
                           ))}
                         </Select>
@@ -900,7 +962,7 @@ const DailyLogPage: React.FC = () => {
                   {showDuty && (
                     <Form.Item name="duty_id" label="關聯臨時任務" rules={[{ required: true, message: '請選擇任務' }]}>
                       <Select placeholder="選擇臨時任務" allowClear>
-                        {MOCK_DUTIES_OPTS.map((d) => (
+                        {dutyOpts.map((d) => (
                           <Select.Option key={d.id} value={d.id}>{d.name}</Select.Option>
                         ))}
                       </Select>
@@ -945,6 +1007,7 @@ const DailyLogPage: React.FC = () => {
         </Form>
       </Modal>
     </div>
+    </Spin>
   )
 }
 

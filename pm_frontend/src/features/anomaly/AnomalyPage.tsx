@@ -3,7 +3,7 @@
  * 管理目的：著重於管理異常，正常則可以減少時間管理
  * 自動識別並彙整所有「異常」項目，主管只需關注異常
  */
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import {
   Card, Tag, Avatar, Badge, Tooltip, Empty,
 } from 'antd'
@@ -14,8 +14,6 @@ import {
   FunnelIcon,
 } from '@heroicons/react/24/outline'
 import dayjs from 'dayjs'
-
-const IS_DEV = import.meta.env.DEV
 
 // ─── Anomaly Types ──────────────────────────────────────────────────────────
 
@@ -53,69 +51,7 @@ const LEVEL_META: Record<AnomalyLevel, { label: string; color: string; bg: strin
   info:     { label: '提示',   color: '#2563eb', bg: '#eff6ff', border: '#bfdbfe' },
 }
 
-// ─── Mock Anomalies ─────────────────────────────────────────────────────────
-const MOCK_ANOMALIES: AnomalyItem[] = IS_DEV ? [
-  // Critical
-  {
-    id: 'a1', type: 'task_overdue', level: 'critical',
-    title: '倉庫模塊開發 — 已超期 1 天',
-    description: '預計完成日 2026-03-11，目前進度 65%。負責人：王小明、李大華。建議：安排支援或重新評估排程。',
-    member: '王小明', member_work_no: 'DEV001', project: 'ERP核心系統改版', task: '倉庫模塊開發',
-    value: 1, detected_at: '2026-03-12 09:00',
-  },
-  {
-    id: 'a2', type: 'project_delay', level: 'critical',
-    title: 'ERP核心系統改版 — 整體進度落後 12%',
-    description: '專案預計進度 77%，實際進度 65%。有 1 個功能任務已超期，1 個即將超期。需要專案 PM 關注並提交延遲報告。',
-    project: 'ERP核心系統改版', value: 12, detected_at: '2026-03-12 09:00',
-  },
-  {
-    id: 'a3', type: 'delay_no_report', level: 'critical',
-    title: 'ERP核心系統改版 — Delay 未提交 Backup Plan',
-    description: '專案存在延遲但尚未提交延遲報告及 Backup Plan。根據管理規定，專案 Delay 需要進行報告以及提供 Backup Plan。',
-    project: 'ERP核心系統改版', detected_at: '2026-03-12 09:00',
-  },
-  // Warning
-  {
-    id: 'a4', type: 'task_urgent', level: 'warning',
-    title: 'iOS 客戶端開發 — 剩 2 天',
-    description: '預計完成日 2026-03-14，目前進度 35%。進度偏低，完成風險較高。',
-    member: '陳建國', member_work_no: 'DEV004', project: '行動端APP 2.0', task: 'iOS 客戶端開發',
-    value: 2, detected_at: '2026-03-12 09:00',
-  },
-  {
-    id: 'a5', type: 'task_urgent', level: 'warning',
-    title: 'Android 客戶端 — 剩 2 天',
-    description: '預計完成日 2026-03-14，目前進度 22%。進度嚴重偏低，建議立即關注。',
-    member: '林小芸', member_work_no: 'DEV005', project: '行動端APP 2.0', task: 'Android 客戶端',
-    value: 2, detected_at: '2026-03-12 09:00',
-  },
-  {
-    id: 'a6', type: 'no_daily_log', level: 'warning',
-    title: '李大華 — 昨日日報未填',
-    description: '2026-03-11 日報未提交。已連續 1 天未填寫工作日誌。',
-    member: '李大華', member_work_no: 'DEV002', value: 1, detected_at: '2026-03-12 09:00',
-  },
-  {
-    id: 'a7', type: 'no_daily_log', level: 'warning',
-    title: '林小芸 — 昨日日報未填',
-    description: '2026-03-11 日報未提交。已連續 2 天未填寫工作日誌。',
-    member: '林小芸', member_work_no: 'DEV005', value: 2, detected_at: '2026-03-12 09:00',
-  },
-  {
-    id: 'a8', type: 'insufficient_hours', level: 'warning',
-    title: '陳建國 — 本週工時充足率 72%',
-    description: '本週已過 4 個工作日，累計記錄工時 23h，標準應為 32h，工時充足率 72%（低於 80% 閾值）。',
-    member: '陳建國', member_work_no: 'DEV004', value: 72, detected_at: '2026-03-12 09:00',
-  },
-  {
-    id: 'a9', type: 'progress_stalled', level: 'warning',
-    title: 'Android 客戶端 — 3 天無進度更新',
-    description: '最後一次進度更新在 2026-03-09，已連續 3 天無任何進度更新記錄。',
-    member: '林小芸', member_work_no: 'DEV005', project: '行動端APP 2.0', task: 'Android 客戶端',
-    value: 3, detected_at: '2026-03-12 09:00',
-  },
-] : []
+// ─── Anomaly data is loaded from the API ────────────────────────────────────
 
 // ─── Stats Summary ──────────────────────────────────────────────────────────
 const SummaryCard: React.FC<{
@@ -190,11 +126,17 @@ type FilterLevel = 'all' | 'critical' | 'warning'
 const AnomalyPage: React.FC = () => {
   const [filterLevel, setFilterLevel] = useState<FilterLevel>('all')
   const [filterType, setFilterType] = useState<AnomalyType | 'all'>('all')
+  const [anomalies, setAnomalies] = useState<AnomalyItem[]>([])
 
-  const anomalies = MOCK_ANOMALIES
+  useEffect(() => {
+    // TODO: call real API when endpoint is available, e.g.:
+    // projectApi.anomalies().then((res) => { if (res.content) setAnomalies(res.content) }).catch(() => {})
+    setAnomalies([])
+  }, [])
+
   const criticalCount = anomalies.filter((a) => a.level === 'critical').length
   const warningCount = anomalies.filter((a) => a.level === 'warning').length
-  const normalCount = 28 // Mock: tasks in normal status
+  const normalCount = 0 // TODO: load from API
 
   // By type counts
   const typeCounts = useMemo(() => {

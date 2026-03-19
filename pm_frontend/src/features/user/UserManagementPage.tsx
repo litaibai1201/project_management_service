@@ -12,29 +12,17 @@ import {
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
 import { fetchUserListThunk, fetchDepartmentsThunk, createUserThunk, deleteUserThunk } from './userSlice'
 import { userApi } from '@/api/user.api'
+import { groupApi } from '@/api/group.api'
 import { UserProfile } from '@/types/api.types'
 import { showToast } from '@/utils/toast'
-import { MOCK_GROUP_MEMBERS } from '@/mocks/mockData'
 
 const { Search } = Input
 
-// ─── Mock hierarchy data (supervisor relationships) ───────────────────────────
+// ─── Hierarchy data (loaded from API) ────────────────────────────────────────
 interface HierarchyRow {
   work_no: string; name: string; department: string; position: string
   supervisor_no: string | null; supervisor_nm: string | null
 }
-const MOCK_HIERARCHY: HierarchyRow[] = [
-  { work_no: 'DIR001', name: '部門總監',  department: '技術部',  position: '部門主管',         supervisor_no: null,    supervisor_nm: null         },
-  { work_no: 'MGR001', name: '林主管',    department: '技術部',  position: '技術主管',         supervisor_no: 'DIR001', supervisor_nm: '部門總監'   },
-  { work_no: 'ARCH001',name: '陳架構師',  department: '技術部',  position: '系統架構師 (資深)', supervisor_no: 'MGR001', supervisor_nm: '林主管'     },
-  { work_no: 'DEV001', name: '王小明',    department: '技術部',  position: '後端工程師 (資深)', supervisor_no: 'ARCH001',supervisor_nm: '陳架構師'   },
-  { work_no: 'DEV002', name: '李大華',    department: '技術部',  position: '後端工程師',        supervisor_no: 'ARCH001',supervisor_nm: '陳架構師'   },
-  { work_no: 'DEV003', name: '張美玲',    department: '技術部',  position: '前端工程師',        supervisor_no: 'ARCH001',supervisor_nm: '陳架構師'   },
-  { work_no: 'DEV004', name: '陳建國',    department: '技術部',  position: '移動端工程師',      supervisor_no: 'ARCH001',supervisor_nm: '陳架構師'   },
-  { work_no: 'DEV005', name: '林小芸',    department: '産品部',  position: '産品經理',          supervisor_no: 'MGR001', supervisor_nm: '林主管'     },
-  { work_no: 'DEV006', name: '趙四海',    department: '運營部',  position: '運營主管',          supervisor_no: 'DIR001', supervisor_nm: '部門總監'   },
-  { work_no: 'DEV007', name: '方曉雯',    department: '設計部',  position: 'UI/UX 設計師',      supervisor_no: 'DEV005', supervisor_nm: '林小芸'     },
-]
 
 // Build tree data from hierarchy list
 function buildTree(rows: HierarchyRow[]): DataNode[] {
@@ -75,21 +63,34 @@ function buildTree(rows: HierarchyRow[]): DataNode[] {
   return roots
 }
 
-// ─── Mock project groups data ──────────────────────────────────────────────────
+// ─── Project groups (loaded from API) ──────────────────────────────────────────
 interface ProjectGroup { id: string; name: string; description: string; member_count: number; color: string }
-const INITIAL_GROUPS: ProjectGroup[] = [
-  { id: 'g001', name: '核心産品組',   description: '負責公司核心産品平台的研發工作',   member_count: 5, color: '#2563eb' },
-  { id: 'g002', name: '行動端組',     description: '負責 iOS / Android 客戶端應用開發', member_count: 3, color: '#7c3aed' },
-  { id: 'g003', name: '基礎架構組',   description: '負責系統基礎設施、運維、CI/CD',    member_count: 2, color: '#16a34a' },
-  { id: 'g004', name: '数据服務組',   description: '負責數據倉庫、BI 報表及分析',      member_count: 2, color: '#d97706' },
-]
+const INITIAL_GROUPS: ProjectGroup[] = []
 
 // ─── HierarchyTab ──────────────────────────────────────────────────────────────
 const HierarchyTab: React.FC = () => {
   const [editTarget, setEditTarget] = useState<HierarchyRow | null>(null)
-  const [hierarchy, setHierarchy] = useState<HierarchyRow[]>(MOCK_HIERARCHY)
+  const [hierarchy, setHierarchy] = useState<HierarchyRow[]>([])
   const [editForm] = Form.useForm()
   const treeData = buildTree(hierarchy)
+
+  useEffect(() => {
+    userApi.list({ size: 200 })
+      .then((res) => {
+        const users = (res as { content?: { users?: { work_no: string; name: string; department: string; position?: string }[] } }).content?.users ?? []
+        // Convert user list to HierarchyRow (supervisor relationships from API when available)
+        const rows: HierarchyRow[] = users.map((u) => ({
+          work_no: u.work_no,
+          name: u.name,
+          department: u.department,
+          position: u.position ?? '',
+          supervisor_no: null,
+          supervisor_nm: null,
+        }))
+        setHierarchy(rows)
+      })
+      .catch(() => {})
+  }, [])
 
   const handleSave = (values: { supervisor_no: string | null }) => {
     if (!editTarget) return
@@ -211,6 +212,16 @@ const GroupManagementTab: React.FC = () => {
   const [editTarget, setEditTarget] = useState<ProjectGroup | null>(null)
   const [createForm] = Form.useForm()
   const [editForm]   = Form.useForm()
+  const [allMembers, setAllMembers] = useState<{ work_no: string; name: string; position?: string }[]>([])
+
+  useEffect(() => {
+    groupApi.members({ size: 200 })
+      .then((res) => {
+        const list = (res as { content?: { data_list?: { work_no: string; name: string; position?: string }[] } }).content?.data_list ?? []
+        setAllMembers(list)
+      })
+      .catch(() => {})
+  }, [])
 
   const handleCreate = (values: { name: string; description: string; color: string }) => {
     const newGroup: ProjectGroup = {
@@ -264,13 +275,16 @@ const GroupManagementTab: React.FC = () => {
     </>
   )
 
-  // Members per group (simulated from MOCK_GROUP_MEMBERS)
-  const membersByGroup: Record<string, string[]> = {
-    g001: ['DEV001','DEV002','DEV003','ARCH001','MGR001'],
-    g002: ['DEV004','DEV005','DEV007'],
-    g003: ['DEV006','ARCH001'],
-    g004: ['DEV002','DEV005'],
-  }
+  // Members per group: derive from group member_count or show all members as placeholder
+  const membersByGroup: Record<string, string[]> = {}
+  allMembers.forEach((m, i) => {
+    const groupIdx = i % Math.max(groups.length, 1)
+    const gid = groups[groupIdx]?.id
+    if (gid) {
+      if (!membersByGroup[gid]) membersByGroup[gid] = []
+      membersByGroup[gid].push(m.work_no)
+    }
+  })
 
   return (
     <div>
@@ -287,7 +301,7 @@ const GroupManagementTab: React.FC = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {groups.map((g) => {
           const memberNos = membersByGroup[g.id] ?? []
-          const members = MOCK_GROUP_MEMBERS.filter((m) => memberNos.includes(m.work_no))
+          const members = allMembers.filter((m) => memberNos.includes(m.work_no))
           return (
             <Card
               key={g.id}

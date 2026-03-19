@@ -521,3 +521,106 @@ class DutyProgressReaderModel(db.Model):
     )
     work_no = db.Column(db.String(16), nullable=False, comment="已讀人員工號")
     created_at = db.Column(db.String(19), default=get_now, nullable=False, comment="創建時間")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  日報 / 週報月報快照 / 更新日誌 模型
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class DailyLogModel(BaseModel):
+    """日報索引表（完整內容存 MongoDB daily_log 集合）"""
+
+    __tablename__ = "daily_log_form"
+    __table_args__ = (
+        db.UniqueConstraint("work_no", "log_date", name="uq_daily_log_work_date"),
+    )
+
+    work_no = db.Column(db.String(16), nullable=False, comment="工號")
+    log_date = db.Column(db.String(10), nullable=False, comment="日誌日期 YYYY-MM-DD")
+    mongo_id = db.Column(db.String(32), comment="MongoDB 文檔 ID")
+    total_hours = db.Column(db.String(8), default="0", comment="總工時（小時）")
+    status = db.Column(
+        db.Integer, default=1,
+        comment="狀態: 1--草稿; 2--已提交"
+    )
+    status_update_at = db.Column(db.String(19), comment="狀態更新時間")
+    updated_at = db.Column(db.String(19), comment="更新時間")
+
+
+class ReportSnapshotModel(BaseModel):
+    """週報/月報快照索引表（完整內容存 MongoDB）"""
+
+    __tablename__ = "report_snapshot_form"
+    __table_args__ = (
+        db.UniqueConstraint(
+            "work_no", "report_type", "period_start",
+            name="uq_report_snapshot"
+        ),
+    )
+
+    work_no = db.Column(db.String(16), nullable=False, comment="工號")
+    report_type = db.Column(
+        db.String(16), nullable=False,
+        comment="報告類型: weekly / monthly"
+    )
+    period_start = db.Column(db.String(10), nullable=False, comment="周期開始日期")
+    period_end = db.Column(db.String(10), nullable=False, comment="周期結束日期")
+    mongo_id = db.Column(db.String(32), comment="MongoDB 文檔 ID（confirmed 後才有）")
+    status = db.Column(
+        db.Integer, default=1,
+        comment="狀態: 1--草稿(未確認); 2--已確認"
+    )
+    status_update_at = db.Column(db.String(19), comment="狀態更新時間")
+    updated_at = db.Column(db.String(19), comment="更新時間")
+
+
+class UpdateLogModel(BaseModel):
+    """系統更新日誌表"""
+
+    __tablename__ = "update_log_form"
+
+    version = db.Column(db.String(32), nullable=False, comment="版本號，如 v1.2.3")
+    title = db.Column(db.String(128), nullable=False, comment="更新標題")
+    content = db.Column(db.Text, nullable=False, comment="更新詳情（Markdown）")
+    update_type = db.Column(
+        db.String(32), default="feature",
+        comment="類型: feature / bugfix / hotfix / other"
+    )
+    operator = db.Column(db.String(16), nullable=False, comment="發布人工號")
+    status = db.Column(
+        db.Integer, default=1,
+        comment="狀態: 0--已刪除; 1--正常"
+    )
+    status_update_at = db.Column(db.String(19), comment="狀態更新時間")
+
+
+class FileDataModel(BaseModel):
+    """
+    文件元數據統一管理表 (pm_file)
+    不存文件本身，只存 MinIO key + 關聯業務 ID。
+    """
+
+    __tablename__ = "file_data_form"
+
+    biz_type = db.Column(
+        db.String(32), nullable=False,
+        comment="業務類型: project / duty / progress / duty_progress / daily_log"
+    )
+    biz_id = db.Column(
+        db.String(16), nullable=False,
+        comment="關聯業務 ID（project_id / duty_id / progress_id / log_id）"
+    )
+    minio_key = db.Column(db.String(512), nullable=False, comment="MinIO 對象路徑")
+    file_name = db.Column(db.String(256), nullable=False, comment="原始文件名")
+    file_type = db.Column(
+        db.String(16), default="file",
+        comment="文件分類: image / file / video"
+    )
+    file_size = db.Column(db.BigInteger, default=0, comment="文件大小（bytes）")
+    uploader = db.Column(db.String(16), nullable=False, comment="上傳人工號")
+    status = db.Column(
+        db.Integer, default=1,
+        comment="狀態: 0--已刪除; 1--正常"
+    )
+    status_update_at = db.Column(db.String(19), comment="狀態更新時間")

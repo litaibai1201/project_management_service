@@ -32,8 +32,6 @@ import { MemberWorkStat } from '@/types/api.types'
 import { PROJECT_STATUS_MAP, DUTY_STATUS_MAP, PRIORITY_MAP } from '@/utils/status'
 import dayjs, { Dayjs } from 'dayjs'
 
-const IS_DEV = import.meta.env.DEV
-
 const { RangePicker } = DatePicker
 const { Panel } = Collapse
 
@@ -48,36 +46,9 @@ function exportCSV(filename: string, rows: string[][]): void {
   URL.revokeObjectURL(url)
 }
 
-// ─── Mock project-hours distribution per member ───────────────────────────────
+// ─── Project-hours distribution per member (loaded from API) ──────────────────
 const PIE_PALETTE = ['#2563eb','#7c3aed','#16a34a','#d97706','#0891b2','#db2777']
-const MOCK_PROJECT_HOURS: Record<string, { name: string; hours: number }[]> = {
-  DEV001: [
-    { name: 'ERP系統改版',  hours: 86 },
-    { name: '行動端APP',    hours: 42 },
-    { name: '報表優化',     hours: 35 },
-    { name: '其他',         hours: 23 },
-  ],
-  DEV002: [
-    { name: 'ERP系統改版',  hours: 78 },
-    { name: '客服平台',     hours: 52 },
-    { name: '其他',         hours: 22 },
-  ],
-  DEV003: [
-    { name: 'ERP系統改版',  hours: 62 },
-    { name: '行動端APP',    hours: 40 },
-    { name: '其他',         hours: 32 },
-  ],
-  DEV004: [
-    { name: '行動端APP',    hours: 72 },
-    { name: '報表優化',     hours: 30 },
-    { name: '其他',         hours: 16 },
-  ],
-  DEV005: [
-    { name: '客服平台',     hours: 58 },
-    { name: '行動端APP',    hours: 24 },
-    { name: '其他',         hours: 16 },
-  ],
-}
+const MOCK_PROJECT_HOURS: Record<string, { name: string; hours: number }[]> = {}
 
 // ─── Progress Report Mock Data ─────────────────────────────────────────────────
 
@@ -98,89 +69,7 @@ interface ReportMember {
   overdue:        OverdueTask[]
 }
 
-// Generates mock report data (content is fixed; in real use it would be filtered by period)
-const MOCK_REPORTS: ReportMember[] = [
-  {
-    work_no: 'DEV001', name: '王小明', period_hours: 31, updates_count: 3,
-    completed: [
-      { id: 'f001', name: '採購模塊重構',      project: 'ERP核心系統改版', type: 'function', completed_at: '2026-03-08', hours: 48 },
-      { id: 'd001', name: '修復線上登入超時問題', project: '—',            type: 'duty',     completed_at: '2026-03-09', hours: 6  },
-    ],
-    in_progress: [
-      { id: 'f002', name: '倉庫模塊開發',       project: 'ERP核心系統改版', progress: 65, days_left: -1, status: 'overdue' },
-      { id: 'd004', name: '部署測試環境 Jenkins',project: '—',             progress: 80, days_left:  1, status: 'urgent'  },
-    ],
-    updates: [
-      { id: 'u1', task_nm: '倉庫模塊開發',      project: 'ERP核心系統改版', content: '倉庫入庫、出庫流程已開發完成，庫存盤點功能 50% 完成，本週重點推進庫存報表模塊。', hours: 24, date: '2026-03-10', progress_pct: 65,
-        images: [
-          { name: '倉庫流程截圖.png', url: 'https://placehold.co/800x600/2563eb/fff?text=倉庫流程', size: 245000 },
-          { name: '入庫介面.png', url: 'https://placehold.co/800x600/16a34a/fff?text=入庫介面', size: 198000 },
-        ],
-        files: [{ name: '倉庫模塊設計文檔.pdf', url: '#', size: 1250000 }],
-      },
-      { id: 'u2', task_nm: '部署測試環境 Jenkins',                          content: 'Jenkins 流水線已配置完成，前端和後端自動構建已驗證通過，正在配置自動化測試觸發器。', hours: 8,  date: '2026-03-10', progress_pct: 80,
-        files: [{ name: 'Jenkins配置說明.docx', url: '#', size: 89000 }],
-      },
-      { id: 'u3', task_nm: '修復線上登入超時問題',                           content: '已定位到問題根因：線程池配置不合理導致請求積壓，已在預發環境修復，待部署生產。', hours: 4,  date: '2026-03-09', progress_pct: 60,
-        images: [{ name: '錯誤日誌截圖.png', url: 'https://placehold.co/800x400/dc2626/fff?text=ErrorLog', size: 156000 }],
-      },
-    ],
-    overdue: [
-      { id: 'f002', name: '倉庫模塊開發', project: 'ERP核心系統改版', days_overdue: 1 },
-    ],
-  },
-  {
-    work_no: 'DEV002', name: '李大華', period_hours: 24, updates_count: 2,
-    completed: [],
-    in_progress: [
-      { id: 'f002b', name: '倉庫模塊開發',     project: 'ERP核心系統改版', progress: 65, days_left: -1, status: 'overdue' },
-      { id: 'd003',  name: '優化採購單列表查詢', project: '—',             progress: 35, days_left:  4, status: 'normal'  },
-    ],
-    updates: [
-      { id: 'u4', task_nm: '倉庫模塊開發',      project: 'ERP核心系統改版', content: '完成了倉庫基礎數據（倉庫、貨位、商品）管理功能，入庫流程開發中。', hours: 20, date: '2026-03-08', progress_pct: 40 },
-      { id: 'u5', task_nm: '優化採購單列表查詢',                            content: '分析了慢查詢日誌，確認缺少複合索引，正在設計優化方案。',            hours: 3,  date: '2026-03-08', progress_pct: 35 },
-    ],
-    overdue: [
-      { id: 'f002b', name: '倉庫模塊開發', project: 'ERP核心系統改版', days_overdue: 1 },
-    ],
-  },
-  {
-    work_no: 'DEV003', name: '張美玲', period_hours: 22, updates_count: 1,
-    completed: [
-      { id: 'f004', name: '前端 UI 重設計', project: 'ERP核心系統改版', type: 'function', completed_at: '2026-03-07', hours: 28 },
-    ],
-    in_progress: [
-      { id: 'f005', name: '移動端適配', project: 'ERP核心系統改版', progress: 0, days_left: 30, status: 'normal' },
-    ],
-    updates: [
-      { id: 'u6', task_nm: '前端 UI 重設計', project: 'ERP核心系統改版', content: '所有頁面重設計完成，已通過 UI 走查，準備提交完結審核。', hours: 22, date: '2026-03-07', progress_pct: 80 },
-    ],
-    overdue: [],
-  },
-  {
-    work_no: 'DEV004', name: '陳建國', period_hours: 20, updates_count: 1,
-    completed: [],
-    in_progress: [
-      { id: 'f007', name: 'iOS 客戶端開發', project: '行動端 APP 2.0', progress: 35, days_left: 2, status: 'urgent' },
-    ],
-    updates: [
-      { id: 'u7', task_nm: 'iOS 客戶端開發', project: '行動端 APP 2.0', content: '完成了首頁、列表頁、詳情頁三個核心頁面，正在開發推送通知功能。', hours: 20, date: '2026-03-09', progress_pct: 35 },
-    ],
-    overdue: [],
-  },
-  {
-    work_no: 'DEV005', name: '林小芸', period_hours: 20, updates_count: 1,
-    completed: [],
-    in_progress: [
-      { id: 'f008', name: 'Android 客戶端', project: '行動端 APP 2.0', progress: 22, days_left: 2, status: 'urgent' },
-      { id: 'd005', name: '編寫單元測試',    project: '—',              progress: 50, days_left: 9, status: 'normal' },
-    ],
-    updates: [
-      { id: 'u8', task_nm: 'Android 客戶端', project: '行動端 APP 2.0', content: '完成了應用骨架和導航框架，首頁開發中，預計下週完成核心頁面。', hours: 20, date: '2026-03-09', progress_pct: 22 },
-    ],
-    overdue: [],
-  },
-]
+// Report data is loaded from the API per period selection
 
 // ─── Period presets ────────────────────────────────────────────────────────────
 type PeriodKey = 'day' | 'week' | 'month' | 'quarter' | 'year' | 'custom'
@@ -477,15 +366,20 @@ const MemberReportCard: React.FC<{ report: ReportMember }> = ({ report }) => {
 const ProgressReportTab: React.FC = () => {
   const [period,      setPeriod]      = useState<PeriodKey>('week')
   const [customRange, setCustomRange] = useState<[Dayjs, Dayjs] | null>(null)
+  const [reports,     setReports]     = useState<ReportMember[]>([])
 
   const currentPreset = PERIOD_PRESETS.find((p) => p.key === period)
   const range  = period === 'custom' && customRange ? customRange : (currentPreset?.range() ?? [dayjs().startOf('week'), dayjs().endOf('week')])
   const dateLabel = `${range[0].format('YYYY/MM/DD')} — ${range[1].format('YYYY/MM/DD')}`
   const periodLabel = period === 'custom' ? dateLabel : (currentPreset?.label ?? '') + ' ' + dateLabel
 
-  // In real use, filter MOCK_REPORTS by the selected period.
-  // For mock purposes we show all data with the period label.
-  const reports = MOCK_REPORTS
+  useEffect(() => {
+    // TODO: call real API when endpoint is available, e.g.:
+    // groupApi.progressReport({ start_date: range[0].format('YYYY-MM-DD'), end_date: range[1].format('YYYY-MM-DD') })
+    //   .then((res) => { if (res.content) setReports(res.content) })
+    //   .catch(() => {})
+    setReports([])
+  }, [period, customRange])
 
   const totalHours    = reports.reduce((s, r) => s + r.period_hours, 0)
   const totalUpdates  = reports.reduce((s, r) => s + r.updates_count, 0)
@@ -588,34 +482,9 @@ const ProgressReportTab: React.FC = () => {
 }
 
 // ─── Personal Work Analysis Tab ──────────────────────────────────────────────
-const MOCK_PERSONAL_PROJECT_DIST = [
-  { name: 'ERP核心系統改版', hours: 86, color: '#2563eb' },
-  { name: '行動端APP 2.0', hours: 42, color: '#7c3aed' },
-  { name: '報表系統優化', hours: 35, color: '#16a34a' },
-  { name: '其他', hours: 23, color: '#d97706' },
-]
-const MOCK_BU_DIST = [
-  { name: '製造部', hours: 68, color: '#2563eb' },
-  { name: '品保部', hours: 35, color: '#16a34a' },
-  { name: '業務部', hours: 28, color: '#d97706' },
-  { name: '資訊部', hours: 22, color: '#7c3aed' },
-  { name: '其他', hours: 15, color: '#94a3b8' },
-]
-const MOCK_CATEGORY_DIST = [
-  { name: '專案工作', hours: 120, color: '#2563eb' },
-  { name: 'CR/AR', hours: 18, color: '#16a34a' },
-  { name: '教育訓練', hours: 8, color: '#d97706' },
-  { name: '會議', hours: 12, color: '#dc2626' },
-  { name: '臨時任務', hours: 22, color: '#7c3aed' },
-  { name: '其他', hours: 6, color: '#94a3b8' },
-]
-const MOCK_OVERTIME_WEEKLY = [
-  { week: 'W06', normal: 38, overtime: 4 },
-  { week: 'W07', normal: 40, overtime: 2 },
-  { week: 'W08', normal: 36, overtime: 6 },
-  { week: 'W09', normal: 39, overtime: 3 },
-  { week: 'W10', normal: 37, overtime: 5 },
-]
+// Data loaded from API per member selection
+const EMPTY_DIST: { name: string; hours: number; color: string }[] = []
+const EMPTY_OVERTIME: { week: string; normal: number; overtime: number }[] = []
 // ─── Member Overview Tab (merged from GroupMembersPage) ──────────────────────
 
 const { Search } = Input
@@ -939,7 +808,7 @@ const MemberOverviewTab: React.FC = () => {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 const StatisticsPage: React.FC = () => {
   // Role: managers see all tabs; regular employees only see "成員總覽"
-  const isManager = IS_DEV ? true : false  // TODO: replace with real role check
+  const isManager = false  // TODO: replace with real role check from auth context
 
   const [stats,      setStats]      = useState<MemberWorkStat[]>([])
   const [isLoading,  setIsLoading]  = useState(false)
@@ -1030,10 +899,10 @@ const StatisticsPage: React.FC = () => {
 
   // ── Individual member work-hours detail (used in both manager drill-down and engineer self-view) ──
   const renderPersonalDetail = (workNo: string, memberName: string) => {
-    const projectData = MOCK_PROJECT_HOURS[workNo] ?? MOCK_PERSONAL_PROJECT_DIST
+    const projectData = MOCK_PROJECT_HOURS[workNo] ?? EMPTY_DIST
     const totalProjHours = projectData.reduce((s: number, d: { hours: number }) => s + d.hours, 0)
-    const totalOvertime = MOCK_OVERTIME_WEEKLY.reduce((s, d) => s + d.overtime, 0)
-    const totalNormal   = MOCK_OVERTIME_WEEKLY.reduce((s, d) => s + d.normal, 0)
+    const totalOvertime = EMPTY_OVERTIME.reduce((s, d) => s + d.overtime, 0)
+    const totalNormal   = EMPTY_OVERTIME.reduce((s, d) => s + d.normal, 0)
     const totalHrs      = totalNormal + totalOvertime
     return (
       <div className="space-y-4">
@@ -1085,14 +954,14 @@ const StatisticsPage: React.FC = () => {
             <Card bordered={false} className="shadow-sm h-full" title={<span className="text-sm font-semibold text-slate-700">BU / 單位工時分佈</span>} bodyStyle={{ paddingTop: 4 }}>
               <ResponsiveContainer width="100%" height={180}>
                 <PieChart>
-                  <Pie data={MOCK_BU_DIST} dataKey="hours" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={68} paddingAngle={2}>
-                    {MOCK_BU_DIST.map((d, i) => <Cell key={i} fill={d.color} />)}
+                  <Pie data={EMPTY_DIST} dataKey="hours" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={68} paddingAngle={2}>
+                    {EMPTY_DIST.map((d, i) => <Cell key={i} fill={d.color} />)}
                   </Pie>
                   <RTooltip formatter={(v: number) => [`${v}h`, '工時']} contentStyle={{ borderRadius: 8, fontSize: 11, border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }} />
                 </PieChart>
               </ResponsiveContainer>
               <div className="flex flex-col gap-1">
-                {MOCK_BU_DIST.map((d) => (
+                {EMPTY_DIST.map((d) => (
                   <div key={d.name} className="flex items-center gap-2 text-xs">
                     <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: d.color }} />
                     <span className="text-slate-600 truncate flex-1">{d.name}</span>
@@ -1106,14 +975,14 @@ const StatisticsPage: React.FC = () => {
             <Card bordered={false} className="shadow-sm h-full" title={<span className="text-sm font-semibold text-slate-700">工作分類分佈</span>} bodyStyle={{ paddingTop: 4 }}>
               <ResponsiveContainer width="100%" height={180}>
                 <PieChart>
-                  <Pie data={MOCK_CATEGORY_DIST} dataKey="hours" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={68} paddingAngle={2}>
-                    {MOCK_CATEGORY_DIST.map((d, i) => <Cell key={i} fill={d.color} />)}
+                  <Pie data={EMPTY_DIST} dataKey="hours" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={68} paddingAngle={2}>
+                    {EMPTY_DIST.map((d, i) => <Cell key={i} fill={d.color} />)}
                   </Pie>
                   <RTooltip formatter={(v: number) => [`${v}h`, '工時']} contentStyle={{ borderRadius: 8, fontSize: 11, border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }} />
                 </PieChart>
               </ResponsiveContainer>
               <div className="flex flex-col gap-1">
-                {MOCK_CATEGORY_DIST.map((d) => (
+                {EMPTY_DIST.map((d) => (
                   <div key={d.name} className="flex items-center gap-2 text-xs">
                     <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: d.color }} />
                     <span className="text-slate-600 truncate flex-1">{d.name}</span>
@@ -1130,7 +999,7 @@ const StatisticsPage: React.FC = () => {
           title={<span className="text-sm font-semibold text-slate-700">正常 vs 加班工時（近5週）{memberName ? `— ${memberName}` : ''}</span>}
           bodyStyle={{ paddingTop: 8 }}>
           <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={MOCK_OVERTIME_WEEKLY} barCategoryGap="25%">
+            <BarChart data={EMPTY_OVERTIME} barCategoryGap="25%">
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
               <XAxis dataKey="week" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} unit="h" />

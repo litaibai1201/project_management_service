@@ -13,7 +13,7 @@
  *   - 可跳轉專案詳情，可展開任務進度追蹤記錄
  *   - 會議備注：任務行快速記錄 + 專案維度彙整
  */
-import React, { useState, useMemo, useCallback } from 'react'
+import React, { useState, useMemo, useCallback, useEffect } from 'react'
 import {
   Tag, Tooltip, Progress, Collapse, Empty, Segmented, Input, Button, Timeline, Popover, Modal,
 } from 'antd'
@@ -31,7 +31,6 @@ import isoWeek from 'dayjs/plugin/isoWeek'
 
 dayjs.extend(isoWeek)
 
-const IS_DEV = import.meta.env.DEV
 const { Panel } = Collapse
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -117,159 +116,7 @@ const NOTE_TYPE_CONFIG: Record<NoteType, { antColor: string; bg: string; color: 
   '待確認': { antColor: 'orange', bg: '#fff7ed', color: '#d97706' },
 }
 
-// ─── Mock Data ──────────────────────────────────────────────────────────────
-
-const MOCK_WBS_DATA: WbsProject[] = [
-  {
-    id: 'p1', name: 'ERP核心系統改版', department: '資訊部', pm: '王經理',
-    progress: 58, priority: 3, start_date: '2025-11-01', expected_end: '2026-06-30',
-    functions: [
-      {
-        id: 'f001', name: '採購模塊重構', progress: 100,
-        tasks: [
-          { id: 't001', name: '採購單 CRUD API', assignee: '王小明', progress: 100, status: 'completed', expected_end: '2026-03-05', actual_end: '2026-03-04', week_tag: ['last_week'], project_id: 'p1', function_id: 'f001',
-            progress_history: [
-              { date: '2026-03-02', content: '完成基礎 CRUD 接口開發', progress: 60, author: '王小明' },
-              { date: '2026-03-03', content: '完成單元測試和接口文檔', progress: 90, author: '王小明' },
-              { date: '2026-03-04', content: '代碼審查通過，已合併至主分支', progress: 100, author: '王小明' },
-            ],
-          },
-          { id: 't002', name: '採購審核流程', assignee: '王小明', progress: 100, status: 'completed', expected_end: '2026-03-08', actual_end: '2026-03-08', week_tag: ['last_week'], project_id: 'p1', function_id: 'f001',
-            progress_history: [
-              { date: '2026-03-05', content: '完成審核流程狀態機設計', progress: 30, author: '王小明' },
-              { date: '2026-03-07', content: '完成多級審核邏輯開發和測試', progress: 80, author: '王小明' },
-              { date: '2026-03-08', content: '完成集成測試，正式上線', progress: 100, author: '王小明' },
-            ],
-          },
-          { id: 't003', name: '採購報表匯出', assignee: '李大華', progress: 100, status: 'completed', expected_end: '2026-03-07', actual_end: '2026-03-07', week_tag: ['last_week'], project_id: 'p1', function_id: 'f001',
-            progress_history: [
-              { date: '2026-03-06', content: '完成 Excel 匯出模板和數據查詢', progress: 70, author: '李大華' },
-              { date: '2026-03-07', content: '完成 PDF 匯出功能，測試通過', progress: 100, author: '李大華' },
-            ],
-          },
-        ],
-      },
-      {
-        id: 'f002', name: '倉庫模塊開發', progress: 65,
-        tasks: [
-          { id: 't004', name: '入庫流程開發', assignee: '王小明', progress: 100, status: 'completed', expected_end: '2026-03-10', actual_end: '2026-03-09', week_tag: ['last_week'], project_id: 'p1', function_id: 'f002',
-            progress_history: [
-              { date: '2026-03-06', content: '完成入庫單據 UI 和基礎邏輯', progress: 50, author: '王小明' },
-              { date: '2026-03-09', content: '完成庫存更新和通知邏輯，測試通過', progress: 100, author: '王小明' },
-            ],
-          },
-          { id: 't005', name: '出庫流程開發', assignee: '王小明', progress: 80, status: 'in_progress', expected_end: '2026-03-14', week_tag: ['this_week'], project_id: 'p1', function_id: 'f002',
-            latest_update: '出庫單據生成已完成，庫存扣減邏輯開發中，預計明日完成',
-            progress_history: [
-              { date: '2026-03-10', content: '開始出庫流程開發，完成頁面框架', progress: 20, author: '王小明' },
-              { date: '2026-03-11', content: '出庫單據生成模塊開發完成', progress: 50, author: '王小明' },
-              { date: '2026-03-12', content: '庫存扣減邏輯開發中，已完成基礎邏輯', progress: 80, author: '王小明' },
-            ],
-          },
-          { id: 't006', name: '庫存盤點功能', assignee: '李大華', progress: 40, status: 'overdue', expected_end: '2026-03-10', days_overdue: 2, week_tag: ['this_week', 'last_week'], project_id: 'p1', function_id: 'f002',
-            latest_update: '盤點計劃模塊已完成，差異處理邏輯開發中，因需求變更延遲2天',
-            progress_history: [
-              { date: '2026-03-07', content: '盤點計劃模塊設計完成', progress: 15, author: '李大華' },
-              { date: '2026-03-09', content: '盤點計劃模塊開發完成，開始差異處理', progress: 30, author: '李大華' },
-              { date: '2026-03-11', content: '因需求變更需調整差異處理邏輯，延遲2天', progress: 40, author: '李大華' },
-            ],
-          },
-          { id: 't007', name: '庫存報表模塊', assignee: '王小明', progress: 0, status: 'not_started', expected_end: '2026-03-21', week_tag: ['next_week'], project_id: 'p1', function_id: 'f002' },
-        ],
-      },
-      {
-        id: 'f003', name: '應收應付模塊', progress: 20,
-        tasks: [
-          { id: 't008', name: '應收帳款管理', assignee: '張美玲', progress: 35, status: 'in_progress', expected_end: '2026-03-21', week_tag: ['this_week', 'next_week'], project_id: 'p1', function_id: 'f003',
-            latest_update: '帳款基礎數據模型設計完成，開始開發列表頁',
-            progress_history: [
-              { date: '2026-03-10', content: '開始帳款模型設計', progress: 10, author: '張美玲' },
-              { date: '2026-03-12', content: '數據模型設計完成，開始列表頁開發', progress: 35, author: '張美玲' },
-            ],
-          },
-          { id: 't009', name: '應付帳款管理', assignee: '張美玲', progress: 0, status: 'not_started', expected_end: '2026-03-28', week_tag: ['next_week'], project_id: 'p1', function_id: 'f003' },
-          { id: 't010', name: '對帳功能', assignee: '李大華', progress: 10, status: 'in_progress', expected_end: '2026-04-04', week_tag: ['next_week'], project_id: 'p1', function_id: 'f003',
-            latest_update: '調研對帳方案中',
-            progress_history: [
-              { date: '2026-03-11', content: '開始調研對帳方案，參考業界做法', progress: 10, author: '李大華' },
-            ],
-          },
-        ],
-      },
-      {
-        id: 'f004', name: '前端 UI 重設計', progress: 95,
-        tasks: [
-          { id: 't011', name: '設計稿繪製', assignee: '張美玲', progress: 100, status: 'completed', expected_end: '2026-03-01', actual_end: '2026-02-28', week_tag: [], project_id: 'p1', function_id: 'f004' },
-          { id: 't012', name: '頁面組件開發', assignee: '張美玲', progress: 100, status: 'completed', expected_end: '2026-03-07', actual_end: '2026-03-07', week_tag: ['last_week'], project_id: 'p1', function_id: 'f004' },
-          { id: 't013', name: 'UI 走查修復', assignee: '張美玲', progress: 80, status: 'in_progress', expected_end: '2026-03-14', week_tag: ['this_week'], project_id: 'p1', function_id: 'f004',
-            latest_update: '85% 走查問題已修復，剩餘 3 個微調中',
-            progress_history: [
-              { date: '2026-03-10', content: '開始 UI 走查，共發現 20 個問題', progress: 30, author: '張美玲' },
-              { date: '2026-03-12', content: '已修復 17 個問題，剩餘 3 個微調中', progress: 80, author: '張美玲' },
-            ],
-          },
-        ],
-      },
-    ],
-  },
-  {
-    id: 'p2', name: '行動端 APP 2.0', department: '資訊部', pm: '王經理',
-    progress: 30, priority: 3, start_date: '2026-01-15', expected_end: '2026-08-31',
-    functions: [
-      {
-        id: 'f007', name: 'iOS 客戶端開發', progress: 35,
-        tasks: [
-          { id: 't014', name: '首頁 + 導航框架', assignee: '陳建國', progress: 100, status: 'completed', expected_end: '2026-03-07', actual_end: '2026-03-06', week_tag: ['last_week'], project_id: 'p2', function_id: 'f007' },
-          { id: 't015', name: '列表頁 + 詳情頁', assignee: '陳建國', progress: 60, status: 'in_progress', expected_end: '2026-03-14', week_tag: ['this_week'], project_id: 'p2', function_id: 'f007',
-            latest_update: '列表頁已完成，詳情頁開發中',
-            progress_history: [
-              { date: '2026-03-09', content: '列表頁基礎框架完成', progress: 30, author: '陳建國' },
-              { date: '2026-03-11', content: '列表頁完成，開始詳情頁開發', progress: 60, author: '陳建國' },
-            ],
-          },
-          { id: 't016', name: '推送通知功能', assignee: '陳建國', progress: 0, status: 'not_started', expected_end: '2026-03-21', week_tag: ['next_week'], project_id: 'p2', function_id: 'f007' },
-          { id: 't017', name: 'App Store 上架準備', assignee: '陳建國', progress: 0, status: 'not_started', expected_end: '2026-04-15', week_tag: [], project_id: 'p2', function_id: 'f007' },
-        ],
-      },
-      {
-        id: 'f008', name: 'Android 客戶端', progress: 22,
-        tasks: [
-          { id: 't018', name: '應用骨架 + 導航', assignee: '林小芸', progress: 100, status: 'completed', expected_end: '2026-03-07', actual_end: '2026-03-07', week_tag: ['last_week'], project_id: 'p2', function_id: 'f008' },
-          { id: 't019', name: '首頁開發', assignee: '林小芸', progress: 30, status: 'overdue', expected_end: '2026-03-10', days_overdue: 2, week_tag: ['this_week', 'last_week'], project_id: 'p2', function_id: 'f008',
-            latest_update: '首頁佈局完成，數據綁定和刷新邏輯開發中，因 API 變更延遲',
-            progress_history: [
-              { date: '2026-03-08', content: '首頁佈局開發完成', progress: 20, author: '林小芸' },
-              { date: '2026-03-10', content: '遇到 API 變更問題，需要等待後端修復', progress: 25, author: '林小芸' },
-              { date: '2026-03-12', content: '數據綁定邏輯開發中，因 API 變更延遲', progress: 30, author: '林小芸' },
-            ],
-          },
-          { id: 't020', name: '列表頁 + 詳情頁', assignee: '林小芸', progress: 0, status: 'not_started', expected_end: '2026-03-21', week_tag: ['next_week'], project_id: 'p2', function_id: 'f008' },
-        ],
-      },
-    ],
-  },
-  {
-    id: 'p3', name: '報表系統優化', department: '資訊部', pm: '李主管',
-    progress: 45, priority: 2, start_date: '2025-12-01', expected_end: '2026-05-31',
-    functions: [
-      {
-        id: 'f009', name: '報表引擎重寫', progress: 45,
-        tasks: [
-          { id: 't021', name: '查詢引擎架構設計', assignee: '李大華', progress: 100, status: 'completed', expected_end: '2026-03-05', actual_end: '2026-03-05', week_tag: ['last_week'], project_id: 'p3', function_id: 'f009' },
-          { id: 't022', name: '動態欄位渲染器', assignee: '李大華', progress: 50, status: 'in_progress', expected_end: '2026-03-17', week_tag: ['this_week', 'next_week'], project_id: 'p3', function_id: 'f009',
-            latest_update: '支援 10 種欄位類型，正在開發圖表型欄位',
-            progress_history: [
-              { date: '2026-03-06', content: '開始欄位渲染器開發，完成文字和數字型', progress: 20, author: '李大華' },
-              { date: '2026-03-10', content: '已支援 10 種欄位類型', progress: 40, author: '李大華' },
-              { date: '2026-03-12', content: '正在開發圖表型欄位渲染', progress: 50, author: '李大華' },
-            ],
-          },
-          { id: 't023', name: '報表匯出模塊', assignee: '王小明', progress: 0, status: 'not_started', expected_end: '2026-03-28', week_tag: ['next_week'], project_id: 'p3', function_id: 'f009' },
-        ],
-      },
-    ],
-  },
-]
+// ─── WBS data is loaded from the API ──────────────────────────────────────────
 
 // ─── CSV export utility ─────────────────────────────────────────────────────
 
@@ -1146,14 +993,21 @@ const ReportPreviewModal: React.FC<{
 // ─── Main Page ──────────────────────────────────────────────────────────────
 
 const WbsOverviewPage: React.FC = () => {
-  const isManager = IS_DEV ? true : false
+  const isManager = false  // TODO: replace with real role check from auth context
 
+  const [wbsData, setWbsData] = useState<WbsProject[]>([])
   const [weekFilter, setWeekFilter] = useState<WeekFilter>('all')
   const [statusFilter, setStatusFilter] = useState<TaskStatus | 'all'>('all')
   const [searchKeyword, setSearchKeyword] = useState('')
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null)
   const [meetingNotes, setMeetingNotes] = useState<Record<string, MeetingNote[]>>({})
   const [previewOpen, setPreviewOpen] = useState(false)
+
+  useEffect(() => {
+    // TODO: call real API when endpoint is available, e.g.:
+    // projectApi.wbsOverview().then((res) => { if (res.content) setWbsData(res.content) }).catch(() => {})
+    setWbsData([])
+  }, [])
 
   const handleToggleTaskExpand = (taskId: string) => {
     setExpandedTaskId((prev) => prev === taskId ? null : taskId)
@@ -1201,9 +1055,9 @@ const WbsOverviewPage: React.FC = () => {
 
   // Summary stats (always from full data)
   const summary = useMemo(() => {
-    const allTasks = MOCK_WBS_DATA.flatMap((p) => p.functions.flatMap((f) => f.tasks))
+    const allTasks = wbsData.flatMap((p) => p.functions.flatMap((f) => f.tasks))
     return {
-      totalProjects: MOCK_WBS_DATA.length,
+      totalProjects: wbsData.length,
       totalTasks: allTasks.length,
       completed: allTasks.filter((t) => t.status === 'completed').length,
       inProgress: allTasks.filter((t) => t.status === 'in_progress').length,
@@ -1212,7 +1066,7 @@ const WbsOverviewPage: React.FC = () => {
       thisWeek: allTasks.filter((t) => t.week_tag.includes('this_week')).length,
       nextWeek: allTasks.filter((t) => t.week_tag.includes('next_week')).length,
     }
-  }, [])
+  }, [wbsData])
 
   // Total pending notes across all projects (for header indicator)
   const totalPendingNotes = useMemo(() => {
@@ -1222,7 +1076,7 @@ const WbsOverviewPage: React.FC = () => {
   // Apply filters to projects
   const filteredProjects = useMemo(() => {
     const kw = searchKeyword.toLowerCase()
-    return MOCK_WBS_DATA.map((project) => {
+    return wbsData.map((project) => {
       const filteredFunctions = project.functions.map((func) => {
         const filteredTasks = func.tasks.filter((task) => {
           const weekMatch =
@@ -1238,13 +1092,13 @@ const WbsOverviewPage: React.FC = () => {
 
       return { ...project, functions: filteredFunctions }
     }).filter((p) => p.functions.length > 0)
-  }, [weekFilter, statusFilter, searchKeyword])
+  }, [wbsData, weekFilter, statusFilter, searchKeyword])
 
   const originalProjectMap = useMemo(() => {
     const map: Record<string, WbsProject> = {}
-    MOCK_WBS_DATA.forEach((p) => { map[p.id] = p })
+    wbsData.forEach((p) => { map[p.id] = p })
     return map
-  }, [])
+  }, [wbsData])
 
   const filteredTaskCount = filteredProjects.reduce((s, p) => s + p.functions.reduce((s2, f) => s2 + f.tasks.length, 0), 0)
 
@@ -1292,7 +1146,7 @@ const WbsOverviewPage: React.FC = () => {
             週報預覽
           </button>
           <button
-            onClick={() => exportWbsCSV(MOCK_WBS_DATA)}
+            onClick={() => exportWbsCSV(wbsData)}
             className="flex items-center gap-1.5 text-xs text-slate-600 hover:text-slate-800 bg-white border border-slate-200 hover:border-slate-300 rounded-lg px-3 py-1.5 transition-colors"
           >
             <ArrowDownTrayIcon className="w-3.5 h-3.5" />
@@ -1401,7 +1255,7 @@ const WbsOverviewPage: React.FC = () => {
 
       <ReportPreviewModal
         open={previewOpen}
-        projects={MOCK_WBS_DATA}
+        projects={wbsData}
         onClose={() => setPreviewOpen(false)}
       />
     </div>

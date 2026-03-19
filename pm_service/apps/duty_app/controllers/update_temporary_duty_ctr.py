@@ -17,7 +17,7 @@ from configs.const_conf import ENV, send_message_link
 from configs.constant import BUCKET
 from configs.senddingplus import SendMessageNotice
 from dbs.mysql_db import DBFunction
-from influxDB.influxdb_oper import oper_fluxdb
+from common.oper_log import add_operation_record
 from serialize.model_serizlize import TemporaryDutyModelSchema
 
 
@@ -108,22 +108,21 @@ class UpdateTemporaryDutyController:
             details = (
                 f"將{duty_data['duty_nm']}臨時任務名称修改為{self.payload['duty_nm']}"
             )
-            self.__write_data_to_influxdb(details)
+            self.__write_operation_log(details)
         if duty_data["priority"] != self.payload["priority"]:
             if self.payload["priority"] == 1:
                 priority = "正常"
             elif self.payload["priority"] == 2:
                 priority = "緊急"
             details = f"將{duty_data['duty_nm']}臨時任務優先級修改為{priority}"
-            self.__write_data_to_influxdb(details)
+            self.__write_operation_log(details)
 
-    def __write_data_to_influxdb(self, details):
-        oper_fluxdb.add_record(
-            self.user_id,
-            "update_duty_task",
-            "success",
+    def __write_operation_log(self, details):
+        add_operation_record(
+            self.user_id, "update_duty_task", "success",
             details,
-            request.headers.get("X-Real-IP"),
+            ip=request.headers.get("X-Real-IP") or '',
+            matter_id=duty_id,
         )
 
     def update_temporary_duty(self, duty_id):

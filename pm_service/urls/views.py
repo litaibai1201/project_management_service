@@ -7,7 +7,6 @@
 """
 
 
-from apps.admin_app.views import blp as admin_blp
 from apps.duty_app.views import blp as duty_blp
 from apps.group_app.views import blp as group_blp
 from apps.project_app.views import blp as project_blp
@@ -17,7 +16,6 @@ from apps.user_app.views import blp as user_blp
 
 def register_blp(api):
     """藍圖註冊"""
-    api.register_blueprint(admin_blp)
     api.register_blueprint(duty_blp)
     api.register_blueprint(group_blp)
     api.register_blueprint(project_blp)

@@ -39,12 +39,6 @@ db_config_dict = {
         "username": db_account["minio"]["username"],
         "password": db_account["minio"]["password"],
     },
-    "influxdb": {
-        "url": "http://10.126.1.127:8086",
-        "org": "project_management",
-        "bucket": environment_dict["INFLUXDB_BUCKET"][ENV],
-        "token": db_account["influxdb"]["token"],
-    },
     "mongodb": {
         "host": "localhost",
         # "host": "10.182.190.177",

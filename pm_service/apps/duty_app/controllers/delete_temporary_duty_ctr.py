@@ -11,7 +11,7 @@ from flask import request
 from apps.duty_app.models import OperTemporaryDutyModel
 from common.common_tools import CommonTools
 from dbs.mysql_db import DBFunction
-from influxDB.influxdb_oper import oper_fluxdb
+from common.oper_log import add_operation_record
 from serialize.model_serizlize import TemporaryDutyModelSchema
 
 
@@ -20,13 +20,12 @@ class DeleteTemporaryDutyController:
         self.otdm = OperTemporaryDutyModel()
         self.tdms = TemporaryDutyModelSchema()
 
-    def __write_data_to_influxdb(self, user_id, duty_data):
-        oper_fluxdb.add_record(
-            user_id,
-            "delete_duty_task",
-            "success",
+    def __write_operation_log(self, user_id, duty_data):
+        add_operation_record(
+            user_id, "delete_duty_task", "success",
             f"刪除名稱為{duty_data['duty_nm']}({duty_data['id']})的臨時任務",
-            request.headers.get("X-Real-IP"),
+            ip=request.headers.get("X-Real-IP") or '',
+            matter_id=duty_data['id'],
         )
 
     def delete_temporary_duty(self, user_id, duty_id):
@@ -41,7 +40,7 @@ class DeleteTemporaryDutyController:
         result, flag = self.otdm.delete_temporary_duty_by_id(duty_id)
         result, flag = DBFunction.do_commit(result, flag)
         if flag:
-            self.__write_data_to_influxdb(user_id, temporary_duty_db)
+            self.__write_operation_log(user_id, temporary_duty_db)
         return result, flag
 
 

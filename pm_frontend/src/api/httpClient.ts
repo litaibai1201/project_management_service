@@ -38,8 +38,8 @@ httpClient.interceptors.request.use(
 httpClient.interceptors.response.use(
   (response: AxiosResponse<ApiResponse>) => {
     const { code, msg } = response.data
-    // Backend uses code === '0' or '200' for success
-    if (code !== '0' && code !== '200' && code !== undefined) {
+    // Backend uses code === 'S10000' for success, 'F10001' for failure
+    if (code !== 'S10000' && code !== undefined) {
       showToast.error(msg || '請求失敗')
       return Promise.reject(new Error(msg))
     }

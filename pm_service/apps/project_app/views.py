@@ -21,45 +21,37 @@ from apps.project_app.controllers.function_ctr import (
     FunctionAllocationController, FunctionDeleteController,
     FunctionDetailsController, FunctionSetStatusController,
     FunctionUpdateController)
-from apps.project_app.controllers.obtain_group_name_ctr import (
-    ObtainFunctionGroupController, ObtainPojectGroupController)
+from apps.project_app.controllers.obtain_group_name_ctr import \
+    ObtainPojectGroupController
 from apps.project_app.controllers.progress_ctr import (
     CreateProgressController, ProgressDataController)
 from apps.project_app.controllers.project_ctr import (
-    ProFunProgressRecordController, ProjectDetailsController,
-    ProjectFileNumController, ProjectFilesController, ProjectFinishController,
+    ProjectDetailsController, ProjectFilesController, ProjectFinishController,
     ProjectFunctionListController, ProjectGanttChartController,
     ProjectListController, ProjectMemberDynamicsController,
     ProjectProgressAndHourController, ProjectRestartController,
     ProjectReviewIdController, ProjectReviewListController,
-    ProjectTaskListController, ProProgressRecordController,
-    SetStatusController)
+    ProjectTaskListController, SetStatusController)
 from apps.project_app.controllers.submit_for_review_ctr import \
     SubmitForReviewController
 from apps.project_app.controllers.update_project_ctr import \
     UpdateProjectController
-from apps.project_app.controllers.upload_files_ctr import UploadFilesController
-from apps.project_app.controllers.upload_files_fun_ctr import \
-    UploadFilesFunctionController
 from apps.project_app.serializes import (AddFunctionSchema,
                                          CreateProgressSchema,
                                          CreateUpdateProjectSchema,
                                          ProgressDataSchema,
                                          ProjectApprovalSchema,
-                                         ProjectFunctionListSchema,
+                                         ProjectTaskListSchema,
                                          ProjectListSchema,
                                          ProjectReviewSchema,
-                                         ProjectTaskListSchema,
                                          SetStatusSchema,
                                          SubmitForReviewSchema,
                                          TaskAllocationSchema,
                                          TaskSetStatusSchema,
-                                         UpdateFunctionSchema,
-                                         UploadFunctionFileSchema,
-                                         UploadSchema)
+                                         UpdateFunctionSchema)
 from common.common_method import fail_response_result, response_data_result
 from common.common_tools import extract_req_files
-from serialize.response_serialize import (RspBaseSchema, RspIntSchema,
+from serialize.response_serialize import (RspBaseSchema,
                                           RspMsgDictSchema, RspMsgListSchema,
                                           RspMsgSchema)
 
@@ -125,45 +117,6 @@ class ProjectApi(MethodView):
         if flag:
             return response_data_result()
         return fail_response_result(payload, msg=result)
-
-
-@blp.route("/<string:project_id>/upload_files")
-class UploadFilesApi(MethodView):
-    """
-    此類用來定義/<project_id>/upload_files及請求方式
-    """
-
-    @jwt_required()
-    @blp.arguments(UploadSchema, location="form")
-    @blp.response(200, RspMsgDictSchema)
-    def post(self, payload, project_id):
-        files_dict = extract_req_files(request.files)
-        ufc = UploadFilesController(payload, project_id, files_dict)
-        result, flag = ufc.process_upload_files()
-        if flag:
-            return response_data_result()
-        return fail_response_result(payload, msg=result)
-
-
-@blp.route("/<string:project_id>/function/<string:function_id>/upload_files")
-class UploadFunctionFilesApi(MethodView):
-    """
-    此類用來定義/<project_id>/upload_files及請求方式
-    """
-
-    @jwt_required()
-    @blp.arguments(UploadFunctionFileSchema, location="form")
-    @blp.response(200, RspBaseSchema)
-    def post(self, payload, project_id, function_id):
-        empid = get_jwt_identity()["empid"]
-        uffc = UploadFilesFunctionController()
-        files_dict = extract_req_files(request.files)
-        result, flag = uffc.upload_function_files(
-            empid, project_id, function_id, files_dict
-        )
-        if not flag:
-            return fail_response_result(msg=result)
-        return response_data_result()
 
 
 @blp.route("/<string:project_id>/add_function")
@@ -414,23 +367,6 @@ class ProjectProgressAndHourApi(MethodView):
         return response_data_result(msg="成功查詢", content=data)
 
 
-@blp.route("/<string:project_id>/file_num")
-class ProjectFileNumApi(MethodView):
-    """
-    此類用來定義/<project_id>/file_num及請求方式
-    """
-
-    def __init__(self) -> None:
-        super().__init__()
-
-    @jwt_required()
-    @blp.response(200, RspIntSchema)
-    def get(self, project_id):
-        pfnc = ProjectFileNumController()
-        data = pfnc.get_file_num(project_id)
-        return response_data_result(msg="成功查詢", content=str(data))
-
-
 @blp.route("/<string:project_id>/function_list")
 class ProjectTaskListApi(MethodView):
     """
@@ -546,62 +482,6 @@ class ProjectFilesApi(MethodView):
         return response_data_result(msg="查询成功", content=datalist_dic)
 
 
-@blp.route("/progress")
-class ProgressProjectRecordApi(MethodView):
-    """
-    此類用來定義/progress及請求方式
-    """
-
-    def __init__(self) -> None:
-        super().__init__()
-
-    @jwt_required()
-    @blp.arguments(ProjectReviewSchema, location="query")
-    @blp.response(200, RspMsgDictSchema)
-    def get(self, payload):
-        empid = get_jwt_identity()["empid"]
-        content = ProProgressRecordController().project_record(empid, payload)
-        return response_data_result(msg="成功查詢", content=content)
-
-
-@blp.route("/<string:project_id>/function/progress")
-class ProjectFunctionProgressApi(MethodView):
-    """
-    此類用來定義/<string:project_id>/function/progress
-    """
-
-    def __init__(self) -> None:
-        super().__init__()
-
-    @jwt_required()
-    @blp.arguments(ProjectReviewSchema, location="query")
-    @blp.response(200, RspMsgDictSchema)
-    def get(self, payload, project_id):
-        PRC = ProFunProgressRecordController()
-        empid = get_jwt_identity()["empid"]
-        content = PRC.pro_fun_record(payload, empid, project_id)
-        return response_data_result(msg="成功查詢", content=content)
-
-
-@blp.route("/tasklist")
-class ProjectFunctionListApi(MethodView):
-    """
-    此類用來定義/tasklist及請求方式
-    """
-
-    def __init__(self) -> None:
-        super().__init__()
-
-    @jwt_required()
-    @blp.arguments(ProjectFunctionListSchema)
-    @blp.response(200, RspMsgDictSchema)
-    def post(self, payload):
-        empid = get_jwt_identity()["empid"]
-        pflc = ProjectFunctionListController()
-        data = pflc.search_projects_n_funs(payload, empid)
-        return response_data_result(msg="成功查詢", content=data)
-
-
 @blp.route("/<string:project_id>/submit_for_review")
 class SubmitForReviewApi(MethodView):
     """
@@ -637,21 +517,4 @@ class ObtainPojectGroupApi(MethodView):
     @blp.response(200, RspMsgListSchema)
     def get(self):
         data = self.opgc.obtain_project_group()
-        return response_data_result(msg="成功查詢", content=data)
-
-
-@blp.route("/<string:project_id>/function_group")
-class ObtainFunctionGroupApi(MethodView):
-    """
-    此類用來定義/function_group
-    """
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.ofgc = ObtainFunctionGroupController()
-
-    @jwt_required()
-    @blp.response(200, RspMsgDictSchema)
-    def get(self, project_id):
-        data = self.ofgc.obtain_function_group(project_id)
         return response_data_result(msg="成功查詢", content=data)

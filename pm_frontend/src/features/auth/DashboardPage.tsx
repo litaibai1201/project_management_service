@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Card, Row, Col, Progress, Tag, Avatar, Skeleton, Badge, Tooltip, Switch, Button } from 'antd'
+import { Card, Row, Col, Progress, Tag, Avatar, Skeleton, Badge, Tooltip, Switch, Button, Empty } from 'antd'
 import {
   BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip as RTooltip,
   Cell, LabelList,
@@ -14,52 +14,12 @@ import { useAppDispatch, useAppSelector } from '@/hooks/redux'
 import { fetchIndexThunk } from './authSlice'
 import { useNavigate } from 'react-router-dom'
 import dayjs from 'dayjs'
-import { MOCK_MEMBER_STATS } from '@/mocks/mockData'
+import { projectApi } from '@/api/project.api'
+import { dailyLogApi, type BackendDailyLogSummary } from '@/api/daily_log.api'
+import type { MemberWorkStat, ProjectListItem } from '@/types/api.types'
 
-// ─── Mock data ────────────────────────────────────────────────────────────────
-const WEEKLY_DATA = [
-  { day: '週一', project: 2, duty: 1 }, { day: '週二', project: 1, duty: 3 },
-  { day: '週三', project: 4, duty: 2 }, { day: '週四', project: 2, duty: 4 },
-  { day: '週五', project: 5, duty: 2 }, { day: '週六', project: 1, duty: 1 },
-  { day: '週日', project: 0, duty: 0 },
-]
-const MY_PROJECTS = [
-  { id: 'p1', name: 'ERP系統改版',  status: 5, progress: 75, daysLeft: 12, priority: 3 },
-  { id: 'p2', name: '行動端APP',    status: 3, progress: 30, daysLeft:  3, priority: 4 },
-  { id: 'p3', name: '報表系統優化', status: 5, progress: 90, daysLeft: 20, priority: 2 },
-  { id: 'p4', name: '客服平台升級', status: 2, progress: 10, daysLeft: 45, priority: 1 },
-]
-const FEED_ITEMS = [
-  { id: 1, user: '王小明', avatar: '王', action: '更新了', target: 'ERP系統改版', sub: '進度更新至 75%',      time: '5 分鐘前',  color: '#2563eb' },
-  { id: 2, user: '李大華', avatar: '李', action: '完成了', target: 'API整合',     sub: '任務已完結',          time: '32 分鐘前', color: '#16a34a' },
-  { id: 3, user: '張美玲', avatar: '張', action: '提交了', target: '行動端改版',  sub: '申請立案審核',        time: '1 小時前',  color: '#d97706' },
-  { id: 4, user: '陳建國', avatar: '陳', action: '新增了', target: '資料庫優化',  sub: '新增功能任務',        time: '3 小時前',  color: '#7c3aed' },
-  { id: 5, user: '林小芸', avatar: '林', action: '審核了', target: '前端重構',    sub: '審核通過',            time: '昨天',      color: '#16a34a' },
-]
-// ─── Monthly attendance mock (simulate current month logs) ───────────────────
-const buildMonthMock = (): Record<string, { hours: number; ot: number; entries: number; status: 'confirmed' | 'submitted' | 'draft' }> => {
-  const today = dayjs()
-  const firstDay = today.startOf('month')
-  const result: Record<string, { hours: number; ot: number; entries: number; status: 'confirmed' | 'submitted' | 'draft' }> = {}
-  const mockHours = [8, 9.5, 0, 8, 7.5, 8.5, 0, 8, 10, 8, 0, 0, 8, 8.5, 8, 9, 8, 0, 0, 5.5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  for (let i = 0; i < today.date(); i++) {
-    const d = firstDay.add(i, 'day')
-    const dow = d.day()
-    if (dow === 0 || dow === 6) continue
-    const h = mockHours[i] ?? 8
-    if (h === 0) continue
-    const dateStr = d.format('YYYY-MM-DD')
-    const daysAgo = today.diff(d, 'day')
-    result[dateStr] = {
-      hours: h,
-      ot: h > 8 ? h - 8 : 0,
-      entries: Math.floor(h / 2),
-      status: daysAgo >= 3 ? 'confirmed' : daysAgo >= 1 ? 'submitted' : 'draft',
-    }
-  }
-  return result
-}
-const MONTH_MOCK = buildMonthMock()
+// ─── Types for dashboard data ─────────────────────────────────────────────────
+type MonthLogEntry = { hours: number; ot: number; status: 'confirmed' | 'submitted' | 'draft' }
 
 const getHeatColor = (hours: number) => {
   if (hours === 0) return '#f1f5f9'
@@ -73,20 +33,11 @@ const STATUS_LABEL: Record<number, string> = { 1:'草稿',2:'立案審核',3:'�
 const STATUS_COLOR: Record<number, string> = { 1:'default',2:'processing',3:'blue',4:'orange',5:'green',6:'orange',7:'success' }
 const PRIORITY_COLORS = ['#22c55e', '#f59e0b', '#ef4444', '#7c3aed']
 
-// ─── Alert data (imported from mock, simulated here) ─────────────────────────
+// ─── Alert data types ─────────────────────────────────────────────────────────
 interface AlertTask {
   id: string; name: string; type: 'function' | 'duty'; project_nm?: string
   responsible: string; expected_end_date: string; days_diff: number
 }
-
-const ALERT_TASKS: AlertTask[] = [
-  { id: 'd001', name: '修復線上登入超時問題', type: 'duty', responsible: 'DEV001', expected_end_date: '2026-03-10', days_diff: -1 },
-  { id: 'd006', name: '數據庫索引優化',       type: 'duty', responsible: 'DEV001', expected_end_date: '2026-03-09', days_diff: -2 },
-  { id: 'f002', name: '倉庫模塊開發', type: 'function', project_nm: 'ERP 核心系統改版', responsible: 'DEV001', expected_end_date: '2026-03-10', days_diff: -1 },
-  { id: 'f007', name: 'iOS 客戶端開發', type: 'function', project_nm: '行動端 APP 2.0', responsible: 'DEV004', expected_end_date: '2026-03-13', days_diff: 2 },
-  { id: 'd004', name: '部署測試環境 Jenkins', type: 'duty', responsible: 'DEV001', expected_end_date: '2026-03-12', days_diff: 1 },
-  { id: 'd002', name: '優化採購單列表查詢', type: 'duty', responsible: 'DEV002', expected_end_date: '2026-03-15', days_diff: 4 },
-]
 
 // ─── Sub-components ────────────────────────────────────────────────────────────
 
@@ -120,13 +71,13 @@ const StatCard: React.FC<{
 
 // ─── Alert Bar ────────────────────────────────────────────────────────────────
 
-const AlertBar: React.FC<{ pendingReview: number }> = ({ pendingReview }) => {
+const AlertBar: React.FC<{ pendingReview: number; alertTasks: AlertTask[] }> = ({ pendingReview, alertTasks }) => {
   const [open, setOpen] = useState(true)
   const navigate = useNavigate()
 
-  const overdue  = ALERT_TASKS.filter((t) => t.days_diff < 0).sort((a, b) => a.days_diff - b.days_diff)
-  const urgent   = ALERT_TASKS.filter((t) => t.days_diff >= 0 && t.days_diff <= 3)
-  const upcoming = ALERT_TASKS.filter((t) => t.days_diff > 3 && t.days_diff <= 7)
+  const overdue  = alertTasks.filter((t) => t.days_diff < 0).sort((a, b) => a.days_diff - b.days_diff)
+  const urgent   = alertTasks.filter((t) => t.days_diff >= 0 && t.days_diff <= 3)
+  const upcoming = alertTasks.filter((t) => t.days_diff > 3 && t.days_diff <= 7)
 
   if (overdue.length === 0 && urgent.length === 0 && upcoming.length === 0 && pendingReview === 0) return null
 
@@ -247,21 +198,15 @@ const AlertBar: React.FC<{ pendingReview: number }> = ({ pendingReview }) => {
 
 // ─── Manager Section ──────────────────────────────────────────────────────────
 
-// Per-engineer mock urgent (≤7 days) task counts — simulated
-const MOCK_URGENT: Record<string, number> = {
-  DEV001: 2, DEV002: 1, DEV003: 3, DEV004: 0, DEV005: 1,
-}
-
-const ManagerSection: React.FC = () => {
+const ManagerSection: React.FC<{ memberStats: MemberWorkStat[] }> = ({ memberStats }) => {
   const navigate = useNavigate()
   const [open, setOpen] = useState(true)
 
-  // Build chart data from MOCK_MEMBER_STATS
-  const chartData = MOCK_MEMBER_STATS.map((m) => ({
+  const chartData = memberStats.map((m) => ({
     name:    m.name,
     work_no: m.work_no,
     超時任務: m.overdue_tasks,
-    臨期任務: MOCK_URGENT[m.work_no] ?? 0,
+    臨期任務: 0,  // loaded from API when available
     進行中:   m.in_progress_tasks,
   })).sort((a, b) => (b.超時任務 + b.臨期任務) - (a.超時任務 + a.臨期任務))
 
@@ -303,7 +248,7 @@ const ManagerSection: React.FC = () => {
           {/* Mini stat row */}
           <div className="grid grid-cols-3 gap-3 mb-4">
             {[
-              { label: '下屬人數',  value: MOCK_MEMBER_STATS.length, icon: <UsersIcon className="w-4 h-4 text-indigo-500" />,           color: '#6366f1', bg: '#eef2ff' },
+              { label: '下屬人數',  value: memberStats.length, icon: <UsersIcon className="w-4 h-4 text-indigo-500" />,           color: '#6366f1', bg: '#eef2ff' },
               { label: '超時任務',  value: totalOverdue,              icon: <ExclamationTriangleIcon className="w-4 h-4 text-red-500" />,  color: '#dc2626', bg: '#fef2f2' },
               { label: '臨期任務',  value: totalUrgent,               icon: <FireIcon className="w-4 h-4 text-orange-500" />,             color: '#d97706', bg: '#fff7ed' },
             ].map((s) => (
@@ -418,15 +363,14 @@ const ManagerSection: React.FC = () => {
 }
 
 // ─── Daily Log Status Card ─────────────────────────────────────────────────
-const DailyLogCard: React.FC<{ isManager?: boolean }> = ({ isManager = false }) => {
+const DailyLogCard: React.FC<{ isManager?: boolean; todayLog: BackendDailyLogSummary | null }> = ({ isManager = false, todayLog }) => {
   const navigate = useNavigate()
-  // Mock: current user's today log status
-  const todayHours = 5.5
+  const todayHours = todayLog ? Number(todayLog.total_hours) : 0
   const standardHours = 8.0
-  const status = 'draft' as 'draft' | 'submitted' | 'not_started'
-  const entryCount = 4
+  const status: 'draft' | 'submitted' | 'not_started' = todayLog
+    ? (todayLog.status === 2 ? 'submitted' : 'draft')
+    : 'not_started'
   const pct = Math.min(100, Math.round((todayHours / standardHours) * 100))
-  // Mock: manager opt-out preference (in production from user settings API)
   const [managerOptOut, setManagerOptOut] = useState(false)
 
   // If manager has opted out, show a minimal info card
@@ -466,7 +410,7 @@ const DailyLogCard: React.FC<{ isManager?: boolean }> = ({ isManager = false }) 
             {isManager && (
               <Tag color="gold" style={{ fontSize: 10, margin: 0, lineHeight: '16px', padding: '0 4px' }}>選填</Tag>
             )}
-            <span className="text-xs text-slate-400 ml-auto">{entryCount} 條記錄</span>
+            {todayLog && <span className="text-xs text-slate-400 ml-auto">{todayHours}h</span>}
           </div>
           <div className="flex items-center gap-3">
             <Progress
@@ -501,14 +445,28 @@ const DailyLogCard: React.FC<{ isManager?: boolean }> = ({ isManager = false }) 
 }
 
 // ─── Team Daily Log Status (Manager) ──────────────────────────────────────────
+interface TeamMemberLog { name: string; work_no: string; hours: number; status: string }
 const TeamDailyLogCard: React.FC = () => {
-  const teamMembers = [
-    { name: '王小明', work_no: 'DEV001', hours: 8.0, status: 'submitted' },
-    { name: '李大華', work_no: 'DEV002', hours: 0, status: 'not_started' },
-    { name: '張美玲', work_no: 'DEV003', hours: 7.5, status: 'submitted' },
-    { name: '陳建國', work_no: 'DEV004', hours: 8.5, status: 'confirmed' },
-    { name: '林小芸', work_no: 'DEV005', hours: 0, status: 'not_started' },
-  ]
+  const [teamMembers, setTeamMembers] = useState<TeamMemberLog[]>([])
+
+  useEffect(() => {
+    const today = dayjs().format('YYYY-MM-DD')
+    // TODO: call team daily log summary API when available, e.g.:
+    // groupApi.teamDailyLogs({ date: today }).then(...)
+    // For now, load today's logs (manager sees all with work_no filter support)
+    dailyLogApi.list({ page: 1, size: 50, start_date: today, end_date: today })
+      .then((res) => {
+        const list = (res as { content?: { list?: BackendDailyLogSummary[] } }).content?.list ?? []
+        setTeamMembers(list.map((l) => ({
+          name: l.user_name ?? l.work_no,
+          work_no: l.work_no,
+          hours: Number(l.total_hours),
+          status: l.status === 2 ? 'submitted' : 'draft',
+        })))
+      })
+      .catch(() => {})
+  }, [])
+
   const submitted = teamMembers.filter((m) => m.status !== 'not_started').length
   const total = teamMembers.length
 
@@ -557,9 +515,31 @@ const MonthlyAttendanceCard: React.FC = () => {
   const startPad = (firstDay.day() + 6) % 7   // Mon-first offset
   const DOW_LABELS = ['一', '二', '三', '四', '五', '六', '日']
 
-  const workedDays  = Object.keys(MONTH_MOCK).length
-  const totalHours  = Object.values(MONTH_MOCK).reduce((s, v) => s + v.hours, 0)
-  const totalOT     = Object.values(MONTH_MOCK).reduce((s, v) => s + v.ot, 0)
+  const [monthData, setMonthData] = useState<Record<string, MonthLogEntry>>({})
+
+  useEffect(() => {
+    const start = today.startOf('month').format('YYYY-MM-DD')
+    const end   = today.endOf('month').format('YYYY-MM-DD')
+    dailyLogApi.list({ page: 1, size: 31, start_date: start, end_date: end })
+      .then((res) => {
+        const list = (res as { content?: { list?: BackendDailyLogSummary[] } }).content?.list ?? []
+        const map: Record<string, MonthLogEntry> = {}
+        list.forEach((l) => {
+          const h = Number(l.total_hours)
+          map[l.log_date] = {
+            hours: h,
+            ot: h > 8 ? h - 8 : 0,
+            status: l.status === 2 ? 'submitted' : 'draft',
+          }
+        })
+        setMonthData(map)
+      })
+      .catch(() => {})
+  }, [])
+
+  const workedDays  = Object.keys(monthData).length
+  const totalHours  = Object.values(monthData).reduce((s, v) => s + v.hours, 0)
+  const totalOT     = Object.values(monthData).reduce((s, v) => s + v.ot, 0)
 
   return (
     <Card
@@ -605,7 +585,7 @@ const MonthlyAttendanceCard: React.FC = () => {
         {Array.from({ length: daysInMonth }, (_, i) => {
           const d = firstDay.add(i, 'day')
           const dateStr = d.format('YYYY-MM-DD')
-          const log = MONTH_MOCK[dateStr]
+          const log = monthData[dateStr]
           const hours = log?.hours ?? 0
           const isToday = d.isSame(today, 'day')
           const isFuture = d.isAfter(today, 'day')
@@ -618,7 +598,7 @@ const MonthlyAttendanceCard: React.FC = () => {
                 <div>
                   <div className="font-semibold">{d.format('MM/DD')}</div>
                   {log
-                    ? <><div>{hours}h{log.ot > 0 ? ` (+${log.ot}h加班)` : ''}</div><div>{log.entries} 條記錄</div></>
+                    ? <><div>{hours}h{log.ot > 0 ? ` (+${log.ot}h加班)` : ''}</div></>
                     : isFuture ? <div>未到</div>
                     : isWeekend ? <div>假日</div>
                     : <div className="text-red-300">未填寫</div>
@@ -663,10 +643,41 @@ const DashboardPage: React.FC = () => {
   const dispatch  = useAppDispatch()
   const navigate  = useNavigate()
   const { indexData, name, isLoading } = useAppSelector((s) => s.auth)
-  // isManager: in IS_DEV simulated via toggle; in production read from user role
-  const [isManager, setIsManager] = useState(true)
+  const [isManager, setIsManager] = useState(false)
+  const [memberStats,  setMemberStats]  = useState<MemberWorkStat[]>([])
+  const [myProjects,   setMyProjects]   = useState<ProjectListItem[]>([])
+  const [todayLog,     setTodayLog]     = useState<BackendDailyLogSummary | null>(null)
+  const [alertTasks,   setAlertTasks]   = useState<AlertTask[]>([])
 
   useEffect(() => { dispatch(fetchIndexThunk()) }, [dispatch])
+
+  useEffect(() => {
+    // Load member stats (manager view)
+    projectApi.memberStats()
+      .then((res) => { if (res.content) setMemberStats(res.content as MemberWorkStat[]) })
+      .catch(() => {})
+
+    // Load my active projects
+    projectApi.list({ page: 1, size: 10, status: 5 })
+      .then((res) => {
+        const list = (res as { content?: { data_list?: ProjectListItem[] } }).content?.data_list ?? []
+        setMyProjects(list)
+      })
+      .catch(() => {})
+
+    // Load today's daily log (for DailyLogCard)
+    const today = dayjs().format('YYYY-MM-DD')
+    dailyLogApi.list({ page: 1, size: 1, start_date: today, end_date: today })
+      .then((res) => {
+        const list = (res as { content?: { list?: BackendDailyLogSummary[] } }).content?.list ?? []
+        setTodayLog(list[0] ?? null)
+      })
+      .catch(() => {})
+
+    // TODO: Load alert tasks from API when endpoint available
+    // projectApi.alertTasks().then(res => setAlertTasks(res.content ?? [])).catch(() => {})
+    setAlertTasks([])
+  }, [])
 
   return (
     <div className="p-6 max-w-[1400px] mx-auto">
@@ -711,14 +722,14 @@ const DashboardPage: React.FC = () => {
       </Row>
 
       {/* Daily Log Status — engineers: mandatory, managers: optional with opt-out */}
-      <DailyLogCard isManager={isManager} />
+      <DailyLogCard isManager={isManager} todayLog={todayLog} />
 
       {/* Alert Bar */}
-      <AlertBar pendingReview={indexData?.pending_review ?? 0} />
+      <AlertBar pendingReview={indexData?.pending_review ?? 0} alertTasks={alertTasks} />
 
       {/* Manager: Team Daily Log + Manager Section */}
       {isManager && <TeamDailyLogCard />}
-      {isManager && <ManagerSection />}
+      {isManager && <ManagerSection memberStats={memberStats} />}
 
       <Row gutter={[16, 16]}>
         {/* Left */}
@@ -731,7 +742,7 @@ const DashboardPage: React.FC = () => {
             bodyStyle={{ paddingTop: 8 }}
           >
             <ResponsiveContainer width="100%" height={150}>
-              <BarChart data={WEEKLY_DATA} barCategoryGap="35%">
+              <BarChart data={[]} barCategoryGap="35%">
                 <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
                 <YAxis hide />
                 <RTooltip contentStyle={{ borderRadius: 10, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: 12 }} cursor={{ fill: '#f8fafc' }} />
@@ -752,32 +763,40 @@ const DashboardPage: React.FC = () => {
             extra={<a href="/projects" className="text-xs text-blue-500 hover:underline">查看全部 →</a>}
             bodyStyle={{ padding: '0 24px 16px' }}
           >
-            {MY_PROJECTS.map((p) => (
-              <div
-                key={p.id}
-                className="flex items-center gap-3 py-3 border-b border-slate-50 last:border-0 hover:bg-slate-50 -mx-4 px-4 rounded-lg cursor-pointer transition-colors"
-                onClick={() => navigate(`/projects/${p.id}`)}
-              >
-                <div className="w-1 self-stretch rounded-full flex-shrink-0" style={{ background: PRIORITY_COLORS[p.priority - 1] }} />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-medium text-slate-700 text-sm truncate">{p.name}</span>
-                    <Tag color={STATUS_COLOR[p.status]} style={{ fontSize: 11, lineHeight: '18px', padding: '0 6px', margin: 0 }}>
-                      {STATUS_LABEL[p.status]}
-                    </Tag>
+            {myProjects.length === 0
+              ? <Empty description="暫無進行中的專案" className="py-6" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              : myProjects.map((p) => {
+                const daysLeft = p.expected_end_date
+                  ? dayjs(p.expected_end_date).diff(dayjs(), 'day')
+                  : 999
+                return (
+                  <div
+                    key={p.id}
+                    className="flex items-center gap-3 py-3 border-b border-slate-50 last:border-0 hover:bg-slate-50 -mx-4 px-4 rounded-lg cursor-pointer transition-colors"
+                    onClick={() => navigate(`/projects/${p.id}`)}
+                  >
+                    <div className="w-1 self-stretch rounded-full flex-shrink-0" style={{ background: PRIORITY_COLORS[(p.priority ?? 1) - 1] }} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="font-medium text-slate-700 text-sm truncate">{p.project_nm}</span>
+                        <Tag color={STATUS_COLOR[p.status]} style={{ fontSize: 11, lineHeight: '18px', padding: '0 6px', margin: 0 }}>
+                          {STATUS_LABEL[p.status]}
+                        </Tag>
+                      </div>
+                      <Progress
+                        percent={p.progress ?? 0} size="small" showInfo={false}
+                        strokeColor={(p.progress ?? 0) >= 80 ? '#16a34a' : (p.progress ?? 0) >= 40 ? '#2563eb' : '#94a3b8'}
+                        trailColor="#f1f5f9"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className="text-xs text-slate-400 hidden sm:block">{p.progress ?? 0}%</span>
+                      <DaysLeftBadge days={daysLeft} />
+                    </div>
                   </div>
-                  <Progress
-                    percent={p.progress} size="small" showInfo={false}
-                    strokeColor={p.progress >= 80 ? '#16a34a' : p.progress >= 40 ? '#2563eb' : '#94a3b8'}
-                    trailColor="#f1f5f9"
-                  />
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <span className="text-xs text-slate-400 hidden sm:block">{p.progress}%</span>
-                  <DaysLeftBadge days={p.daysLeft} />
-                </div>
-              </div>
-            ))}
+                )
+              })
+            }
           </Card>
         </Col>
 
@@ -789,25 +808,7 @@ const DashboardPage: React.FC = () => {
             title={<span className="font-semibold text-slate-700 text-sm">近期動態</span>}
             bodyStyle={{ padding: '0 16px 12px' }}
           >
-            {FEED_ITEMS.map((item) => (
-              <div key={item.id} className="feed-item flex items-start gap-3 py-3">
-                <Avatar size={32} style={{ background: item.color, fontSize: 13, fontWeight: 600, flexShrink: 0 }}>
-                  {item.avatar}
-                </Avatar>
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm text-slate-700 leading-snug">
-                    <span className="font-semibold">{item.user}</span>
-                    <span className="text-slate-400"> {item.action} </span>
-                    <span className="text-blue-600 font-medium">{item.target}</span>
-                  </div>
-                  <div className="text-xs text-slate-400 mt-0.5">{item.sub}</div>
-                  <div className="text-xs text-slate-300 mt-0.5">{item.time}</div>
-                </div>
-              </div>
-            ))}
-            <div className="pt-2 text-center">
-              <a href="#" className="text-xs text-blue-500 hover:underline">查看更多動態</a>
-            </div>
+            <Empty description="動態功能開發中" className="py-6" image={Empty.PRESENTED_IMAGE_SIMPLE} />
           </Card>
         </Col>
       </Row>

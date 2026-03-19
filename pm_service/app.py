@@ -5,14 +5,10 @@
 @時間: 2023/10/19 19:09:13
 @作者: LiDong
 """
-import atexit
-import datetime
 import json
 import os
-import traceback
 from datetime import timedelta
 
-from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask, request
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
@@ -24,18 +20,12 @@ from cache import redis_client
 from common.common_method import fail_response_result
 from configs.app_config import REDIS_DATABASE_URI, SQLALCHEMY_DATABASE_URI
 from dbs.mysql_db import db
-from influxDB.influxdb_oper import oper_fluxdb
 from loggers import logger
-from scheduled_tasks.send_daily_progress_to_leader import \
-    SummarizeDailyProgress
-from scheduled_tasks.send_message_to_developer import notice_developers_main
-from scheduled_tasks.send_week_progress_to_leader import SummarizeWeekProgress
 from urls.views import register_blp
 
 # from waitress import serve
 app = Flask(__name__)
 jwt = JWTManager(app)
-scheduler = BackgroundScheduler()
 
 
 @jwt.expired_token_loader
@@ -116,54 +106,11 @@ def create_app():
     return app
 
 
-def your_task_function_4_30():
-    with app.app_context():
-        notice_developers_main()
-        print("定时任务执行时间:", datetime.datetime.now())
-
-
-def your_task_function_5():
-    with app.app_context():
-        SummarizeDailyProgress().main()
-        print("定时任务执行，时间:", datetime.datetime.now())
-
-
-def your_task_function_week():
-    with app.app_context():
-        SummarizeWeekProgress().main()
-        print("定时任务执行，时间:", datetime.datetime.now())
-
-
-# scheduler.add_job(
-#     your_task_function_4_30,
-#     "cron",
-#     day_of_week="mon-fri",
-#     hour=16,
-#     minute=30,
-#     id="task_4_30",
-# )
-# scheduler.add_job(
-#     your_task_function_5, "cron", day_of_week="mon-fri", hour=17, minute=0, id="task_5"
-# )
-# scheduler.add_job(
-#     your_task_function_week,
-#     "cron",
-#     day_of_week="fri",
-#     hour=17,
-#     minute=5,
-#     id="task_week",
-# )
-# scheduler.add_job(your_task_function_5, "interval", seconds=10)
-
-
 if __name__ == "__main__":
     app = create_app()
-    # scheduler.start()  # A-05: 暫無排程任務，註釋避免空轉
     with open("./pid", "w") as f:
         pid = str(os.getpid())
         f.write(pid)
-    atexit.register(oper_fluxdb.disconnect_from_influxdb)
-    oper_fluxdb.connect_to_influxdb()
     print("===================server starting============================")
     # app.run("0.0.0.0", 19999, debug=True, use_reloader=False)
     app.run("0.0.0.0", 19999, debug=True)

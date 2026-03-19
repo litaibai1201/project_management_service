@@ -31,13 +31,11 @@ from apps.user_app.controllers.statistical_ctr import UserStatisticalController
 from apps.user_app.controllers.temp_duty_ctr import UserTempDutyController
 from apps.user_app.controllers.user_mgmt_ctr import UserMgmtController
 from apps.user_app.serializes import (AuditRecordSchema,
-                                      CheckPermissionSchema,
                                       CreateHierarchySchema,
                                       CreateUserMgmtSchema, LogInSchema,
                                       MyApplySchema, QuerySubordinatesSchema,
                                       QueryUsersMgmtSchema,
                                       RspLogInLogOutSchema,
-                                      RspPermissionSchema,
                                       RspUserLstestNewsSchema,
                                       RspUserMgmtSchema, RspUserPageSchema,
                                       RspUsersMgmtSchema,
@@ -46,7 +44,7 @@ from apps.user_app.serializes import (AuditRecordSchema,
                                       UserLstestNewsSchema, UserProjectSchema,
                                       UserTempDutySchema)
 from common.common_method import fail_response_result, response_data_result
-from influxDB.influxdb_oper import oper_fluxdb
+from common.oper_log import add_operation_record
 from serialize.response_serialize import (RspMsgDictSchema, RspMsgListSchema,
                                           RspMsgSchema)
 
@@ -63,18 +61,18 @@ class LoginApi(MethodView):
     @blp.response(200, RspLogInLogOutSchema)
     def post(self, payload):
         lic = LogInController(payload)
-        result_ad = lic.log_in_ad()
-        if not result_ad:
-            return fail_response_result(msg="AD請求失敗")
-        elif result_ad["code"] != "S10000":
-            return fail_response_result(msg="工號或密碼或園區錯誤")
+        # result_ad = lic.log_in_ad()
+        # if not result_ad:
+        #     return fail_response_result(msg="AD請求失敗")
+        # elif result_ad["code"] != "S10000":
+        #     return fail_response_result(msg="工號或密碼或園區錯誤")
         token_payload = lic.get_token_payload()
-        oper_fluxdb.add_record(
-            payload["work_no"],
-            "login",
-            "success",
-            "登錄系統",
-            request.headers.get("X-Real-IP"),
+        add_operation_record(
+            operator=payload["work_no"],
+            action="login",
+            status="success",
+            matter="登錄系統",
+            ip=request.headers.get("X-Real-IP", ""),
         )
         return response_data_result(content=token_payload)
 
@@ -416,19 +414,3 @@ class TeamTreeApi(MethodView):
         return response_data_result(content=tree, msg="查詢成功")
 
 
-@blp.route("/mgmt/check_permission")
-class CheckPermissionApi(MethodView):
-    """
-    判斷 requester 是否有權查看 target 的更新內容
-    返回 content: true / false
-    """
-
-    @jwt_required()
-    @blp.arguments(CheckPermissionSchema, location="query")
-    @blp.response(200, RspPermissionSchema)
-    def get(self, payload):
-        hc = HierarchyController()
-        allowed = hc.check_view_permission(
-            payload.get("requester"), payload.get("target")
-        )
-        return response_data_result(content=allowed, msg="查詢成功")

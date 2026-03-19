@@ -10,7 +10,7 @@ from flask import request
 from apps.project_app.models import OperProjectDataModel
 from dbs.mysql_db import DBFunction
 from serialize.model_serizlize import ProjectDataModelSchema
-from influxDB.influxdb_oper import oper_fluxdb
+from common.oper_log import add_operation_record
 
 
 class DeleteProjectController:
@@ -20,13 +20,12 @@ class DeleteProjectController:
         self.project_id = project_id
         self.user_id = user_id
 
-    def __write_data_to_influxdb(self, project_data):
-        oper_fluxdb.add_record(
-            self.user_id,
-            "delete_project",
-            "success",
+    def __write_operation_log(self, project_data):
+        add_operation_record(
+            self.user_id, "delete_project", "success",
             f"刪除名稱為{project_data.project_nm}({project_data.id})的專案",
-            request.headers.get("X-Real-IP"),
+            ip=request.headers.get("X-Real-IP") or '',
+            matter_id=project_data.id,
         )
 
     def process_delete_project(self):
@@ -36,5 +35,5 @@ class DeleteProjectController:
         result, flag = self.opdm.delete_data(self.project_id)
         result, flag = DBFunction.do_commit(result, flag)
         if flag:
-            self.__write_data_to_influxdb(project_data)
+            self.__write_operation_log(project_data)
         return result, flag

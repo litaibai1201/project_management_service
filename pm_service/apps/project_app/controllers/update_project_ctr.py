@@ -13,7 +13,7 @@ from common.common_tools import get_now
 from configs.constant import BUCKET
 from dbs.mysql_db import DBFunction
 from serialize.model_serizlize import ProjectDataModelSchema
-from influxDB.influxdb_oper import oper_fluxdb
+from common.oper_log import add_operation_record
 
 
 class UpdateProjectController:
@@ -62,30 +62,29 @@ class UpdateProjectController:
             details = (
                 f"將{pro_data['project_nm']}專案名称修改為{self.payload['project_nm']}"
             )
-            self.__write_data_to_influxdb(details)
+            self.__write_operation_log(details)
         if pro_data["priority"] != self.payload["priority"]:
             if self.payload["priority"] == 1:
                 priority = "正常"
             elif self.payload["priority"] == 2:
                 priority = "緊急"
             details = f"將{pro_data['project_nm']}專案優先級修改為{priority}"
-            self.__write_data_to_influxdb(details)
+            self.__write_operation_log(details)
         if pro_data["product_pm"] != self.payload["product_pm"]:
             details = (
                 f"將{pro_data['project_nm']}專案PM修改為{self.payload['product_pm']}"
             )
-            self.__write_data_to_influxdb(details)
+            self.__write_operation_log(details)
         if pro_data["project_pm"] != self.payload["project_pm"]:
             details = f"將{pro_data['project_nm']}專案系統分析師修改為{self.payload['project_pm']}"
-            self.__write_data_to_influxdb(details)
+            self.__write_operation_log(details)
 
-    def __write_data_to_influxdb(self, details):
-        oper_fluxdb.add_record(
-            self.user_id,
-            "update_project",
-            "success",
+    def __write_operation_log(self, details):
+        add_operation_record(
+            self.user_id, "update_project", "success",
             details,
-            request.headers.get("X-Real-IP"),
+            ip=request.headers.get("X-Real-IP") or '',
+            matter_id=self.project_id,
         )
 
     def process_update_project(self):

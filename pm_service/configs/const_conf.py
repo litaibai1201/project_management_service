@@ -9,10 +9,6 @@ environment_dict = {
         "TEST": "projectmanagementtest",
         "PROD": "projectmanagement",
     },
-    "INFLUXDB_BUCKET": {
-        "TEST": "pm_operations_test_log",
-        "PROD": "pm_operations_log",
-    },
 }
 
 send_message_link = {

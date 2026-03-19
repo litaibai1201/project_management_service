@@ -17,7 +17,7 @@ from configs.const_conf import ENV, send_message_link
 from configs.constant import BUCKET
 from configs.senddingplus import SendMessageNotice
 from dbs.mysql_db import DBFunction
-from influxDB.influxdb_oper import oper_fluxdb
+from common.oper_log import add_operation_record
 from serialize.model_serizlize import (FunctionDataModelSchema,
                                        ProjectDataModelSchema)
 
@@ -94,22 +94,23 @@ class FunctionUpdateController:
     def __handle_update_content(self, payload, empid, function_data):
         if payload["function_nm"] != function_data["function_nm"]:
             details = f"將{function_data['function_nm']}任務名称修改為{payload['function_nm']}"
-            self.__write_data_to_influxdb(empid, details)
+            self.__write_operation_log(empid, details)
         if function_data["priority"] != payload["priority"]:
             if payload["priority"] == 1:
                 priority = "正常"
             elif payload["priority"] == 2:
                 priority = "緊急"
             details = f"將{function_data['function_nm']}任務優先級修改為{priority}"
-            self.__write_data_to_influxdb(empid, details)
+            self.__write_operation_log(empid, details)
 
-    def __write_data_to_influxdb(self, user_id, details):
-        oper_fluxdb.add_record(
-            user_id,
-            "update_function",
-            "success",
-            details,
-            request.headers.get("X-Real-IP"),
+    def __write_operation_log(self, user_id, details, matter_id=''):
+        add_operation_record(
+            operator=user_id,
+            action="update_function",
+            status="success",
+            matter=details,
+            ip=request.headers.get("X-Real-IP", ""),
+            matter_id=matter_id,
         )
 
     def update_function(self, empid, fdict, pid, fid, payload):
@@ -184,13 +185,14 @@ class FunctionDeleteController(FunctionUpdateController):
         data = self.ofdm.search_fun_data_by_fid(project_id, function_id)
         return data
 
-    def __write_data_to_influxdb(self, data, user_id):
-        oper_fluxdb.add_record(
-            user_id,
-            "delete_function",
-            "success",
-            f"刪除名稱為{data.function_nm}({data.id})的任務",
-            request.headers.get("X-Real-IP"),
+    def __write_operation_log(self, data, user_id):
+        add_operation_record(
+            operator=user_id,
+            action="delete_function",
+            status="success",
+            matter=f"刪除名稱為{data.function_nm}({data.id})的任務",
+            ip=request.headers.get("X-Real-IP", ""),
+            matter_id=data.id,
         )
 
     def delete_function(self, empid, project_id, function_id):
@@ -204,7 +206,7 @@ class FunctionDeleteController(FunctionUpdateController):
         result, flag = self.ofdm.update_status_to_deleted(function_id)
         result, flag = DBFunction.do_commit(result, flag)
         if flag:
-            self.__write_data_to_influxdb(data, empid)
+            self.__write_operation_log(data, empid)
         return result, flag
 
 

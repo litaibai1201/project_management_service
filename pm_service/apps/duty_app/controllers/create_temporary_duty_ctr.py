@@ -19,7 +19,7 @@ from configs.const_conf import ENV, send_message_link
 from configs.constant import BUCKET
 from configs.senddingplus import SendMessageNotice
 from dbs.mysql_db import DBFunction
-from influxDB.influxdb_oper import oper_fluxdb
+from common.oper_log import add_operation_record
 from serialize.model_serizlize import (TemporaryDutyApplyRecordModelSchema,
                                        TemporaryDutyModelSchema)
 
@@ -113,13 +113,12 @@ class CreateTemporaryDutyController:
             message = f"您好，{name}提交了一條關於新增臨時任務({self.payload['duty_nm']})的立案申請，請您及時處理，[点击查看]({link})。"
             SendMessageNotice.send_single_markdown(message, reviewer)
 
-    def __write_data_to_influxdb(self, duty_info):
-        oper_fluxdb.add_record(
-            self.user_id,
-            "create_duty_task",
-            "success",
+    def __write_operation_log(self, duty_info):
+        add_operation_record(
+            self.user_id, "create_duty_task", "success",
             f"创建名稱為{self.payload['duty_nm']}({duty_info['id']})的臨時任務",
-            request.headers.get("X-Real-IP"),
+            ip=request.headers.get("X-Real-IP") or '',
+            matter_id=duty_info['id'],
         )
 
     def process_create_temporary_duty(self):
@@ -141,6 +140,6 @@ class CreateTemporaryDutyController:
         flag = self.__assemble_duty_info(duty_info)
         if flag:
             self.__send_notice_to_relevant_people(duty_info)
-            self.__write_data_to_influxdb(duty_info)
+            self.__write_operation_log(duty_info)
             return result, flag
         return "上傳檔案失敗！", flag

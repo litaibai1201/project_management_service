@@ -28,14 +28,13 @@ from apps.duty_app.controllers.temporary_duty_list_ctr import \
     TemporaryDutyListController
 from apps.duty_app.controllers.update_temporary_duty_ctr import \
     UpdateTemporaryDutyController
-from apps.duty_app.controllers.upload_files_ctr import UploadFilesController
 from apps.duty_app.serializes import (AllocationTemporaryDutySchema,
                                       CreateTemporaryDutySchema,
                                       ModifyProgressSchema, PageAndSizeSchema,
                                       ReviewApplySchema, TaskListSchema,
                                       TaskSetStatusSchema,
                                       TemporaryDutyListSchema,
-                                      UpdateTemporaryDutySchema, UploadSchema)
+                                      UpdateTemporaryDutySchema)
 from common.common_method import fail_response_result, response_data_result
 from common.common_tools import CommonTools, extract_req_files
 from serialize.response_serialize import (RspBaseSchema, RspMsgDictSchema,
@@ -181,24 +180,6 @@ class SearchTemporaryDutyApi(MethodView):
             return fail_response_result(msg=result)
         return response_data_result(msg=result)
 
-
-@blp.route("/<string:temporary_duty_id>/upload_files")
-class UploadTemporaryFilesApi(MethodView):
-    """
-    此類用來定義/<temporary_duty_id>/upload_files及請求方式
-    """
-
-    @jwt_required()
-    @blp.arguments(UploadSchema, location="form")
-    @blp.response(200, RspBaseSchema)
-    def post(self, payload, temporary_duty_id):
-        user_id = get_jwt_identity()["empid"]
-        files_dict = extract_req_files(request.files)
-        ufc = UploadFilesController(payload, files_dict)
-        result, flag = ufc.process_upload_files(user_id, temporary_duty_id)
-        if not flag:
-            return fail_response_result(msg=result)
-        return response_data_result(msg=result)
 
 
 @blp.route("/<string:temporary_duty_id>/files")
