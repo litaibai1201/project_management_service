@@ -85,4 +85,10 @@ export const postForm = <T>(url: string, formData: FormData): Promise<ApiRespons
     headers: { 'Content-Type': 'multipart/form-data' },
   }).then((r) => r.data)
 
+/** PUT with multipart/form-data — used for update endpoints that expect PUT + form data */
+export const putForm = <T>(url: string, formData: FormData): Promise<ApiResponse<T>> =>
+  httpClient.put<ApiResponse<T>>(url, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }).then((r) => r.data)
+
 export default httpClient

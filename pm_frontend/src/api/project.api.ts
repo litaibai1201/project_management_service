@@ -1,4 +1,4 @@
-import { get, post, put, del, postForm } from './httpClient'
+import { get, post, put, del, postForm, putForm } from './httpClient'
 import {
   ApiResponse,
   Project,
@@ -54,7 +54,7 @@ export const projectApi = {
       }
     })
     if (files) Object.entries(files).forEach(([type, list]) => list.forEach((f) => fd.append(type, f)))
-    return postForm(`/project/${id}`, fd)
+    return putForm(`/project/${id}`, fd)
   },
 
   /** DELETE /api/project/:id */
@@ -124,7 +124,7 @@ export const projectApi = {
         else fd.append(k, String(v))
       }
     })
-    return postForm(`/project/${pid}/function/${fid}`, fd)
+    return putForm(`/project/${pid}/function/${fid}`, fd)
   },
 
   /** DELETE /api/project/:pid/function/:fid */

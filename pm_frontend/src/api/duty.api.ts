@@ -1,4 +1,4 @@
-import { get, post, put, del, postForm } from './httpClient'
+import { get, post, put, del, postForm, putForm } from './httpClient'
 import {
   ApiResponse,
   TemporaryDuty,
@@ -43,7 +43,7 @@ export const dutyApi = {
         else fd.append(k, String(v))
       }
     })
-    return postForm(`/temporary_duty/${id}`, fd)
+    return putForm(`/temporary_duty/${id}`, fd)
   },
 
   /** DELETE /api/temporary_duty/:id */
