@@ -204,32 +204,61 @@ class UserController:
     # ── 登录 & 首页统计 ────────────────────────────────────────────────────────
 
     def login(self, work_no: str, password: str, location: str = "") -> dict:
-        """登录验证，查询用户信息并判断是否为主管"""
+        """登录验证：优先检查管理员表，再检查普通用户表"""
         from utils.auth import create_token
+        from controllers.system_admin_controller import SystemAdminController
+        from dbs.mysql_db.model_tables import AdminUserModel
+
+        # 1. 优先检查管理员表
+        admin = db.session.query(AdminUserModel).filter_by(username=work_no, status=1).first()
+        if admin:
+            if admin.password != password:
+                raise BusinessException(msg="密码错误", code="F20003")
+            admin.last_login = CommonTools.get_now()
+            db.session.commit()
+            identity = {
+                "empid":    work_no,
+                "username": admin.name,
+                "is_admin": True,
+                "role_code": "system_admin",
+                "location": location,
+            }
+            access_token = create_token(identity=work_no, additional_claims=identity)
+            return {
+                "access_token": access_token,
+                "work_no":      work_no,
+                "name":         admin.name,
+                "role_code":    "system_admin",
+                "role_name":    "系统管理员",
+                "is_admin":     True,
+                "is_supervisor": False,
+            }
+
+        # 2. 普通用户登录
         user = db.session.query(UserProfileModel).filter_by(work_no=work_no, status=1).first()
         if not user:
             raise BusinessException(msg="用户不存在或已禁用", code="F20003")
 
         role_info = self.get_user_role(work_no) or {"role_code": None, "role_name": None}
-
-        # 判断是否为主管：在层级表中存在以该工号为上级的记录
         is_supervisor = db.session.query(HierarchyModel).filter_by(
             supervisor_work_no=work_no
         ).first() is not None
 
         identity = {
-            "empid": work_no,
+            "empid":    work_no,
             "username": user.name,
+            "is_admin": False,
             "role_code": role_info["role_code"],
             "location": location,
         }
         access_token = create_token(identity=work_no, additional_claims=identity)
         return {
             "access_token": access_token,
-            "work_no": work_no,
-            "name": user.name,
-            "role_code": role_info["role_code"],
-            "role_name": role_info["role_name"],
+            "work_no":      work_no,
+            "name":         user.name,
+            "role_code":    role_info["role_code"],
+            "role_name":    role_info["role_name"],
+            "is_admin":     False,
             "is_supervisor": is_supervisor,
         }
 

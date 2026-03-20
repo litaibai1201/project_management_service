@@ -33,9 +33,13 @@ const LoginPage: React.FC = () => {
 
   const handleSubmit = async (values: LoginFormValues) => {
     try {
-      await dispatch(loginThunk(values)).unwrap()
+      const result = await dispatch(loginThunk(values)).unwrap()
       showToast.success('登入成功')
-      navigate('/', { replace: true })
+      if (result.is_admin) {
+        navigate('/admin', { replace: true })
+      } else {
+        navigate('/', { replace: true })
+      }
     } catch (err: unknown) {
       showToast.error((err as string) || '登入失敗，請確認帳號密碼')
     }

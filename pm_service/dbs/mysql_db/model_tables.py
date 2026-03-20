@@ -124,6 +124,47 @@ class HierarchyModel(db.Model):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 系统管理
+# ─────────────────────────────────────────────────────────────────────────────
+
+class AdminUserModel(db.Model):
+    """系统管理员"""
+    __tablename__ = "admin_user_form"
+
+    id         = db.Column(db.String(32),  primary_key=True, default=generate_uuid)
+    username   = db.Column(db.String(64),  nullable=False, unique=True, index=True, comment="登录账号")
+    password   = db.Column(db.String(256), nullable=False, comment="密码")
+    name       = db.Column(db.String(64),  nullable=False, comment="显示名")
+    status     = db.Column(db.Integer,     default=1, comment="1=启用 0=禁用")
+    last_login = db.Column(db.String(19),  comment="最后登录时间")
+    created_at = db.Column(db.String(19),  default=CommonTools.get_now)
+
+    def to_dict(self):
+        return {
+            "id": self.id, "username": self.username,
+            "name": self.name, "status": self.status,
+            "last_login": self.last_login, "created_at": self.created_at,
+        }
+
+
+class SystemConfigModel(db.Model):
+    """系统配置"""
+    __tablename__ = "system_config_form"
+
+    id           = db.Column(db.String(32),  primary_key=True, default=generate_uuid)
+    config_key   = db.Column(db.String(64),  nullable=False, unique=True, index=True, comment="配置键")
+    config_value = db.Column(db.Text,        comment="配置值")
+    description  = db.Column(db.String(255), comment="描述")
+    updated_at   = db.Column(db.String(19),  default=CommonTools.get_now)
+
+    def to_dict(self):
+        return {
+            "key": self.config_key, "value": self.config_value,
+            "description": self.description, "updated_at": self.updated_at,
+        }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 项目管理
 # ─────────────────────────────────────────────────────────────────────────────
 

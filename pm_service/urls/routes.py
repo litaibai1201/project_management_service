@@ -35,6 +35,7 @@ from views.statistics_api import blp as statistics_blp
 from views.daily_log_api import blp as daily_log_blp
 from views.search_api import blp as search_blp
 from views.admin_api import blp as admin_blp
+from views.system_admin_api import blp as system_admin_blp
 
 # ==================== 蓝图注册配置 ====================
 # 格式: (蓝图对象, URL 前缀配置)
@@ -63,5 +64,6 @@ BLUEPRINTS = [
     (statistics_blp, {"url_prefix": "/api/statistics"}),
     (daily_log_blp,  {"url_prefix": "/api/daily_log"}),
     (search_blp,     {"url_prefix": "/api"}),
-    (admin_blp,      {"url_prefix": "/api/admin"}),
+    (admin_blp,        {"url_prefix": "/api/admin"}),
+    (system_admin_blp, {"url_prefix": "/api/sys_admin"}),
 ]

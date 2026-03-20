@@ -3,11 +3,20 @@ import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom'
 import { Spin } from 'antd'
 
 // ─── Layout / Guards ──────────────────────────────────────────────────────────
-import AppLayout   from '@/components/common/AppLayout'
+import AppLayout    from '@/components/common/AppLayout'
 import PrivateRoute from '@/features/auth/PrivateRoute'
+import AdminRoute   from '@/features/admin/AdminRoute'
+import AdminLayout  from '@/features/admin/AdminLayout'
 
 // ─── Lazy Page Imports ────────────────────────────────────────────────────────
 const LoginPage        = lazy(() => import('@/features/auth/LoginPage'))
+
+// Admin Pages
+const AdminDashboard   = lazy(() => import('@/features/admin/dashboard/AdminDashboard'))
+const AdminUsersPage   = lazy(() => import('@/features/admin/users/AdminUsersPage'))
+const SystemConfigPage = lazy(() => import('@/features/admin/config/SystemConfigPage'))
+const OperationLogsPage= lazy(() => import('@/features/admin/logs/OperationLogsPage'))
+const AdminAccountsPage= lazy(() => import('@/features/admin/admins/AdminAccountsPage'))
 const DashboardPage    = lazy(() => import('@/features/auth/DashboardPage'))
 const ProjectListPage  = lazy(() => import('@/features/project/ProjectListPage'))
 const ProjectDetailPage= lazy(() => import('@/features/project/ProjectDetailPage'))
@@ -61,6 +70,23 @@ const router = createBrowserRouter([
           { path: 'daily-log',        element: <Suspense fallback={<PageLoader />}><DailyLogPage /></Suspense> },
           { path: 'anomaly',          element: <Suspense fallback={<PageLoader />}><AnomalyPage /></Suspense> },
           { path: 'wbs',              element: <Suspense fallback={<PageLoader />}><WbsOverviewPage /></Suspense> },
+        ],
+      },
+    ],
+  },
+
+  // Admin routes
+  {
+    element: <AdminRoute />,
+    children: [
+      {
+        element: <AdminLayout />,
+        children: [
+          { path: 'admin',         element: <Suspense fallback={<PageLoader />}><AdminDashboard /></Suspense> },
+          { path: 'admin/users',   element: <Suspense fallback={<PageLoader />}><AdminUsersPage /></Suspense> },
+          { path: 'admin/config',  element: <Suspense fallback={<PageLoader />}><SystemConfigPage /></Suspense> },
+          { path: 'admin/logs',    element: <Suspense fallback={<PageLoader />}><OperationLogsPage /></Suspense> },
+          { path: 'admin/admins',  element: <Suspense fallback={<PageLoader />}><AdminAccountsPage /></Suspense> },
         ],
       },
     ],
