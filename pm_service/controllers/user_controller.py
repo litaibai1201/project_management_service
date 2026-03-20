@@ -97,6 +97,32 @@ class UserController:
         db.session.commit()
         return rel.to_dict()
 
+    def get_all_relations(self):
+        """获取所有上下级关系（批量，供前端层级页面初始化）"""
+        rels = db.session.query(HierarchyModel).all()
+        work_nos = set()
+        for r in rels:
+            work_nos.add(r.supervisor_work_no)
+            work_nos.add(r.subordinate_work_no)
+        if work_nos:
+            users = db.session.query(UserProfileModel).filter(
+                UserProfileModel.work_no.in_(work_nos),
+                UserProfileModel.status == 1,
+            ).all()
+            name_map = {u.work_no: u.name for u in users}
+        else:
+            name_map = {}
+        return [
+            {
+                "id": r.id,
+                "supervisor_work_no": r.supervisor_work_no,
+                "supervisor_name": name_map.get(r.supervisor_work_no, r.supervisor_work_no),
+                "subordinate_work_no": r.subordinate_work_no,
+                "subordinate_name": name_map.get(r.subordinate_work_no, r.subordinate_work_no),
+            }
+            for r in rels
+        ]
+
     def remove_relation(self, relation_id: str):
         rel = db.session.query(HierarchyModel).filter_by(id=relation_id).first()
         if not rel:

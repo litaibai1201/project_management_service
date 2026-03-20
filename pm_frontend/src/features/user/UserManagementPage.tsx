@@ -11,7 +11,7 @@ import {
 } from '@heroicons/react/24/outline'
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
 import { fetchUserListThunk, fetchDepartmentsThunk, createUserThunk, deleteUserThunk } from './userSlice'
-import { userApi } from '@/api/user.api'
+import { userApi, HierarchyRelation } from '@/api/user.api'
 import { groupApi } from '@/api/group.api'
 import { UserProfile } from '@/types/api.types'
 import { showToast } from '@/utils/toast'
@@ -22,6 +22,7 @@ const { Search } = Input
 interface HierarchyRow {
   work_no: string; name: string; department: string; position: string
   supervisor_no: string | null; supervisor_nm: string | null
+  relation_id: string | null
 }
 
 // Build tree data from hierarchy list
@@ -63,6 +64,37 @@ function buildTree(rows: HierarchyRow[]): DataNode[] {
   return roots
 }
 
+// ─── DeptAutoComplete — 支持点击展开 + 输入过滤 ─────────────────────────────────
+const DeptAutoComplete: React.FC<{
+  departments: string[]
+  value?: string
+  onChange?: (v: string) => void
+}> = ({ departments, value, onChange }) => {
+  const [options, setOptions] = useState(departments.map((d) => ({ value: d })))
+
+  // 当 departments 列表更新时同步选项
+  useEffect(() => {
+    setOptions(departments.map((d) => ({ value: d })))
+  }, [departments])
+
+  return (
+    <AutoComplete
+      value={value}
+      onChange={onChange}
+      placeholder="選擇或輸入部門"
+      options={options}
+      onFocus={() => setOptions(departments.map((d) => ({ value: d })))}
+      onSearch={(text) =>
+        setOptions(
+          departments
+            .filter((d) => !text || d.toLowerCase().includes(text.toLowerCase()))
+            .map((d) => ({ value: d }))
+        )
+      }
+    />
+  )
+}
+
 // ─── Project groups (loaded from API) ──────────────────────────────────────────
 interface ProjectGroup { id: string; name: string; description: string; member_count: number; color: string }
 const INITIAL_GROUPS: ProjectGroup[] = []
@@ -71,41 +103,84 @@ const INITIAL_GROUPS: ProjectGroup[] = []
 const HierarchyTab: React.FC = () => {
   const [editTarget, setEditTarget] = useState<HierarchyRow | null>(null)
   const [hierarchy, setHierarchy] = useState<HierarchyRow[]>([])
+  const [isSavingHierarchy, setIsSavingHierarchy] = useState(false)
   const [editForm] = Form.useForm()
   const treeData = buildTree(hierarchy)
 
   useEffect(() => {
-    userApi.list({ size: 200 })
-      .then((res) => {
-        const users = (res as { content?: { users?: { work_no: string; name: string; department: string; position?: string }[] } }).content?.users ?? []
-        // Convert user list to HierarchyRow (supervisor relationships from API when available)
-        const rows: HierarchyRow[] = users.map((u) => ({
+    Promise.all([
+      userApi.list({ size: 200 }),
+      userApi.listRelations(),
+    ]).then(([usersRes, relsRes]) => {
+      const users = (usersRes as { content?: { data_list?: { work_no: string; name: string; department: string; position?: string }[] } }).content?.data_list ?? []
+      const rels: HierarchyRelation[] = (relsRes as { content?: HierarchyRelation[] }).content ?? []
+
+      // Build supervisor map: subordinate_work_no → relation info
+      const supMap = new Map<string, { supervisor_no: string; supervisor_nm: string; relation_id: string }>()
+      rels.forEach((r) => {
+        supMap.set(r.subordinate_work_no, {
+          supervisor_no: r.supervisor_work_no,
+          supervisor_nm: r.supervisor_name,
+          relation_id: r.id,
+        })
+      })
+
+      const rows: HierarchyRow[] = users.map((u) => {
+        const sup = supMap.get(u.work_no)
+        return {
           work_no: u.work_no,
           name: u.name,
           department: u.department,
           position: u.position ?? '',
-          supervisor_no: null,
-          supervisor_nm: null,
-        }))
-        setHierarchy(rows)
+          supervisor_no: sup?.supervisor_no ?? null,
+          supervisor_nm: sup?.supervisor_nm ?? null,
+          relation_id: sup?.relation_id ?? null,
+        }
       })
-      .catch(() => {})
+      setHierarchy(rows)
+    }).catch(() => {})
   }, [])
 
-  const handleSave = (values: { supervisor_no: string | null }) => {
+  const handleSave = async (values: { supervisor_no: string | null }) => {
     if (!editTarget) return
-    const supervisorRow = values.supervisor_no
-      ? hierarchy.find((r) => r.work_no === values.supervisor_no) ?? null
-      : null
-    setHierarchy((prev) =>
-      prev.map((r) =>
-        r.work_no === editTarget.work_no
-          ? { ...r, supervisor_no: values.supervisor_no ?? null, supervisor_nm: supervisorRow?.name ?? null }
-          : r
-      )
-    )
-    showToast.success(`已更新 ${editTarget.name} 的直屬主管`)
-    setEditTarget(null)
+    setIsSavingHierarchy(true)
+    try {
+      if (values.supervisor_no) {
+        // 先移除旧关系（如存在）
+        if (editTarget.relation_id) {
+          await userApi.removeRelation(editTarget.relation_id)
+        }
+        // 建立新关系
+        const res = await userApi.setRelation(values.supervisor_no, editTarget.work_no)
+        const rel = (res as { content?: HierarchyRelation }).content
+        const supervisorRow = hierarchy.find((r) => r.work_no === values.supervisor_no) ?? null
+        setHierarchy((prev) =>
+          prev.map((r) =>
+            r.work_no === editTarget.work_no
+              ? { ...r, supervisor_no: values.supervisor_no ?? null, supervisor_nm: supervisorRow?.name ?? null, relation_id: rel?.id ?? null }
+              : r
+          )
+        )
+      } else {
+        // 清除关系
+        if (editTarget.relation_id) {
+          await userApi.removeRelation(editTarget.relation_id)
+        }
+        setHierarchy((prev) =>
+          prev.map((r) =>
+            r.work_no === editTarget.work_no
+              ? { ...r, supervisor_no: null, supervisor_nm: null, relation_id: null }
+              : r
+          )
+        )
+      }
+      showToast.success(`已更新 ${editTarget.name} 的直屬主管`)
+      setEditTarget(null)
+    } catch {
+      showToast.error('更新失敗，請稍後再試')
+    } finally {
+      setIsSavingHierarchy(false)
+    }
   }
 
   const columns: ColumnsType<HierarchyRow> = [
@@ -195,7 +270,7 @@ const HierarchyTab: React.FC = () => {
           </Form.Item>
           <div className="flex justify-end gap-3">
             <Button onClick={() => setEditTarget(null)}>取消</Button>
-            <Button type="primary" htmlType="submit" className="bg-blue-600">保存</Button>
+            <Button type="primary" htmlType="submit" loading={isSavingHierarchy} className="bg-blue-600">保存</Button>
           </div>
         </Form>
       </Modal>
@@ -508,13 +583,7 @@ const UserManagementPage: React.FC = () => {
           <Input placeholder="請輸入姓名" />
         </Form.Item>
         <Form.Item name="department" label="部門" rules={[{ required: true, message: '請輸入或選擇部門' }]}>
-          <AutoComplete
-            placeholder="選擇或輸入部門"
-            options={departments.map((d) => ({ value: d }))}
-            filterOption={(input, option) =>
-              (option?.value ?? '').toLowerCase().includes(input.toLowerCase())
-            }
-          />
+          <DeptAutoComplete departments={departments} />
         </Form.Item>
         <Form.Item name="position" label="職稱">
           <Input placeholder="請輸入職稱" />

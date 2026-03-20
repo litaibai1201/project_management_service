@@ -6,7 +6,7 @@ from flask_smorest import Blueprint
 from utils.auth import jwt_required
 from utils.response import response_result
 from controllers.statistics_controller import StatisticsController
-from serializes.response_serialize import RspMsgDictSchema
+from serializes.response_serialize import RspMsgDictSchema, RspMsgRawSchema
 
 blp = Blueprint("statistics_api", __name__, description="统计接口")
 ctrl = StatisticsController()
@@ -15,7 +15,7 @@ ctrl = StatisticsController()
 @blp.route("/member_stats")
 class MemberStatsApi(MethodView):
     @jwt_required()
-    @blp.response(200, RspMsgDictSchema)
+    @blp.response(200, RspMsgRawSchema)
     def get(self):
         """成员工作统计"""
         start_date = request.args.get("start_date")

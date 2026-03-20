@@ -9,7 +9,7 @@ from controllers.user_controller import UserController
 from serializes.user_serialize import (
     LoginSchema, CreateUserSchema, UpdateUserSchema, HierarchySchema,
 )
-from serializes.response_serialize import RspMsgDictSchema
+from serializes.response_serialize import RspMsgDictSchema, RspMsgRawSchema
 
 blp = Blueprint("user_api", __name__, description="用户管理接口")
 ctrl = UserController()
@@ -115,7 +115,7 @@ class UserDetailApi(MethodView):
 @blp.route("/mgmt/departments")
 class DepartmentsApi(MethodView):
     @jwt_required()
-    @blp.response(200, RspMsgDictSchema)
+    @blp.response(200, RspMsgRawSchema)
     def get(self):
         """获取部门列表"""
         return response_result(content=ctrl.get_departments())
@@ -125,6 +125,12 @@ class DepartmentsApi(MethodView):
 
 @blp.route("/mgmt/hierarchy")
 class HierarchyApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgRawSchema)
+    def get(self):
+        """获取所有上下级关系"""
+        return response_result(content=ctrl.get_all_relations())
+
     @jwt_required()
     @blp.arguments(HierarchySchema)
     @blp.response(200, RspMsgDictSchema)
@@ -149,7 +155,7 @@ class HierarchyDeleteApi(MethodView):
 @blp.route("/mgmt/<string:work_no>/subordinates")
 class SubordinatesApi(MethodView):
     @jwt_required()
-    @blp.response(200, RspMsgDictSchema)
+    @blp.response(200, RspMsgRawSchema)
     def get(self, work_no):
         """获取下属列表"""
         all_levels = request.args.get("all_levels", "false").lower() == "true"
@@ -159,7 +165,7 @@ class SubordinatesApi(MethodView):
 @blp.route("/mgmt/<string:work_no>/supervisors")
 class SupervisorsApi(MethodView):
     @jwt_required()
-    @blp.response(200, RspMsgDictSchema)
+    @blp.response(200, RspMsgRawSchema)
     def get(self, work_no):
         """获取上级列表"""
         return response_result(content=ctrl.get_supervisors(work_no))

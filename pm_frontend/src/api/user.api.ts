@@ -21,9 +21,9 @@ export interface QueryUsersParams {
 export interface HierarchyRelation {
   id: string
   supervisor_work_no: string
+  supervisor_name: string
   subordinate_work_no: string
-  supervisor_name?: string
-  subordinate_name?: string
+  subordinate_name: string
 }
 
 export const userApi = {
@@ -54,6 +54,10 @@ export const userApi = {
     get('/user/mgmt/departments'),
 
   // ─── Hierarchy ────────────────────────────────────────────────────────────────
+
+  /** GET /api/user/mgmt/hierarchy */
+  listRelations: (): Promise<ApiResponse<HierarchyRelation[]>> =>
+    get('/user/mgmt/hierarchy'),
 
   /** POST /api/user/mgmt/hierarchy */
   setRelation: (supervisorWorkNo: string, subordinateWorkNo: string): Promise<ApiResponse<HierarchyRelation>> =>

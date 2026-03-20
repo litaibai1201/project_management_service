@@ -6,7 +6,7 @@ from flask_smorest import Blueprint
 from utils.auth import jwt_required
 from utils.response import response_result
 from controllers.group_controller import GroupController
-from serializes.response_serialize import RspMsgDictSchema
+from serializes.response_serialize import RspMsgDictSchema, RspMsgRawSchema
 
 blp = Blueprint("group_api", __name__, description="分组成员管理接口")
 ctrl = GroupController()
@@ -77,7 +77,7 @@ class MemberOverviewApi(MethodView):
 @blp.route("/member/<string:work_no>/schedule")
 class MemberScheduleApi(MethodView):
     @jwt_required()
-    @blp.response(200, RspMsgDictSchema)
+    @blp.response(200, RspMsgRawSchema)
     def get(self, work_no):
         """成员日程"""
         start_date = request.args.get("start_date")

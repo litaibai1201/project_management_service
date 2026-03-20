@@ -24,3 +24,8 @@ class RspMsgListSchema(RspBaseSchema):
 
 class RspMsgSchema(RspBaseSchema):
     content = fields.Str()
+
+
+class RspMsgRawSchema(RspBaseSchema):
+    """content 可为任意类型（列表、字典、字符串等）"""
+    content = fields.Raw()
