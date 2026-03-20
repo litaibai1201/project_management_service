@@ -1,6 +1,6 @@
 import React from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Form, Input, Button, Select, Alert } from 'antd'
+import { Form, Input, Button, Select } from 'antd'
 import { LockClosedIcon, UserIcon } from '@heroicons/react/24/outline'
 import { loginThunk } from './authSlice'
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
@@ -13,13 +13,17 @@ interface LoginFormValues {
 }
 
 const LOCATION_OPTIONS = [
-  { value: 'TW', label: '台灣' },
-  { value: 'CN', label: '中國大陸' },
-  { value: 'OTHER', label: '其他' },
+  { value: '鵬鼎園區', label: '鵬鼎園區' },
+  { value: '禮鼎園區', label: '禮鼎園區' },
+  { value: '大園園區', label: '大園園區' },
+  { value: '先豐園區', label: '先豐園區' },
+  { value: '印度園區', label: '印度園區' },
+  { value: '鹏鼎园区', label: '鹏鼎园区' },
+  { value: '礼鼎园区', label: '礼鼎园区' },
+  { value: '大园园区', label: '大园园区' },
+  { value: '先丰园区', label: '先丰园区' },
+  { value: '印度园区', label: '印度园区' },
 ]
-
-// 是否处于 Vite 开发模式（npm run dev）
-const IS_DEV = import.meta.env.DEV
 
 const LoginPage: React.FC = () => {
   const dispatch  = useAppDispatch()
@@ -41,17 +45,6 @@ const LoginPage: React.FC = () => {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-blue-100 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-10">
 
-        {/* Dev Mode Banner */}
-        {IS_DEV && (
-          <Alert
-            type="warning"
-            showIcon
-            className="mb-6 rounded-lg"
-            message="開發模式 — Mock 登入已啟用"
-            description="輸入任意工號和密碼即可登入，不會請求真實 HR 接口。"
-          />
-        )}
-
         {/* Logo / Title */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-600 mb-4">
@@ -61,16 +54,14 @@ const LoginPage: React.FC = () => {
             </svg>
           </div>
           <h1 className="text-2xl font-bold text-gray-800">專案管理系統</h1>
-          <p className="text-gray-500 mt-1 text-sm">
-            {IS_DEV ? '開發環境 · 任意輸入即可登入' : '請使用工號登入'}
-          </p>
+          <p className="text-gray-500 mt-1 text-sm">請使用工號登入</p>
         </div>
 
         <Form
           form={form}
           layout="vertical"
           onFinish={handleSubmit}
-          initialValues={{ location: 'TW', work_no: IS_DEV ? 'DEV001' : '' }}
+          initialValues={{ location: '鵬鼎園區' }}
         >
           <Form.Item
             name="work_no"
@@ -79,7 +70,7 @@ const LoginPage: React.FC = () => {
           >
             <Input
               prefix={<UserIcon className="w-4 h-4 text-gray-400" />}
-              placeholder={IS_DEV ? '任意工號（開發模式）' : '請輸入工號'}
+              placeholder="請輸入工號"
               size="large"
             />
           </Form.Item>
@@ -91,7 +82,7 @@ const LoginPage: React.FC = () => {
           >
             <Input.Password
               prefix={<LockClosedIcon className="w-4 h-4 text-gray-400" />}
-              placeholder={IS_DEV ? '任意密碼（開發模式）' : '請輸入密碼'}
+              placeholder="請輸入密碼"
               size="large"
             />
           </Form.Item>
@@ -116,7 +107,7 @@ const LoginPage: React.FC = () => {
               loading={isLoading}
               className="bg-blue-600 hover:bg-blue-700 h-11 text-base font-medium"
             >
-              {IS_DEV ? '模擬登入' : '登入'}
+              登入
             </Button>
           </Form.Item>
         </Form>

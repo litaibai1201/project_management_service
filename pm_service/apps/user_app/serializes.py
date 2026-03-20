@@ -36,7 +36,7 @@ class LogInSchema(Schema):
 class RspLogInLogOutSchema(Schema):
     code = fields.Str(required=True)
     msg = fields.Str(required=True)
-    content = fields.Str(required=True)
+    content = fields.Dict()
 
 
 class UserProjectListSchema(Schema):
@@ -370,3 +370,58 @@ class RspPermissionSchema(Schema):
     code    = fields.Str()
     msg     = fields.Str()
     content = fields.Bool()
+
+
+# ──────────────────────────────────────────────
+#  角色管理 - 請求 Schema
+# ──────────────────────────────────────────────
+
+class CreateRoleSchema(Schema):
+    """POST /api/user/mgmt/roles - 新增角色"""
+    name          = fields.Str(required=True, metadata={"description": "角色名稱"})
+    superior_code = fields.Int(load_default=None, metadata={"description": "上級角色 code（可選）"})
+
+
+class UpdateRoleSchema(Schema):
+    """PUT /api/user/mgmt/roles/<code> - 更新角色"""
+    name          = fields.Str(load_default=None, metadata={"description": "角色名稱"})
+    superior_code = fields.Int(load_default=None, metadata={"description": "上級角色 code（傳 null 清除）"})
+
+
+class AssignRoleSchema(Schema):
+    """PUT /api/user/mgmt/user/<work_no>/role - 為用戶分配角色"""
+    role_code = fields.Int(required=True, metadata={"description": "角色 code"})
+
+
+# ──────────────────────────────────────────────
+#  角色管理 - 響應 Schema
+# ──────────────────────────────────────────────
+
+class RoleContentSchema(Schema):
+    code          = fields.Int()
+    name          = fields.Str()
+    superior_code = fields.Int(allow_none=True)
+    created_at    = fields.Str()
+
+
+class RspRoleSchema(Schema):
+    code    = fields.Str()
+    msg     = fields.Str()
+    content = fields.Nested(RoleContentSchema)
+
+
+class RspRolesSchema(Schema):
+    code    = fields.Str()
+    msg     = fields.Str()
+    content = fields.List(fields.Nested(RoleContentSchema))
+
+
+class UserRoleContentSchema(Schema):
+    role_code = fields.Int(allow_none=True)
+    role_name = fields.Str(allow_none=True)
+
+
+class RspUserRoleSchema(Schema):
+    code    = fields.Str()
+    msg     = fields.Str()
+    content = fields.Nested(UserRoleContentSchema, allow_none=True)

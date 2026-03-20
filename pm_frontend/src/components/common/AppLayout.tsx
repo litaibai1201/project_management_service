@@ -52,7 +52,7 @@ const AppLayout: React.FC = () => {
 
   useSocketConnection()
 
-  const pendingReview = indexData?.pending_review ?? 0
+  const pendingReview = (indexData?.total_awaiting_review_num?.project ?? 0) + (indexData?.total_awaiting_review_num?.duty ?? 0)
   const unreadCount   = notifications.filter((n) => !n.read).length
 
   const navItems = NAV_ITEMS.map((item) =>

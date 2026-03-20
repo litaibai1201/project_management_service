@@ -29,18 +29,22 @@ from apps.user_app.controllers.my_apply_project_ctr import \
 from apps.user_app.controllers.project_ctr import UserProjectController
 from apps.user_app.controllers.statistical_ctr import UserStatisticalController
 from apps.user_app.controllers.temp_duty_ctr import UserTempDutyController
+from apps.user_app.controllers.role_mgmt_ctr import (RoleMgmtController,
+                                                       UserRoleMgmtController)
 from apps.user_app.controllers.user_mgmt_ctr import UserMgmtController
-from apps.user_app.serializes import (AuditRecordSchema,
+from apps.user_app.serializes import (AssignRoleSchema, AuditRecordSchema,
                                       CreateHierarchySchema,
-                                      CreateUserMgmtSchema, LogInSchema,
-                                      MyApplySchema, QuerySubordinatesSchema,
+                                      CreateRoleSchema, CreateUserMgmtSchema,
+                                      LogInSchema, MyApplySchema,
+                                      QuerySubordinatesSchema,
                                       QueryUsersMgmtSchema,
                                       RspLogInLogOutSchema,
+                                      RspRoleSchema, RspRolesSchema,
                                       RspUserLstestNewsSchema,
                                       RspUserMgmtSchema, RspUserPageSchema,
-                                      RspUsersMgmtSchema,
+                                      RspUserRoleSchema, RspUsersMgmtSchema,
                                       RspUserStatisticalSchema,
-                                      UpdateUserMgmtSchema,
+                                      UpdateRoleSchema, UpdateUserMgmtSchema,
                                       UserLstestNewsSchema, UserProjectSchema,
                                       UserTempDutySchema)
 from common.common_method import fail_response_result, response_data_result
@@ -413,4 +417,84 @@ class TeamTreeApi(MethodView):
             return fail_response_result(msg="用戶不存在或無下屬")
         return response_data_result(content=tree, msg="查詢成功")
 
+
+# ──────────────────────────────────────────────────────────────
+#  角色管理 API
+# ──────────────────────────────────────────────────────────────
+
+@blp.route("/mgmt/roles")
+class RolesApi(MethodView):
+    """列出所有角色 / 新增角色"""
+
+    @jwt_required()
+    @blp.response(200, RspRolesSchema)
+    def get(self):
+        rmc = RoleMgmtController()
+        roles = rmc.list_roles()
+        return response_data_result(content=roles, msg="查詢成功")
+
+    @jwt_required()
+    @blp.arguments(CreateRoleSchema)
+    @blp.response(200, RspRoleSchema)
+    def post(self, payload):
+        rmc = RoleMgmtController()
+        result, flag = rmc.create_role(payload)
+        if not flag:
+            return fail_response_result(msg=result)
+        return response_data_result(content=result, msg="新增角色成功")
+
+
+@blp.route("/mgmt/roles/<int:code>")
+class RoleDetailApi(MethodView):
+    """更新 / 刪除單個角色"""
+
+    @jwt_required()
+    @blp.arguments(UpdateRoleSchema)
+    @blp.response(200, RspRoleSchema)
+    def put(self, payload, code):
+        rmc = RoleMgmtController()
+        result, flag = rmc.update_role(code, payload)
+        if not flag:
+            return fail_response_result(msg=result)
+        return response_data_result(content=result, msg="更新角色成功")
+
+    @jwt_required()
+    @blp.response(200, RspMsgSchema)
+    def delete(self, code):
+        rmc = RoleMgmtController()
+        result, flag = rmc.delete_role(code)
+        if not flag:
+            return fail_response_result(msg=result)
+        return response_data_result(msg=result)
+
+
+@blp.route("/mgmt/user/<string:work_no>/role")
+class UserRoleApi(MethodView):
+    """查詢 / 分配 / 移除用戶角色"""
+
+    @jwt_required()
+    @blp.response(200, RspUserRoleSchema)
+    def get(self, work_no):
+        urmc = UserRoleMgmtController()
+        result = urmc.get_user_role(work_no)
+        return response_data_result(content=result, msg="查詢成功")
+
+    @jwt_required()
+    @blp.arguments(AssignRoleSchema)
+    @blp.response(200, RspUserRoleSchema)
+    def put(self, payload, work_no):
+        urmc = UserRoleMgmtController()
+        result, flag = urmc.assign_role(work_no, payload["role_code"])
+        if not flag:
+            return fail_response_result(msg=result)
+        return response_data_result(content=result, msg="角色分配成功")
+
+    @jwt_required()
+    @blp.response(200, RspMsgSchema)
+    def delete(self, work_no):
+        urmc = UserRoleMgmtController()
+        result, flag = urmc.remove_role(work_no)
+        if not flag:
+            return fail_response_result(msg=result)
+        return response_data_result(msg=result)
 

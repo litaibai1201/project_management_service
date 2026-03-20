@@ -1,18 +1,21 @@
-# ==================== 敏感文件 ====================
-# 主密钥文件（绝不能提交）
-.master.key
-*.key
+## - - - - - - - - - - - - - - - - - - - - - -
+## https://share.google/aimode/orGHeUX6InOIxtbaZ
+## prompt : standard gitignore file content for python flask projects
+## - - - - - - - - - - - - - - - - - - - - - -
 
-# 环境配置文件
-.env
-.env.local
-.env.*.local
 
-# ==================== Python ====================
+## - - - - - - - - - - - - - - - - - - - - - -
+## 1. Essential Python Patterns
+## - - - - - - - - - - - - - - - - - - - - - -
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
+
+# C extensions
 *.so
+
+# Distribution / packaging
 .Python
 build/
 develop-eggs/
@@ -30,34 +33,86 @@ wheels/
 .installed.cfg
 *.egg
 
-# ==================== 虚拟环境 ====================
+
+## - - - - - - - - - - - - - - - - - - - - - -
+## 2. Flask & Database Specifics
+## - - - - - - - - - - - - - - - - - - - - - -
+# Flask-specific
+instance/
+.webassets-cache
+
+# Databases (SQLite)
+*.db
+*.sqlite3
+
+
+## - - - - - - - - - - - - - - - - - - - - - -
+## 3. Environment & Security
+## - - - - - - - - - - - - - - - - - - - - - -
+# Virtual Environments
 venv/
-ENV/
 env/
-.venv/
+ENV/
+.env
+.venv
 
-# ==================== IDE ====================
-.idea/
-.vscode/
-*.swp
-*.swo
-*~
+# Environment Variables (Secrets)
+.env
+.flaskenv
 
-# ==================== 日志 ====================
+
+## - - - - - - - - - - - - - - - - - - - - - -
+## 4. Testing & Logging
+## - - - - - - - - - - - - - - - - - - - - - -
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.pytest_cache/
+
+# Logs
 logs/
 *.log
 
-# ==================== 测试 ====================
-.coverage
-htmlcov/
-.pytest_cache/
-.tox/
 
-# ==================== 其他 ====================
+## - - - - - - - - - - - - - - - - - - - - - -
+## 5. Editor & OS Files
+## - - - - - - - - - - - - - - - - - - - - - -
+# IDEs
+.vscode/
+.idea/
+
+# OS-specific
 .DS_Store
 Thumbs.db
-*.bak
-*.tmp
+
+
+## - - - - - - - - - - - - - - - - - - - - - -
+## 6. Monitor
+## - - - - - - - - - - - - - - - - - - - - - -
+# pid
+pid
+
+
+## - - - - - - - - - - - - - - - - - - - - - -
+## 7. Configs
+## - - - - - - - - - - - - - - - - - - - - - -
+# .yaml
+.yaml
+
+
+## - - - - - - - - - - - - - - - - - - - - - -
+## 99. Miscellaneous
+## - - - - - - - - - - - - - - - - - - - - - -
+/api_outputs
+tmp/
+
 
 */node_modules/*
 /bin/*

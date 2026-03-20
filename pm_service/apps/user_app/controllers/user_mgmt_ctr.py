@@ -6,6 +6,8 @@
 @作者: LiDong
 """
 
+from dbs.mysql_db import db
+from dbs.mysql_db.model_tables import RoleModel, UserRoleModel
 from apps.user_app.models import OperUserProfileModel
 from common.common_tools import get_now
 
@@ -68,6 +70,18 @@ class UserMgmtController:
             return "用戶不存在", False
         return self._user_to_dict(user), True
 
+    def _get_roles_map(self, work_nos: list) -> dict:
+        """批量查詢工號對應的角色，返回 {work_no: {role_code, role_name}} 映射"""
+        if not work_nos:
+            return {}
+        rows = (
+            db.session.query(UserRoleModel.work_no, RoleModel.code, RoleModel.name)
+            .join(RoleModel, UserRoleModel.role_code == RoleModel.code)
+            .filter(UserRoleModel.work_no.in_(work_nos), UserRoleModel.status == 1)
+            .all()
+        )
+        return {r.work_no: {"role_code": r.code, "role_name": r.name} for r in rows}
+
     def get_users(self, payload: dict):
         """
         查詢用戶列表（分頁 + 搜尋 + 部門過濾）
@@ -80,8 +94,19 @@ class UserMgmtController:
 
         users, total = self.oupm.query_users(page, size, keyword, department)
         total_page = (total + size - 1) // size
+
+        work_nos   = [u.work_no for u in users]
+        roles_map  = self._get_roles_map(work_nos)
+
+        def user_dict(u):
+            d = self._user_to_dict(u)
+            role = roles_map.get(u.work_no, {})
+            d["role_code"] = role.get("role_code")
+            d["role_name"] = role.get("role_name")
+            return d
+
         return {
-            "list":       [self._user_to_dict(u) for u in users],
+            "list":       [user_dict(u) for u in users],
             "total":      total,
             "page":       page,
             "size":       size,

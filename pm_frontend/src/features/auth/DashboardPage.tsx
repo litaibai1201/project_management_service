@@ -696,10 +696,10 @@ const DashboardPage: React.FC = () => {
               <Switch size="small" checked={isManager} onChange={setIsManager} />
             </div>
           </Tooltip>
-          {(indexData?.pending_review ?? 0) > 0 && (
+          {((indexData?.total_awaiting_review_num?.project ?? 0) + (indexData?.total_awaiting_review_num?.duty ?? 0)) > 0 && (
             <div className="hidden md:flex items-center gap-2 bg-orange-50 border border-orange-100 rounded-xl px-4 py-2">
               <FireIcon className="w-4 h-4 text-orange-500" />
-              <span className="text-sm text-orange-600 font-medium">有 {indexData?.pending_review} 個審核待處理</span>
+              <span className="text-sm text-orange-600 font-medium">有 {(indexData?.total_awaiting_review_num?.project ?? 0) + (indexData?.total_awaiting_review_num?.duty ?? 0)} 個審核待處理</span>
             </div>
           )}
         </div>
@@ -708,10 +708,10 @@ const DashboardPage: React.FC = () => {
       {/* Stat cards */}
       <Row gutter={[16, 16]} className="mb-5">
         {[
-          { title:'參與專案', value: indexData?.project_count ?? 0,  gradient:'stat-card-blue',   iconBg:'bg-blue-100',   icon:<FolderIcon className="w-5 h-5 text-blue-600" />,                  trend:'較上週 +2' },
-          { title:'臨時任務', value: indexData?.duty_count ?? 0,     gradient:'stat-card-purple', iconBg:'bg-purple-100', icon:<ClipboardDocumentListIcon className="w-5 h-5 text-purple-600" />, trend:'較上週 +1' },
-          { title:'待審核',   value: indexData?.pending_review ?? 0, gradient:'stat-card-orange', iconBg:'bg-orange-100', icon:<ClockIcon className="w-5 h-5 text-orange-500" />,            trend:'需盡快處理' },
-          { title:'進行中',   value: indexData?.in_progress ?? 0,    gradient:'stat-card-green',  iconBg:'bg-green-100',  icon:<CheckCircleIcon className="w-5 h-5 text-green-600" />,            trend:'本週完成 3 項' },
+          { title:'進行中的任務', value: (indexData?.total_task_num?.doing_task ?? 0) + (indexData?.total_task_num?.doing_duty ?? 0),     gradient:'stat-card-blue',   iconBg:'bg-blue-100',   icon:<FolderIcon className="w-5 h-5 text-blue-600" />,                  trend:'' },
+          { title:'未開始的任務', value: (indexData?.total_task_num?.unstart_task ?? 0) + (indexData?.total_task_num?.unstart_duty ?? 0), gradient:'stat-card-purple', iconBg:'bg-purple-100', icon:<ClipboardDocumentListIcon className="w-5 h-5 text-purple-600" />, trend:'' },
+          { title:'待審核',       value: (indexData?.total_awaiting_review_num?.project ?? 0) + (indexData?.total_awaiting_review_num?.duty ?? 0), gradient:'stat-card-orange', iconBg:'bg-orange-100', icon:<ClockIcon className="w-5 h-5 text-orange-500" />,            trend:'需盡快處理' },
+          { title:'未讀進度更新', value: indexData?.total_progress_record_num ?? 0,                                                                gradient:'stat-card-green',  iconBg:'bg-green-100',  icon:<CheckCircleIcon className="w-5 h-5 text-green-600" />,            trend:'' },
         ].map((s) => (
           <Col xs={24} sm={12} xl={6} key={s.title}>
             {isLoading && !indexData
@@ -725,7 +725,7 @@ const DashboardPage: React.FC = () => {
       <DailyLogCard isManager={isManager} todayLog={todayLog} />
 
       {/* Alert Bar */}
-      <AlertBar pendingReview={indexData?.pending_review ?? 0} alertTasks={alertTasks} />
+      <AlertBar pendingReview={(indexData?.total_awaiting_review_num?.project ?? 0) + (indexData?.total_awaiting_review_num?.duty ?? 0)} alertTasks={alertTasks} />
 
       {/* Manager: Team Daily Log + Manager Section */}
       {isManager && <TeamDailyLogCard />}

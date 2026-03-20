@@ -40,10 +40,17 @@ export interface UserProfile {
 }
 
 export interface UserIndexContent {
-  project_count: number
-  duty_count: number
-  pending_review: number
-  in_progress: number
+  total_task_num: {
+    doing_task:   number
+    unstart_task: number
+    doing_duty:   number
+    unstart_duty: number
+  }
+  total_progress_record_num: number
+  total_awaiting_review_num: {
+    project: number
+    duty:    number
+  }
 }
 
 export interface UserStatistical {
