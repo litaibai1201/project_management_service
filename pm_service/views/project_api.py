@@ -1,0 +1,343 @@
+# -*- coding: utf-8 -*-
+"""项目管理接口 Blueprint"""
+from flask import request
+from flask.views import MethodView
+from flask_smorest import Blueprint
+from utils.auth import jwt_required, get_identity
+from utils.response import response_result
+from controllers.project_controller import ProjectController, FunctionController, MilestoneController
+from serializes.response_serialize import RspMsgDictSchema
+
+blp = Blueprint("project_api", __name__, description="项目管理接口")
+proj_ctrl = ProjectController()
+func_ctrl = FunctionController()
+mile_ctrl = MilestoneController()
+
+
+# ─── Project ─────────────────────────────────────────────────────────────────
+
+@blp.route("/project_list")
+class ProjectListApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def post(self):
+        """项目列表"""
+        payload = request.get_json() or {}
+        return response_result(content=proj_ctrl.list_projects(payload))
+
+
+@blp.route("/create_project")
+class ProjectCreateApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def post(self):
+        """创建项目"""
+        work_no = get_identity()
+        payload = request.form.to_dict()
+        files = request.files
+        return response_result(content=proj_ctrl.create_project(payload, creator=work_no))
+
+
+@blp.route("/<string:project_id>")
+class ProjectDetailApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def get(self, project_id):
+        """获取项目详情"""
+        return response_result(content=proj_ctrl.get_project(project_id))
+
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def put(self, project_id):
+        """更新项目"""
+        payload = request.form.to_dict()
+        proj_ctrl.update_project(project_id, payload)
+        return response_result()
+
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def delete(self, project_id):
+        """删除项目"""
+        proj_ctrl.delete_project(project_id)
+        return response_result()
+
+
+@blp.route("/<string:project_id>/set_status")
+class ProjectSetStatusApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def put(self, project_id):
+        """设置项目状态"""
+        payload = request.get_json() or {}
+        proj_ctrl.set_status(project_id, payload["status"])
+        return response_result()
+
+
+@blp.route("/<string:project_id>/submit_for_review")
+class ProjectSubmitReviewApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def post(self, project_id):
+        """提交审核"""
+        work_no = get_identity()
+        payload = request.get_json() or {}
+        proj_ctrl.submit_for_review(
+            project_id,
+            reviewer=payload.get("reviewer", []),
+            status=payload.get("status"),
+            submitter=work_no,
+        )
+        return response_result()
+
+
+@blp.route("/<string:project_id>/is_finished")
+class ProjectFinishApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def put(self, project_id):
+        """完结项目"""
+        proj_ctrl.set_status(project_id, 4)  # 4=已完结
+        return response_result()
+
+
+@blp.route("/<string:project_id>/restart")
+class ProjectRestartApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def post(self, project_id):
+        """重启项目"""
+        proj_ctrl.set_status(project_id, 1)  # 1=进行中
+        return response_result()
+
+
+@blp.route("/<string:project_id>/gantt_chart")
+class GanttChartApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def get(self, project_id):
+        """获取甘特图数据"""
+        return response_result(content=proj_ctrl.get_gantt_chart(project_id))
+
+
+@blp.route("/<string:project_id>/member_dynamics")
+class MemberDynamicsApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def get(self, project_id):
+        """获取成员动态"""
+        page = int(request.args.get("page", 1))
+        size = int(request.args.get("size", 20))
+        return response_result(content=proj_ctrl.get_member_dynamics(project_id, page=page, size=size))
+
+
+@blp.route("/<string:project_id>/files")
+class ProjectFilesApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def get(self, project_id):
+        """获取项目文件"""
+        return response_result(content=[])
+
+
+@blp.route("/<string:project_id>/progress_and_hour")
+class ProgressAndHourApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def get(self, project_id):
+        """获取进度与工时"""
+        return response_result(content=proj_ctrl.get_progress_and_hour(project_id))
+
+
+@blp.route("/project_group")
+class ProjectGroupApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def get(self):
+        """获取项目分组"""
+        return response_result(content=proj_ctrl.get_project_groups())
+
+
+# ─── Function ────────────────────────────────────────────────────────────────
+
+@blp.route("/<string:project_id>/add_function")
+class AddFunctionApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def post(self, project_id):
+        """添加功能任务"""
+        work_no = get_identity()
+        payload = request.form.to_dict()
+        return response_result(content=func_ctrl.add_function(project_id, payload, creator=work_no))
+
+
+@blp.route("/<string:project_id>/function/<string:function_id>")
+class FunctionDetailApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def get(self, project_id, function_id):
+        """获取功能任务详情"""
+        return response_result(content=func_ctrl.get_function(function_id))
+
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def put(self, project_id, function_id):
+        """更新功能任务"""
+        payload = request.form.to_dict()
+        func_ctrl.update_function(function_id, payload)
+        return response_result()
+
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def delete(self, project_id, function_id):
+        """删除功能任务"""
+        func_ctrl.delete_function(function_id)
+        return response_result()
+
+
+@blp.route("/<string:project_id>/function/<string:function_id>/set_status")
+class FunctionSetStatusApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def put(self, project_id, function_id):
+        """设置功能任务状态"""
+        payload = request.get_json() or {}
+        func_ctrl.set_status(function_id, payload["status"])
+        return response_result()
+
+
+@blp.route("/<string:project_id>/function/<string:function_id>/allocation")
+class FunctionAllocationApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def put(self, project_id, function_id):
+        """分配功能任务"""
+        payload = request.get_json() or {}
+        func_ctrl.allocate(function_id, payload)
+        return response_result()
+
+
+@blp.route("/<string:project_id>/function_list")
+class FunctionListApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def post(self, project_id):
+        """功能任务列表"""
+        payload = request.get_json() or {}
+        return response_result(content=func_ctrl.list_functions(project_id, payload))
+
+
+# ─── Progress ────────────────────────────────────────────────────────────────
+
+@blp.route("/<string:project_id>/function/<string:function_id>/progress")
+class FunctionProgressApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def get(self, project_id, function_id):
+        """获取功能任务进度"""
+        page = int(request.args.get("page", 1))
+        size = int(request.args.get("size", 20))
+        unread = request.args.get("unread")
+        return response_result(content=func_ctrl.get_progress(
+            function_id, page=page, size=size,
+            unread=int(unread) if unread else 0,
+        ))
+
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def post(self, project_id, function_id):
+        """创建功能任务进度"""
+        work_no = get_identity()
+        payload = request.form.to_dict()
+        return response_result(content=func_ctrl.create_progress(project_id, function_id, payload, submitter=work_no))
+
+
+# ─── Review ──────────────────────────────────────────────────────────────────
+
+@blp.route("/review_list")
+class ReviewListApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def get(self):
+        """项目审核列表"""
+        work_no = get_identity()
+        page = int(request.args.get("page", 1))
+        size = int(request.args.get("size", 20))
+        return response_result(content=proj_ctrl.get_review_list(page=page, size=size, work_no=work_no))
+
+
+@blp.route("/all_reviews")
+class AllReviewsApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def get(self):
+        """全部审核（项目+任务）"""
+        work_no = get_identity()
+        return response_result(content=proj_ctrl.get_all_reviews(work_no=work_no))
+
+
+@blp.route("/review/<string:review_id>")
+class ReviewApproveApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def put(self, review_id):
+        """审核操作"""
+        payload = request.get_json() or {}
+        proj_ctrl.approve_review(
+            review_id,
+            status=payload.get("status"),
+            reject_reason=payload.get("reject_reason", ""),
+        )
+        return response_result()
+
+
+@blp.route("/review/<string:review_id>/countersign")
+class ReviewCountersignApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def post(self, review_id):
+        """加签"""
+        work_no = get_identity()
+        payload = request.get_json() or {}
+        proj_ctrl.countersign_review(
+            review_id,
+            approver_work_no=work_no,
+            approver_name=payload.get("approver_name", ""),
+        )
+        return response_result()
+
+
+# ─── Milestone ───────────────────────────────────────────────────────────────
+
+@blp.route("/<string:project_id>/milestones")
+class MilestoneListApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def get(self, project_id):
+        """获取里程碑列表"""
+        return response_result(content=mile_ctrl.list_milestones(project_id))
+
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def post(self, project_id):
+        """创建里程碑"""
+        work_no = get_identity()
+        payload = request.get_json() or {}
+        return response_result(content=mile_ctrl.create_milestone(project_id, payload, creator=work_no))
+
+
+@blp.route("/<string:project_id>/milestones/<string:milestone_id>")
+class MilestoneDetailApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def put(self, project_id, milestone_id):
+        """更新里程碑"""
+        payload = request.get_json() or {}
+        mile_ctrl.update_milestone(milestone_id, payload)
+        return response_result()
+
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def delete(self, project_id, milestone_id):
+        """删除里程碑"""
+        mile_ctrl.delete_milestone(milestone_id)
+        return response_result()

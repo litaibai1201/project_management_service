@@ -89,9 +89,9 @@ const dutySlice = createSlice({
       .addCase(fetchDutyListThunk.fulfilled, (state, action: PayloadAction<PaginatedContent<TemporaryDuty>>) => {
         state.isLoading  = false
         const content    = action.payload
-        state.list       = (content.project_list ?? content.data_list ?? []) as TemporaryDuty[]
-        state.totalCount = content.total_count
-        state.totalPage  = content.total_page
+        state.list       = (Array.isArray(content?.data_list) ? content.data_list : []) as TemporaryDuty[]
+        state.totalCount = content?.total_count ?? 0
+        state.totalPage  = content?.total_page ?? 0
       })
       .addCase(fetchDutyListThunk.rejected, (state, action) => {
         state.isLoading = false; state.error = action.payload as string

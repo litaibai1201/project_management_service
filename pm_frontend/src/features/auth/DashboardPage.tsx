@@ -654,7 +654,7 @@ const DashboardPage: React.FC = () => {
   useEffect(() => {
     // Load member stats (manager view)
     projectApi.memberStats()
-      .then((res) => { if (res.content) setMemberStats(res.content as MemberWorkStat[]) })
+      .then((res) => { if (Array.isArray(res.content)) setMemberStats(res.content as MemberWorkStat[]) })
       .catch(() => {})
 
     // Load my active projects

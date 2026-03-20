@@ -81,15 +81,18 @@ const userSlice = createSlice({
       .addCase(fetchUserListThunk.pending, (state) => { state.isLoading = true })
       .addCase(fetchUserListThunk.fulfilled, (state, action) => {
         state.isLoading = false
-        const content = action.payload as { users?: UserProfile[]; total_count?: number }
-        state.list      = content.users ?? []
+        const content = action.payload as { data_list?: UserProfile[]; users?: UserProfile[]; total_count?: number }
+        state.list       = content.data_list ?? content.users ?? []
         state.totalCount = content.total_count ?? 0
       })
       .addCase(fetchUserListThunk.rejected, (state, action) => {
         state.isLoading = false; state.error = action.payload as string
       })
       .addCase(fetchDepartmentsThunk.fulfilled, (state, action: PayloadAction<string[]>) => {
-        state.departments = action.payload
+        state.departments = Array.isArray(action.payload) ? action.payload : []
+      })
+      .addCase(fetchDepartmentsThunk.rejected, (state) => {
+        state.departments = []
       })
       .addCase(createUserThunk.pending, (state) => { state.isSaving = true })
       .addCase(createUserThunk.fulfilled, (state) => { state.isSaving = false })

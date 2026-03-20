@@ -246,7 +246,7 @@ const ProjectListPage: React.FC = () => {
         />
         <Select placeholder="分組" allowClear style={{ width: 150 }}
           onChange={(v) => dispatch(setQuery({ group_id: v, page: 1 }))}
-          options={groups.map((g) => ({ value: g.id, label: g.group_nm }))}
+          options={(groups ?? []).map((g) => ({ value: g.id, label: g.group_nm }))}
         />
         <div className="ml-auto flex items-center gap-1 bg-slate-100 rounded-lg p-0.5">
           <Button

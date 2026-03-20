@@ -115,9 +115,11 @@ const projectSlice = createSlice({
       })
       .addCase(fetchProjectListThunk.fulfilled, (state, action) => {
         state.isLoading  = false
-        state.list       = ((action.payload.project_list ?? action.payload.data_list) as ProjectListItem[]) || []
-        state.totalCount = action.payload.total_count
-        state.totalPage  = action.payload.total_page
+        state.list       = Array.isArray(action.payload?.project_list ?? action.payload?.data_list)
+                             ? ((action.payload.project_list ?? action.payload.data_list) as ProjectListItem[])
+                             : []
+        state.totalCount = action.payload?.total_count ?? 0
+        state.totalPage  = action.payload?.total_page  ?? 0
       })
       .addCase(fetchProjectListThunk.rejected, (state, action) => {
         state.isLoading = false; state.error = action.payload as string
@@ -142,7 +144,10 @@ const projectSlice = createSlice({
       })
       // Groups
       .addCase(fetchProjectGroupsThunk.fulfilled, (state, action: PayloadAction<ProjectGroup[]>) => {
-        state.groups = action.payload
+        state.groups = Array.isArray(action.payload) ? action.payload : []
+      })
+      .addCase(fetchProjectGroupsThunk.rejected, (state) => {
+        state.groups = []
       })
   },
 })

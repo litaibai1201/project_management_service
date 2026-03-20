@@ -89,7 +89,7 @@ const ProjectDetailPage: React.FC = () => {
   const loadMilestones = async (pid: string) => {
     try {
       const res = await projectApi.getMilestones(pid)
-      setMilestones(res.content as Milestone[])
+      setMilestones(Array.isArray(res.content) ? (res.content as Milestone[]) : [])
     } catch { /* global */ }
   }
 

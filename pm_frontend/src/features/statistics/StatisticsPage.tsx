@@ -818,7 +818,7 @@ const StatisticsPage: React.FC = () => {
     setIsLoading(true)
     try {
       const res = await projectApi.memberStats()
-      setStats(res.content as MemberWorkStat[])
+      setStats(Array.isArray(res.content) ? (res.content as MemberWorkStat[]) : [])
     } catch { /* global */ }
     finally { setIsLoading(false) }
   }
