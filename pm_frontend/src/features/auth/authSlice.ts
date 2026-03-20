@@ -4,25 +4,27 @@ import { tokenStorage } from '@/api/httpClient'
 import { LoginPayload, LoginContent, UserIndexContent } from '@/types/api.types'
 
 interface AuthState {
-  token:       string | null
-  workNo:      string | null
-  name:        string | null
-  roleCode:    string | null
-  roleName:    string | null
-  indexData:   UserIndexContent | null
-  isLoading:   boolean
-  error:       string | null
+  token:        string | null
+  workNo:       string | null
+  name:         string | null
+  roleCode:     string | null
+  roleName:     string | null
+  isSupervisor: boolean
+  indexData:    UserIndexContent | null
+  isLoading:    boolean
+  error:        string | null
 }
 
 const initialState: AuthState = {
-  token:     tokenStorage.get(),
-  workNo:    null,
-  name:      null,
-  roleCode:  null as string | null,
-  roleName:  null,
-  indexData: null,
-  isLoading: false,
-  error:     null,
+  token:        tokenStorage.get(),
+  workNo:       null,
+  name:         null,
+  roleCode:     null as string | null,
+  roleName:     null,
+  isSupervisor: false,
+  indexData:    null,
+  isLoading:    false,
+  error:        null,
 }
 
 // ─── Thunks ───────────────────────────────────────────────────────────────────
@@ -58,11 +60,12 @@ const authSlice = createSlice({
   initialState,
   reducers: {
     logout(state) {
-      state.token    = null
-      state.workNo   = null
-      state.name     = null
-      state.roleCode = null
-      state.roleName = null
+      state.token        = null
+      state.workNo       = null
+      state.name         = null
+      state.roleCode     = null
+      state.roleName     = null
+      state.isSupervisor = false
       tokenStorage.remove()
     },
     restoreSession(state, action: PayloadAction<{ workNo: string; name: string }>) {
@@ -77,12 +80,13 @@ const authSlice = createSlice({
         state.error     = null
       })
       .addCase(loginThunk.fulfilled, (state, action: PayloadAction<LoginContent>) => {
-        state.isLoading = false
-        state.token     = action.payload.access_token
-        state.workNo    = action.payload.work_no
-        state.name      = action.payload.name
-        state.roleCode  = action.payload.role_code
-        state.roleName  = action.payload.role_name
+        state.isLoading     = false
+        state.token         = action.payload.access_token
+        state.workNo        = action.payload.work_no
+        state.name          = action.payload.name
+        state.roleCode      = action.payload.role_code
+        state.roleName      = action.payload.role_name
+        state.isSupervisor  = action.payload.is_supervisor ?? false
         tokenStorage.set(action.payload.access_token)
       })
       .addCase(loginThunk.rejected, (state, action) => {

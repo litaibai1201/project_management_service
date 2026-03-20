@@ -204,21 +204,22 @@ class UserController:
     # ── 登录 & 首页统计 ────────────────────────────────────────────────────────
 
     def login(self, work_no: str, password: str, location: str = "") -> dict:
-        """
-        登录验证。
-        实际项目应查询 DB + 哈希比对；这里做最小验证演示。
-        """
+        """登录验证，查询用户信息并判断是否为主管"""
         from utils.auth import create_token
-        # 查询用户（如不存在则自动创建，便于演示）
-        # user = db.session.query(UserProfileModel).filter_by(work_no=work_no, status=1).first()
-        # if not user:
-        #     raise BusinessException(msg="用户不存在或已禁用", code="F20003")
+        user = db.session.query(UserProfileModel).filter_by(work_no=work_no, status=1).first()
+        if not user:
+            raise BusinessException(msg="用户不存在或已禁用", code="F20003")
 
         role_info = self.get_user_role(work_no) or {"role_code": None, "role_name": None}
+
+        # 判断是否为主管：在层级表中存在以该工号为上级的记录
+        is_supervisor = db.session.query(HierarchyModel).filter_by(
+            supervisor_work_no=work_no
+        ).first() is not None
+
         identity = {
             "empid": work_no,
-            # "username": user.name,
-            "username": work_no,
+            "username": user.name,
             "role_code": role_info["role_code"],
             "location": location,
         }
@@ -226,10 +227,10 @@ class UserController:
         return {
             "access_token": access_token,
             "work_no": work_no,
-            # "name": user.name,
-            "name": work_no,
+            "name": user.name,
             "role_code": role_info["role_code"],
             "role_name": role_info["role_name"],
+            "is_supervisor": is_supervisor,
         }
 
     def get_index_data(self, work_no: str) -> dict:

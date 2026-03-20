@@ -28,6 +28,7 @@ export interface LoginContent {
   name: string
   role_code: string | null
   role_name: string | null
+  is_supervisor: boolean
 }
 
 // ─── User ─────────────────────────────────────────────────────────────────────
