@@ -14,6 +14,7 @@
  *   - 會議備注：任務行快速記錄 + 專案維度彙整
  */
 import React, { useState, useMemo, useCallback, useEffect } from 'react'
+import { useAppSelector } from '@/hooks/redux'
 import {
   Tag, Tooltip, Progress, Collapse, Empty, Segmented, Input, Button, Timeline, Popover, Modal,
 } from 'antd'
@@ -993,7 +994,7 @@ const ReportPreviewModal: React.FC<{
 // ─── Main Page ──────────────────────────────────────────────────────────────
 
 const WbsOverviewPage: React.FC = () => {
-  const isManager = false  // TODO: replace with real role check from auth context
+  const isManager = useAppSelector((s) => s.auth.isSupervisor)
 
   const [wbsData, setWbsData] = useState<WbsProject[]>([])
   const [weekFilter, setWeekFilter] = useState<WeekFilter>('all')

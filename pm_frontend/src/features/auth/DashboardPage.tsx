@@ -710,7 +710,7 @@ const DashboardPage: React.FC = () => {
         {[
           { title:'進行中的任務', value: (indexData?.total_task_num?.doing_task ?? 0) + (indexData?.total_task_num?.doing_duty ?? 0),     gradient:'stat-card-blue',   iconBg:'bg-blue-100',   icon:<FolderIcon className="w-5 h-5 text-blue-600" />,                  trend:'' },
           { title:'未開始的任務', value: (indexData?.total_task_num?.unstart_task ?? 0) + (indexData?.total_task_num?.unstart_duty ?? 0), gradient:'stat-card-purple', iconBg:'bg-purple-100', icon:<ClipboardDocumentListIcon className="w-5 h-5 text-purple-600" />, trend:'' },
-          { title:'待審核',       value: (indexData?.total_awaiting_review_num?.project ?? 0) + (indexData?.total_awaiting_review_num?.duty ?? 0), gradient:'stat-card-orange', iconBg:'bg-orange-100', icon:<ClockIcon className="w-5 h-5 text-orange-500" />,            trend:'需盡快處理' },
+          { title:'待審核',       value: (indexData?.total_awaiting_review_num?.project ?? 0) + (indexData?.total_awaiting_review_num?.duty ?? 0), gradient:'stat-card-orange', iconBg:'bg-orange-100', icon:<ClockIcon className="w-5 h-5 text-orange-500" />,            trend:'' },
           { title:'未讀進度更新', value: indexData?.total_progress_record_num ?? 0,                                                                gradient:'stat-card-green',  iconBg:'bg-green-100',  icon:<CheckCircleIcon className="w-5 h-5 text-green-600" />,            trend:'' },
         ].map((s) => (
           <Col xs={24} sm={12} xl={6} key={s.title}>
