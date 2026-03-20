@@ -642,8 +642,8 @@ const MonthlyAttendanceCard: React.FC = () => {
 const DashboardPage: React.FC = () => {
   const dispatch  = useAppDispatch()
   const navigate  = useNavigate()
-  const { indexData, name, isLoading } = useAppSelector((s) => s.auth)
-  const [isManager, setIsManager] = useState(false)
+  const { indexData, name, isLoading, isSupervisor } = useAppSelector((s) => s.auth)
+  const [isManager, setIsManager] = useState(isSupervisor)
   const [memberStats,  setMemberStats]  = useState<MemberWorkStat[]>([])
   const [myProjects,   setMyProjects]   = useState<ProjectListItem[]>([])
   const [todayLog,     setTodayLog]     = useState<BackendDailyLogSummary | null>(null)
@@ -688,14 +688,14 @@ const DashboardPage: React.FC = () => {
           <p className="text-slate-400 text-sm mt-0.5">{dayjs().format('YYYY 年 M 月 D 日')} · 今天也加油！</p>
         </div>
         <div className="flex items-center gap-4">
-          {/* Manager role toggle (DEV only) */}
-          <Tooltip title="切換主管視角（開發模擬）">
+          {/* Manager view toggle — only shown to supervisors */}
+          {isSupervisor && (
             <div className="hidden md:flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5">
               <UsersIcon className="w-4 h-4 text-slate-400" />
               <span className="text-xs text-slate-500">主管視角</span>
               <Switch size="small" checked={isManager} onChange={setIsManager} />
             </div>
-          </Tooltip>
+          )}
           {((indexData?.total_awaiting_review_num?.project ?? 0) + (indexData?.total_awaiting_review_num?.duty ?? 0)) > 0 && (
             <div className="hidden md:flex items-center gap-2 bg-orange-50 border border-orange-100 rounded-xl px-4 py-2">
               <FireIcon className="w-4 h-4 text-orange-500" />

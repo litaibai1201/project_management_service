@@ -100,7 +100,7 @@ interface ProjectGroup { id: string; name: string; description: string; member_c
 const INITIAL_GROUPS: ProjectGroup[] = []
 
 // ─── HierarchyTab ──────────────────────────────────────────────────────────────
-const HierarchyTab: React.FC = () => {
+const HierarchyTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor }) => {
   const [editTarget, setEditTarget] = useState<HierarchyRow | null>(null)
   const [hierarchy, setHierarchy] = useState<HierarchyRow[]>([])
   const [isSavingHierarchy, setIsSavingHierarchy] = useState(false)
@@ -194,9 +194,9 @@ const HierarchyTab: React.FC = () => {
         ? <span className="text-blue-600">{v}</span>
         : <span className="text-slate-300">（無）</span>,
     },
-    {
+    ...(isSupervisor ? [{
       title: '操作', key: 'action', width: 80,
-      render: (_: unknown, record) => (
+      render: (_: unknown, record: HierarchyRow) => (
         <Tooltip title="設定主管">
           <Button
             icon={<PencilIcon className="w-4 h-4" />} size="small" type="text"
@@ -207,7 +207,7 @@ const HierarchyTab: React.FC = () => {
           />
         </Tooltip>
       ),
-    },
+    }] : []),
   ]
 
   return (
@@ -281,7 +281,7 @@ const HierarchyTab: React.FC = () => {
 // ─── GroupManagementTab ────────────────────────────────────────────────────────
 const GROUP_COLORS = ['#2563eb','#7c3aed','#16a34a','#d97706','#0891b2','#db2777','#ea580c']
 
-const GroupManagementTab: React.FC = () => {
+const GroupManagementTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor }) => {
   const [groups, setGroups] = useState<ProjectGroup[]>(INITIAL_GROUPS)
   const [showCreate, setShowCreate] = useState(false)
   const [editTarget, setEditTarget] = useState<ProjectGroup | null>(null)
@@ -365,12 +365,14 @@ const GroupManagementTab: React.FC = () => {
     <div>
       <div className="flex items-center justify-between mb-4">
         <p className="text-sm text-slate-500">管理專案分組，用於歸類專案並指定負責成員範圍</p>
-        <Button
-          type="primary" icon={<PlusIcon className="w-4 h-4" />}
-          onClick={() => setShowCreate(true)} className="bg-blue-600"
-        >
-          新增分組
-        </Button>
+        {isSupervisor && (
+          <Button
+            type="primary" icon={<PlusIcon className="w-4 h-4" />}
+            onClick={() => setShowCreate(true)} className="bg-blue-600"
+          >
+            新增分組
+          </Button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -418,27 +420,29 @@ const GroupManagementTab: React.FC = () => {
 
               <div className="flex items-center justify-between border-t border-slate-50 pt-3">
                 <span className="text-xs text-slate-400">{memberNos.length} 名成員</span>
-                <Space size={4}>
-                  <Tooltip title="編輯">
-                    <Button
-                      icon={<PencilIcon className="w-3.5 h-3.5" />} size="small" type="text"
-                      onClick={() => {
-                        setEditTarget(g)
-                        editForm.setFieldsValue({ name: g.name, description: g.description, color: g.color })
-                      }}
-                    />
-                  </Tooltip>
-                  <Popconfirm
-                    title="確認刪除此分組？"
-                    description="刪除後不影響已有專案，僅移除分組設定。"
-                    onConfirm={() => handleDelete(g.id)}
-                    okText="確認刪除" cancelText="取消" okButtonProps={{ danger: true }}
-                  >
-                    <Tooltip title="刪除">
-                      <Button icon={<TrashIcon className="w-3.5 h-3.5" />} size="small" type="text" danger />
+                {isSupervisor && (
+                  <Space size={4}>
+                    <Tooltip title="編輯">
+                      <Button
+                        icon={<PencilIcon className="w-3.5 h-3.5" />} size="small" type="text"
+                        onClick={() => {
+                          setEditTarget(g)
+                          editForm.setFieldsValue({ name: g.name, description: g.description, color: g.color })
+                        }}
+                      />
                     </Tooltip>
-                  </Popconfirm>
-                </Space>
+                    <Popconfirm
+                      title="確認刪除此分組？"
+                      description="刪除後不影響已有專案，僅移除分組設定。"
+                      onConfirm={() => handleDelete(g.id)}
+                      okText="確認刪除" cancelText="取消" okButtonProps={{ danger: true }}
+                    >
+                      <Tooltip title="刪除">
+                        <Button icon={<TrashIcon className="w-3.5 h-3.5" />} size="small" type="text" danger />
+                      </Tooltip>
+                    </Popconfirm>
+                  </Space>
+                )}
               </div>
             </Card>
           )
@@ -474,6 +478,7 @@ const GroupManagementTab: React.FC = () => {
 const UserManagementPage: React.FC = () => {
   const dispatch = useAppDispatch()
   const { list, totalCount, departments, isLoading, isSaving } = useAppSelector((s) => s.user)
+  const isSupervisor = useAppSelector((s) => s.auth.isSupervisor)
 
   const [page,         setPage]         = useState(1)
   const [pageSize,     setPageSize]     = useState(20)
@@ -560,11 +565,11 @@ const UserManagementPage: React.FC = () => {
     { title: '職稱',   dataIndex: 'position',    width: 120, render: (v?: string) => v || '—' },
     { title: 'Email',  dataIndex: 'email',        ellipsis: true, render: (v?: string) => v || '—' },
     { title: '電話',   dataIndex: 'phone',        width: 130, render: (v?: string) => v || '—' },
-    {
+    ...(isSupervisor ? [{
       title: '操作',
       key: 'action',
       width: 100,
-      render: (_: unknown, record) => (
+      render: (_: unknown, record: UserProfile) => (
         <Space>
           <Tooltip title="編輯">
             <Button icon={<PencilIcon className="w-4 h-4" />} size="small" type="text" onClick={() => openEdit(record)} />
@@ -576,7 +581,7 @@ const UserManagementPage: React.FC = () => {
           </Popconfirm>
         </Space>
       ),
-    },
+    }] : []),
   ]
 
   const userFormItems = (isEdit = false) => (
@@ -652,9 +657,11 @@ const UserManagementPage: React.FC = () => {
                 options={departments.map((d) => ({ value: d, label: d }))}
               />
             </div>
-            <Button type="primary" icon={<PlusIcon className="w-4 h-4" />} onClick={() => setShowCreate(true)} className="bg-blue-600">
-              新增用戶
-            </Button>
+            {isSupervisor && (
+              <Button type="primary" icon={<PlusIcon className="w-4 h-4" />} onClick={() => setShowCreate(true)} className="bg-blue-600">
+                新增用戶
+              </Button>
+            )}
           </div>
           <div className="bg-white rounded-lg shadow-sm">
             <Table
@@ -682,7 +689,7 @@ const UserManagementPage: React.FC = () => {
           <ShareIcon className="w-4 h-4" />層級關係
         </span>
       ),
-      children: <HierarchyTab />,
+      children: <HierarchyTab isSupervisor={isSupervisor} />,
     },
     {
       key: 'groups',
@@ -691,7 +698,7 @@ const UserManagementPage: React.FC = () => {
           <FolderIcon className="w-4 h-4" />分組管理
         </span>
       ),
-      children: <GroupManagementTab />,
+      children: <GroupManagementTab isSupervisor={isSupervisor} />,
     },
   ]
 

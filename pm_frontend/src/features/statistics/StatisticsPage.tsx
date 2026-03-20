@@ -6,6 +6,7 @@
  * Tab 4 成員總覽：部門分組卡片 + 成員詳情抽屜（工時/專案/任務）
  */
 import React, { useEffect, useState, useMemo } from 'react'
+import { useAppSelector } from '@/hooks/redux'
 import {
   Card, Row, Col, Table, Tag, Avatar, DatePicker,
   Skeleton, Button, Dropdown, Tabs, Collapse, Timeline, Badge, Tooltip,
@@ -807,8 +808,8 @@ const MemberOverviewTab: React.FC = () => {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 const StatisticsPage: React.FC = () => {
-  // Role: managers see all tabs; regular employees only see "成員總覽"
-  const isManager = false  // TODO: replace with real role check from auth context
+  // Role: supervisors see all tabs; regular employees only see personal + member overview
+  const isManager = useAppSelector((s) => s.auth.isSupervisor)
 
   const [stats,      setStats]      = useState<MemberWorkStat[]>([])
   const [isLoading,  setIsLoading]  = useState(false)

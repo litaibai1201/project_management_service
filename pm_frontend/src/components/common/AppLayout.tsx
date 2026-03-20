@@ -43,7 +43,7 @@ const AppLayout: React.FC = () => {
   const dispatch = useAppDispatch()
   const navigate = useNavigate()
   const location = useLocation()
-  const { name, workNo, indexData } = useAppSelector((s) => s.auth)
+  const { name, workNo, indexData, isSupervisor } = useAppSelector((s) => s.auth)
 
   const [collapsed,     setCollapsed]     = useState(false)
   const [searchVisible, setSearchVisible] = useState(false)
@@ -55,9 +55,12 @@ const AppLayout: React.FC = () => {
   const pendingReview = (indexData?.total_awaiting_review_num?.project ?? 0) + (indexData?.total_awaiting_review_num?.duty ?? 0)
   const unreadCount   = notifications.filter((n) => !n.read).length
 
-  const navItems = NAV_ITEMS.map((item) =>
-    item.key === '/review' ? { ...item, badge: pendingReview } : item,
-  )
+  const navItems = NAV_ITEMS
+    .filter((item) => {
+      if (item.key === '/wbs' || item.key === '/anomaly') return isSupervisor
+      return true
+    })
+    .map((item) => item.key === '/review' ? { ...item, badge: pendingReview } : item)
 
   const markAllRead = () => setNotifications((prev) => prev.map((n) => ({ ...n, read: true })))
 
