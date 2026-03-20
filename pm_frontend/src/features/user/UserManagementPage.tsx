@@ -503,9 +503,10 @@ const UserManagementPage: React.FC = () => {
   }
 
   const handleCreate = async (values: Record<string, unknown>) => {
+    const newWorkNo = values.work_no as string
     try {
       await dispatch(createUserThunk({
-        work_no:    values.work_no as string,
+        work_no:    newWorkNo,
         name:       values.name as string,
         department: values.department as string,
         position:   values.position as string | undefined,
@@ -513,6 +514,13 @@ const UserManagementPage: React.FC = () => {
         phone:      values.phone as string | undefined,
         password:   values.password as string | undefined,
       })).unwrap()
+
+      // 若填写了直属主管，建立层级关系
+      const supervisorWorkNo = values.supervisor_work_no as string | undefined
+      if (supervisorWorkNo) {
+        await userApi.setRelation(supervisorWorkNo, newWorkNo)
+      }
+
       showToast.success('用戶建立成功')
       setShowCreate(false)
       createForm.resetFields()
@@ -595,9 +603,23 @@ const UserManagementPage: React.FC = () => {
           <Input placeholder="請輸入Email" type="email" />
         </Form.Item>
         {!isEdit && (
-          <Form.Item name="password" label="初始密碼" className="col-span-2">
-            <Input.Password placeholder="請輸入初始密碼" />
-          </Form.Item>
+          <>
+            <Form.Item name="password" label="初始密碼" className="col-span-2">
+              <Input.Password placeholder="請輸入初始密碼" />
+            </Form.Item>
+            <Form.Item name="supervisor_work_no" label="直屬主管" className="col-span-2">
+              <Select
+                allowClear
+                showSearch
+                placeholder="選擇直屬主管（可不填）"
+                optionFilterProp="label"
+                options={list.map((u) => ({
+                  value: u.work_no,
+                  label: `${u.name}（${u.work_no}${u.position ? ' · ' + u.position : ''}）`,
+                }))}
+              />
+            </Form.Item>
+          </>
         )}
       </div>
     </>
