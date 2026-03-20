@@ -34,6 +34,7 @@ from views.group_api import blp as group_blp
 from views.statistics_api import blp as statistics_blp
 from views.daily_log_api import blp as daily_log_blp
 from views.search_api import blp as search_blp
+from views.admin_api import blp as admin_blp
 
 # ==================== 蓝图注册配置 ====================
 # 格式: (蓝图对象, URL 前缀配置)
@@ -46,6 +47,7 @@ from views.search_api import blp as search_blp
 #   /api/statistics/*     → statistics_blp (统计)
 #   /api/daily_log        → daily_log_blp  (日报)
 #   /api/search、/_paths  → search_blp     (全局搜索)
+#   /api/admin/*          → admin_blp      (管理员：专案分组管理)
 #
 BLUEPRINTS = [
     # 系统蓝图
@@ -61,4 +63,5 @@ BLUEPRINTS = [
     (statistics_blp, {"url_prefix": "/api/statistics"}),
     (daily_log_blp,  {"url_prefix": "/api/daily_log"}),
     (search_blp,     {"url_prefix": "/api"}),
+    (admin_blp,      {"url_prefix": "/api/admin"}),
 ]

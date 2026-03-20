@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import {
-  Table, Button, Input, Select, Space, Tooltip, Popconfirm, Modal, Form,
+  Table, Button, Input, Select, AutoComplete, Space, Tooltip, Popconfirm, Modal, Form,
   Tabs, Tag, Avatar, Tree, Card, Row, Col,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
@@ -507,11 +507,13 @@ const UserManagementPage: React.FC = () => {
         <Form.Item name="name" label="姓名" rules={[{ required: true, message: '請輸入姓名' }]}>
           <Input placeholder="請輸入姓名" />
         </Form.Item>
-        <Form.Item name="department" label="部門" rules={[{ required: true, message: '請選擇部門' }]}>
-          <Select
-            showSearch
+        <Form.Item name="department" label="部門" rules={[{ required: true, message: '請輸入或選擇部門' }]}>
+          <AutoComplete
             placeholder="選擇或輸入部門"
-            options={departments.map((d) => ({ value: d, label: d }))}
+            options={departments.map((d) => ({ value: d }))}
+            filterOption={(input, option) =>
+              (option?.value ?? '').toLowerCase().includes(input.toLowerCase())
+            }
           />
         </Form.Item>
         <Form.Item name="position" label="職稱">

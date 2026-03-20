@@ -7,6 +7,8 @@ interface AuthState {
   token:       string | null
   workNo:      string | null
   name:        string | null
+  roleCode:    string | null
+  roleName:    string | null
   indexData:   UserIndexContent | null
   isLoading:   boolean
   error:       string | null
@@ -16,6 +18,8 @@ const initialState: AuthState = {
   token:     tokenStorage.get(),
   workNo:    null,
   name:      null,
+  roleCode:  null as string | null,
+  roleName:  null,
   indexData: null,
   isLoading: false,
   error:     null,
@@ -54,9 +58,11 @@ const authSlice = createSlice({
   initialState,
   reducers: {
     logout(state) {
-      state.token  = null
-      state.workNo = null
-      state.name   = null
+      state.token    = null
+      state.workNo   = null
+      state.name     = null
+      state.roleCode = null
+      state.roleName = null
       tokenStorage.remove()
     },
     restoreSession(state, action: PayloadAction<{ workNo: string; name: string }>) {
@@ -75,6 +81,8 @@ const authSlice = createSlice({
         state.token     = action.payload.access_token
         state.workNo    = action.payload.work_no
         state.name      = action.payload.name
+        state.roleCode  = action.payload.role_code
+        state.roleName  = action.payload.role_name
         tokenStorage.set(action.payload.access_token)
       })
       .addCase(loginThunk.rejected, (state, action) => {
