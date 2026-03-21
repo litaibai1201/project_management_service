@@ -1,25 +1,30 @@
 import React, { useEffect, useState } from 'react'
-import { Card, Row, Col, Progress, Tag, Avatar, Skeleton, Badge, Tooltip, Switch, Button, Empty } from 'antd'
+import { Card, Row, Col, Progress, Tag, Avatar, Badge, Tooltip, Switch, Button, Empty } from 'antd'
 import {
   BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip as RTooltip,
   Cell, LabelList,
 } from 'recharts'
 import {
-  FolderIcon, ClipboardDocumentListIcon, ClockIcon, CheckCircleIcon,
-  ArrowTrendingUpIcon, FireIcon, ExclamationTriangleIcon, BellAlertIcon,
+  FolderIcon, ClipboardDocumentListIcon, ClockIcon,
+  FireIcon, ExclamationTriangleIcon, BellAlertIcon,
   ChevronDownIcon, ChevronRightIcon, UsersIcon, ChartBarIcon,
   PencilSquareIcon, SunIcon, CalendarDaysIcon,
 } from '@heroicons/react/24/outline'
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
-import { fetchIndexThunk } from './authSlice'
+import { fetchIndexThunk, setManagerView } from './authSlice'
 import { useNavigate } from 'react-router-dom'
 import dayjs from 'dayjs'
 import { projectApi } from '@/api/project.api'
+import { authApi } from '@/api/auth.api'
 import { dailyLogApi, type BackendDailyLogSummary } from '@/api/daily_log.api'
-import type { MemberWorkStat, ProjectListItem } from '@/types/api.types'
+import type { ProjectListItem, UserStatistical, TeamStatistical } from '@/types/api.types'
 
 // ─── Types for dashboard data ─────────────────────────────────────────────────
 type MonthLogEntry = { hours: number; ot: number; status: 'confirmed' | 'submitted' | 'draft' }
+interface MemberWorkStat {
+  work_no: string; name: string; total_hours: number
+  completed_tasks: number; in_progress_tasks: number; overdue_tasks: number
+}
 
 const getHeatColor = (hours: number) => {
   if (hours === 0) return '#f1f5f9'
@@ -47,27 +52,6 @@ const DaysLeftBadge: React.FC<{ days: number }> = ({ days }) => {
   if (days <= 7) return <span className="days-warning">剩 {days} 天</span>
   return <span className="days-ok">剩 {days} 天</span>
 }
-
-const StatCard: React.FC<{
-  title: string; value: number; icon: React.ReactNode
-  gradient: string; iconBg: string; trend?: string
-}> = ({ title, value, icon, gradient, iconBg, trend }) => (
-  <Card bordered={false} className={`${gradient} shadow-sm hover:shadow-md transition-all`} bodyStyle={{ padding: '20px 24px' }}>
-    <div className="flex items-start justify-between">
-      <div>
-        <p className="text-slate-500 text-xs font-semibold uppercase tracking-wider mb-1">{title}</p>
-        <p className="text-3xl font-bold text-slate-800 leading-none">{value}</p>
-        {trend && (
-          <div className="flex items-center gap-1 mt-2">
-            <ArrowTrendingUpIcon className="w-3 h-3 text-green-500" />
-            <span className="text-xs text-green-600 font-medium">{trend}</span>
-          </div>
-        )}
-      </div>
-      <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${iconBg}`}>{icon}</div>
-    </div>
-  </Card>
-)
 
 // ─── Alert Bar ────────────────────────────────────────────────────────────────
 
@@ -226,7 +210,7 @@ const ManagerSection: React.FC<{ memberStats: MemberWorkStat[] }> = ({ memberSta
         onClick={() => setOpen((v) => !v)}
       >
         <UsersIcon className="w-4 h-4 text-indigo-600 flex-shrink-0" />
-        <span className="text-sm font-semibold text-indigo-700 flex-1">下屬任務概覽 · 主管視角</span>
+        <span className="text-sm font-semibold text-indigo-700 flex-1">下屬任務概覽</span>
         <div className="flex items-center gap-3 mr-2">
           <Tooltip title="有超時/臨期任務的成員數">
             <div className="flex items-center gap-1">
@@ -234,8 +218,6 @@ const ManagerSection: React.FC<{ memberStats: MemberWorkStat[] }> = ({ memberSta
               <span className="text-xs text-red-600 font-medium">{atRiskMembers} 人需關注</span>
             </div>
           </Tooltip>
-          <Badge count={totalOverdue} color="#dc2626" title={`${totalOverdue} 項超時`} />
-          <Badge count={totalUrgent}  color="#d97706" title={`${totalUrgent} 項臨期`}  />
         </div>
         {open
           ? <ChevronDownIcon className="w-4 h-4 text-slate-400" />
@@ -245,22 +227,29 @@ const ManagerSection: React.FC<{ memberStats: MemberWorkStat[] }> = ({ memberSta
 
       {open && (
         <div className="px-5 pb-5">
-          {/* Mini stat row */}
-          <div className="grid grid-cols-3 gap-3 mb-4">
-            {[
-              { label: '下屬人數',  value: memberStats.length, icon: <UsersIcon className="w-4 h-4 text-indigo-500" />,           color: '#6366f1', bg: '#eef2ff' },
-              { label: '超時任務',  value: totalOverdue,              icon: <ExclamationTriangleIcon className="w-4 h-4 text-red-500" />,  color: '#dc2626', bg: '#fef2f2' },
-              { label: '臨期任務',  value: totalUrgent,               icon: <FireIcon className="w-4 h-4 text-orange-500" />,             color: '#d97706', bg: '#fff7ed' },
-            ].map((s) => (
-              <div key={s.label} className="rounded-lg p-3 flex items-center gap-3" style={{ background: s.bg }}>
-                <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-white/60">{s.icon}</div>
-                <div>
-                  <div className="text-xs text-slate-500">{s.label}</div>
-                  <div className="text-xl font-bold" style={{ color: s.color, lineHeight: 1.2 }}>{s.value}</div>
-                </div>
+          {/* Mini stat row — 下屬人數 + 今日日報狀態 */}
+          {(() => {
+            const submitted = memberStats.filter((m) => (m as MemberWorkStat & { log_submitted?: boolean }).log_submitted).length
+            const total = memberStats.length
+            const notSubmitted = total - submitted
+            return (
+              <div className="grid grid-cols-3 gap-3 mb-4">
+                {[
+                  { label: '下屬人數',   value: total,         icon: <UsersIcon className="w-4 h-4 text-indigo-500" />,          color: '#6366f1', bg: '#eef2ff' },
+                  { label: '已提交日報', value: submitted,     icon: <PencilSquareIcon className="w-4 h-4 text-green-500" />,     color: '#16a34a', bg: '#f0fdf4' },
+                  { label: '未提交日報', value: notSubmitted,  icon: <ExclamationTriangleIcon className="w-4 h-4 text-red-500" />, color: notSubmitted > 0 ? '#dc2626' : '#94a3b8', bg: notSubmitted > 0 ? '#fef2f2' : '#f8fafc' },
+                ].map((s) => (
+                  <div key={s.label} className="rounded-lg p-3 flex items-center gap-3" style={{ background: s.bg }}>
+                    <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-white/60">{s.icon}</div>
+                    <div>
+                      <div className="text-xs text-slate-500">{s.label}</div>
+                      <div className="text-xl font-bold" style={{ color: s.color, lineHeight: 1.2 }}>{s.value}</div>
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            )
+          })()}
 
           <Row gutter={[16, 16]}>
             {/* Horizontal bar chart */}
@@ -274,7 +263,8 @@ const ManagerSection: React.FC<{ memberStats: MemberWorkStat[] }> = ({ memberSta
                     <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded-sm bg-[#fbbf24]" /><span className="text-xs text-slate-400">臨期</span></div>
                   </div>
                 </div>
-                <ResponsiveContainer width="100%" height={chartData.length * 36 + 8}>
+                <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+                <ResponsiveContainer width="100%" height={Math.max(chartData.length * 36 + 8, 60)}>
                   <BarChart data={chartData} layout="vertical" margin={{ left: 4, right: 36, top: 0, bottom: 0 }} barCategoryGap="30%">
                     <XAxis type="number" hide allowDecimals={false} />
                     <YAxis type="category" dataKey="name" tick={{ fontSize: 12, fill: '#64748b' }} axisLine={false} tickLine={false} width={52} />
@@ -299,6 +289,7 @@ const ManagerSection: React.FC<{ memberStats: MemberWorkStat[] }> = ({ memberSta
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
+                </div>
               </div>
             </Col>
 
@@ -309,7 +300,7 @@ const ManagerSection: React.FC<{ memberStats: MemberWorkStat[] }> = ({ memberSta
                   <span className="text-xs font-semibold text-slate-600">成員明細</span>
                   <span className="text-xs text-slate-400 ml-auto cursor-pointer hover:text-blue-500" onClick={() => navigate('/group')}>查看詳情 →</span>
                 </div>
-                <div className="divide-y divide-slate-50">
+                <div className="divide-y divide-slate-50" style={{ maxHeight: 320, overflowY: 'auto' }}>
                   {chartData.map((m) => {
                     const isAtRisk = m.超時任務 > 0 || m.臨期任務 > 0
                     return (
@@ -363,7 +354,7 @@ const ManagerSection: React.FC<{ memberStats: MemberWorkStat[] }> = ({ memberSta
 }
 
 // ─── Daily Log Status Card ─────────────────────────────────────────────────
-const DailyLogCard: React.FC<{ isManager?: boolean; todayLog: BackendDailyLogSummary | null }> = ({ isManager = false, todayLog }) => {
+const DailyLogCard: React.FC<{ canDismiss?: boolean; todayLog: BackendDailyLogSummary | null }> = ({ canDismiss = false, todayLog }) => {
   const navigate = useNavigate()
   const todayHours = todayLog ? Number(todayLog.total_hours) : 0
   const standardHours = 8.0
@@ -371,23 +362,9 @@ const DailyLogCard: React.FC<{ isManager?: boolean; todayLog: BackendDailyLogSum
     ? (todayLog.status === 2 ? 'submitted' : 'draft')
     : 'not_started'
   const pct = Math.min(100, Math.round((todayHours / standardHours) * 100))
-  const [managerOptOut, setManagerOptOut] = useState(false)
+  const [dismissed, setDismissed] = useState(false)
 
-  // If manager has opted out, show a minimal info card
-  if (isManager && managerOptOut) {
-    return (
-      <Card bordered={false} className="shadow-sm mb-5 border border-slate-100" bodyStyle={{ padding: '12px 20px' }}>
-        <div className="flex items-center gap-3">
-          <PencilSquareIcon className="w-4 h-4 text-slate-400" />
-          <span className="text-sm text-slate-400">日報填寫已關閉</span>
-          <span className="text-xs text-slate-300">（主管級可選擇性填寫）</span>
-          <Button size="small" type="link" className="ml-auto text-xs" onClick={() => setManagerOptOut(false)}>
-            重新啟用
-          </Button>
-        </div>
-      </Card>
-    )
-  }
+  if (dismissed) return null
 
   return (
     <Card bordered={false} className="shadow-sm mb-5 border border-blue-100 bg-blue-50/30" bodyStyle={{ padding: '16px 20px' }}>
@@ -404,10 +381,10 @@ const DailyLogCard: React.FC<{ isManager?: boolean; todayLog: BackendDailyLogSum
             >
               {status === 'submitted' ? '✅ 已提交' : status === 'draft' ? '📝 草稿' : '⚠️ 未填寫'}
             </Tag>
-            {!isManager && status !== 'submitted' && (
+            {!canDismiss && status !== 'submitted' && (
               <Tag color="red" style={{ fontSize: 10, margin: 0, lineHeight: '16px', padding: '0 4px' }}>必填</Tag>
             )}
-            {isManager && (
+            {canDismiss && (
               <Tag color="gold" style={{ fontSize: 10, margin: 0, lineHeight: '16px', padding: '0 4px' }}>選填</Tag>
             )}
             {todayLog && <span className="text-xs text-slate-400 ml-auto">{todayHours}h</span>}
@@ -433,8 +410,8 @@ const DailyLogCard: React.FC<{ isManager?: boolean; todayLog: BackendDailyLogSum
             onClick={() => navigate('/daily-log')}>
             {status === 'not_started' ? '立即填寫' : '繼續填寫'} →
           </Button>
-          {isManager && (
-            <button onClick={() => setManagerOptOut(true)} className="text-[10px] text-slate-400 hover:text-slate-600 transition-colors">
+          {canDismiss && (
+            <button onClick={() => setDismissed(true)} className="text-[10px] text-slate-400 hover:text-slate-600 transition-colors">
               關閉日報提醒
             </button>
           )}
@@ -642,12 +619,15 @@ const MonthlyAttendanceCard: React.FC = () => {
 const DashboardPage: React.FC = () => {
   const dispatch  = useAppDispatch()
   const navigate  = useNavigate()
-  const { indexData, name, isLoading, isSupervisor } = useAppSelector((s) => s.auth)
-  const [isManager, setIsManager] = useState(isSupervisor)
+  const { indexData, name, isSupervisor, isManagerView } = useAppSelector((s) => s.auth)
+  const isManager = isManagerView
+  const setIsManager = (v: boolean) => dispatch(setManagerView(v))
   const [memberStats,  setMemberStats]  = useState<MemberWorkStat[]>([])
   const [myProjects,   setMyProjects]   = useState<ProjectListItem[]>([])
   const [todayLog,     setTodayLog]     = useState<BackendDailyLogSummary | null>(null)
   const [alertTasks,   setAlertTasks]   = useState<AlertTask[]>([])
+  const [userStat,     setUserStat]     = useState<UserStatistical | null>(null)
+  const [teamStat,     setTeamStat]     = useState<TeamStatistical | null>(null)
 
   useEffect(() => { dispatch(fetchIndexThunk()) }, [dispatch])
 
@@ -655,6 +635,16 @@ const DashboardPage: React.FC = () => {
     // Load member stats (manager view)
     projectApi.memberStats()
       .then((res) => { if (Array.isArray(res.content)) setMemberStats(res.content as MemberWorkStat[]) })
+      .catch(() => {})
+
+    // Load personal project & task statistics
+    authApi.getStatistical()
+      .then((res) => { if (res.content) setUserStat(res.content) })
+      .catch(() => {})
+
+    // Load team statistics (supervisor view)
+    authApi.getTeamStatistical()
+      .then((res) => { if (res.content) setTeamStat(res.content) })
       .catch(() => {})
 
     // Load my active projects
@@ -678,6 +668,13 @@ const DashboardPage: React.FC = () => {
     // projectApi.alertTasks().then(res => setAlertTasks(res.content ?? [])).catch(() => {})
     setAlertTasks([])
   }, [])
+
+  // ── 統計數據預計算 ─────────────────────────────────────────────────────────
+  const pendingReview  = (indexData?.total_awaiting_review_num?.project ?? 0) + (indexData?.total_awaiting_review_num?.duty ?? 0)
+  const taskInProg     = (indexData?.total_task_num?.doing_task   ?? 0) + (indexData?.total_task_num?.doing_duty    ?? 0)
+  const taskUnstart    = (indexData?.total_task_num?.unstart_task ?? 0) + (indexData?.total_task_num?.unstart_duty  ?? 0)
+  const taskDone       = userStat?.completed ?? 0
+  const taskTotal      = (userStat?.total_projects ?? 0) + (userStat?.total_duties ?? 0)
 
   return (
     <div className="p-6 max-w-[1400px] mx-auto">
@@ -705,30 +702,185 @@ const DashboardPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Stat cards */}
-      <Row gutter={[16, 16]} className="mb-5">
-        {[
-          { title:'進行中的任務', value: (indexData?.total_task_num?.doing_task ?? 0) + (indexData?.total_task_num?.doing_duty ?? 0),     gradient:'stat-card-blue',   iconBg:'bg-blue-100',   icon:<FolderIcon className="w-5 h-5 text-blue-600" />,                  trend:'' },
-          { title:'未開始的任務', value: (indexData?.total_task_num?.unstart_task ?? 0) + (indexData?.total_task_num?.unstart_duty ?? 0), gradient:'stat-card-purple', iconBg:'bg-purple-100', icon:<ClipboardDocumentListIcon className="w-5 h-5 text-purple-600" />, trend:'' },
-          { title:'待審核',       value: (indexData?.total_awaiting_review_num?.project ?? 0) + (indexData?.total_awaiting_review_num?.duty ?? 0), gradient:'stat-card-orange', iconBg:'bg-orange-100', icon:<ClockIcon className="w-5 h-5 text-orange-500" />,            trend:'' },
-          { title:'未讀進度更新', value: indexData?.total_progress_record_num ?? 0,                                                                gradient:'stat-card-green',  iconBg:'bg-green-100',  icon:<CheckCircleIcon className="w-5 h-5 text-green-600" />,            trend:'' },
-        ].map((s) => (
-          <Col xs={24} sm={12} xl={6} key={s.title}>
-            {isLoading && !indexData
-              ? <Card bordered={false} className="shadow-sm"><Skeleton active paragraph={{ rows: 2 }} /></Card>
-              : <StatCard {...s} />}
+      {/* ── 統計面板 ── */}
+      {isManager && (
+        <Row gutter={[16, 16]} className="mb-5">
+          {/* 團隊專案 */}
+          <Col xs={24} md={8}>
+            <Card className="shadow-sm h-full" styles={{ body: { padding: '16px 20px' } }}>
+              <div className="flex items-center gap-2 mb-4">
+                <div className="w-7 h-7 rounded-lg bg-indigo-100 flex items-center justify-center">
+                  <FolderIcon className="w-4 h-4 text-indigo-600" />
+                </div>
+                <span className="text-sm font-semibold text-slate-600">團隊專案</span>
+              </div>
+              <div className="flex divide-x divide-slate-100">
+                <div className="flex-1 text-center pr-3">
+                  <div className="text-2xl font-bold text-slate-700">{teamStat?.team_project.total ?? 0}</div>
+                  <div className="text-xs text-slate-400 mt-0.5">總專案數</div>
+                </div>
+                <div className="flex-1 text-center px-3">
+                  <div className="text-2xl font-bold text-blue-600">{teamStat?.team_project.in_progress ?? 0}</div>
+                  <div className="text-xs text-slate-400 mt-0.5">進行中</div>
+                </div>
+                <div className="flex-1 text-center pl-3">
+                  <div className="text-2xl font-bold text-green-600">{teamStat?.team_project.completed ?? 0}</div>
+                  <div className="text-xs text-slate-400 mt-0.5">已完結</div>
+                </div>
+              </div>
+            </Card>
           </Col>
-        ))}
-      </Row>
 
-      {/* Daily Log Status — engineers: mandatory, managers: optional with opt-out */}
-      <DailyLogCard isManager={isManager} todayLog={todayLog} />
+          {/* 團隊任務 */}
+          <Col xs={24} md={8}>
+            <Card className="shadow-sm h-full" styles={{ body: { padding: '16px 20px' } }}>
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-7 h-7 rounded-lg bg-blue-100 flex items-center justify-center">
+                  <ClipboardDocumentListIcon className="w-4 h-4 text-blue-600" />
+                </div>
+                <span className="text-sm font-semibold text-slate-600">團隊任務</span>
+              </div>
+              <div className="flex divide-x divide-slate-100">
+                <div className="flex-1 text-center pr-2">
+                  <div className="text-xl font-bold text-blue-600">{teamStat?.team_task.in_progress ?? 0}</div>
+                  <div className="text-xs text-slate-400 mt-0.5">進行中</div>
+                </div>
+                <div className="flex-1 text-center px-2">
+                  <div className={`text-xl font-bold ${(teamStat?.team_task.overdue ?? 0) > 0 ? 'text-red-500' : 'text-slate-400'}`}>{teamStat?.team_task.overdue ?? 0}</div>
+                  <div className="text-xs text-slate-400 mt-0.5">已超時</div>
+                </div>
+                <div className="flex-1 text-center px-2">
+                  <div className={`text-xl font-bold ${(teamStat?.team_task.urgent ?? 0) > 0 ? 'text-orange-500' : 'text-slate-400'}`}>{teamStat?.team_task.urgent ?? 0}</div>
+                  <div className="text-xs text-slate-400 mt-0.5">臨期</div>
+                </div>
+                <div className="flex-1 text-center pl-2">
+                  <div className="text-xl font-bold text-slate-500">{teamStat?.team_task.not_started ?? 0}</div>
+                  <div className="text-xs text-slate-400 mt-0.5">未開始</div>
+                </div>
+              </div>
+            </Card>
+          </Col>
+
+          {/* 待處理 */}
+          <Col xs={24} md={8}>
+            <Card className="shadow-sm h-full" styles={{ body: { padding: '16px 20px' } }}>
+              <div className="flex items-center gap-2 mb-4">
+                <div className="w-7 h-7 rounded-lg bg-orange-100 flex items-center justify-center">
+                  <ClockIcon className="w-4 h-4 text-orange-500" />
+                </div>
+                <span className="text-sm font-semibold text-slate-600">待處理</span>
+              </div>
+              <div className="flex divide-x divide-slate-100">
+                <div className="flex-1 text-center pr-3">
+                  <div className={`text-2xl font-bold ${(teamStat?.pending.review ?? 0) > 0 ? 'text-orange-500' : 'text-slate-400'}`}>
+                    {teamStat?.pending.review ?? 0}
+                  </div>
+                  <div className="text-xs text-slate-400 mt-0.5">待審核</div>
+                </div>
+                <div className="flex-1 text-center pl-3">
+                  <div className={`text-2xl font-bold ${(teamStat?.pending.progress_update ?? 0) > 0 ? 'text-blue-500' : 'text-slate-400'}`}>
+                    {teamStat?.pending.progress_update ?? 0}
+                  </div>
+                  <div className="text-xs text-slate-400 mt-0.5">進度更新</div>
+                </div>
+              </div>
+            </Card>
+          </Col>
+        </Row>
+      )}
+
+      {/* ── 個人統計（工程師固定；主管關閉視角後顯示） ── */}
+      {!isManager && (
+        <Row gutter={[16, 16]} className="mb-5">
+          {/* 專案統計 */}
+          <Col xs={24} md={8}>
+            <Card className="shadow-sm" styles={{ body: { padding: '16px 20px' } }}>
+              <div className="flex items-center gap-2 mb-4">
+                <div className="w-7 h-7 rounded-lg bg-blue-100 flex items-center justify-center">
+                  <FolderIcon className="w-4 h-4 text-blue-600" />
+                </div>
+                <span className="text-sm font-semibold text-slate-600">專案統計</span>
+              </div>
+              <div className="flex divide-x divide-slate-100">
+                <div className="flex-1 text-center pr-3">
+                  <div className="text-2xl font-bold text-slate-700">{userStat?.project_total ?? 0}</div>
+                  <div className="text-xs text-slate-400 mt-0.5">總專案數</div>
+                </div>
+                <div className="flex-1 text-center px-3">
+                  <div className="text-2xl font-bold text-blue-600">{userStat?.project_in_progress ?? 0}</div>
+                  <div className="text-xs text-slate-400 mt-0.5">進行中</div>
+                </div>
+                <div className="flex-1 text-center pl-3">
+                  <div className="text-2xl font-bold text-green-600">{userStat?.project_completed ?? 0}</div>
+                  <div className="text-xs text-slate-400 mt-0.5">已完結</div>
+                </div>
+              </div>
+            </Card>
+          </Col>
+          {/* 任務統計 */}
+          <Col xs={24} md={8}>
+            <Card className="shadow-sm" styles={{ body: { padding: '16px 20px' } }}>
+              <div className="flex items-center gap-2 mb-4">
+                <div className="w-7 h-7 rounded-lg bg-purple-100 flex items-center justify-center">
+                  <ClipboardDocumentListIcon className="w-4 h-4 text-purple-600" />
+                </div>
+                <span className="text-sm font-semibold text-slate-600">任務統計</span>
+              </div>
+              <div className="flex divide-x divide-slate-100">
+                <div className="flex-1 text-center pr-2">
+                  <div className="text-2xl font-bold text-slate-700">{taskTotal}</div>
+                  <div className="text-xs text-slate-400 mt-0.5">總計</div>
+                </div>
+                <div className="flex-1 text-center px-2">
+                  <div className="text-2xl font-bold text-blue-600">{taskInProg}</div>
+                  <div className="text-xs text-slate-400 mt-0.5">進行中</div>
+                </div>
+                <div className="flex-1 text-center px-2">
+                  <div className="text-2xl font-bold text-slate-400">{taskUnstart}</div>
+                  <div className="text-xs text-slate-400 mt-0.5">未開始</div>
+                </div>
+                <div className="flex-1 text-center pl-2">
+                  <div className="text-2xl font-bold text-green-600">{taskDone}</div>
+                  <div className="text-xs text-slate-400 mt-0.5">已完成</div>
+                </div>
+              </div>
+            </Card>
+          </Col>
+          {/* 待處理 */}
+          <Col xs={24} md={8}>
+            <Card className="shadow-sm" styles={{ body: { padding: '16px 20px' } }}>
+              <div className="flex items-center gap-2 mb-4">
+                <div className="w-7 h-7 rounded-lg bg-orange-100 flex items-center justify-center">
+                  <ClockIcon className="w-4 h-4 text-orange-500" />
+                </div>
+                <span className="text-sm font-semibold text-slate-600">待處理</span>
+              </div>
+              <div className="flex divide-x divide-slate-100">
+                <div className="flex-1 text-center pr-3">
+                  <div className={`text-2xl font-bold ${(indexData?.total_awaiting_review_num?.project ?? 0) + (indexData?.total_awaiting_review_num?.duty ?? 0) > 0 ? 'text-orange-500' : 'text-slate-400'}`}>
+                    {(indexData?.total_awaiting_review_num?.project ?? 0) + (indexData?.total_awaiting_review_num?.duty ?? 0)}
+                  </div>
+                  <div className="text-xs text-slate-400 mt-0.5">待審核</div>
+                </div>
+                <div className="flex-1 text-center pl-3">
+                  <div className={`text-2xl font-bold ${(indexData?.total_progress_record_num ?? 0) > 0 ? 'text-blue-500' : 'text-slate-400'}`}>
+                    {indexData?.total_progress_record_num ?? 0}
+                  </div>
+                  <div className="text-xs text-slate-400 mt-0.5">未讀進度</div>
+                </div>
+              </div>
+            </Card>
+          </Col>
+        </Row>
+      )}
+
+      {/* Daily Log Status — hidden in supervisor view; supervisor in personal mode sees it with dismiss option */}
+      {!isManager && <DailyLogCard canDismiss={isSupervisor} todayLog={todayLog} />}
 
       {/* Alert Bar */}
       <AlertBar pendingReview={(indexData?.total_awaiting_review_num?.project ?? 0) + (indexData?.total_awaiting_review_num?.duty ?? 0)} alertTasks={alertTasks} />
 
-      {/* Manager: Team Daily Log + Manager Section */}
-      {isManager && <TeamDailyLogCard />}
+      {/* Manager Section */}
       {isManager && <ManagerSection memberStats={memberStats} />}
 
       <Row gutter={[16, 16]}>
@@ -756,53 +908,54 @@ const DashboardPage: React.FC = () => {
             </div>
           </Card>
 
-          {/* My projects */}
-          <Card
-            bordered={false} className="shadow-sm"
-            title={<span className="font-semibold text-slate-700 text-sm">我的專案</span>}
-            extra={<a href="/projects" className="text-xs text-blue-500 hover:underline">查看全部 →</a>}
-            bodyStyle={{ padding: '0 24px 16px' }}
-          >
-            {myProjects.length === 0
-              ? <Empty description="暫無進行中的專案" className="py-6" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-              : myProjects.map((p) => {
-                const daysLeft = p.expected_end_date
-                  ? dayjs(p.expected_end_date).diff(dayjs(), 'day')
-                  : 999
-                return (
-                  <div
-                    key={p.id}
-                    className="flex items-center gap-3 py-3 border-b border-slate-50 last:border-0 hover:bg-slate-50 -mx-4 px-4 rounded-lg cursor-pointer transition-colors"
-                    onClick={() => navigate(`/projects/${p.id}`)}
-                  >
-                    <div className="w-1 self-stretch rounded-full flex-shrink-0" style={{ background: PRIORITY_COLORS[(p.priority ?? 1) - 1] }} />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="font-medium text-slate-700 text-sm truncate">{p.project_nm}</span>
-                        <Tag color={STATUS_COLOR[p.status]} style={{ fontSize: 11, lineHeight: '18px', padding: '0 6px', margin: 0 }}>
-                          {STATUS_LABEL[p.status]}
-                        </Tag>
+          {!isManager && (
+            <Card
+              bordered={false} className="shadow-sm"
+              title={<span className="font-semibold text-slate-700 text-sm">我的專案</span>}
+              extra={<a href="/projects" className="text-xs text-blue-500 hover:underline">查看全部 →</a>}
+              bodyStyle={{ padding: '0 24px 16px' }}
+            >
+              {myProjects.length === 0
+                ? <Empty description="暫無進行中的專案" className="py-6" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                : myProjects.map((p) => {
+                  const daysLeft = p.expected_end_date
+                    ? dayjs(p.expected_end_date).diff(dayjs(), 'day')
+                    : 999
+                  return (
+                    <div
+                      key={p.id}
+                      className="flex items-center gap-3 py-3 border-b border-slate-50 last:border-0 hover:bg-slate-50 -mx-4 px-4 rounded-lg cursor-pointer transition-colors"
+                      onClick={() => navigate(`/projects/${p.id}`)}
+                    >
+                      <div className="w-1 self-stretch rounded-full flex-shrink-0" style={{ background: PRIORITY_COLORS[(p.priority ?? 1) - 1] }} />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-medium text-slate-700 text-sm truncate">{p.project_nm}</span>
+                          <Tag color={STATUS_COLOR[p.status]} style={{ fontSize: 11, lineHeight: '18px', padding: '0 6px', margin: 0 }}>
+                            {STATUS_LABEL[p.status]}
+                          </Tag>
+                        </div>
+                        <Progress
+                          percent={p.progress ?? 0} size="small" showInfo={false}
+                          strokeColor={(p.progress ?? 0) >= 80 ? '#16a34a' : (p.progress ?? 0) >= 40 ? '#2563eb' : '#94a3b8'}
+                          trailColor="#f1f5f9"
+                        />
                       </div>
-                      <Progress
-                        percent={p.progress ?? 0} size="small" showInfo={false}
-                        strokeColor={(p.progress ?? 0) >= 80 ? '#16a34a' : (p.progress ?? 0) >= 40 ? '#2563eb' : '#94a3b8'}
-                        trailColor="#f1f5f9"
-                      />
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <span className="text-xs text-slate-400 hidden sm:block">{p.progress ?? 0}%</span>
+                        <DaysLeftBadge days={daysLeft} />
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <span className="text-xs text-slate-400 hidden sm:block">{p.progress ?? 0}%</span>
-                      <DaysLeftBadge days={daysLeft} />
-                    </div>
-                  </div>
-                )
-              })
-            }
-          </Card>
+                  )
+                })
+              }
+            </Card>
+          )}
         </Col>
 
-        {/* Right: attendance calendar + activity feed */}
+        {/* Right: attendance calendar (personal only) + activity feed */}
         <Col xs={24} lg={9}>
-          <MonthlyAttendanceCard />
+          {!isManager && <MonthlyAttendanceCard />}
           <Card
             bordered={false} className="shadow-sm"
             title={<span className="font-semibold text-slate-700 text-sm">近期動態</span>}

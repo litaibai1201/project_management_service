@@ -43,7 +43,7 @@ const AppLayout: React.FC = () => {
   const dispatch = useAppDispatch()
   const navigate = useNavigate()
   const location = useLocation()
-  const { name, workNo, indexData, isSupervisor } = useAppSelector((s) => s.auth)
+  const { name, workNo, indexData, isSupervisor, isManagerView } = useAppSelector((s) => s.auth)
 
   const [collapsed,     setCollapsed]     = useState(false)
   const [searchVisible, setSearchVisible] = useState(false)
@@ -58,6 +58,7 @@ const AppLayout: React.FC = () => {
   const navItems = NAV_ITEMS
     .filter((item) => {
       if (item.key === '/wbs' || item.key === '/anomaly') return isSupervisor
+      if (item.key === '/daily-log') return !isManagerView
       return true
     })
     .map((item) => item.key === '/review' ? { ...item, badge: pendingReview } : item)

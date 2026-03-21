@@ -51,6 +51,16 @@ class StatisticalApi(MethodView):
         return response_result(content=ctrl.get_statistical(work_no))
 
 
+@blp.route("/team_statistical")
+class TeamStatisticalApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def get(self):
+        """获取团队统计数据（主管视角）"""
+        work_no = get_identity()
+        return response_result(content=ctrl.get_team_statistical(work_no))
+
+
 @blp.route("/latest_news")
 class LatestNewsApi(MethodView):
     @jwt_required()

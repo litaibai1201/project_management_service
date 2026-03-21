@@ -57,11 +57,24 @@ export interface UserIndexContent {
   }
 }
 
+export interface TeamStatistical {
+  team_project: { total: number; in_progress: number; completed: number }
+  team_task: {
+    total: number; in_progress: number; not_started: number
+    completed: number; overdue: number; urgent: number
+  }
+  pending: { review: number; progress_update: number }
+  team_size: number
+}
+
 export interface UserStatistical {
-  total_projects: number
-  total_duties: number
-  completed: number
-  in_progress: number
+  total_projects:       number
+  total_duties:         number
+  completed:            number
+  in_progress:          number
+  project_total:        number
+  project_completed:    number
+  project_in_progress:  number
 }
 
 // ─── Project ──────────────────────────────────────────────────────────────────

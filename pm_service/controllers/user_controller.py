@@ -311,7 +311,8 @@ class UserController:
         }
 
     def get_statistical(self, work_no: str) -> dict:
-        from dbs.mysql_db.model_tables import FunctionDataModel, TemporaryDutyModel
+        from dbs.mysql_db.model_tables import FunctionDataModel, TemporaryDutyModel, ProjectDataModel
+        # ── 功能任务统计 ──────────────────────────────────────────────────────
         total_projects = (
             db.session.query(FunctionDataModel)
             .filter(FunctionDataModel.developers.like(f"%{work_no}%")).count()
@@ -330,9 +331,137 @@ class UserController:
             .filter(FunctionDataModel.developers.like(f"%{work_no}%"),
                     FunctionDataModel.function_status == 2).count()
         )
+        # ── 专案统计（project_pm / product_pm / creator 任一匹配即视为参与）──
+        _proj_filter = db.or_(
+            ProjectDataModel.project_pm == work_no,
+            ProjectDataModel.product_pm == work_no,
+            ProjectDataModel.creator    == work_no,
+        )
+        project_total = (
+            db.session.query(ProjectDataModel)
+            .filter(_proj_filter, ProjectDataModel.project_status.notin_([9])).count()
+        )
+        project_completed = (
+            db.session.query(ProjectDataModel)
+            .filter(_proj_filter, ProjectDataModel.project_status == 7).count()
+        )
+        project_in_progress = (
+            db.session.query(ProjectDataModel)
+            .filter(_proj_filter, ProjectDataModel.project_status == 5).count()
+        )
         return {
             "total_projects": total_projects, "total_duties": total_duties,
             "completed": completed, "in_progress": in_progress,
+            "project_total":       project_total,
+            "project_completed":   project_completed,
+            "project_in_progress": project_in_progress,
+        }
+
+    def get_team_statistical(self, work_no: str) -> dict:
+        """团队统计（主管视角）：聚合所有下属的专案 / 任务 / 待处理数据"""
+        import datetime
+        from dbs.mysql_db.model_tables import (
+            FunctionDataModel, TemporaryDutyModel, ProjectDataModel, ReviewApplyModel
+        )
+
+        subordinates = self.get_subordinates(work_no, all_levels=True)
+        sub_work_nos = [s["work_no"] for s in subordinates]
+
+        today        = datetime.date.today().strftime("%Y-%m-%d")
+        today_plus7  = (datetime.date.today() + datetime.timedelta(days=7)).strftime("%Y-%m-%d")
+
+        # ── 团队专案统计 ────────────────────────────────────────────────────────
+        all_members = [work_no] + sub_work_nos
+        if all_members:
+            proj_member_conds = [
+                db.or_(
+                    ProjectDataModel.project_pm == m,
+                    ProjectDataModel.product_pm == m,
+                    ProjectDataModel.creator    == m,
+                )
+                for m in all_members
+            ]
+            proj_filter = db.or_(*proj_member_conds)
+        else:
+            proj_filter = db.false()
+
+        team_project_total       = db.session.query(ProjectDataModel).filter(proj_filter, ProjectDataModel.project_status.notin_([9])).count()
+        team_project_in_progress = db.session.query(ProjectDataModel).filter(proj_filter, ProjectDataModel.project_status == 5).count()
+        team_project_completed   = db.session.query(ProjectDataModel).filter(proj_filter, ProjectDataModel.project_status == 7).count()
+
+        # ── 团队任务统计（仅下属） ───────────────────────────────────────────────
+        if sub_work_nos:
+            func_filter = db.or_(*[FunctionDataModel.developers.like(f"%{m}%")  for m in sub_work_nos])
+            duty_filter = db.or_(*[TemporaryDutyModel.responsible.like(f"%{m}%") for m in sub_work_nos])
+        else:
+            func_filter = db.false()
+            duty_filter = db.false()
+
+        f = db.session.query(FunctionDataModel)
+        d = db.session.query(TemporaryDutyModel)
+
+        func_total       = f.filter(func_filter, FunctionDataModel.function_status.notin_([9])).count()
+        duty_total       = d.filter(duty_filter, TemporaryDutyModel.duty_status.notin_([9])).count()
+        func_in_prog     = f.filter(func_filter, FunctionDataModel.function_status == 2).count()
+        duty_in_prog     = d.filter(duty_filter, TemporaryDutyModel.duty_status   == 1).count()
+        func_not_start   = f.filter(func_filter, FunctionDataModel.function_status == 1).count()
+        duty_not_start   = d.filter(duty_filter, TemporaryDutyModel.duty_status   == 0).count()
+        func_completed   = f.filter(func_filter, FunctionDataModel.function_status == 4).count()
+        duty_completed   = d.filter(duty_filter, TemporaryDutyModel.duty_status   == 3).count()
+
+        func_overdue = f.filter(
+            func_filter, FunctionDataModel.function_status.notin_([4, 9]),
+            FunctionDataModel.expected_end_date.isnot(None),
+            FunctionDataModel.expected_end_date != '',
+            FunctionDataModel.expected_end_date <  today,
+        ).count()
+        duty_overdue = d.filter(
+            duty_filter, TemporaryDutyModel.duty_status.notin_([3, 9]),
+            TemporaryDutyModel.expected_end_date.isnot(None),
+            TemporaryDutyModel.expected_end_date != '',
+            TemporaryDutyModel.expected_end_date <  today,
+        ).count()
+
+        func_urgent = f.filter(
+            func_filter, FunctionDataModel.function_status.notin_([4, 9]),
+            FunctionDataModel.expected_end_date.isnot(None),
+            FunctionDataModel.expected_end_date != '',
+            FunctionDataModel.expected_end_date >= today,
+            FunctionDataModel.expected_end_date <= today_plus7,
+        ).count()
+        duty_urgent = d.filter(
+            duty_filter, TemporaryDutyModel.duty_status.notin_([3, 9]),
+            TemporaryDutyModel.expected_end_date.isnot(None),
+            TemporaryDutyModel.expected_end_date != '',
+            TemporaryDutyModel.expected_end_date >= today,
+            TemporaryDutyModel.expected_end_date <= today_plus7,
+        ).count()
+
+        # ── 待处理 ──────────────────────────────────────────────────────────────
+        pending_review = db.session.query(ReviewApplyModel).filter(
+            ReviewApplyModel.reviewer.like(f"%{work_no}%"),
+            ReviewApplyModel.apply_status == 1,
+        ).count()
+
+        return {
+            "team_project": {
+                "total":       team_project_total,
+                "in_progress": team_project_in_progress,
+                "completed":   team_project_completed,
+            },
+            "team_task": {
+                "total":       func_total       + duty_total,
+                "in_progress": func_in_prog     + duty_in_prog,
+                "not_started": func_not_start   + duty_not_start,
+                "completed":   func_completed   + duty_completed,
+                "overdue":     func_overdue     + duty_overdue,
+                "urgent":      func_urgent      + duty_urgent,
+            },
+            "pending": {
+                "review":           pending_review,
+                "progress_update":  0,
+            },
+            "team_size": len(sub_work_nos),
         }
 
     def get_latest_news(self, work_no: str, page=1, size=10):

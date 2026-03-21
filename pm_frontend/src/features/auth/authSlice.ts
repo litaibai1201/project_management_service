@@ -4,29 +4,31 @@ import { tokenStorage } from '@/api/httpClient'
 import { LoginPayload, LoginContent, UserIndexContent } from '@/types/api.types'
 
 interface AuthState {
-  token:        string | null
-  workNo:       string | null
-  name:         string | null
-  roleCode:     string | null
-  roleName:     string | null
-  isSupervisor: boolean
-  isAdmin:      boolean
-  indexData:    UserIndexContent | null
-  isLoading:    boolean
-  error:        string | null
+  token:          string | null
+  workNo:         string | null
+  name:           string | null
+  roleCode:       string | null
+  roleName:       string | null
+  isSupervisor:   boolean
+  isAdmin:        boolean
+  isManagerView:  boolean   // 主管视角开关（仅主管可切换）
+  indexData:      UserIndexContent | null
+  isLoading:      boolean
+  error:          string | null
 }
 
 const initialState: AuthState = {
-  token:        tokenStorage.get(),
-  workNo:       null,
-  name:         null,
-  roleCode:     null as string | null,
-  roleName:     null,
-  isSupervisor: false,
-  isAdmin:      false,
-  indexData:    null,
-  isLoading:    false,
-  error:        null,
+  token:          tokenStorage.get(),
+  workNo:         null,
+  name:           null,
+  roleCode:       null as string | null,
+  roleName:       null,
+  isSupervisor:   false,
+  isAdmin:        false,
+  isManagerView:  false,
+  indexData:      null,
+  isLoading:      false,
+  error:          null,
 }
 
 // ─── Thunks ───────────────────────────────────────────────────────────────────
@@ -62,18 +64,22 @@ const authSlice = createSlice({
   initialState,
   reducers: {
     logout(state) {
-      state.token        = null
-      state.workNo       = null
-      state.name         = null
-      state.roleCode     = null
-      state.roleName     = null
-      state.isSupervisor = false
-      state.isAdmin      = false
+      state.token         = null
+      state.workNo        = null
+      state.name          = null
+      state.roleCode      = null
+      state.roleName      = null
+      state.isSupervisor  = false
+      state.isAdmin       = false
+      state.isManagerView = false
       tokenStorage.remove()
     },
     restoreSession(state, action: PayloadAction<{ workNo: string; name: string }>) {
       state.workNo = action.payload.workNo
       state.name   = action.payload.name
+    },
+    setManagerView(state, action: PayloadAction<boolean>) {
+      state.isManagerView = action.payload
     },
   },
   extraReducers: (builder) => {
@@ -91,6 +97,7 @@ const authSlice = createSlice({
         state.roleName      = action.payload.role_name
         state.isSupervisor  = action.payload.is_supervisor ?? false
         state.isAdmin       = action.payload.is_admin ?? false
+        state.isManagerView = action.payload.is_supervisor ?? false
         tokenStorage.set(action.payload.access_token)
       })
       .addCase(loginThunk.rejected, (state, action) => {
@@ -103,5 +110,5 @@ const authSlice = createSlice({
   },
 })
 
-export const { logout, restoreSession } = authSlice.actions
+export const { logout, restoreSession, setManagerView } = authSlice.actions
 export default authSlice.reducer
