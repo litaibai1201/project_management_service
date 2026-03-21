@@ -295,3 +295,14 @@ export interface SearchResult {
   status: number
   created_at: string
 }
+
+// ─── Dashboard Widget Config ──────────────────────────────────────────────────
+
+export type DashboardViewType = 'personal' | 'manager'
+
+export interface WidgetConfig {
+  widget_id:  string
+  label:      string
+  removable:  boolean
+  is_visible: boolean
+}

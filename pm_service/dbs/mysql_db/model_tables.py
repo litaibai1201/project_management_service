@@ -482,3 +482,29 @@ class DailyLogModel(BaseMixinModel):
             "remark": self.remark or "", "created_at": self.created_at,
             "updated_at": self.update_at or "",
         }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 首页 Widget 配置
+# ─────────────────────────────────────────────────────────────────────────────
+
+class UserDashboardConfigModel(db.Model):
+    __tablename__ = "user_dashboard_config"
+
+    id         = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    work_no    = db.Column(db.String(50), nullable=False, index=True, comment="工号")
+    view_type  = db.Column(db.String(20), nullable=False, comment="视角: personal | manager")
+    widget_id  = db.Column(db.String(50), nullable=False, comment="Widget ID")
+    is_visible = db.Column(db.Boolean, nullable=False, default=True, comment="是否显示")
+    created_at = db.Column(db.String(19), default=CommonTools.get_now, comment="创建时间")
+    updated_at = db.Column(db.String(19), comment="更新时间")
+
+    __table_args__ = (
+        db.UniqueConstraint("work_no", "view_type", "widget_id", name="uq_user_dashboard_config"),
+    )
+
+    def to_dict(self):
+        return {
+            "widget_id":  self.widget_id,
+            "is_visible": self.is_visible,
+        }
