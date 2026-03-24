@@ -5,11 +5,34 @@ import { showToast } from '@/utils/toast'
 // ─── Token Helpers ────────────────────────────────────────────────────────────
 
 const TOKEN_KEY = 'pm_access_token'
+const USER_KEY  = 'pm_user_info'
 
 export const tokenStorage = {
   get: (): string | null => localStorage.getItem(TOKEN_KEY),
   set: (token: string): void => { localStorage.setItem(TOKEN_KEY, token) },
   remove: (): void => { localStorage.removeItem(TOKEN_KEY) },
+}
+
+interface StoredUser {
+  workNo:       string
+  name:         string
+  roleCode:     string | null
+  roleName:     string | null
+  isSupervisor: boolean
+  isAdmin:      boolean
+}
+
+export const userStorage = {
+  get: (): StoredUser | null => {
+    try {
+      const raw = localStorage.getItem(USER_KEY)
+      return raw ? (JSON.parse(raw) as StoredUser) : null
+    } catch {
+      return null
+    }
+  },
+  set: (user: StoredUser): void => { localStorage.setItem(USER_KEY, JSON.stringify(user)) },
+  remove: (): void => { localStorage.removeItem(USER_KEY) },
 }
 
 // ─── Axios Singleton ──────────────────────────────────────────────────────────
