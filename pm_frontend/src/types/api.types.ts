@@ -100,7 +100,7 @@ export interface Project {
   updated_at?: string
   progress?: number
   can_edit?: boolean
-  can_submit?: boolean
+  can_submit_review?: boolean
 }
 
 export interface ProjectListItem {

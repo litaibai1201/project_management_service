@@ -289,10 +289,16 @@ const ProjectDetailPage: React.FC = () => {
               編輯
             </Button>
           )}
-          {/* 草稿 → 提交立案審核（僅産品PM） */}
-          {current.status === 1 && current.can_submit && (
+          {/* 提交立案審核：僅草稿階段且當前用戶是産品PM */}
+          {current.status === 1 && current.can_submit_review && (
             <Button type="primary" style={{ background: '#2563eb' }} onClick={() => setShowSubmit(true)}>
               提交立案審核
+            </Button>
+          )}
+          {/* 提交規劃審核：規劃中階段 */}
+          {current.status === 3 && (
+            <Button type="primary" style={{ background: '#2563eb' }} onClick={() => setShowSubmit(true)}>
+              提交規劃審核
             </Button>
           )}
         </div>

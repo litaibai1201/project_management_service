@@ -78,10 +78,8 @@ class ProjectController:
             raise ResourceNotFoundException(resource_type="项目")
         result = p.to_dict()
         product_pm = p.product_pm or ""
-        # can_submit: 草稿阶段 + 操作者是产品PM
-        result["can_submit"] = bool(operator and p.project_status == 1 and operator == product_pm)
-        # can_edit: 草稿阶段 + 操作者是产品PM或产品PM的直属上级
         if operator and p.project_status == 1:
+            # can_edit: 草稿阶段 + 操作者是产品PM或产品PM的直属上级
             if operator == product_pm:
                 result["can_edit"] = True
             else:
@@ -92,6 +90,8 @@ class ProjectController:
                 result["can_edit"] = is_sup
         else:
             result["can_edit"] = False
+        # can_submit_review: 草稿阶段 + 操作者是产品PM
+        result["can_submit_review"] = (p.project_status == 1 and operator == product_pm)
         return result
 
     def create_project(self, payload: dict, creator: str):
@@ -160,12 +160,12 @@ class ProjectController:
         p = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
         if not p:
             raise ResourceNotFoundException(resource_type="项目")
-        # 只有草稿阶段才能提交立案审核
-        if p.project_status != 1:
-            raise PermissionException(msg="只有草稿阶段的专案才能提交立案审核")
-        # 只有产品PM可以提交
-        if submitter != (p.product_pm or ""):
-            raise PermissionException(msg="只有产品PM可以提交立案审核")
+        # 提交立案审核：只有产品PM可以提交，且专案必须处于草稿阶段
+        if status == 2:
+            if p.project_status != 1:
+                raise PermissionException(msg="只有草稿阶段的专案才能提交立案审核")
+            if submitter != (p.product_pm or ""):
+                raise PermissionException(msg="只有产品PM可以提交立案审核")
         type_map = {
             2: ("立案申请", "initiate"), 4: ("规划审核", "plan"),
             6: ("完结审核", "project_complete"),
