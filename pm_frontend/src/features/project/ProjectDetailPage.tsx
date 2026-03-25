@@ -1,9 +1,10 @@
 import React, { useEffect, useState, useMemo } from 'react'
+import dayjs from 'dayjs'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   Tabs, Descriptions, Button, Tag, Progress, Spin, Empty, Table,
   Space, Tooltip, Popconfirm, Modal, Form, Input, Select, Steps, Avatar,
-  Timeline, Card, Segmented, Collapse, AutoComplete, DatePicker, InputNumber,
+  Timeline, Card, Segmented, Collapse, AutoComplete, DatePicker, InputNumber, Divider,
 } from 'antd'
 import { PencilSquareIcon as EditIcon } from '@heroicons/react/24/outline'
 import type { ColumnsType } from 'antd/es/table'
@@ -12,7 +13,7 @@ import {
   CodeBracketIcon, UserCircleIcon, FolderIcon,
 } from '@heroicons/react/24/outline'
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
-import { fetchProjectThunk, clearCurrent } from './projectSlice'
+import { fetchProjectThunk, clearCurrent, fetchProjectGroupsThunk } from './projectSlice'
 import { projectApi } from '@/api/project.api'
 import { ProjectFunction, Milestone } from '@/types/api.types'
 import { FUNCTION_STATUS_MAP, PRIORITY_MAP } from '@/utils/status'
@@ -50,8 +51,10 @@ const ProjectDetailPage: React.FC = () => {
   const { id }   = useParams<{ id: string }>()
   const navigate = useNavigate()
   const dispatch = useAppDispatch()
-  const { current, isLoading } = useAppSelector((s) => s.project)
+  const { current, isLoading, groups } = useAppSelector((s) => s.project)
   const workNo = useAppSelector((s) => s.auth.workNo) ?? ''
+  const { isAdmin, isSupervisor } = useAppSelector((s) => s.auth)
+  const canManageGroups = isAdmin || isSupervisor
 
   const [functions,       setFunctions]       = useState<ProjectFunction[]>([])
   const [funcView,        setFuncView]         = useState<'all' | 'mine'>('all')
@@ -65,9 +68,11 @@ const ProjectDetailPage: React.FC = () => {
   const [funcForm]                             = Form.useForm()
 
   // ── 编辑专案 ──────────────────────────────────────────────────────────────
-  const [showEdit,      setShowEdit]      = useState(false)
-  const [editSaving,    setEditSaving]    = useState(false)
-  const [editForm]                        = Form.useForm()
+  const [showEdit,        setShowEdit]        = useState(false)
+  const [editSaving,      setEditSaving]      = useState(false)
+  const [editForm]                            = Form.useForm()
+  const [newGroupName,    setNewGroupName]    = useState('')
+  const [creatingGroup,   setCreatingGroup]   = useState(false)
 
   // ── 提交审核 ──────────────────────────────────────────────────────────────
   const [showSubmit,    setShowSubmit]    = useState(false)
@@ -137,17 +142,37 @@ const ProjectDetailPage: React.FC = () => {
 
   const handleEditOpen = () => {
     if (!current) return
+    dispatch(fetchProjectGroupsThunk())
     editForm.setFieldsValue({
       project_nm:        current.project_nm,
       department:        current.department,
       project_pm:        current.project_pm,
       product_pm:        current.product_pm,
       priority:          current.priority,
+      group_id:          current.group_id,
       expected_end_date: current.expected_end_date,
       code_url:          current.code_url,
+      expected_benefit:  current.expected_benefit,
       describe:          current.describe,
     })
+    setNewGroupName('')
     setShowEdit(true)
+  }
+
+  const handleCreateGroup = async () => {
+    const nm = newGroupName.trim()
+    if (!nm) return
+    setCreatingGroup(true)
+    try {
+      await projectApi.createGroup(nm)
+      await dispatch(fetchProjectGroupsThunk())
+      setNewGroupName('')
+      showToast.success(`分組「${nm}」已建立`)
+    } catch {
+      showToast.error('建立分組失敗')
+    } finally {
+      setCreatingGroup(false)
+    }
   }
 
   const handleEditSave = async (values: Record<string, unknown>) => {
@@ -168,7 +193,7 @@ const ProjectDetailPage: React.FC = () => {
     try {
       // 草稿(1) → 提交立案審核(status=2)；規劃中(3) → 提交規劃審核(status=4)
       const targetStatus = current.status === 1 ? 2 : 4
-      await projectApi.submitForReview(id, { reviewer: values.reviewer, status: targetStatus })
+      await projectApi.submitForReview(id, [values.reviewer], targetStatus)
       showToast.success('已提交審核')
       setShowSubmit(false)
       dispatch(fetchProjectThunk(id))
@@ -520,7 +545,7 @@ const ProjectDetailPage: React.FC = () => {
       <Modal title="編輯專案" open={showEdit} onCancel={() => setShowEdit(false)}
         footer={null} width={600} destroyOnClose>
         <Form form={editForm} layout="vertical" onFinish={handleEditSave} className="mt-4">
-          <Form.Item name="project_nm" label="專案名稱" rules={[{ required: true }]}>
+          <Form.Item name="project_nm" label="專案名稱" rules={[{ required: true }]} className="col-span-2">
             <Input />
           </Form.Item>
           <div className="grid grid-cols-2 gap-x-4">
@@ -534,13 +559,49 @@ const ProjectDetailPage: React.FC = () => {
               <Input />
             </Form.Item>
             <Form.Item name="product_pm" label="産品PM（工號）">
-              <Input />
+              <Input placeholder="（可空，預設與建立人相同）" />
             </Form.Item>
-            <Form.Item name="expected_end_date" label="預計完成日期">
-              <Input type="date" />
+            <Form.Item name="group_id" label="專案分組" rules={[{ required: true, message: '請選擇專案分組' }]}>
+              <Select
+                options={groups.map((g) => ({ value: g.id, label: g.group_nm }))}
+                placeholder="請選擇分組"
+                popupRender={canManageGroups ? (menu) => (
+                  <>
+                    {menu}
+                    <Divider style={{ margin: '8px 0' }} />
+                    <Space style={{ padding: '0 8px 8px' }}>
+                      <input
+                        value={newGroupName}
+                        onChange={(e) => setNewGroupName(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCreateGroup() } }}
+                        placeholder="輸入新分組名稱"
+                        style={{ flex: 1, padding: '4px 8px', border: '1px solid #d9d9d9', borderRadius: 6, fontSize: 13, outline: 'none' }}
+                      />
+                      <Button type="text" icon={<span>+</span>} loading={creatingGroup}
+                        onClick={handleCreateGroup} disabled={!newGroupName.trim()} size="small">
+                        新建分組
+                      </Button>
+                    </Space>
+                  </>
+                ) : undefined}
+              />
             </Form.Item>
-            <Form.Item name="code_url" label="代碼庫地址">
+            <Form.Item name="expected_end_date" label="預計完成日期"
+              getValueProps={(v) => ({ value: v ? dayjs(v) : null })}
+              getValueFromEvent={(date) => date ? date.format('YYYY-MM-DD') : ''}>
+              <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
+            </Form.Item>
+            <Form.Item name="code_url" label="代碼庫地址" className="col-span-2">
               <Input placeholder="https://..." />
+            </Form.Item>
+            <Form.Item name="benefit_amount" label="預估效益金額">
+              <InputNumber
+                style={{ width: '100%' }} placeholder="預估節省/產生的金額"
+                min={0} suffix="元/年"
+              />
+            </Form.Item>
+            <Form.Item name="expected_benefit" label="效益說明">
+              <Input.TextArea rows={2} placeholder="例：預計減少人工作業30%，每年節省約50萬元" />
             </Form.Item>
           </div>
           <Form.Item name="describe" label="專案描述">

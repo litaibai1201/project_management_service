@@ -96,6 +96,7 @@ export interface Project {
   end_time?: string
   code_url?: string
   group_id: string
+  expected_benefit?: string
   created_at: string
   updated_at?: string
   progress?: number
