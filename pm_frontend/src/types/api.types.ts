@@ -104,6 +104,16 @@ export interface Project {
   can_submit_review?: boolean
 }
 
+export interface ProjectFile {
+  id:         string
+  project_id: string
+  file_nm:    string
+  file_size:  number
+  file_ext:   string
+  uploader:   string
+  created_at: string
+}
+
 export interface ProjectListItem {
   id: string
   project_nm: string
@@ -310,4 +320,81 @@ export interface WidgetConfig {
   label:      string
   removable:  boolean
   is_visible: boolean
+}
+
+// ─── Milestone ────────────────────────────────────────────────────────────────
+
+export interface Milestone {
+  id:               string
+  project_id:       string
+  name:             string
+  target_date:      string
+  note?:            string
+  linked_functions?: string[]
+  status:           'pending' | 'achieved' | 'overdue'
+  created_at?:      string
+}
+
+export interface CreateMilestonePayload {
+  name:              string
+  target_date:       string
+  note?:             string
+  linked_functions?: string[]
+}
+
+// ─── Statistics ───────────────────────────────────────────────────────────────
+
+export interface MemberWorkStat {
+  name:              string
+  work_no:           string
+  department?:       string
+  total_hours:       number
+  completed_tasks:   number
+  overdue_tasks:     number
+  in_progress_tasks: number
+}
+
+// ─── Review ───────────────────────────────────────────────────────────────────
+
+export interface ApprovalNode {
+  node_id:          string
+  approver:         string
+  approver_work_no: string
+  status:           number
+  is_countersign?:  boolean
+}
+
+export interface CountersignPayload {
+  approver_name:    string
+  approver_work_no: string
+}
+
+// ─── Daily Log ────────────────────────────────────────────────────────────────
+
+export type WorkCategory = 'project' | 'cr_ar' | 'training' | 'meeting' | 'duty' | 'other'
+
+export interface DailyLogEntry {
+  entry_id:        string
+  work_category:   WorkCategory
+  description:     string
+  hours:           number
+  is_overtime:     boolean
+  overtime_hours:  number
+  project_id?:     string
+  project_nm?:     string
+  function_id?:    string
+  function_nm?:    string
+  duty_id?:        string
+  duty_nm?:        string
+  bu_unit?:        string
+}
+
+export interface DailyLog {
+  log_date:        string
+  entries:         DailyLogEntry[]
+  total_hours:     number
+  overtime_hours:  number
+  status:          'draft' | 'submitted' | 'confirmed'
+  submitted_at?:   string
+  confirmed_at?:   string
 }

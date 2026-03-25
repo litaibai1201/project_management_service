@@ -114,4 +114,22 @@ export const putForm = <T>(url: string, formData: FormData): Promise<ApiResponse
     headers: { 'Content-Type': 'multipart/form-data' },
   }).then((r) => r.data)
 
+/** Fetch a protected binary resource and return a Blob — bypasses JSON interceptor */
+export const fetchBlob = async (url: string): Promise<Blob> => {
+  const response = await httpClient.get(url, {
+    responseType: 'blob',
+    transformResponse: [(data) => data],
+  })
+  return response.data as Blob
+}
+
+/** Fetch a protected text resource — bypasses JSON interceptor */
+export const fetchText = async (url: string): Promise<string> => {
+  const response = await httpClient.get(url, {
+    responseType: 'text',
+    transformResponse: [(data) => data],
+  })
+  return response.data as string
+}
+
 export default httpClient

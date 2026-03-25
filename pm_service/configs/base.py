@@ -67,8 +67,13 @@ class BaseConfig:
     CACHE_DEFAULT_TIMEOUT = _get_int("CACHE_DEFAULT_TIMEOUT", 300)
 
     # ==================== 文件上传配置 ====================
-    MAX_CONTENT_LENGTH = _get_int("MAX_CONTENT_LENGTH", 16 * 1024 * 1024)
-    UPLOAD_ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "pdf", "doc", "docx", "xls", "xlsx"}
+    MAX_CONTENT_LENGTH = _get_int("MAX_CONTENT_LENGTH", 50 * 1024 * 1024)
+    UPLOAD_ALLOWED_EXTENSIONS = {
+        "png", "jpg", "jpeg", "gif", "webp",
+        "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
+        "txt", "md", "yaml", "yml", "csv", "html", "htm",
+    }
+    UPLOAD_DIR = os.environ.get("UPLOAD_DIR", os.path.join(os.path.dirname(__file__), "..", "..", "uploads"))
 
     # ==================== MySQL 配置 ====================
     SQLALCHEMY_TRACK_MODIFICATIONS = False

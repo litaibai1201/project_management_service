@@ -1,4 +1,4 @@
-import { get, post, put, del, postForm, putForm } from './httpClient'
+import { get, post, put, del, postForm, putForm, fetchBlob, fetchText } from './httpClient'
 import {
   ApiResponse,
   Project,
@@ -18,6 +18,7 @@ import {
   Milestone,
   CreateMilestonePayload,
   MemberWorkStat,
+  ProjectFile,
 } from '@/types/api.types'
 
 // ─── Project CRUD ─────────────────────────────────────────────────────────────
@@ -201,6 +202,39 @@ export const projectApi = {
   /** DELETE /api/project/:pid/milestones/:mid */
   deleteMilestone: (pid: string, mid: string): Promise<ApiResponse<null>> =>
     del(`/project/${pid}/milestones/${mid}`),
+
+  // ─── Files ───────────────────────────────────────────────────────────────────
+
+  /** GET /api/project/:pid/files */
+  listFiles: (pid: string): Promise<ApiResponse<ProjectFile[]>> =>
+    get(`/project/${pid}/files`),
+
+  /** POST /api/project/:pid/files  (multipart/form-data) */
+  uploadFile: (pid: string, file: File): Promise<ApiResponse<ProjectFile>> => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return postForm(`/project/${pid}/files`, fd)
+  },
+
+  /** DELETE /api/project/:pid/files/:fid */
+  deleteFile: (pid: string, fid: string): Promise<ApiResponse<null>> =>
+    del(`/project/${pid}/files/${fid}`),
+
+  /** GET /api/project/:pid/files/:fid/download — returns a redirect/blob URL */
+  getFileDownloadUrl: (pid: string, fid: string): string =>
+    `/api/project/${pid}/files/${fid}/download`,
+
+  /** Fetch file and return a local blob URL for preview (images / PDF) */
+  previewFileAsBlob: (pid: string, fid: string): Promise<string> =>
+    fetchBlob(`/project/${pid}/files/${fid}/preview`).then((blob) => URL.createObjectURL(blob)),
+
+  /** Fetch file and return the raw Blob (for Office library parsing) */
+  previewFileRawBlob: (pid: string, fid: string): Promise<Blob> =>
+    fetchBlob(`/project/${pid}/files/${fid}/preview`),
+
+  /** Fetch text-based file content (txt / md / yaml / csv) */
+  previewFileAsText: (pid: string, fid: string): Promise<string> =>
+    fetchText(`/project/${pid}/files/${fid}/preview`),
 
   // ─── Statistics ──────────────────────────────────────────────────────────────
 

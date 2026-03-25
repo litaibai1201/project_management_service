@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """项目管理接口 Blueprint"""
-from flask import request
+from flask import request, send_file
 from flask.views import MethodView
 from flask_smorest import Blueprint
 from utils.auth import jwt_required, get_identity
@@ -135,10 +135,58 @@ class MemberDynamicsApi(MethodView):
 @blp.route("/<string:project_id>/files")
 class ProjectFilesApi(MethodView):
     @jwt_required()
-    @blp.response(200, RspMsgDictSchema)
+    @blp.response(200, RspMsgRawSchema)
     def get(self, project_id):
-        """获取项目文件"""
-        return response_result(content=[])
+        """获取项目附件列表"""
+        return response_result(content=proj_ctrl.list_project_files(project_id))
+
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def post(self, project_id):
+        """上传项目附件"""
+        work_no = get_identity()
+        file = request.files.get("file")
+        if not file or not file.filename:
+            from utils.exceptions import ValidationException
+            raise ValidationException(msg="请选择要上传的文件")
+        return response_result(content=proj_ctrl.upload_project_file(project_id, file, uploader=work_no))
+
+
+@blp.route("/<string:project_id>/files/<string:file_id>")
+class ProjectFileDetailApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def delete(self, project_id, file_id):
+        """删除项目附件"""
+        work_no = get_identity()
+        proj_ctrl.delete_project_file(project_id, file_id, operator=work_no)
+        return response_result()
+
+
+@blp.route("/<string:project_id>/files/<string:file_id>/download")
+class ProjectFileDownloadApi(MethodView):
+    @jwt_required()
+    def get(self, project_id, file_id):
+        """下载项目附件"""
+        abs_path, original_name = proj_ctrl.get_project_file_path(project_id, file_id)
+        return send_file(abs_path, as_attachment=True, download_name=original_name)
+
+
+@blp.route("/<string:project_id>/files/<string:file_id>/preview")
+class ProjectFilePreviewApi(MethodView):
+    @jwt_required()
+    def get(self, project_id, file_id):
+        """内联预览项目附件（不强制下载）"""
+        import mimetypes
+        abs_path, original_name = proj_ctrl.get_project_file_path(project_id, file_id)
+        ext = original_name.rsplit(".", 1)[-1].lower() if "." in original_name else ""
+        text_exts = {"txt", "md", "yaml", "yml", "csv"}
+        if ext in text_exts:
+            mime_type = "text/plain; charset=utf-8"
+        else:
+            mime_type, _ = mimetypes.guess_type(original_name)
+            mime_type = mime_type or "application/octet-stream"
+        return send_file(abs_path, mimetype=mime_type, as_attachment=False, download_name=original_name)
 
 
 @blp.route("/<string:project_id>/progress_and_hour")

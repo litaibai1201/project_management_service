@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 """项目控制器"""
 import json
+import os
 
 from utils.tools import CommonTools
 from utils.exceptions import ResourceNotFoundException, BusinessException
 from dbs.mysql_db import db
 from dbs.mysql_db.model_tables import (
     ProjectDataModel, ProjectGroupModel, FunctionDataModel,
-    ProgressRecordDataModel, ReviewApplyModel, MilestoneModel,
+    ProgressRecordDataModel, ReviewApplyModel, MilestoneModel, ProjectFileModel,
 )
 
 
@@ -286,6 +287,90 @@ class ProjectController:
         r.approval_nodes_json = json.dumps(nodes, ensure_ascii=False)
         r.update_at = CommonTools.get_now()
         db.session.commit()
+
+    # ── 项目附件 ──────────────────────────────────────────────────────────────
+
+    def _upload_dir(self, project_id: str) -> str:
+        from configs.base import BaseConfig
+        base = os.path.abspath(BaseConfig.UPLOAD_DIR)
+        path = os.path.join(base, "project_files", project_id)
+        os.makedirs(path, exist_ok=True)
+        return path
+
+    def _allowed_ext(self, filename: str) -> str:
+        from configs.base import BaseConfig
+        from utils.exceptions import ValidationException
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+        if ext not in BaseConfig.UPLOAD_ALLOWED_EXTENSIONS:
+            raise ValidationException(msg=f"不支持的文件类型: .{ext}")
+        return ext
+
+    def list_project_files(self, project_id: str):
+        files = db.session.query(ProjectFileModel).filter_by(project_id=project_id).order_by(ProjectFileModel.created_at.desc()).all()
+        return [f.to_dict() for f in files]
+
+    def upload_project_file(self, project_id: str, file, uploader: str):
+        from utils.exceptions import PermissionException
+        p = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
+        if not p or p.project_status == 9:
+            raise ResourceNotFoundException(resource_type="项目")
+        if p.project_status != 1:
+            raise PermissionException(msg="只有草稿阶段可以上传附件")
+        if uploader != (p.product_pm or ""):
+            raise PermissionException(msg="只有产品PM可以上传附件")
+
+        ext = self._allowed_ext(file.filename)
+        upload_dir = self._upload_dir(project_id)
+        from dbs.mysql_db.model_tables import generate_uuid
+        file_id = generate_uuid()
+        stored_name = f"{file_id}.{ext}"
+        abs_path = os.path.join(upload_dir, stored_name)
+        file.save(abs_path)
+        size = os.path.getsize(abs_path)
+
+        record = ProjectFileModel(
+            id=file_id,
+            project_id=project_id,
+            file_nm=file.filename,
+            file_path=os.path.join("project_files", project_id, stored_name),
+            file_size=size,
+            file_ext=ext,
+            uploader=uploader,
+        )
+        db.session.add(record)
+        db.session.commit()
+        return record.to_dict()
+
+    def delete_project_file(self, project_id: str, file_id: str, operator: str):
+        from utils.exceptions import PermissionException
+        p = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
+        if not p or p.project_status == 9:
+            raise ResourceNotFoundException(resource_type="项目")
+        if p.project_status != 1:
+            raise PermissionException(msg="只有草稿阶段可以删除附件")
+        if operator != (p.product_pm or ""):
+            raise PermissionException(msg="只有产品PM可以删除附件")
+
+        record = db.session.query(ProjectFileModel).filter_by(id=file_id, project_id=project_id).first()
+        if not record:
+            raise ResourceNotFoundException(resource_type="附件")
+
+        from configs.base import BaseConfig
+        abs_path = os.path.join(os.path.abspath(BaseConfig.UPLOAD_DIR), record.file_path)
+        if os.path.exists(abs_path):
+            os.remove(abs_path)
+        db.session.delete(record)
+        db.session.commit()
+
+    def get_project_file_path(self, project_id: str, file_id: str):
+        from configs.base import BaseConfig
+        record = db.session.query(ProjectFileModel).filter_by(id=file_id, project_id=project_id).first()
+        if not record:
+            raise ResourceNotFoundException(resource_type="附件")
+        abs_path = os.path.join(os.path.abspath(BaseConfig.UPLOAD_DIR), record.file_path)
+        if not os.path.exists(abs_path):
+            raise ResourceNotFoundException(resource_type="附件文件")
+        return abs_path, record.file_nm
 
 
 class FunctionController:

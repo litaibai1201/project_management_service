@@ -1,10 +1,13 @@
-import React, { useEffect, useState, useMemo } from 'react'
+import React, { useEffect, useState, useMemo, useRef } from 'react'
 import dayjs from 'dayjs'
+import { renderAsync as renderDocx } from 'docx-preview'
+import * as XLSX from 'xlsx'
+import PptxPreview from './PptxPreview'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   Tabs, Descriptions, Button, Tag, Progress, Spin, Empty, Table,
   Space, Tooltip, Popconfirm, Modal, Form, Input, Select, Steps, Avatar,
-  Timeline, Card, Segmented, Collapse, AutoComplete, DatePicker, InputNumber, Divider,
+  Timeline, Card, Segmented, Collapse, AutoComplete, DatePicker, InputNumber, Divider, Upload,
 } from 'antd'
 import { PencilSquareIcon as EditIcon } from '@heroicons/react/24/outline'
 import type { ColumnsType } from 'antd/es/table'
@@ -15,12 +18,119 @@ import {
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
 import { fetchProjectThunk, clearCurrent, fetchProjectGroupsThunk } from './projectSlice'
 import { projectApi } from '@/api/project.api'
-import { ProjectFunction, Milestone } from '@/types/api.types'
+import { ProjectFunction, Milestone, ProjectFile } from '@/types/api.types'
 import { FUNCTION_STATUS_MAP, PRIORITY_MAP } from '@/utils/status'
 import { showToast } from '@/utils/toast'
 import FunctionDetailDrawer from './FunctionDetailDrawer'
 import GanttChart from './GanttChart'
 import MilestoneTab from './MilestoneTab'
+
+// ─── Office Preview Sub-components ────────────────────────────────────────────
+
+const DocxPreview: React.FC<{ blob: Blob }> = ({ blob }) => {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [error, setError] = useState(false)
+
+  useEffect(() => {
+    if (!containerRef.current) return
+    blob.arrayBuffer().then((buf) => {
+      renderDocx(buf, containerRef.current!, undefined, {
+        className: 'docx-preview-body',
+        inWrapper: true,
+        ignoreWidth: false,
+        ignoreHeight: false,
+        ignoreFonts: false,
+        breakPages: true,
+        useBase64URL: true,
+      }).catch(() => setError(true))
+    })
+  }, [blob])
+
+  if (error) return (
+    <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-2">
+      <span className="text-3xl">⚠️</span><span>文件渲染失敗，請下載後查看</span>
+    </div>
+  )
+  return (
+    <div ref={containerRef}
+      style={{ padding: '16px 32px', background: '#f0f0f0', minHeight: 300 }} />
+  )
+}
+
+const XlsxPreview: React.FC<{ blob: Blob }> = ({ blob }) => {
+  const [sheets, setSheets] = useState<{ name: string; html: string }[]>([])
+  const [active, setActive] = useState(0)
+  const [error, setError] = useState<false | 'password' | 'error'>(false)
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const binary = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(reader.result as string)
+          reader.onerror = reject
+          reader.readAsBinaryString(blob)
+        })
+        const wb = XLSX.read(binary, { type: 'binary' })
+        const STYLE = `<style>
+body{font-family:sans-serif;font-size:12px;margin:8px;overflow:auto;}
+table{border-collapse:collapse;}
+td,th{border:1px solid #e2e8f0;padding:4px 8px;white-space:nowrap;vertical-align:top;}
+th{background:#f1f5f9;font-weight:600;}
+</style>`
+        const result = wb.SheetNames.map((name) => {
+          const ws   = wb.Sheets[name]
+          // sheet_to_json with header:1 returns rows as arrays — safer than sheet_to_html
+          const rows = XLSX.utils.sheet_to_json<(string | number | boolean | null)[]>(
+            ws, { header: 1, defval: '' }
+          )
+          const tbody = rows.map((row) =>
+            `<tr>${row.map((cell) => `<td>${String(cell ?? '').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</td>`).join('')}</tr>`
+          ).join('')
+          const html = `<!DOCTYPE html><html><head><meta charset="utf-8">${STYLE}</head><body><table>${tbody}</table></body></html>`
+          return { name, html }
+        })
+        setSheets(result)
+      } catch (e) {
+        console.error('XLSX parse error:', e)
+        const msg = e instanceof Error ? e.message : ''
+        setError(msg.includes('password') ? 'password' : 'error')
+      }
+    }
+    load()
+  }, [blob])
+
+  if (error) return (
+    <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-2">
+      <span className="text-3xl">⚠️</span>
+      <span>{error === 'password' ? '此文件已加密，請下載後用密碼開啟' : '文件渲染失敗，請下載後查看'}</span>
+    </div>
+  )
+  if (sheets.length === 0) return <div className="flex justify-center py-10"><Spin /></div>
+  return (
+    <div>
+      {sheets.length > 1 && (
+        <div style={{ borderBottom: '1px solid #e2e8f0', padding: '0 16px', background: '#f8fafc' }}>
+          {sheets.map((s, i) => (
+            <button key={s.name} onClick={() => setActive(i)}
+              style={{
+                padding: '8px 16px', border: 'none', background: 'transparent', cursor: 'pointer',
+                borderBottom: i === active ? '2px solid #2563eb' : '2px solid transparent',
+                color: i === active ? '#2563eb' : '#64748b', fontSize: 13, fontWeight: i === active ? 600 : 400,
+              }}>
+              {s.name}
+            </button>
+          ))}
+        </div>
+      )}
+      <iframe
+        srcDoc={sheets[active]?.html}
+        title="xlsx-preview"
+        style={{ width: '100%', height: '68vh', border: 'none', display: 'block' }}
+      />
+    </div>
+  )
+}
 
 const PRIORITY_OPTIONS = [
   { value: 1, label: '低' }, { value: 2, label: '中' },
@@ -62,6 +172,12 @@ const ProjectDetailPage: React.FC = () => {
   const [funcLoading,     setFuncLoading]      = useState(false)
   const [dynamics,        setDynamics]         = useState<Record<string, unknown>[]>([])
   const [milestones,      setMilestones]       = useState<Milestone[]>([])
+  const [files,           setFiles]            = useState<ProjectFile[]>([])
+  const [filesLoading,    setFilesLoading]     = useState(false)
+  const [uploading,       setUploading]        = useState(false)
+  const [preview,         setPreview]          = useState<{
+    file: ProjectFile; blobUrl?: string; blob?: Blob; text?: string; loading: boolean
+  } | null>(null)
   const [selectedFid,     setSelectedFid]      = useState<string | null>(null)
   const [showAddFunc,     setShowAddFunc]      = useState(false)
   const [addFuncLoading,  setAddFuncLoading]   = useState(false)
@@ -85,6 +201,7 @@ const ProjectDetailPage: React.FC = () => {
       loadFunctions(id)
       loadDynamics(id)
       loadMilestones(id)
+      loadFiles(id)
     }
     return () => { dispatch(clearCurrent()) }
   }, [id, dispatch])
@@ -112,6 +229,73 @@ const ProjectDetailPage: React.FC = () => {
       const res = await projectApi.getMilestones(pid)
       setMilestones(Array.isArray(res.content) ? (res.content as Milestone[]) : [])
     } catch { /* global */ }
+  }
+
+  const loadFiles = async (pid: string) => {
+    setFilesLoading(true)
+    try {
+      const res = await projectApi.listFiles(pid)
+      setFiles(Array.isArray(res.content) ? (res.content as ProjectFile[]) : [])
+    } catch { /* global */ }
+    finally { setFilesLoading(false) }
+  }
+
+  const handleUploadFile = async (file: File) => {
+    if (!id) return false
+    setUploading(true)
+    try {
+      await projectApi.uploadFile(id, file)
+      showToast.success('上傳成功')
+      loadFiles(id)
+    } catch { showToast.error('上傳失敗') }
+    finally { setUploading(false) }
+    return false // 阻止 antd Upload 自動提交
+  }
+
+  const handleDeleteFile = async (fileId: string) => {
+    if (!id) return
+    try {
+      await projectApi.deleteFile(id, fileId)
+      showToast.success('已刪除')
+      setFiles((prev) => prev.filter((f) => f.id !== fileId))
+    } catch { showToast.error('刪除失敗') }
+  }
+
+  const IMAGE_EXTS  = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp'])
+  const PDF_EXTS    = new Set(['pdf'])
+  const TEXT_EXTS   = new Set(['txt', 'md', 'yaml', 'yml', 'csv'])
+  const HTML_EXTS   = new Set(['html', 'htm'])
+  const DOCX_EXTS   = new Set(['docx'])
+  const XLSX_EXTS   = new Set(['xlsx', 'xls'])
+  const PPTX_EXTS   = new Set(['pptx', 'ppt'])
+  const DOC_LEGACY  = new Set(['doc', 'ppt', 'xls'])   // legacy binary — no client-side renderer
+  const PREVIEWABLE = new Set([...IMAGE_EXTS, ...PDF_EXTS, ...TEXT_EXTS, ...HTML_EXTS, ...DOCX_EXTS, ...XLSX_EXTS, ...PPTX_EXTS, ...DOC_LEGACY])
+
+  const handlePreview = async (file: ProjectFile) => {
+    const ext = file.file_ext.toLowerCase()
+    setPreview({ file, loading: true })
+    try {
+      if (TEXT_EXTS.has(ext)) {
+        const text = await projectApi.previewFileAsText(id!, file.id)
+        setPreview({ file, text, loading: false })
+      } else if (IMAGE_EXTS.has(ext) || PDF_EXTS.has(ext) || HTML_EXTS.has(ext)) {
+        const blobUrl = await projectApi.previewFileAsBlob(id!, file.id)
+        setPreview({ file, blobUrl, loading: false })
+      } else if (DOCX_EXTS.has(ext) || XLSX_EXTS.has(ext) || PPTX_EXTS.has(ext)) {
+        const blob = await projectApi.previewFileRawBlob(id!, file.id)
+        setPreview({ file, blob, loading: false })
+      } else {
+        setPreview({ file, loading: false })
+      }
+    } catch {
+      showToast.error('預覽失敗')
+      setPreview(null)
+    }
+  }
+
+  const closePreview = () => {
+    if (preview?.blobUrl) URL.revokeObjectURL(preview.blobUrl)
+    setPreview(null)
   }
 
   const handleAddFunction = async (values: Record<string, unknown>) => {
@@ -330,7 +514,7 @@ const ProjectDetailPage: React.FC = () => {
       </div>
 
       {/* Status progress steps */}
-      <Card bordered={false} className="shadow-sm mb-5" bodyStyle={{ padding: '20px 28px' }}>
+      <Card variant="borderless" className="shadow-sm mb-5" styles={{ body: { padding: '20px 28px' } }}>
         <Steps
           current={stepIndex}
           size="small"
@@ -355,7 +539,7 @@ const ProjectDetailPage: React.FC = () => {
             key: 'info',
             label: '基本資訊',
             children: (
-              <Card bordered={false} className="shadow-sm" bodyStyle={{ padding: 24 }}>
+              <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: 24 } }}>
                 <Descriptions bordered column={2} size="small"
                   labelStyle={{ background: '#f8fafc', color: '#64748b', fontWeight: 500, fontSize: 12 }}
                   contentStyle={{ fontSize: 13 }}
@@ -377,7 +561,7 @@ const ProjectDetailPage: React.FC = () => {
             key: 'functions',
             label: `功能任務 (${functions.length})`,
             children: (
-              <Card bordered={false} className="shadow-sm" bodyStyle={{ padding: 0 }}>
+              <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: 0 } }}>
                 <div className="flex justify-between items-center px-4 py-3 border-b border-slate-100">
                   <div className="flex items-center gap-3">
                     <Segmented
@@ -457,7 +641,7 @@ const ProjectDetailPage: React.FC = () => {
             key: 'dynamics',
             label: '成員動態',
             children: (
-              <Card bordered={false} className="shadow-sm" bodyStyle={{ padding: '16px 24px' }}>
+              <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: '16px 24px' } }}>
                 {dynamics.length === 0 ? (
                   <Empty description="暫無動態記錄" />
                 ) : (
@@ -485,7 +669,7 @@ const ProjectDetailPage: React.FC = () => {
             key: 'gantt',
             label: '甘特圖',
             children: (
-              <Card bordered={false} className="shadow-sm" bodyStyle={{ padding: 16 }}>
+              <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: 16 } }}>
                 <GanttChart functions={functions} milestones={milestones} />
               </Card>
             ),
@@ -494,18 +678,188 @@ const ProjectDetailPage: React.FC = () => {
             key: 'milestones',
             label: `里程碑 (${milestones.length})`,
             children: (
-              <Card bordered={false} className="shadow-sm" bodyStyle={{ padding: 20 }}>
+              <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: 20 } }}>
                 {id && <MilestoneTab projectId={id} functions={functions} />}
+              </Card>
+            ),
+          },
+          {
+            key: 'files',
+            label: `附件 (${files.length})`,
+            children: (
+              <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: '16px 24px' } }}>
+                {/* 上傳區域：僅草稿且有編輯權限 */}
+                {current.status === 1 && current.can_edit && (
+                  <Upload
+                    showUploadList={false}
+                    beforeUpload={(file) => {
+                      const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
+                      const LEGACY = { doc: '.docx', ppt: '.pptx', xls: '.xlsx' } as Record<string, string>
+                      if (LEGACY[ext]) {
+                        showToast.error(`不支持 .${ext} 格式，請另存為 ${LEGACY[ext]} 後再上傳`)
+                        return false
+                      }
+                      handleUploadFile(file)
+                      return false
+                    }}
+                    accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.md,.yaml,.yml,.csv,.html,.htm"
+                    disabled={uploading}
+                  >
+                    <Button
+                      icon={<PlusIcon className="w-4 h-4" />}
+                      loading={uploading}
+                      className="mb-4"
+                    >
+                      上傳附件
+                    </Button>
+                  </Upload>
+                )}
+
+                {/* 附件列表 */}
+                {filesLoading ? (
+                  <Spin />
+                ) : files.length === 0 ? (
+                  <Empty description="暫無附件" />
+                ) : (
+                  <Table
+                    rowKey="id"
+                    dataSource={files}
+                    size="small"
+                    pagination={false}
+                    columns={[
+                      {
+                        title: '文件名',
+                        dataIndex: 'file_nm',
+                        render: (name: string, record) => {
+                          const ext = record.file_ext.toLowerCase()
+                          const canPreview = PREVIEWABLE.has(ext)
+                          return (
+                            <div className="flex items-center gap-2">
+                              {canPreview ? (
+                                <Button type="link" style={{ padding: 0 }}
+                                  onClick={() => handlePreview(record)}>
+                                  {name}
+                                </Button>
+                              ) : (
+                                <span className="text-slate-700 text-sm">{name}</span>
+                              )}
+                            </div>
+                          )
+                        },
+                      },
+                      {
+                        title: '類型',
+                        dataIndex: 'file_ext',
+                        width: 70,
+                        render: (v: string) => <Tag style={{ fontSize: 11 }}>{v.toUpperCase()}</Tag>,
+                      },
+                      {
+                        title: '大小',
+                        dataIndex: 'file_size',
+                        width: 90,
+                        render: (v: number) => {
+                          if (v >= 1024 * 1024) return `${(v / 1024 / 1024).toFixed(1)} MB`
+                          if (v >= 1024) return `${(v / 1024).toFixed(1)} KB`
+                          return `${v} B`
+                        },
+                      },
+                      { title: '上傳人', dataIndex: 'uploader', width: 100 },
+                      { title: '上傳時間', dataIndex: 'created_at', width: 140 },
+                      {
+                        title: '操作',
+                        width: 120,
+                        render: (_: unknown, record) => (
+                          <Space size={0}>
+                            <Tooltip title="下載">
+                              <a href={projectApi.getFileDownloadUrl(id!, record.id)}
+                                target="_blank" rel="noreferrer">
+                                <Button type="text" size="small"
+                                  icon={<EyeIcon className="w-4 h-4" />} />
+                              </a>
+                            </Tooltip>
+                            {current.status === 1 && current.can_edit && (
+                              <Popconfirm
+                                title="確認刪除此附件？"
+                                onConfirm={() => handleDeleteFile(record.id)}
+                                okText="確認" cancelText="取消"
+                              >
+                                <Tooltip title="刪除">
+                                  <Button type="text" size="small" danger
+                                    icon={<TrashIcon className="w-4 h-4" />} />
+                                </Tooltip>
+                              </Popconfirm>
+                            )}
+                          </Space>
+                        ),
+                      },
+                    ]}
+                  />
+                )}
               </Card>
             ),
           },
         ]}
       />
 
+      {/* 附件預覽 Modal */}
+      {preview && (() => {
+        const ext = preview.file.file_ext.toLowerCase()
+        const isWide = PDF_EXTS.has(ext) || HTML_EXTS.has(ext) || DOCX_EXTS.has(ext) || XLSX_EXTS.has(ext) || PPTX_EXTS.has(ext)
+        return (
+          <Modal
+            open
+            title={preview.file.file_nm}
+            onCancel={closePreview}
+            footer={
+              <a href={projectApi.getFileDownloadUrl(id!, preview.file.id)}
+                target="_blank" rel="noreferrer">
+                <Button>下載</Button>
+              </a>
+            }
+            width={isWide ? '85vw' : 700}
+            styles={{ body: { padding: 0, maxHeight: '78vh', overflow: 'auto' } }}
+          >
+            {preview.loading ? (
+              <div className="flex justify-center items-center py-16"><Spin size="large" /></div>
+            ) : IMAGE_EXTS.has(ext) && preview.blobUrl ? (
+              <div className="flex justify-center p-4 bg-slate-50">
+                <img src={preview.blobUrl} alt={preview.file.file_nm}
+                  style={{ maxWidth: '100%', maxHeight: '72vh', objectFit: 'contain' }} />
+              </div>
+            ) : PDF_EXTS.has(ext) && preview.blobUrl ? (
+              <iframe src={preview.blobUrl} title={preview.file.file_nm}
+                style={{ width: '100%', height: '78vh', border: 'none', display: 'block' }} />
+            ) : HTML_EXTS.has(ext) && preview.blobUrl ? (
+              <iframe src={preview.blobUrl} title={preview.file.file_nm} sandbox="allow-same-origin"
+                style={{ width: '100%', height: '78vh', border: 'none', display: 'block' }} />
+            ) : TEXT_EXTS.has(ext) && preview.text !== undefined ? (
+              <pre style={{
+                margin: 0, padding: '16px 20px', fontSize: 13, lineHeight: 1.6,
+                fontFamily: 'ui-monospace, monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+                background: '#f8fafc', minHeight: 200,
+              }}>
+                {preview.text}
+              </pre>
+            ) : DOCX_EXTS.has(ext) && preview.blob ? (
+              <DocxPreview blob={preview.blob} />
+            ) : XLSX_EXTS.has(ext) && preview.blob ? (
+              <XlsxPreview blob={preview.blob} />
+            ) : PPTX_EXTS.has(ext) && preview.blob ? (
+              <PptxPreview blob={preview.blob} />
+            ) : (
+              <div className="flex flex-col items-center justify-center py-16 text-slate-400 gap-2">
+                <span className="text-4xl">📄</span>
+                <span>此文件類型不支持預覽，請下載後查看</span>
+              </div>
+            )}
+          </Modal>
+        )
+      })()}
+
       {/* Add Function Modal */}
       <Modal title="新增功能任務" open={showAddFunc}
         onCancel={() => { setShowAddFunc(false); funcForm.resetFields() }}
-        footer={null} width={520} destroyOnClose>
+        footer={null} width={520} destroyOnHidden>
         <Form form={funcForm} layout="vertical" onFinish={handleAddFunction} className="mt-4">
           <Form.Item name="function_nm" label="功能名稱" rules={[{ required: true }]}>
             <Input placeholder="請輸入功能名稱" />
@@ -543,7 +897,7 @@ const ProjectDetailPage: React.FC = () => {
 
       {/* 編輯專案 Modal */}
       <Modal title="編輯專案" open={showEdit} onCancel={() => setShowEdit(false)}
-        footer={null} width={600} destroyOnClose>
+        footer={null} width={600} destroyOnHidden>
         <Form form={editForm} layout="vertical" onFinish={handleEditSave} className="mt-4">
           <Form.Item name="project_nm" label="專案名稱" rules={[{ required: true }]} className="col-span-2">
             <Input />
@@ -618,7 +972,7 @@ const ProjectDetailPage: React.FC = () => {
       <Modal
         title={current.status === 1 ? '提交立案審核' : '提交規劃審核'}
         open={showSubmit} onCancel={() => setShowSubmit(false)}
-        footer={null} width={420} destroyOnClose>
+        footer={null} width={420} destroyOnHidden>
         <Form form={submitForm} layout="vertical" onFinish={handleSubmitReview} className="mt-4">
           <Form.Item name="reviewer" label="審核人（工號）" rules={[{ required: true, message: '請填寫審核人工號' }]}
             extra="填寫直屬主管的工號，審核通過後專案將進入下一階段">
