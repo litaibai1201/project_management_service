@@ -44,14 +44,16 @@ class ProjectDetailApi(MethodView):
     @blp.response(200, RspMsgDictSchema)
     def get(self, project_id):
         """获取项目详情"""
-        return response_result(content=proj_ctrl.get_project(project_id))
+        work_no = get_identity()
+        return response_result(content=proj_ctrl.get_project(project_id, operator=work_no))
 
     @jwt_required()
     @blp.response(200, RspMsgDictSchema)
     def put(self, project_id):
         """更新项目"""
+        work_no = get_identity()
         payload = request.form.to_dict()
-        proj_ctrl.update_project(project_id, payload)
+        proj_ctrl.update_project(project_id, payload, operator=work_no)
         return response_result()
 
     @jwt_required()

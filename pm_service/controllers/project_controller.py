@@ -71,11 +71,28 @@ class ProjectController:
             "project_list": [p.to_list_item() for p in projects],
         }
 
-    def get_project(self, project_id: str):
+    def get_project(self, project_id: str, operator: str = ""):
+        from dbs.mysql_db.model_tables import HierarchyModel
         p = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
         if not p or p.project_status == 9:
             raise ResourceNotFoundException(resource_type="项目")
-        return p.to_dict()
+        result = p.to_dict()
+        product_pm = p.product_pm or ""
+        # can_submit: 草稿阶段 + 操作者是产品PM
+        result["can_submit"] = bool(operator and p.project_status == 1 and operator == product_pm)
+        # can_edit: 草稿阶段 + 操作者是产品PM或产品PM的直属上级
+        if operator and p.project_status == 1:
+            if operator == product_pm:
+                result["can_edit"] = True
+            else:
+                is_sup = db.session.query(HierarchyModel).filter_by(
+                    supervisor_work_no=operator,
+                    subordinate_work_no=product_pm,
+                ).first() is not None
+                result["can_edit"] = is_sup
+        else:
+            result["can_edit"] = False
+        return result
 
     def create_project(self, payload: dict, creator: str):
         p = ProjectDataModel(
@@ -95,10 +112,25 @@ class ProjectController:
         db.session.commit()
         return {"project_id": p.id}
 
-    def update_project(self, project_id: str, payload: dict):
+    def update_project(self, project_id: str, payload: dict, operator: str = ""):
+        from utils.exceptions import PermissionException
         p = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
         if not p or p.project_status == 9:
             raise ResourceNotFoundException(resource_type="项目")
+        # 只有草稿阶段允许编辑
+        if p.project_status != 1:
+            raise PermissionException(msg="只有草稿阶段的专案可以编辑")
+        # 只有产品PM或其直属上级可以编辑
+        if operator:
+            product_pm = p.product_pm or ""
+            if operator != product_pm:
+                from dbs.mysql_db.model_tables import HierarchyModel
+                is_supervisor = db.session.query(HierarchyModel).filter_by(
+                    supervisor_work_no=operator,
+                    subordinate_work_no=product_pm,
+                ).first() is not None
+                if not is_supervisor:
+                    raise PermissionException(msg="只有产品PM或其直属上级可以编辑专案")
         fields = ("project_nm", "describe", "department", "product_pm", "project_pm",
                   "expected_end_date", "priority", "group_id", "code_url", "expected_benefit")
         for f in fields:
@@ -124,9 +156,16 @@ class ProjectController:
         db.session.commit()
 
     def submit_for_review(self, project_id: str, reviewer: list, status: int, submitter: str):
+        from utils.exceptions import PermissionException
         p = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
         if not p:
             raise ResourceNotFoundException(resource_type="项目")
+        # 只有草稿阶段才能提交立案审核
+        if p.project_status != 1:
+            raise PermissionException(msg="只有草稿阶段的专案才能提交立案审核")
+        # 只有产品PM可以提交
+        if submitter != (p.product_pm or ""):
+            raise PermissionException(msg="只有产品PM可以提交立案审核")
         type_map = {
             2: ("立案申请", "initiate"), 4: ("规划审核", "plan"),
             6: ("完结审核", "project_complete"),

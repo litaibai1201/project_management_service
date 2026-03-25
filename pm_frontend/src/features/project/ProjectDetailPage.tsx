@@ -283,16 +283,16 @@ const ProjectDetailPage: React.FC = () => {
         </div>
         {/* 操作按鈕 */}
         <div className="flex items-center gap-2 flex-shrink-0">
-          {/* 草稿或規劃中才可編輯 */}
-          {[1, 3].includes(current.status) && (
+          {/* 草稿且有權限才可編輯（産品PM或其直屬上級） */}
+          {current.status === 1 && current.can_edit && (
             <Button icon={<EditIcon className="w-4 h-4" />} onClick={handleEditOpen}>
               編輯
             </Button>
           )}
-          {/* 草稿 → 提交立案；規劃中 → 提交規劃審核 */}
-          {[1, 3].includes(current.status) && (
+          {/* 草稿 → 提交立案審核（僅産品PM） */}
+          {current.status === 1 && current.can_submit && (
             <Button type="primary" style={{ background: '#2563eb' }} onClick={() => setShowSubmit(true)}>
-              {current.status === 1 ? '提交立案審核' : '提交規劃審核'}
+              提交立案審核
             </Button>
           )}
         </div>

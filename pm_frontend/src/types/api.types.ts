@@ -99,6 +99,8 @@ export interface Project {
   created_at: string
   updated_at?: string
   progress?: number
+  can_edit?: boolean
+  can_submit?: boolean
 }
 
 export interface ProjectListItem {
