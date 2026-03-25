@@ -11,15 +11,27 @@ from dbs.mysql_db.model_tables import (
 
 class StatisticsController:
 
-    def get_member_stats(self, start_date: str = None, end_date: str = None):
+    def get_member_stats(self, work_no: str, start_date: str = None, end_date: str = None):
         """
-        获取成员工作统计
+        获取当前用户下属的工作统计（仅直接+间接下属，不含自身）
         返回字段与前端 MemberWorkStat 对应：
           work_no, name, total_hours,
           completed_tasks, overdue_tasks, overdue_days,
           in_progress_tasks, weekly_hours
         """
-        users = db.session.query(UserProfileModel).filter_by(status=1).all()
+        from controllers.user_controller import UserController
+        user_ctrl = UserController()
+        subordinates = user_ctrl.get_subordinates(work_no, all_levels=True)
+        sub_work_nos = [s["work_no"] for s in subordinates]
+
+        if not sub_work_nos:
+            return []
+
+        users = (
+            db.session.query(UserProfileModel)
+            .filter(UserProfileModel.work_no.in_(sub_work_nos), UserProfileModel.status == 1)
+            .all()
+        )
         result = []
         for user in users:
             stat = self._build_member_stat(user, start_date, end_date)

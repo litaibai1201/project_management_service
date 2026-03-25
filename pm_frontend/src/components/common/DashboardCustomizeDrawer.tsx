@@ -22,7 +22,7 @@ export const EditToggleButton: React.FC<EditToggleProps> = ({
   <Tooltip title={isEditing ? '完成編輯' : '自定義首頁佈局'}>
     <button
       onClick={() => setIsEditing(!isEditing)}
-      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
+      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors outline-none border-0 cursor-pointer ${
         isEditing
           ? 'bg-blue-600 text-white hover:bg-blue-700'
           : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'

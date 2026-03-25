@@ -1,10 +1,12 @@
-import React, { useEffect } from 'react'
-import { Modal, Form, Input, Select, DatePicker, Button, InputNumber } from 'antd'
+import React, { useEffect, useRef, useState } from 'react'
+import { Modal, Form, Input, Select, DatePicker, Button, InputNumber, Divider, Space } from 'antd'
+import { PlusOutlined } from '@ant-design/icons'
 import { useForm, Controller } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
-import { createProjectThunk } from './projectSlice'
+import { createProjectThunk, fetchProjectGroupsThunk } from './projectSlice'
+import { projectApi } from '@/api/project.api'
 import { showToast } from '@/utils/toast'
 
 // ─── Validation Schema ────────────────────────────────────────────────────────
@@ -43,6 +45,12 @@ const PRIORITY_OPTIONS = [
 const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ open, onClose, onSuccess }) => {
   const dispatch = useAppDispatch()
   const { groups, isSaving } = useAppSelector((s) => s.project)
+  const { isAdmin, isSupervisor } = useAppSelector((s) => s.auth)
+  const canManageGroups = isAdmin || isSupervisor
+
+  const [newGroupName, setNewGroupName]       = useState('')
+  const [creatingGroup, setCreatingGroup]     = useState(false)
+  const newGroupInputRef = useRef<HTMLInputElement>(null)
 
   const { control, handleSubmit, reset, formState: { errors } } = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -50,8 +58,29 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ open, onClose, 
   })
 
   useEffect(() => {
-    if (!open) reset()
-  }, [open, reset])
+    if (open) {
+      dispatch(fetchProjectGroupsThunk())
+    } else {
+      reset()
+      setNewGroupName('')
+    }
+  }, [open, dispatch, reset])
+
+  const handleCreateGroup = async () => {
+    const nm = newGroupName.trim()
+    if (!nm) return
+    setCreatingGroup(true)
+    try {
+      await projectApi.createGroup(nm)
+      await dispatch(fetchProjectGroupsThunk())
+      setNewGroupName('')
+      showToast.success(`分組「${nm}」已建立`)
+    } catch {
+      showToast.error('建立分組失敗')
+    } finally {
+      setCreatingGroup(false)
+    }
+  }
 
   const onSubmit = async (values: FormValues) => {
     try {
@@ -164,6 +193,32 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ open, onClose, 
                   {...field}
                   options={groups.map((g) => ({ value: g.id, label: g.group_nm }))}
                   placeholder="請選擇分組"
+                  popupRender={canManageGroups ? (menu) => (
+                    <>
+                      {menu}
+                      <Divider style={{ margin: '8px 0' }} />
+                      <Space style={{ padding: '0 8px 8px' }}>
+                        <input
+                          ref={newGroupInputRef}
+                          value={newGroupName}
+                          onChange={(e) => setNewGroupName(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCreateGroup() } }}
+                          placeholder="輸入新分組名稱"
+                          style={{ flex: 1, padding: '4px 8px', border: '1px solid #d9d9d9', borderRadius: 6, fontSize: 13, outline: 'none' }}
+                        />
+                        <Button
+                          type="text"
+                          icon={<PlusOutlined />}
+                          loading={creatingGroup}
+                          onClick={handleCreateGroup}
+                          disabled={!newGroupName.trim()}
+                          size="small"
+                        >
+                          新建分組
+                        </Button>
+                      </Space>
+                    </>
+                  ) : undefined}
                 />
               )}
             />

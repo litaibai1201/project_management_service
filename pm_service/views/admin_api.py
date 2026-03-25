@@ -22,6 +22,20 @@ def _require_admin():
         raise PermissionException(msg="仅管理员可执行此操作")
 
 
+def _require_admin_or_supervisor():
+    """检查当前用户是否为管理员或主管，否则抛出权限异常"""
+    from dbs.mysql_db.model_tables import HierarchyModel
+    work_no = get_identity()
+    ur = db.session.query(UserRoleModel).filter_by(work_no=work_no).first()
+    if ur and ur.role_code == "admin":
+        return
+    is_supervisor = db.session.query(HierarchyModel).filter_by(
+        supervisor_work_no=work_no
+    ).first() is not None
+    if not is_supervisor:
+        raise PermissionException(msg="僅管理員或主管可執行此操作")
+
+
 # ─── 专案分组管理 ─────────────────────────────────────────────────────────────
 
 @blp.route("/project_group")
@@ -40,8 +54,8 @@ class ProjectGroupListApi(MethodView):
     @jwt_required()
     @blp.response(200, RspMsgDictSchema)
     def post(self):
-        """新建专案分组（仅管理员）"""
-        _require_admin()
+        """新建专案分组（管理员或主管）"""
+        _require_admin_or_supervisor()
         payload = request.get_json() or {}
         group_nm = (payload.get("group_nm") or payload.get("group_name", "")).strip()
         if not group_nm:
@@ -65,8 +79,8 @@ class ProjectGroupDetailApi(MethodView):
     @jwt_required()
     @blp.response(200, RspMsgDictSchema)
     def put(self, group_id):
-        """更新专案分组（仅管理员）"""
-        _require_admin()
+        """更新专案分组（管理员或主管）"""
+        _require_admin_or_supervisor()
         g = db.session.query(ProjectGroupModel).filter_by(id=group_id, status=1).first()
         if not g:
             raise ResourceNotFoundException(msg="分组不存在")
@@ -81,8 +95,8 @@ class ProjectGroupDetailApi(MethodView):
     @jwt_required()
     @blp.response(200, RspMsgDictSchema)
     def delete(self, group_id):
-        """删除专案分组（仅管理员）"""
-        _require_admin()
+        """删除专案分组（管理员或主管）"""
+        _require_admin_or_supervisor()
         g = db.session.query(ProjectGroupModel).filter_by(id=group_id, status=1).first()
         if not g:
             raise ResourceNotFoundException(msg="分组不存在")

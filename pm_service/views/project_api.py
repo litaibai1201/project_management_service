@@ -6,7 +6,7 @@ from flask_smorest import Blueprint
 from utils.auth import jwt_required, get_identity
 from utils.response import response_result
 from controllers.project_controller import ProjectController, FunctionController, MilestoneController
-from serializes.response_serialize import RspMsgDictSchema
+from serializes.response_serialize import RspMsgDictSchema, RspMsgRawSchema
 
 blp = Blueprint("project_api", __name__, description="项目管理接口")
 proj_ctrl = ProjectController()
@@ -151,7 +151,7 @@ class ProgressAndHourApi(MethodView):
 @blp.route("/project_group")
 class ProjectGroupApi(MethodView):
     @jwt_required()
-    @blp.response(200, RspMsgDictSchema)
+    @blp.response(200, RspMsgRawSchema)
     def get(self):
         """获取项目分组"""
         return response_result(content=proj_ctrl.get_project_groups())

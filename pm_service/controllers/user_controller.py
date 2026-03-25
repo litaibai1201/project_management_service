@@ -267,24 +267,26 @@ class UserController:
         from dbs.mysql_db.model_tables import (
             FunctionDataModel, TemporaryDutyModel, ReviewApplyModel
         )
+        dev_pat  = f'%"{work_no}"%'
+        resp_pat = f'%"{work_no}"%'
         doing_task = (
             db.session.query(FunctionDataModel)
-            .filter(FunctionDataModel.developers.like(f"%{work_no}%"),
+            .filter(FunctionDataModel.developers.like(dev_pat),
                     FunctionDataModel.function_status == 2).count()
         )
         unstart_task = (
             db.session.query(FunctionDataModel)
-            .filter(FunctionDataModel.developers.like(f"%{work_no}%"),
+            .filter(FunctionDataModel.developers.like(dev_pat),
                     FunctionDataModel.function_status == 1).count()
         )
         doing_duty = (
             db.session.query(TemporaryDutyModel)
-            .filter(TemporaryDutyModel.responsible.like(f"%{work_no}%"),
+            .filter(TemporaryDutyModel.responsible.like(resp_pat),
                     TemporaryDutyModel.duty_status == 1).count()
         )
         unstart_duty = (
             db.session.query(TemporaryDutyModel)
-            .filter(TemporaryDutyModel.responsible.like(f"%{work_no}%"),
+            .filter(TemporaryDutyModel.responsible.like(resp_pat),
                     TemporaryDutyModel.duty_status == 0).count()
         )
         pending_project = (
@@ -312,30 +314,45 @@ class UserController:
 
     def get_statistical(self, work_no: str) -> dict:
         from dbs.mysql_db.model_tables import FunctionDataModel, TemporaryDutyModel, ProjectDataModel
+        # developers / responsible 均为 JSON 数组，使用 "%"work_no"%" 精确匹配
+        dev_pat  = f'%"{work_no}"%'
+        resp_pat = f'%"{work_no}"%'
         # ── 功能任务统计 ──────────────────────────────────────────────────────
         total_projects = (
             db.session.query(FunctionDataModel)
-            .filter(FunctionDataModel.developers.like(f"%{work_no}%")).count()
+            .filter(FunctionDataModel.developers.like(dev_pat),
+                    FunctionDataModel.function_status.notin_([9])).count()
         )
         total_duties = (
             db.session.query(TemporaryDutyModel)
-            .filter(TemporaryDutyModel.responsible.like(f"%{work_no}%")).count()
+            .filter(TemporaryDutyModel.responsible.like(resp_pat),
+                    TemporaryDutyModel.duty_status.notin_([9])).count()
         )
         completed = (
             db.session.query(FunctionDataModel)
-            .filter(FunctionDataModel.developers.like(f"%{work_no}%"),
+            .filter(FunctionDataModel.developers.like(dev_pat),
                     FunctionDataModel.function_status == 4).count()
         )
         in_progress = (
             db.session.query(FunctionDataModel)
-            .filter(FunctionDataModel.developers.like(f"%{work_no}%"),
+            .filter(FunctionDataModel.developers.like(dev_pat),
                     FunctionDataModel.function_status == 2).count()
         )
-        # ── 专案统计（project_pm / product_pm / creator 任一匹配即视为参与）──
+        # ── 专案统计 ──────────────────────────────────────────────────────────
+        # 参与定义：专案PM / 产品PM / 创建者 / 功能任务负责人（任一满足即算参与）
+        # 审核人（仅出现在 ReviewApplyModel.reviewer）不计入
+        dev_proj_ids = (
+            db.session.query(FunctionDataModel.project_id)
+            .filter(FunctionDataModel.developers.like(dev_pat),
+                    FunctionDataModel.function_status.notin_([9]))
+            .distinct()
+            .subquery()
+        )
         _proj_filter = db.or_(
             ProjectDataModel.project_pm == work_no,
             ProjectDataModel.product_pm == work_no,
             ProjectDataModel.creator    == work_no,
+            ProjectDataModel.id.in_(dev_proj_ids),
         )
         project_total = (
             db.session.query(ProjectDataModel)
@@ -370,10 +387,14 @@ class UserController:
         today        = datetime.date.today().strftime("%Y-%m-%d")
         today_plus7  = (datetime.date.today() + datetime.timedelta(days=7)).strftime("%Y-%m-%d")
 
-        # ── 团队专案统计 ────────────────────────────────────────────────────────
+        # 主管本人 + 所有层级下属
         all_members = [work_no] + sub_work_nos
+
+        # ── 团队专案统计 ────────────────────────────────────────────────────────
+        # 参与定义：专案PM / 产品PM / 创建者 / 功能任务负责人（任一满足即算参与）
         if all_members:
-            proj_member_conds = [
+            # 专案级角色
+            proj_role_conds = [
                 db.or_(
                     ProjectDataModel.project_pm == m,
                     ProjectDataModel.product_pm == m,
@@ -381,7 +402,19 @@ class UserController:
                 )
                 for m in all_members
             ]
-            proj_filter = db.or_(*proj_member_conds)
+            # 通过功能任务参与的专案
+            dev_func_conds = [FunctionDataModel.developers.like(f'%"{m}"%') for m in all_members]
+            dev_proj_ids = (
+                db.session.query(FunctionDataModel.project_id)
+                .filter(db.or_(*dev_func_conds),
+                        FunctionDataModel.function_status.notin_([9]))
+                .distinct()
+                .subquery()
+            )
+            proj_filter = db.or_(
+                *proj_role_conds,
+                ProjectDataModel.id.in_(dev_proj_ids),
+            )
         else:
             proj_filter = db.false()
 
@@ -389,10 +422,10 @@ class UserController:
         team_project_in_progress = db.session.query(ProjectDataModel).filter(proj_filter, ProjectDataModel.project_status == 5).count()
         team_project_completed   = db.session.query(ProjectDataModel).filter(proj_filter, ProjectDataModel.project_status == 7).count()
 
-        # ── 团队任务统计（仅下属） ───────────────────────────────────────────────
-        if sub_work_nos:
-            func_filter = db.or_(*[FunctionDataModel.developers.like(f"%{m}%")  for m in sub_work_nos])
-            duty_filter = db.or_(*[TemporaryDutyModel.responsible.like(f"%{m}%") for m in sub_work_nos])
+        # ── 团队任务统计（主管本人 + 所有下属） ──────────────────────────────────
+        if all_members:
+            func_filter = db.or_(*[FunctionDataModel.developers.like(f'%"{m}"%')  for m in all_members])
+            duty_filter = db.or_(*[TemporaryDutyModel.responsible.like(f'%"{m}"%') for m in all_members])
         else:
             func_filter = db.false()
             duty_filter = db.false()
