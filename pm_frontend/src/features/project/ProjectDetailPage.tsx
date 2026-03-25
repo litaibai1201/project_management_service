@@ -175,6 +175,11 @@ const ProjectDetailPage: React.FC = () => {
   const [files,           setFiles]            = useState<ProjectFile[]>([])
   const [filesLoading,    setFilesLoading]     = useState(false)
   const [uploading,       setUploading]        = useState(false)
+  const [fileCategoryFilter, setFileCategoryFilter] = useState<string>('all')
+  const [uploadModal,     setUploadModal]      = useState<{ open: boolean; file: File | null; category: string }>({ open: false, file: null, category: 'other' })
+  const [changeReqModal,  setChangeReqModal]   = useState(false)
+  const [changeReqSaving, setChangeReqSaving]  = useState(false)
+  const [changeReqForm]                        = Form.useForm()
   const [preview,         setPreview]          = useState<{
     file: ProjectFile; blobUrl?: string; blob?: Blob; text?: string; loading: boolean
   } | null>(null)
@@ -240,16 +245,54 @@ const ProjectDetailPage: React.FC = () => {
     finally { setFilesLoading(false) }
   }
 
-  const handleUploadFile = async (file: File) => {
+  const handleUploadFile = async (file: File, category: string) => {
     if (!id) return false
     setUploading(true)
     try {
-      await projectApi.uploadFile(id, file)
+      await projectApi.uploadFile(id, file, category)
       showToast.success('上傳成功')
       loadFiles(id)
     } catch { showToast.error('上傳失敗') }
     finally { setUploading(false) }
-    return false // 阻止 antd Upload 自動提交
+    return false
+  }
+
+  // 根据当前专案阶段推荐默认分类
+  const defaultCategoryByStatus = (status: number) => {
+    if (status === 1) return 'requirement'
+    if (status === 3) return 'design'
+    if (status >= 5)  return 'progress'
+    return 'other'
+  }
+
+  const FILE_CATEGORIES = [
+    { value: 'requirement', label: '需求文件', color: '#2563eb' },
+    { value: 'design',      label: '規劃設計', color: '#7c3aed' },
+    { value: 'progress',    label: '進度報告', color: '#059669' },
+    { value: 'other',       label: '其他',     color: '#64748b' },
+  ]
+
+  // 各状态下锁定的分类（上传/删除均不可用，上传在有变更审批后可解锁）
+  const UPLOAD_LOCKED: Record<number, Set<string>> = {
+    2: new Set(['requirement']),
+    3: new Set(['requirement']),
+    4: new Set(['requirement', 'design']),
+    5: new Set(['requirement', 'design']),
+    6: new Set(['requirement', 'design']),
+    7: new Set(['requirement', 'design']),
+    8: new Set(['requirement', 'design']),
+  }
+  const DELETE_LOCKED = UPLOAD_LOCKED  // 删除比上传更严，变更审批也不解锁删除
+
+  const canUploadCategory = (cat: string) => {
+    const locked = UPLOAD_LOCKED[current?.status ?? 0] ?? new Set()
+    if (!locked.has(cat)) return true
+    return !!current?.has_approved_change_request  // 有已通过的变更审批可上传
+  }
+
+  const canDeleteCategory = (cat: string) => {
+    const locked = DELETE_LOCKED[current?.status ?? 0] ?? new Set()
+    return !locked.has(cat)  // 原始文件永远不能删除
   }
 
   const handleDeleteFile = async (fileId: string) => {
@@ -259,6 +302,19 @@ const ProjectDetailPage: React.FC = () => {
       showToast.success('已刪除')
       setFiles((prev) => prev.filter((f) => f.id !== fileId))
     } catch { showToast.error('刪除失敗') }
+  }
+
+  const handleSubmitChangeRequest = async (values: { reviewer: string[]; description: string }) => {
+    if (!id) return
+    setChangeReqSaving(true)
+    try {
+      await projectApi.submitChangeRequest(id, values.reviewer, values.description)
+      showToast.success('需求變更申請已提交')
+      setChangeReqModal(false)
+      changeReqForm.resetFields()
+      dispatch(fetchProjectThunk(id))  // 刷新专案状态
+    } catch { showToast.error('提交失敗') }
+    finally { setChangeReqSaving(false) }
   }
 
   const IMAGE_EXTS  = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp'])
@@ -687,33 +743,84 @@ const ProjectDetailPage: React.FC = () => {
             key: 'files',
             label: `附件 (${files.length})`,
             children: (
-              <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: '16px 24px' } }}>
-                {/* 上傳區域：僅草稿且有編輯權限 */}
-                {current.status === 1 && current.can_edit && (
-                  <Upload
-                    showUploadList={false}
-                    beforeUpload={(file) => {
-                      const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
-                      const LEGACY = { doc: '.docx', ppt: '.pptx', xls: '.xlsx' } as Record<string, string>
-                      if (LEGACY[ext]) {
-                        showToast.error(`不支持 .${ext} 格式，請另存為 ${LEGACY[ext]} 後再上傳`)
-                        return false
-                      }
-                      handleUploadFile(file)
-                      return false
-                    }}
-                    accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.md,.yaml,.yml,.csv,.html,.htm"
-                    disabled={uploading}
-                  >
-                    <Button
-                      icon={<PlusIcon className="w-4 h-4" />}
-                      loading={uploading}
-                      className="mb-4"
+              <Card
+                variant="borderless"
+                className="shadow-sm"
+                styles={{ body: { padding: '16px 24px' } }}
+                title={<span className="text-sm font-medium text-slate-600">附件列表</span>}
+                extra={
+                  <Space size={8}>
+                    {/* 需求变更申请按钮：执行阶段且 PM 且当前没有待审/通过的申请 */}
+                    {current.can_submit_change_request && (
+                      <Button size="small" onClick={() => setChangeReqModal(true)}>
+                        申請需求變更
+                      </Button>
+                    )}
+                    {/* 变更申请状态提示 */}
+                    {current.change_request_status === 1 && (
+                      <Tag color="processing">需求變更審核中</Tag>
+                    )}
+                    {current.has_approved_change_request && (
+                      <Tag color="success">變更已批准</Tag>
+                    )}
+                    {current.can_manage_files && (
+                      <Upload
+                        showUploadList={false}
+                        beforeUpload={(file) => {
+                          const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
+                          const LEGACY = { doc: '.docx', ppt: '.pptx', xls: '.xlsx' } as Record<string, string>
+                          if (LEGACY[ext]) {
+                            showToast.error(`不支持 .${ext} 格式，請另存為 ${LEGACY[ext]} 後再上傳`)
+                            return false
+                          }
+                          setUploadModal({
+                            open: true,
+                            file,
+                            category: defaultCategoryByStatus(current.status),
+                          })
+                          return false
+                        }}
+                        accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.md,.yaml,.yml,.csv,.html,.htm"
+                        disabled={uploading}
+                      >
+                        <Button
+                          type="primary"
+                          icon={<PlusIcon className="w-4 h-4" />}
+                          loading={uploading}
+                          size="small"
+                        >
+                          上傳附件
+                        </Button>
+                      </Upload>
+                    )}
+                  </Space>
+                }
+              >
+                {/* 分類篩選 */}
+                <div className="flex gap-2 mb-3 flex-wrap items-center">
+                  {[{ value: 'all', label: `全部 (${files.length})`, locked: false },
+                    ...FILE_CATEGORIES.map(c => ({
+                      value: c.value,
+                      label: `${c.label} (${files.filter(f => f.file_category === c.value).length})`,
+                      locked: !canUploadCategory(c.value),
+                    }))
+                  ].map(tab => (
+                    <button
+                      key={tab.value}
+                      onClick={() => setFileCategoryFilter(tab.value)}
+                      className="px-3 py-1 rounded text-xs border transition-colors flex items-center gap-1"
+                      style={{
+                        background: fileCategoryFilter === tab.value ? '#2563eb' : '#f8fafc',
+                        color: fileCategoryFilter === tab.value ? '#fff' : '#64748b',
+                        borderColor: fileCategoryFilter === tab.value ? '#2563eb' : '#e2e8f0',
+                        fontWeight: fileCategoryFilter === tab.value ? 600 : 400,
+                      }}
                     >
-                      上傳附件
-                    </Button>
-                  </Upload>
-                )}
+                      {tab.locked && <span title="已鎖定，不可新增">🔒</span>}
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
 
                 {/* 附件列表 */}
                 {filesLoading ? (
@@ -723,7 +830,7 @@ const ProjectDetailPage: React.FC = () => {
                 ) : (
                   <Table
                     rowKey="id"
-                    dataSource={files}
+                    dataSource={files.filter(f => fileCategoryFilter === 'all' || f.file_category === fileCategoryFilter)}
                     size="small"
                     pagination={false}
                     columns={[
@@ -748,26 +855,35 @@ const ProjectDetailPage: React.FC = () => {
                         },
                       },
                       {
+                        title: '分類',
+                        dataIndex: 'file_category',
+                        width: 90,
+                        render: (v: string) => {
+                          const cat = FILE_CATEGORIES.find(c => c.value === v)
+                          return <Tag color={cat?.color} style={{ fontSize: 11 }}>{cat?.label ?? '其他'}</Tag>
+                        },
+                      },
+                      {
                         title: '類型',
                         dataIndex: 'file_ext',
-                        width: 70,
+                        width: 65,
                         render: (v: string) => <Tag style={{ fontSize: 11 }}>{v.toUpperCase()}</Tag>,
                       },
                       {
                         title: '大小',
                         dataIndex: 'file_size',
-                        width: 90,
+                        width: 85,
                         render: (v: number) => {
                           if (v >= 1024 * 1024) return `${(v / 1024 / 1024).toFixed(1)} MB`
                           if (v >= 1024) return `${(v / 1024).toFixed(1)} KB`
                           return `${v} B`
                         },
                       },
-                      { title: '上傳人', dataIndex: 'uploader', width: 100 },
+                      { title: '上傳人', dataIndex: 'uploader', width: 90 },
                       { title: '上傳時間', dataIndex: 'created_at', width: 140 },
                       {
                         title: '操作',
-                        width: 120,
+                        width: 90,
                         render: (_: unknown, record) => (
                           <Space size={0}>
                             <Tooltip title="下載">
@@ -777,7 +893,7 @@ const ProjectDetailPage: React.FC = () => {
                                   icon={<EyeIcon className="w-4 h-4" />} />
                               </a>
                             </Tooltip>
-                            {current.status === 1 && current.can_edit && (
+                            {current.can_manage_files && canDeleteCategory(record.file_category) && (
                               <Popconfirm
                                 title="確認刪除此附件？"
                                 onConfirm={() => handleDeleteFile(record.id)}
@@ -802,6 +918,91 @@ const ProjectDetailPage: React.FC = () => {
       />
 
       {/* 附件預覽 Modal */}
+      {/* Upload Modal */}
+      <Modal
+        title="上傳附件"
+        open={uploadModal.open}
+        onCancel={() => setUploadModal({ open: false, file: null, category: 'other' })}
+        onOk={async () => {
+          if (uploadModal.file) {
+            await handleUploadFile(uploadModal.file, uploadModal.category)
+          }
+          setUploadModal({ open: false, file: null, category: 'other' })
+        }}
+        okText="確認上傳"
+        cancelText="取消"
+        confirmLoading={uploading}
+        width={420}
+        destroyOnHidden
+      >
+        <div className="mt-4 mb-2 flex flex-col gap-4">
+          <div>
+            <div className="text-sm text-slate-500 mb-1">文件</div>
+            <div className="text-slate-800 text-sm font-medium truncate">{uploadModal.file?.name}</div>
+          </div>
+          <div>
+            <div className="text-sm text-slate-500 mb-2">文件分類</div>
+            <div className="flex flex-wrap gap-2">
+              {FILE_CATEGORIES.map(c => {
+                const locked = !canUploadCategory(c.value)
+                return (
+                  <Tooltip
+                    key={c.value}
+                    title={locked ? '當前狀態已鎖定，需通過需求變更審批後方可上傳' : ''}
+                  >
+                    <button
+                      disabled={locked}
+                      onClick={() => !locked && setUploadModal(m => ({ ...m, category: c.value }))}
+                      className="px-4 py-1.5 rounded-full text-sm border transition-colors"
+                      style={{
+                        background: locked ? '#f1f5f9' : uploadModal.category === c.value ? c.color : '#f8fafc',
+                        color: locked ? '#cbd5e1' : uploadModal.category === c.value ? '#fff' : '#64748b',
+                        borderColor: locked ? '#e2e8f0' : uploadModal.category === c.value ? c.color : '#e2e8f0',
+                        fontWeight: uploadModal.category === c.value ? 600 : 400,
+                        cursor: locked ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      {locked ? '🔒 ' : ''}{c.label}
+                    </button>
+                  </Tooltip>
+                )
+              })}
+            </div>
+            <div className="text-xs text-slate-400 mt-2">
+              {uploadModal.category === 'requirement' && '適用：草稿階段整理的需求説明、用戶故事等文件'}
+              {uploadModal.category === 'design' && '適用：系統架構、技術方案、UI 設計等規劃文件'}
+              {uploadModal.category === 'progress' && '適用：執行過程中的進度匯報、週報等文件'}
+              {uploadModal.category === 'other' && '其他類型文件'}
+            </div>
+          </div>
+        </div>
+      </Modal>
+
+      {/* 需求變更申請 Modal */}
+      <Modal
+        title="申請需求變更"
+        open={changeReqModal}
+        onCancel={() => { setChangeReqModal(false); changeReqForm.resetFields() }}
+        onOk={() => changeReqForm.submit()}
+        okText="提交申請"
+        cancelText="取消"
+        confirmLoading={changeReqSaving}
+        width={480}
+        destroyOnHidden
+      >
+        <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded p-3 mb-4">
+          審批通過後，可在本專案補充需求文件與規劃設計文件，但不可刪除原始文件。
+        </div>
+        <Form form={changeReqForm} layout="vertical" onFinish={handleSubmitChangeRequest}>
+          <Form.Item name="reviewer" label="審核人" rules={[{ required: true, message: '請填寫審核人工號' }]}>
+            <Select mode="tags" placeholder="輸入審核人工號，按 Enter 確認" />
+          </Form.Item>
+          <Form.Item name="description" label="變更原因" rules={[{ required: true, message: '請說明變更原因' }]}>
+            <Input.TextArea rows={4} placeholder="說明本次需求變更的原因及需要補充的文件..." />
+          </Form.Item>
+        </Form>
+      </Modal>
+
       {preview && (() => {
         const ext = preview.file.file_ext.toLowerCase()
         const isWide = PDF_EXTS.has(ext) || HTML_EXTS.has(ext) || DOCX_EXTS.has(ext) || XLSX_EXTS.has(ext) || PPTX_EXTS.has(ext)

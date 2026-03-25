@@ -14,6 +14,36 @@ from dbs.mysql_db.model_tables import (
 
 class ProjectController:
 
+    # ── 文件分类权限矩阵 ────────────────────────────────────────────────────────
+    # 各状态下禁止上传的文件分类（key=项目状态, value=禁止的 file_category 集合）
+    _UPLOAD_LOCKED: dict = {
+        2: {'requirement'},               # 立案審核中：需求文檔已鎖定
+        3: {'requirement'},               # 規劃中：需求文檔已鎖定
+        4: {'requirement', 'design'},     # 規劃審核中：需求+規劃鎖定
+        5: {'requirement', 'design'},     # 執行中：需求+規劃鎖定（可申請变更解锁上传）
+        6: {'requirement', 'design'},     # 完結審核中
+        7: {'requirement', 'design'},     # 已完結
+        8: {'requirement', 'design'},     # 擱置
+    }
+    # 各状态下禁止删除的文件分类（比上传限制更严：变更审批也不解锁删除权限）
+    _DELETE_LOCKED: dict = {
+        2: {'requirement'},
+        3: {'requirement'},
+        4: {'requirement', 'design'},
+        5: {'requirement', 'design'},
+        6: {'requirement', 'design'},
+        7: {'requirement', 'design'},
+        8: {'requirement', 'design'},
+    }
+
+    def _has_approved_change_request(self, project_id: str) -> bool:
+        """检查项目是否存在已通过的需求变更申请"""
+        return db.session.query(ReviewApplyModel).filter_by(
+            project_id=project_id,
+            apply_type_code='requirement_change',
+            apply_status=2,  # 2=通过
+        ).first() is not None
+
     # ── 项目 CRUD ──────────────────────────────────────────────────────────────
 
     def list_projects(self, payload: dict):
@@ -78,7 +108,10 @@ class ProjectController:
         if not p or p.project_status == 9:
             raise ResourceNotFoundException(resource_type="项目")
         result = p.to_dict()
-        product_pm = p.product_pm or ""
+        product_pm  = p.product_pm or ""
+        project_pm  = p.project_pm or ""
+        is_pm = operator in (product_pm, project_pm)
+
         if operator and p.project_status == 1:
             # can_edit: 草稿阶段 + 操作者是产品PM或产品PM的直属上级
             if operator == product_pm:
@@ -91,8 +124,30 @@ class ProjectController:
                 result["can_edit"] = is_sup
         else:
             result["can_edit"] = False
-        # can_submit_review: 草稿阶段 + 操作者是产品PM
-        result["can_submit_review"] = (p.project_status == 1 and operator == product_pm)
+
+        # can_submit_review: 草稿(1)阶段提交立案审核 或 规划中(3)提交规划审核
+        result["can_submit_review"] = (
+            p.project_status in (1, 3) and operator == product_pm
+        )
+
+        # can_manage_files: PM 在非删除状态下均可管理附件
+        result["can_manage_files"] = is_pm and p.project_status not in (7, 9)
+
+        # 需求变更申请状态
+        change_req = db.session.query(ReviewApplyModel).filter_by(
+            project_id=project_id,
+            apply_type_code='requirement_change',
+        ).order_by(ReviewApplyModel.created_at.desc()).first()
+        result["change_request_status"] = change_req.apply_status if change_req else None
+        result["has_approved_change_request"] = (
+            change_req is not None and change_req.apply_status == 2
+        )
+        # can_submit_change_request: 执行中且是PM且没有待审/已通过的变更申请
+        result["can_submit_change_request"] = (
+            is_pm and
+            p.project_status in (5, 6, 7) and
+            (change_req is None or change_req.apply_status in (3, 4))  # 无申请或已被拒绝
+        )
         return result
 
     def create_project(self, payload: dict, creator: str):
@@ -185,6 +240,38 @@ class ProjectController:
         p.update_at = CommonTools.get_now()
         db.session.commit()
 
+    def submit_change_request(self, project_id: str, reviewer: list, description: str, submitter: str):
+        """提交需求变更申请（执行阶段申请补充需求/规划文档）"""
+        from utils.exceptions import PermissionException
+        p = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
+        if not p or p.project_status == 9:
+            raise ResourceNotFoundException(resource_type="项目")
+        if submitter not in (p.product_pm or "", p.project_pm or ""):
+            raise PermissionException(msg="只有专案PM可以提交需求变更申请")
+        if p.project_status not in (5, 6, 7):
+            raise PermissionException(msg="只有执行阶段的专案才能提交需求变更申请")
+        # 已有待审申请时不允许重复提交
+        existing = db.session.query(ReviewApplyModel).filter_by(
+            project_id=project_id,
+            apply_type_code='requirement_change',
+            apply_status=1,
+        ).first()
+        if existing:
+            raise PermissionException(msg="已有待审核的需求变更申请，请等待审批完成")
+
+        apply = ReviewApplyModel(
+            project_id=project_id,
+            apply_type="需求变更申请",
+            apply_type_code="requirement_change",
+            submitter=submitter,
+            reviewer=json.dumps(reviewer),
+            priority=p.priority,
+            description=description,
+        )
+        db.session.add(apply)
+        db.session.commit()
+        return apply.to_dict()
+
     def get_gantt_chart(self, project_id: str):
         functions = (
             db.session.query(FunctionDataModel)
@@ -257,6 +344,10 @@ class ProjectController:
             raise ResourceNotFoundException(resource_type="审核记录")
         r.apply_status = status
         r.update_at = CommonTools.get_now()
+        # requirement_change 审批仅更新申请记录，不影响项目状态
+        if r.apply_type_code == 'requirement_change':
+            db.session.commit()
+            return
         # 同步更新项目/功能状态
         if r.project_id and not r.function_id:
             p = db.session.query(ProjectDataModel).filter_by(id=r.project_id).first()
@@ -309,15 +400,27 @@ class ProjectController:
         files = db.session.query(ProjectFileModel).filter_by(project_id=project_id).order_by(ProjectFileModel.created_at.desc()).all()
         return [f.to_dict() for f in files]
 
-    def upload_project_file(self, project_id: str, file, uploader: str):
+    def upload_project_file(self, project_id: str, file, uploader: str, file_category: str = "other"):
         from utils.exceptions import PermissionException
         p = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
         if not p or p.project_status == 9:
             raise ResourceNotFoundException(resource_type="项目")
-        if p.project_status != 1:
-            raise PermissionException(msg="只有草稿阶段可以上传附件")
-        if uploader != (p.product_pm or ""):
-            raise PermissionException(msg="只有产品PM可以上传附件")
+        if uploader != (p.product_pm or "") and uploader != (p.project_pm or ""):
+            raise PermissionException(msg="只有专案PM可以上传附件")
+
+        valid_categories = {"requirement", "design", "progress", "other"}
+        if file_category not in valid_categories:
+            file_category = "other"
+
+        # 检查当前状态对该分类是否锁定
+        locked = self._UPLOAD_LOCKED.get(p.project_status, set())
+        if file_category in locked:
+            # 仅当存在已通过的需求变更申请时，才允许上传被锁定分类的文件
+            if not self._has_approved_change_request(project_id):
+                cat_label = {'requirement': '需求文件', 'design': '規劃設計'}.get(file_category, file_category)
+                raise PermissionException(
+                    msg=f"當前專案狀態下「{cat_label}」已鎖定，如需補充請先提交需求變更申請並獲得審批"
+                )
 
         ext = self._allowed_ext(file.filename)
         upload_dir = self._upload_dir(project_id)
@@ -335,6 +438,7 @@ class ProjectController:
             file_path=os.path.join("project_files", project_id, stored_name),
             file_size=size,
             file_ext=ext,
+            file_category=file_category,
             uploader=uploader,
         )
         db.session.add(record)
@@ -346,10 +450,19 @@ class ProjectController:
         p = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
         if not p or p.project_status == 9:
             raise ResourceNotFoundException(resource_type="项目")
-        if p.project_status != 1:
-            raise PermissionException(msg="只有草稿阶段可以删除附件")
-        if operator != (p.product_pm or ""):
-            raise PermissionException(msg="只有产品PM可以删除附件")
+        if operator != (p.product_pm or "") and operator != (p.project_pm or ""):
+            raise PermissionException(msg="只有专案PM可以删除附件")
+
+        # 查找文件，确认分类后检查是否锁定
+        record_check = db.session.query(ProjectFileModel).filter_by(id=file_id, project_id=project_id).first()
+        if record_check:
+            locked = self._DELETE_LOCKED.get(p.project_status, set())
+            if (record_check.file_category or 'other') in locked:
+                cat_label = {'requirement': '需求文件', 'design': '規劃設計'}.get(
+                    record_check.file_category, record_check.file_category)
+                raise PermissionException(
+                    msg=f"「{cat_label}」屬於已鎖定分類，不允許刪除原始文件"
+                )
 
         record = db.session.query(ProjectFileModel).filter_by(id=file_id, project_id=project_id).first()
         if not record:

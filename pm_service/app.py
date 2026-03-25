@@ -13,7 +13,6 @@ import os
 from flask import Flask
 from flask_cors import CORS
 from flask_marshmallow import Marshmallow
-from flask_migrate import Migrate
 from flask_smorest import Api
 
 from cache import redis_client
@@ -51,11 +50,9 @@ def create_app(config_name=None):
     app.config["Access-Control-Allow-Origin"] = "*"
 
     # 初始化扩展
-    migrate = Migrate()
-    migrate.init_app(app)
     db.init_app(app)
-    with app.app_context():
-        db.create_all()
+    from dbs.mysql_db.auto_migrate import auto_migrate
+    auto_migrate(app, db)
     
     # 初始化 Redis 客户端（现代化实现）
     try:

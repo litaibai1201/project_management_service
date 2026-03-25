@@ -226,24 +226,26 @@ class ProjectFileModel(db.Model):
     """项目附件"""
     __tablename__ = "project_file_form"
 
-    id         = db.Column(db.String(32), primary_key=True, default=generate_uuid)
-    project_id = db.Column(db.String(32), nullable=False, index=True, comment="所属项目ID")
-    file_nm    = db.Column(db.String(255), nullable=False, comment="原始文件名")
-    file_path  = db.Column(db.String(512), nullable=False, comment="磁盘存储相对路径")
-    file_size  = db.Column(db.Integer, default=0, comment="文件大小(bytes)")
-    file_ext   = db.Column(db.String(20), comment="扩展名")
-    uploader   = db.Column(db.String(32), comment="上传人工号")
-    created_at = db.Column(db.String(19), default=CommonTools.get_now, nullable=False, comment="上传时间")
+    id            = db.Column(db.String(32), primary_key=True, default=generate_uuid)
+    project_id    = db.Column(db.String(32), nullable=False, index=True, comment="所属项目ID")
+    file_nm       = db.Column(db.String(255), nullable=False, comment="原始文件名")
+    file_path     = db.Column(db.String(512), nullable=False, comment="磁盘存储相对路径")
+    file_size     = db.Column(db.Integer, default=0, comment="文件大小(bytes)")
+    file_ext      = db.Column(db.String(20), comment="扩展名")
+    file_category = db.Column(db.String(32), default="other", comment="文件分类: requirement/design/progress/other")
+    uploader      = db.Column(db.String(32), comment="上传人工号")
+    created_at    = db.Column(db.String(19), default=CommonTools.get_now, nullable=False, comment="上传时间")
 
     def to_dict(self):
         return {
-            "id":         self.id,
-            "project_id": self.project_id,
-            "file_nm":    self.file_nm,
-            "file_size":  self.file_size,
-            "file_ext":   self.file_ext,
-            "uploader":   self.uploader,
-            "created_at": self.created_at,
+            "id":            self.id,
+            "project_id":    self.project_id,
+            "file_nm":       self.file_nm,
+            "file_size":     self.file_size,
+            "file_ext":      self.file_ext,
+            "file_category": self.file_category or "other",
+            "uploader":      self.uploader,
+            "created_at":    self.created_at,
         }
 
 

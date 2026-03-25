@@ -70,6 +70,10 @@ export const projectApi = {
   submitForReview: (id: string, reviewer: string[], status: number): Promise<ApiResponse<null>> =>
     post(`/project/${id}/submit_for_review`, { reviewer, status }),
 
+  /** POST /api/project/:id/change_request — 需求變更申請 */
+  submitChangeRequest: (id: string, reviewer: string[], description: string): Promise<ApiResponse<null>> =>
+    post(`/project/${id}/change_request`, { reviewer, description }),
+
   /** PUT /api/project/:id/is_finished */
   finish: (id: string): Promise<ApiResponse<null>> =>
     put(`/project/${id}/is_finished`),
@@ -210,9 +214,10 @@ export const projectApi = {
     get(`/project/${pid}/files`),
 
   /** POST /api/project/:pid/files  (multipart/form-data) */
-  uploadFile: (pid: string, file: File): Promise<ApiResponse<ProjectFile>> => {
+  uploadFile: (pid: string, file: File, file_category: string): Promise<ApiResponse<ProjectFile>> => {
     const fd = new FormData()
     fd.append('file', file)
+    fd.append('file_category', file_category)
     return postForm(`/project/${pid}/files`, fd)
   },
 

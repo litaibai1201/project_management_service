@@ -102,16 +102,21 @@ export interface Project {
   progress?: number
   can_edit?: boolean
   can_submit_review?: boolean
+  can_manage_files?: boolean
+  has_approved_change_request?: boolean
+  change_request_status?: number | null   // 1=待審 2=通過 3=拒絕 4=退回
+  can_submit_change_request?: boolean
 }
 
 export interface ProjectFile {
-  id:         string
-  project_id: string
-  file_nm:    string
-  file_size:  number
-  file_ext:   string
-  uploader:   string
-  created_at: string
+  id:            string
+  project_id:    string
+  file_nm:       string
+  file_size:     number
+  file_ext:      string
+  file_category: 'requirement' | 'design' | 'progress' | 'other'
+  uploader:      string
+  created_at:    string
 }
 
 export interface ProjectListItem {

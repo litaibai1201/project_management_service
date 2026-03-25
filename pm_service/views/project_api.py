@@ -75,6 +75,22 @@ class ProjectSetStatusApi(MethodView):
         return response_result()
 
 
+@blp.route("/<string:project_id>/change_request")
+class ProjectChangeRequestApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def post(self, project_id):
+        """提交需求变更申请"""
+        work_no = get_identity()
+        payload = request.get_json() or {}
+        return response_result(content=proj_ctrl.submit_change_request(
+            project_id,
+            reviewer=payload.get("reviewer", []),
+            description=payload.get("description", ""),
+            submitter=work_no,
+        ))
+
+
 @blp.route("/<string:project_id>/submit_for_review")
 class ProjectSubmitReviewApi(MethodView):
     @jwt_required()
@@ -149,7 +165,8 @@ class ProjectFilesApi(MethodView):
         if not file or not file.filename:
             from utils.exceptions import ValidationException
             raise ValidationException(msg="请选择要上传的文件")
-        return response_result(content=proj_ctrl.upload_project_file(project_id, file, uploader=work_no))
+        file_category = request.form.get("file_category", "other")
+        return response_result(content=proj_ctrl.upload_project_file(project_id, file, uploader=work_no, file_category=file_category))
 
 
 @blp.route("/<string:project_id>/files/<string:file_id>")
