@@ -3,8 +3,9 @@ import { useParams, useNavigate } from 'react-router-dom'
 import {
   Tabs, Descriptions, Button, Tag, Progress, Spin, Empty, Table,
   Space, Tooltip, Popconfirm, Modal, Form, Input, Select, Steps, Avatar,
-  Timeline, Card, Segmented, Collapse, AutoComplete,
+  Timeline, Card, Segmented, Collapse, AutoComplete, DatePicker, InputNumber,
 } from 'antd'
+import { PencilSquareIcon as EditIcon } from '@heroicons/react/24/outline'
 import type { ColumnsType } from 'antd/es/table'
 import {
   ArrowLeftIcon, PlusIcon, EyeIcon, TrashIcon,
@@ -19,6 +20,11 @@ import { showToast } from '@/utils/toast'
 import FunctionDetailDrawer from './FunctionDetailDrawer'
 import GanttChart from './GanttChart'
 import MilestoneTab from './MilestoneTab'
+
+const PRIORITY_OPTIONS = [
+  { value: 1, label: '低' }, { value: 2, label: '中' },
+  { value: 3, label: '高' }, { value: 4, label: '緊急' },
+]
 
 const PRIORITY_COLORS = ['', '#22c55e', '#f59e0b', '#ef4444', '#7c3aed']
 
@@ -57,6 +63,16 @@ const ProjectDetailPage: React.FC = () => {
   const [showAddFunc,     setShowAddFunc]      = useState(false)
   const [addFuncLoading,  setAddFuncLoading]   = useState(false)
   const [funcForm]                             = Form.useForm()
+
+  // ── 编辑专案 ──────────────────────────────────────────────────────────────
+  const [showEdit,      setShowEdit]      = useState(false)
+  const [editSaving,    setEditSaving]    = useState(false)
+  const [editForm]                        = Form.useForm()
+
+  // ── 提交审核 ──────────────────────────────────────────────────────────────
+  const [showSubmit,    setShowSubmit]    = useState(false)
+  const [submitSaving,  setSubmitSaving]  = useState(false)
+  const [submitForm]                      = Form.useForm()
 
   useEffect(() => {
     if (id) {
@@ -117,6 +133,47 @@ const ProjectDetailPage: React.FC = () => {
       await projectApi.deleteFunction(id, fid)
       showToast.success('功能刪除成功'); loadFunctions(id)
     } catch { /* global */ }
+  }
+
+  const handleEditOpen = () => {
+    if (!current) return
+    editForm.setFieldsValue({
+      project_nm:        current.project_nm,
+      department:        current.department,
+      project_pm:        current.project_pm,
+      product_pm:        current.product_pm,
+      priority:          current.priority,
+      expected_end_date: current.expected_end_date,
+      code_url:          current.code_url,
+      describe:          current.describe,
+    })
+    setShowEdit(true)
+  }
+
+  const handleEditSave = async (values: Record<string, unknown>) => {
+    if (!id) return
+    setEditSaving(true)
+    try {
+      await projectApi.update(id, values as Parameters<typeof projectApi.update>[1])
+      showToast.success('專案已更新')
+      setShowEdit(false)
+      dispatch(fetchProjectThunk(id))
+    } catch { /* global */ }
+    finally { setEditSaving(false) }
+  }
+
+  const handleSubmitReview = async (values: { reviewer: string }) => {
+    if (!id || !current) return
+    setSubmitSaving(true)
+    try {
+      // 草稿(1) → 提交立案審核(status=2)；規劃中(3) → 提交規劃審核(status=4)
+      const targetStatus = current.status === 1 ? 2 : 4
+      await projectApi.submitForReview(id, { reviewer: values.reviewer, status: targetStatus })
+      showToast.success('已提交審核')
+      setShowSubmit(false)
+      dispatch(fetchProjectThunk(id))
+    } catch { /* global */ }
+    finally { setSubmitSaving(false) }
   }
 
   const myFunctions = useMemo(
@@ -223,6 +280,21 @@ const ProjectDetailPage: React.FC = () => {
               </a>
             )}
           </div>
+        </div>
+        {/* 操作按鈕 */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {/* 草稿或規劃中才可編輯 */}
+          {[1, 3].includes(current.status) && (
+            <Button icon={<EditIcon className="w-4 h-4" />} onClick={handleEditOpen}>
+              編輯
+            </Button>
+          )}
+          {/* 草稿 → 提交立案；規劃中 → 提交規劃審核 */}
+          {[1, 3].includes(current.status) && (
+            <Button type="primary" style={{ background: '#2563eb' }} onClick={() => setShowSubmit(true)}>
+              {current.status === 1 ? '提交立案審核' : '提交規劃審核'}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -437,6 +509,60 @@ const ProjectDetailPage: React.FC = () => {
           open={!!selectedFid} onClose={() => setSelectedFid(null)}
           onRefresh={() => loadFunctions(id)} />
       )}
+
+      {/* 編輯專案 Modal */}
+      <Modal title="編輯專案" open={showEdit} onCancel={() => setShowEdit(false)}
+        footer={null} width={600} destroyOnClose>
+        <Form form={editForm} layout="vertical" onFinish={handleEditSave} className="mt-4">
+          <Form.Item name="project_nm" label="專案名稱" rules={[{ required: true }]}>
+            <Input />
+          </Form.Item>
+          <div className="grid grid-cols-2 gap-x-4">
+            <Form.Item name="department" label="部門" rules={[{ required: true }]}>
+              <Input />
+            </Form.Item>
+            <Form.Item name="priority" label="優先級" rules={[{ required: true }]}>
+              <Select options={PRIORITY_OPTIONS} />
+            </Form.Item>
+            <Form.Item name="project_pm" label="專案PM（工號）" rules={[{ required: true }]}>
+              <Input />
+            </Form.Item>
+            <Form.Item name="product_pm" label="産品PM（工號）">
+              <Input />
+            </Form.Item>
+            <Form.Item name="expected_end_date" label="預計完成日期">
+              <Input type="date" />
+            </Form.Item>
+            <Form.Item name="code_url" label="代碼庫地址">
+              <Input placeholder="https://..." />
+            </Form.Item>
+          </div>
+          <Form.Item name="describe" label="專案描述">
+            <Input.TextArea rows={3} />
+          </Form.Item>
+          <div className="flex justify-end gap-3">
+            <Button onClick={() => setShowEdit(false)}>取消</Button>
+            <Button type="primary" htmlType="submit" loading={editSaving} style={{ background: '#2563eb' }}>保存</Button>
+          </div>
+        </Form>
+      </Modal>
+
+      {/* 提交審核 Modal */}
+      <Modal
+        title={current.status === 1 ? '提交立案審核' : '提交規劃審核'}
+        open={showSubmit} onCancel={() => setShowSubmit(false)}
+        footer={null} width={420} destroyOnClose>
+        <Form form={submitForm} layout="vertical" onFinish={handleSubmitReview} className="mt-4">
+          <Form.Item name="reviewer" label="審核人（工號）" rules={[{ required: true, message: '請填寫審核人工號' }]}
+            extra="填寫直屬主管的工號，審核通過後專案將進入下一階段">
+            <Input placeholder="請輸入審核人工號" />
+          </Form.Item>
+          <div className="flex justify-end gap-3">
+            <Button onClick={() => setShowSubmit(false)}>取消</Button>
+            <Button type="primary" htmlType="submit" loading={submitSaving} style={{ background: '#2563eb' }}>提交</Button>
+          </div>
+        </Form>
+      </Modal>
     </div>
   )
 }

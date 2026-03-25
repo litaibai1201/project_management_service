@@ -16,22 +16,53 @@ class ProjectController:
     # ── 项目 CRUD ──────────────────────────────────────────────────────────────
 
     def list_projects(self, payload: dict):
-        page = payload.get("page", 1)
-        size = payload.get("size", 20)
-        keyword = payload.get("keyword", "")
-        status = payload.get("status")
-        project_pm = payload.get("project_pm", "")
+        page     = payload.get("page", 1)
+        size     = payload.get("size", 20)
+        keyword  = payload.get("keyword", "")
+        status   = payload.get("status")
         group_id = payload.get("group_id", "")
+        # 参与者过滤参数
+        work_no      = payload.get("work_no", "")
+        manager_view = payload.get("manager_view", False)
 
         q = db.session.query(ProjectDataModel).filter(ProjectDataModel.project_status != 9)
+
+        # ── 参与者过滤 ──────────────────────────────────────────────────────────
+        if work_no:
+            if manager_view:
+                # 主管视角：自己 + 所有层级下属的参与专案
+                from controllers.user_controller import UserController
+                user_ctrl = UserController()
+                subordinates = user_ctrl.get_subordinates(work_no, all_levels=True)
+                all_members = [work_no] + [s["work_no"] for s in subordinates]
+            else:
+                all_members = [work_no]
+
+            # 通过功能任务参与的专案ID
+            dev_func_conds = [FunctionDataModel.developers.like(f'%"{m}"%') for m in all_members]
+            dev_proj_ids = (
+                db.session.query(FunctionDataModel.project_id)
+                .filter(db.or_(*dev_func_conds), FunctionDataModel.function_status != 9)
+                .distinct().subquery()
+            )
+            role_conds = [
+                db.or_(
+                    ProjectDataModel.project_pm == m,
+                    ProjectDataModel.product_pm == m,
+                    ProjectDataModel.creator    == m,
+                )
+                for m in all_members
+            ]
+            q = q.filter(db.or_(*role_conds, ProjectDataModel.id.in_(dev_proj_ids)))
+
+        # ── 其他过滤条件 ────────────────────────────────────────────────────────
         if keyword:
             q = q.filter(ProjectDataModel.project_nm.like(f"%{keyword}%"))
         if status:
             q = q.filter(ProjectDataModel.project_status == status)
-        if project_pm:
-            q = q.filter(ProjectDataModel.project_pm == project_pm)
         if group_id:
             q = q.filter(ProjectDataModel.group_id == group_id)
+
         total = q.count()
         projects = q.order_by(ProjectDataModel.created_at.desc()).offset((page-1)*size).limit(size).all()
         return {

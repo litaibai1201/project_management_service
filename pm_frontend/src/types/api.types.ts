@@ -134,6 +134,8 @@ export interface ProjectListQuery {
   orderby?: string
   project_pm?: string
   group_id?: string
+  work_no?: string
+  manager_view?: boolean
 }
 
 // ─── Function / Task ─────────────────────────────────────────────────────────

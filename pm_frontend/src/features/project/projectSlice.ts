@@ -36,9 +36,15 @@ const initialState: ProjectState = {
 
 export const fetchProjectListThunk = createAsyncThunk(
   'project/fetchList',
-  async (query: ProjectListQuery, { rejectWithValue }) => {
+  async (query: ProjectListQuery, { rejectWithValue, getState }) => {
     try {
-      const res = await projectApi.list(query)
+      const auth = (getState() as { auth: { workNo: string | null; isManagerView: boolean } }).auth
+      const enrichedQuery: ProjectListQuery = {
+        ...query,
+        work_no:      auth.workNo ?? undefined,
+        manager_view: auth.isManagerView,
+      }
+      const res = await projectApi.list(enrichedQuery)
       return res.content
     } catch (err: unknown) {
       return rejectWithValue((err as Error).message)

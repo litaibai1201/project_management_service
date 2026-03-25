@@ -140,11 +140,12 @@ const ProjectListPage: React.FC = () => {
   const dispatch  = useAppDispatch()
   const navigate  = useNavigate()
   const { list, totalCount, isLoading, query, groups } = useAppSelector((s) => s.project)
+  const { isManagerView } = useAppSelector((s) => s.auth)
   const [showCreate, setShowCreate] = useState(false)
   const [viewMode,   setViewMode]   = useState<'table' | 'kanban'>('table')
 
   useEffect(() => { dispatch(fetchProjectGroupsThunk()) }, [dispatch])
-  useEffect(() => { dispatch(fetchProjectListThunk(query)) }, [dispatch, query])
+  useEffect(() => { dispatch(fetchProjectListThunk(query)) }, [dispatch, query, isManagerView])
 
   const handleDelete = async (id: string) => {
     try {
