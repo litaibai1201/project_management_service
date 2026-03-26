@@ -270,19 +270,27 @@ export interface ApplyRecord {
   id: string
   project_id?: string
   function_id?: string
+  duty_id?: string
   apply_type: string
+  apply_type_code: string
   submitter: string
-  reviewer: string
-  status: number // 1=待審 2=通過 3=拒絕
+  submitter_name?: string
+  reviewer: string[] | string
+  status: number // 1=待審 2=通過 3=拒絕 4=退回
   priority: number
+  description?: string
   created_at: string
   project_nm?: string
   function_nm?: string
+  duty_nm?: string
+  approval_nodes?: ApprovalNode[]
+  is_my_turn?: boolean  // 當前登入用戶是否輪到審核（後端計算）
 }
 
 export interface ReviewPayload {
   status: number // 2=通過 3=拒絕
   reject_reason?: string
+  countersigns?: { work_no: string; name: string }[]
 }
 
 // ─── Group ────────────────────────────────────────────────────────────────────
@@ -363,10 +371,13 @@ export interface MemberWorkStat {
 
 export interface ApprovalNode {
   node_id:          string
+  order:            number
   approver:         string
   approver_work_no: string
-  status:           number
+  status:           number  // 0=待審 1=通過 2=拒絕 3=退回
   is_countersign?:  boolean
+  approved_at?:     string | null
+  comment?:         string | null
 }
 
 export interface CountersignPayload {

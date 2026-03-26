@@ -150,6 +150,7 @@ class DutyReviewApproveApi(MethodView):
             review_id,
             status=payload.get("status"),
             reject_reason=payload.get("reject_reason", ""),
+            countersigns=payload.get("countersigns", []),
         )
         return response_result()
 
@@ -160,11 +161,10 @@ class DutyReviewCountersignApi(MethodView):
     @blp.response(200, RspMsgDictSchema)
     def post(self, review_id):
         """加签"""
-        work_no = get_identity()
         payload = request.get_json() or {}
         ctrl.countersign_review(
             review_id,
-            approver_work_no=work_no,
+            approver_work_no=payload.get("approver_work_no", ""),
             approver_name=payload.get("approver_name", ""),
         )
         return response_result()

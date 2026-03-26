@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useMemo } from 'react'
 import {
   Layout, Menu, Avatar, Dropdown, Button, Typography, Badge,
   Popover, List, Empty, Input,
@@ -9,7 +9,7 @@ import {
   ClipboardDocumentCheckIcon, MagnifyingGlassIcon,
   BellIcon, ArrowRightStartOnRectangleIcon, Bars3Icon,
   ChevronDoubleLeftIcon, ChartBarIcon, PencilSquareIcon,
-  ExclamationTriangleIcon, TableCellsIcon,
+  ExclamationTriangleIcon, TableCellsIcon, RectangleStackIcon,
 } from '@heroicons/react/24/outline'
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
 import { logout } from '@/features/auth/authSlice'
@@ -18,19 +18,31 @@ import { useSocketConnection } from '@/hooks/useSocket'
 const { Header, Sider, Content } = Layout
 const { Text } = Typography
 
-interface NavItem { key: string; icon: React.ReactNode; label: string; path: string; badge?: number }
+interface NavLeaf  { key: string; icon?: React.ReactNode; label: string; path: string; badge?: number }
+interface NavGroup { key: string; icon: React.ReactNode; label: string; children: NavLeaf[] }
+type NavItem = NavLeaf | NavGroup
+
 interface Notification { id: string; title: string; desc: string; time: string; read: boolean }
 
+const isGroup = (item: NavItem): item is NavGroup => 'children' in item
+
 const NAV_ITEMS: NavItem[] = [
-  { key: '/',            icon: <HomeIcon className="w-[18px] h-[18px]" />,                   label: '首頁',     path: '/'            },
-  { key: '/projects',    icon: <FolderIcon className="w-[18px] h-[18px]" />,                 label: '專案管理', path: '/projects'    },
-  { key: '/daily-log',   icon: <PencilSquareIcon className="w-[18px] h-[18px]" />,           label: '工作日誌', path: '/daily-log'   },
-  { key: '/duties',      icon: <ClipboardDocumentListIcon className="w-[18px] h-[18px]" />,  label: '臨時任務', path: '/duties'      },
-  { key: '/review',      icon: <ClipboardDocumentCheckIcon className="w-[18px] h-[18px]" />, label: '審核管理', path: '/review'      },
-  { key: '/wbs',          icon: <TableCellsIcon className="w-[18px] h-[18px]" />,             label: '專案進度總覽', path: '/wbs'       },
-  { key: '/statistics',  icon: <ChartBarIcon className="w-[18px] h-[18px]" />,               label: '統計與成員', path: '/statistics' },
-  { key: '/anomaly',     icon: <ExclamationTriangleIcon className="w-[18px] h-[18px]" />,    label: '異常管理', path: '/anomaly'     },
-  { key: '/users',       icon: <UsersIcon className="w-[18px] h-[18px]" />,                  label: '用戶管理', path: '/users'       },
+  { key: '/',           icon: <HomeIcon className="w-[18px] h-[18px]" />,                   label: '首頁',      path: '/'           },
+  {
+    key: '/project-mgmt',
+    icon: <FolderIcon className="w-[18px] h-[18px]" />,
+    label: '項目管理',
+    children: [
+      { key: '/projects', icon: <RectangleStackIcon className="w-[16px] h-[16px]" />, label: '專案列表', path: '/projects' },
+      { key: '/duties',   icon: <ClipboardDocumentListIcon className="w-[16px] h-[16px]" />, label: '任務列表', path: '/duties'  },
+    ],
+  },
+  { key: '/daily-log',  icon: <PencilSquareIcon className="w-[18px] h-[18px]" />,           label: '工作日誌',  path: '/daily-log'  },
+  { key: '/review',     icon: <ClipboardDocumentCheckIcon className="w-[18px] h-[18px]" />, label: '審核管理',  path: '/review'     },
+  { key: '/wbs',         icon: <TableCellsIcon className="w-[18px] h-[18px]" />,             label: '專案進度總覽', path: '/wbs'     },
+  { key: '/statistics', icon: <ChartBarIcon className="w-[18px] h-[18px]" />,               label: '統計與成員', path: '/statistics' },
+  { key: '/anomaly',    icon: <ExclamationTriangleIcon className="w-[18px] h-[18px]" />,    label: '異常管理',  path: '/anomaly'    },
+  { key: '/users',      icon: <UsersIcon className="w-[18px] h-[18px]" />,                  label: '用戶管理',  path: '/users'      },
 ]
 
 const INIT_NOTIFS: Notification[] = [
@@ -55,13 +67,77 @@ const AppLayout: React.FC = () => {
   const pendingReview = (indexData?.total_awaiting_review_num?.project ?? 0) + (indexData?.total_awaiting_review_num?.duty ?? 0)
   const unreadCount   = notifications.filter((n) => !n.read).length
 
-  const navItems = NAV_ITEMS
-    .filter((item) => {
-      if (item.key === '/wbs' || item.key === '/anomaly') return isSupervisor
-      if (item.key === '/daily-log') return !isManagerView
-      return true
+  const navItems = NAV_ITEMS.filter((item) => {
+    if (item.key === '/wbs' || item.key === '/anomaly') return isSupervisor
+    if (item.key === '/daily-log') return !isManagerView
+    return true
+  })
+
+  // Find the currently active leaf key by checking paths
+  const currentKey = useMemo(() => {
+    for (const item of navItems) {
+      if (isGroup(item)) {
+        const child = item.children.find((c) =>
+          c.path === '/' ? location.pathname === '/' : location.pathname.startsWith(c.path),
+        )
+        if (child) return child.key
+      } else {
+        if (item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path))
+          return item.key
+      }
+    }
+    return '/'
+  }, [navItems, location.pathname])
+
+  // Default open group keys so sub-menu stays expanded
+  const defaultOpenKeys = useMemo(
+    () => navItems.filter(isGroup).map((g) => g.key),
+    [],
+  )
+
+  // Label shown in header breadcrumb
+  const currentLabel = useMemo(() => {
+    for (const item of navItems) {
+      if (isGroup(item)) {
+        const child = item.children.find((c) => c.key === currentKey)
+        if (child) return `${item.label} / ${child.label}`
+      } else if (item.key === currentKey) {
+        return item.label
+      }
+    }
+    return '首頁'
+  }, [navItems, currentKey])
+
+  // Build Ant Design Menu items from NavItem[]
+  const buildMenuItems = (items: NavItem[]): import('antd').MenuProps['items'] =>
+    items.map((item) => {
+      if (isGroup(item)) {
+        return {
+          key: item.key,
+          icon: item.icon,
+          label: item.label,
+          children: item.children.map((c) => ({
+            key: c.key,
+            icon: c.icon,
+            label: c.label,
+            onClick: () => navigate(c.path),
+          })),
+        }
+      }
+      const leaf = item as NavLeaf
+      const badge = leaf.key === '/review' ? pendingReview : undefined
+      return {
+        key: leaf.key,
+        icon: leaf.icon,
+        label: badge != null && badge > 0 ? (
+          <div className="flex items-center justify-between">
+            <span>{leaf.label}</span>
+            <Badge count={badge} size="small" style={{ backgroundColor: '#ef4444', fontSize: 10, boxShadow: 'none' }} />
+          </div>
+        ) : leaf.label,
+        onClick: () => navigate(leaf.path),
+      }
     })
-    .map((item) => item.key === '/review' ? { ...item, badge: pendingReview } : item)
 
   const markAllRead = () => setNotifications((prev) => prev.map((n) => ({ ...n, read: true })))
 
@@ -74,10 +150,6 @@ const AppLayout: React.FC = () => {
       setSearchVisible(false)
     }
   }
-
-  const currentKey = navItems.find((item) =>
-    item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path),
-  )?.key ?? '/'
 
   const notifContent = (
     <div style={{ width: 320 }}>
@@ -157,20 +229,9 @@ const AppLayout: React.FC = () => {
           theme="dark"
           mode="inline"
           selectedKeys={[currentKey]}
+          defaultOpenKeys={defaultOpenKeys}
           style={{ background: 'transparent', border: 'none', marginTop: 8 }}
-          items={navItems.map((item) => ({
-            key:   item.key,
-            icon:  item.icon,
-            label: (
-              <div className="flex items-center justify-between">
-                <span>{item.label}</span>
-                {item.badge != null && item.badge > 0 && (
-                  <Badge count={item.badge} size="small" style={{ backgroundColor: '#ef4444', fontSize: 10, boxShadow: 'none' }} />
-                )}
-              </div>
-            ),
-            onClick: () => navigate(item.path),
-          }))}
+          items={buildMenuItems(navItems)}
         />
 
         {/* Collapse toggle */}
@@ -200,7 +261,7 @@ const AppLayout: React.FC = () => {
           <div className="flex items-center gap-2">
             <Button type="text" size="small" icon={<Bars3Icon className="w-5 h-5 text-slate-500" />} onClick={() => setCollapsed((v) => !v)} />
             <span className="text-slate-500 text-sm font-medium hidden md:block">
-              {navItems.find((n) => n.key === currentKey)?.label ?? '首頁'}
+              {currentLabel}
             </span>
           </div>
 

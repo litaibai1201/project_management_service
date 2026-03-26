@@ -213,6 +213,7 @@ class ProjectController:
 
     def submit_for_review(self, project_id: str, reviewer: list, status: int, submitter: str):
         from utils.exceptions import PermissionException
+        from dbs.mysql_db.model_tables import UserProfileModel
         p = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
         if not p:
             raise ResourceNotFoundException(resource_type="项目")
@@ -227,13 +228,35 @@ class ProjectController:
             6: ("完结审核", "project_complete"),
         }
         apply_type, apply_type_code = type_map.get(status, ("状态变更", "other"))
+
+        # 获取提交人姓名
+        submitter_profile = db.session.query(UserProfileModel).filter_by(work_no=submitter).first()
+        submitter_name = submitter_profile.name if submitter_profile else submitter
+
+        # 构建初始审批节点（按传入顺序排列）
+        nodes = []
+        for i, reviewer_wk in enumerate(reviewer):
+            u = db.session.query(UserProfileModel).filter_by(work_no=reviewer_wk).first()
+            nodes.append({
+                "node_id": f"{CommonTools.get_now().replace(' ', '')}_{i}",
+                "order": i + 1,
+                "approver": u.name if u else reviewer_wk,
+                "approver_work_no": reviewer_wk,
+                "status": 0,
+                "is_countersign": False,
+                "approved_at": None,
+                "comment": None,
+            })
+
         apply = ReviewApplyModel(
             project_id=project_id,
             apply_type=apply_type,
             apply_type_code=apply_type_code,
             submitter=submitter,
+            submitter_name=submitter_name,
             reviewer=json.dumps(reviewer),
             priority=p.priority,
+            approval_nodes_json=json.dumps(nodes, ensure_ascii=False),
         )
         db.session.add(apply)
         p.project_status = status
@@ -318,49 +341,209 @@ class ProjectController:
         groups = db.session.query(ProjectGroupModel).filter_by(status=1).all()
         return [g.to_dict() for g in groups]
 
+    def _enrich_review(self, r: 'ReviewApplyModel', viewer_work_no: str = "") -> dict:
+        """为审批记录补充关联项目/功能/任务名称及提交人姓名，并标记当前用户是否轮到审核"""
+        from dbs.mysql_db.model_tables import UserProfileModel
+        project_nm = function_nm = duty_nm = None
+        if r.project_id:
+            p = db.session.query(ProjectDataModel).filter_by(id=r.project_id).first()
+            project_nm = p.project_nm if p else None
+        if r.function_id:
+            f = db.session.query(FunctionDataModel).filter_by(id=r.function_id).first()
+            function_nm = f.function_nm if f else None
+        if r.duty_id:
+            from dbs.mysql_db.model_tables import TemporaryDutyModel
+            d = db.session.query(TemporaryDutyModel).filter_by(id=r.duty_id).first()
+            duty_nm = d.duty_nm if d else None
+        result = r.to_dict(project_nm=project_nm, function_nm=function_nm, duty_nm=duty_nm)
+        # 补充提交人姓名（老记录 submitter_name 为空时从用户表查询）
+        if not result.get("submitter_name"):
+            u = db.session.query(UserProfileModel).filter_by(work_no=r.submitter).first()
+            result["submitter_name"] = u.name if u else r.submitter
+        # 老记录没有 approval_nodes 时，从 reviewer 列表构造基础节点
+        if not result.get("approval_nodes"):
+            reviewers = result.get("reviewer") or []
+            if isinstance(reviewers, str):
+                try:
+                    import json as _json
+                    reviewers = _json.loads(reviewers)
+                except Exception:
+                    reviewers = [reviewers]
+            nodes = []
+            for i, wk in enumerate(reviewers):
+                u = db.session.query(UserProfileModel).filter_by(work_no=wk).first()
+                nodes.append({
+                    "node_id": f"legacy_{i}",
+                    "order": i + 1,
+                    "approver": u.name if u else wk,
+                    "approver_work_no": wk,
+                    "status": 1 if result.get("status") == 2 else 0,
+                    "is_countersign": False,
+                    "approved_at": result.get("updated_at") if result.get("status") == 2 else None,
+                    "comment": None,
+                })
+            result["approval_nodes"] = nodes
+        # 标记当前查看者是否「轮到审核」：仅当该用户有 status=0 的节点时为 True
+        if viewer_work_no and result["approval_nodes"]:
+            nodes = result["approval_nodes"]
+            sorted_nodes = sorted(nodes, key=lambda n: n.get("order", 0))
+            # 找到第一个待审节点，判断是否是当前用户
+            first_pending = next((n for n in sorted_nodes if n.get("status") == 0), None)
+            result["is_my_turn"] = (
+                first_pending is not None and
+                first_pending.get("approver_work_no") == viewer_work_no
+            )
+        else:
+            result["is_my_turn"] = False
+        return result
+
     def get_review_list(self, page=1, size=20, work_no=None):
+        from sqlalchemy import or_
         q = db.session.query(ReviewApplyModel).filter(
             ReviewApplyModel.duty_id.is_(None)
         )
         if work_no:
-            q = q.filter(ReviewApplyModel.reviewer.like(f"%{work_no}%"))
+            # 包含原始审核人 OR 作为加签节点出现在 approval_nodes_json 中的人
+            q = q.filter(or_(
+                ReviewApplyModel.reviewer.like(f"%{work_no}%"),
+                ReviewApplyModel.approval_nodes_json.like(f"%{work_no}%"),
+            ))
         total = q.count()
         records = q.order_by(ReviewApplyModel.created_at.desc()).offset((page-1)*size).limit(size).all()
         return {
             "total_count": total,
             "total_page": (total + size - 1) // size,
-            "data_list": [r.to_dict() for r in records],
+            "data_list": [self._enrich_review(r, viewer_work_no=work_no or "") for r in records],
         }
 
     def get_all_reviews(self, work_no=None):
+        from sqlalchemy import or_
         q = db.session.query(ReviewApplyModel).filter(ReviewApplyModel.apply_status == 1)
         if work_no:
-            q = q.filter(ReviewApplyModel.reviewer.like(f"%{work_no}%"))
-        return [r.to_dict() for r in q.all()]
+            q = q.filter(or_(
+                ReviewApplyModel.reviewer.like(f"%{work_no}%"),
+                ReviewApplyModel.approval_nodes_json.like(f"%{work_no}%"),
+            ))
+        enriched = [self._enrich_review(r, viewer_work_no=work_no or "") for r in q.all()]
+        # 只返回轮到当前用户审核的记录
+        return [e for e in enriched if e.get("is_my_turn")]
 
-    def approve_review(self, review_id: str, status: int, reject_reason: str = ""):
+    def approve_review(self, review_id: str, status: int, reject_reason: str = "",
+                       countersigns: list = None):
         r = db.session.query(ReviewApplyModel).filter_by(id=review_id).first()
         if not r:
             raise ResourceNotFoundException(resource_type="审核记录")
-        r.apply_status = status
-        r.update_at = CommonTools.get_now()
+
+        now = CommonTools.get_now()
+
+        # 更新当前审批节点：找到第一个 status=0（待审）的节点并记录结果
+        # status 映射：2=通过→node_status=1, 3=拒绝→node_status=2, 4=退回→node_status=3
+        node_status_map = {2: 1, 3: 2, 4: 3}
+        nodes = json.loads(r.approval_nodes_json) if r.approval_nodes_json else []
+        # 兼容旧数据：approval_nodes_json 为空时，从 reviewer 字段重建节点
+        if not nodes and r.reviewer:
+            try:
+                reviewers = json.loads(r.reviewer) if isinstance(r.reviewer, str) else r.reviewer
+                if isinstance(reviewers, str):
+                    reviewers = [reviewers]
+            except Exception:
+                reviewers = []
+            for i, wk in enumerate(reviewers if isinstance(reviewers, list) else []):
+                nodes.append({
+                    "node_id": f"legacy_{i}",
+                    "order": i + 1,
+                    "approver": wk,
+                    "approver_work_no": wk,
+                    "status": 0,
+                    "is_countersign": False,
+                    "approved_at": None,
+                    "comment": None,
+                })
+        approved_order = None
+        for node in sorted(nodes, key=lambda n: n.get("order", 0)):
+            if node.get("status") == 0:
+                node["status"]      = node_status_map.get(status, status)
+                node["approved_at"] = now
+                node["comment"]     = reject_reason or ""
+                approved_order      = node.get("order", 0)
+                break
+
+        # 通過時若有加簽人列表，依序插入加簽節點（在剛審批的節點之後）
+        cs_list = countersigns or []
+        if status == 2 and cs_list and approved_order is not None:
+            n_new = len(cs_list)
+            insert_start = approved_order + 1
+            # 後移現有節點，為新節點騰出位置
+            for n in nodes:
+                if n.get("order", 0) >= insert_start:
+                    n["order"] = n.get("order", 0) + n_new
+            # 依序插入加簽節點
+            for i, cs in enumerate(cs_list):
+                nodes.append({
+                    "node_id":          f"{CommonTools.get_now().replace(' ', '')}_{i}",
+                    "order":            insert_start + i,
+                    "approver":         cs.get("name", "") or cs.get("work_no", ""),
+                    "approver_work_no": cs.get("work_no", ""),
+                    "is_countersign":   True,
+                    "status":           0,
+                    "approved_at":      None,
+                    "comment":          None,
+                })
+
+        r.approval_nodes_json = json.dumps(nodes, ensure_ascii=False)
+
+        # 判断整体审批是否完成：只有所有节点通过才算完全通过，否则按操作更新状态
+        # 注意：空节点列表不应被视为"全部通过"，避免无审批人时直接终结
+        all_approved = bool(nodes) and all(n.get("status") == 1 for n in nodes)
+
+        # 确定最终审批状态
+        if status in (3, 4):
+            # 拒绝/退回 → 立即结束
+            final_status = status
+        elif all_approved:
+            # 全部通过
+            final_status = 2
+        else:
+            # 还有待审节点，保持待审状态
+            r.update_at = now
+            db.session.commit()
+            return
+
+        r.apply_status = final_status
+        r.update_at = now
+
         # requirement_change 审批仅更新申请记录，不影响项目状态
         if r.apply_type_code == 'requirement_change':
             db.session.commit()
             return
-        # 同步更新项目/功能状态
-        if r.project_id and not r.function_id:
+
+        # 同步更新功能任务状态（function_complete）
+        # 项目状态码: 1=草稿 2=立案審核 3=規劃中 4=規劃審核 5=執行中 6=完結審核 7=完結
+        # 功能状态码: 1=待開始 2=進行中 3=完結審核 4=已完結
+        if r.function_id:
+            func = db.session.query(FunctionDataModel).filter_by(id=r.function_id).first()
+            if func:
+                if final_status == 2:        # 通過 → 已完結
+                    func.function_status = 4
+                elif final_status in (3, 4):  # 拒絕/退回 → 退回進行中
+                    func.function_status = 2
+                func.update_at = now
+        # 同步更新专案状态（仅专案级别的申请）
+        elif r.project_id:
             p = db.session.query(ProjectDataModel).filter_by(id=r.project_id).first()
             if p:
-                status_map = {
-                    "initiate": (2, 3), "plan": (4, 5), "project_complete": (6, 7),
+                # (通過後的狀態, 拒絕/退回後的狀態)
+                project_status_map = {
+                    "initiate":         (3, 1),  # 通過→規劃中(3), 拒絕→草稿(1)
+                    "plan":             (5, 3),  # 通過→執行中(5), 拒絕→規劃中(3)
+                    "project_complete": (7, 5),  # 通過→完結(7),   拒絕→執行中(5)
                 }
-                next_pass, next_fail = status_map.get(r.apply_type_code or "", (None, None))
-                if status == 2 and next_pass:
+                next_pass, next_fail = project_status_map.get(r.apply_type_code or "", (None, None))
+                if final_status == 2 and next_pass:
                     p.project_status = next_pass
-                elif status in (3, 4) and next_fail:
+                elif final_status in (3, 4) and next_fail:
                     p.project_status = next_fail
-                p.update_at = CommonTools.get_now()
+                p.update_at = now
         db.session.commit()
 
     def countersign_review(self, review_id: str, approver_work_no: str, approver_name: str):
@@ -368,12 +551,32 @@ class ProjectController:
         if not r:
             raise ResourceNotFoundException(resource_type="审核记录")
         nodes = json.loads(r.approval_nodes_json) if r.approval_nodes_json else []
+        # 兼容旧数据：补全缺失的 order 字段，按现有顺序依次赋值
+        missing = [n for n in nodes if "order" not in n]
+        if missing:
+            max_order = max((n.get("order", 0) for n in nodes if "order" in n), default=0)
+            for n in missing:
+                max_order += 1
+                n["order"] = max_order
+        # 加签节点插入到当前待审节点之后
+        current_order = next(
+            (n["order"] for n in sorted(nodes, key=lambda n: n["order"]) if n.get("status") == 0),
+            max((n["order"] for n in nodes), default=0),
+        )
+        insert_order = current_order + 1
+        # 后续节点 order 后移
+        for n in nodes:
+            if n["order"] >= insert_order:
+                n["order"] += 1
         nodes.append({
             "node_id": CommonTools.get_now().replace(" ", ""),
+            "order": insert_order,
             "approver": approver_name,
             "approver_work_no": approver_work_no,
             "is_countersign": True,
             "status": 0,
+            "approved_at": None,
+            "comment": None,
         })
         r.approval_nodes_json = json.dumps(nodes, ensure_ascii=False)
         r.update_at = CommonTools.get_now()

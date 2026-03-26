@@ -117,3 +117,5 @@ tmp/
 */node_modules/*
 /bin/*
 /bin_/*
+
+/uploads/*

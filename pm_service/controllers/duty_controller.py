@@ -142,29 +142,109 @@ class DutyController:
         db.session.commit()
 
     def get_review_list(self, page=1, size=20, work_no=None):
+        from controllers.project_controller import ProjectController
+        from sqlalchemy import or_
+        proj_ctrl = ProjectController()
         q = db.session.query(ReviewApplyModel).filter(ReviewApplyModel.duty_id.isnot(None))
         if work_no:
-            q = q.filter(ReviewApplyModel.reviewer.like(f"%{work_no}%"))
+            q = q.filter(or_(
+                ReviewApplyModel.reviewer.like(f"%{work_no}%"),
+                ReviewApplyModel.approval_nodes_json.like(f"%{work_no}%"),
+            ))
         total = q.count()
         records = q.order_by(ReviewApplyModel.created_at.desc()).offset((page-1)*size).limit(size).all()
         return {
             "total_count": total,
             "total_page": (total + size - 1) // size,
-            "data_list": [r.to_dict() for r in records],
+            "data_list": [proj_ctrl._enrich_review(r, viewer_work_no=work_no or "") for r in records],
         }
 
-    def approve_review(self, review_id: str, status: int, reject_reason: str = ""):
+    def approve_review(self, review_id: str, status: int, reject_reason: str = "",
+                       countersigns: list = None):
         r = db.session.query(ReviewApplyModel).filter_by(id=review_id).first()
         if not r:
             raise ResourceNotFoundException(resource_type="审核记录")
-        r.apply_status = status
-        r.update_at = CommonTools.get_now()
-        if r.duty_id and status == 2:
+
+        now = CommonTools.get_now()
+
+        node_status_map = {2: 1, 3: 2, 4: 3}
+        nodes = json.loads(r.approval_nodes_json) if r.approval_nodes_json else []
+        # 兼容旧数据：approval_nodes_json 为空时，从 reviewer 字段重建节点
+        if not nodes and r.reviewer:
+            try:
+                reviewers = json.loads(r.reviewer) if isinstance(r.reviewer, str) else r.reviewer
+                if isinstance(reviewers, str):
+                    reviewers = [reviewers]
+            except Exception:
+                reviewers = []
+            for i, wk in enumerate(reviewers if isinstance(reviewers, list) else []):
+                nodes.append({
+                    "node_id": f"legacy_{i}",
+                    "order": i + 1,
+                    "approver": wk,
+                    "approver_work_no": wk,
+                    "status": 0,
+                    "is_countersign": False,
+                    "approved_at": None,
+                    "comment": None,
+                })
+        approved_order = None
+        for node in sorted(nodes, key=lambda n: n.get("order", 0)):
+            if node.get("status") == 0:
+                node["status"]      = node_status_map.get(status, status)
+                node["approved_at"] = now
+                node["comment"]     = reject_reason or ""
+                approved_order      = node.get("order", 0)
+                break
+
+        # 通過時若有加簽人列表，依序插入加簽節點（在剛審批的節點之後）
+        cs_list = countersigns or []
+        if status == 2 and cs_list and approved_order is not None:
+            n_new = len(cs_list)
+            insert_start = approved_order + 1
+            for n in nodes:
+                if n.get("order", 0) >= insert_start:
+                    n["order"] = n.get("order", 0) + n_new
+            for i, cs in enumerate(cs_list):
+                nodes.append({
+                    "node_id":          f"{CommonTools.get_now().replace(' ', '')}_{i}",
+                    "order":            insert_start + i,
+                    "approver":         cs.get("name", "") or cs.get("work_no", ""),
+                    "approver_work_no": cs.get("work_no", ""),
+                    "is_countersign":   True,
+                    "status":           0,
+                    "approved_at":      None,
+                    "comment":          None,
+                })
+
+        r.approval_nodes_json = json.dumps(nodes, ensure_ascii=False)
+
+        all_approved = bool(nodes) and all(n.get("status") == 1 for n in nodes)
+
+        if status in (3, 4):
+            final_status = status
+        elif all_approved:
+            final_status = 2
+        else:
+            # 还有待审节点，保持待审状态
+            r.update_at = now
+            db.session.commit()
+            return
+
+        r.apply_status = final_status
+        r.update_at = now
+
+        if r.duty_id and final_status == 2:
             d = db.session.query(TemporaryDutyModel).filter_by(id=r.duty_id).first()
             if d:
-                d.duty_status = 3  # 已完结
-                d.end_time = CommonTools.get_now()
-                d.update_at = CommonTools.get_now()
+                d.duty_status = 3  # 已完結
+                d.end_time = now
+                d.update_at = now
+        elif r.duty_id and final_status in (3, 4):
+            d = db.session.query(TemporaryDutyModel).filter_by(id=r.duty_id).first()
+            if d:
+                d.duty_status = 1  # 退回進行中
+                d.update_at = now
         db.session.commit()
 
     def countersign_review(self, review_id: str, approver_work_no: str, approver_name: str):
@@ -172,12 +252,30 @@ class DutyController:
         if not r:
             raise ResourceNotFoundException(resource_type="审核记录")
         nodes = json.loads(r.approval_nodes_json) if r.approval_nodes_json else []
+        # 兼容旧数据：补全缺失的 order 字段
+        missing = [n for n in nodes if "order" not in n]
+        if missing:
+            max_order = max((n.get("order", 0) for n in nodes if "order" in n), default=0)
+            for n in missing:
+                max_order += 1
+                n["order"] = max_order
+        current_order = next(
+            (n["order"] for n in sorted(nodes, key=lambda n: n["order"]) if n.get("status") == 0),
+            max((n["order"] for n in nodes), default=0),
+        )
+        insert_order = current_order + 1
+        for n in nodes:
+            if n["order"] >= insert_order:
+                n["order"] += 1
         nodes.append({
             "node_id": CommonTools.get_now().replace(" ", ""),
+            "order": insert_order,
             "approver": approver_name,
             "approver_work_no": approver_work_no,
             "is_countersign": True,
             "status": 0,
+            "approved_at": None,
+            "comment": None,
         })
         r.approval_nodes_json = json.dumps(nodes, ensure_ascii=False)
         r.update_at = CommonTools.get_now()

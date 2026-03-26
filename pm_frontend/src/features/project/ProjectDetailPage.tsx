@@ -1,8 +1,6 @@
-import React, { useEffect, useState, useMemo, useRef } from 'react'
+import React, { useEffect, useState, useMemo } from 'react'
 import dayjs from 'dayjs'
-import { renderAsync as renderDocx } from 'docx-preview'
-import * as XLSX from 'xlsx'
-import PptxPreview from './PptxPreview'
+import FilePreviewModal from './FilePreviewModal'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   Tabs, Descriptions, Button, Tag, Progress, Spin, Empty, Table,
@@ -18,7 +16,8 @@ import {
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
 import { fetchProjectThunk, clearCurrent, fetchProjectGroupsThunk } from './projectSlice'
 import { projectApi } from '@/api/project.api'
-import { ProjectFunction, Milestone, ProjectFile } from '@/types/api.types'
+import { userApi } from '@/api/user.api'
+import { ProjectFunction, Milestone, ProjectFile, UserProfile } from '@/types/api.types'
 import { FUNCTION_STATUS_MAP, PRIORITY_MAP } from '@/utils/status'
 import { showToast } from '@/utils/toast'
 import FunctionDetailDrawer from './FunctionDetailDrawer'
@@ -27,110 +26,6 @@ import MilestoneTab from './MilestoneTab'
 
 // ─── Office Preview Sub-components ────────────────────────────────────────────
 
-const DocxPreview: React.FC<{ blob: Blob }> = ({ blob }) => {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const [error, setError] = useState(false)
-
-  useEffect(() => {
-    if (!containerRef.current) return
-    blob.arrayBuffer().then((buf) => {
-      renderDocx(buf, containerRef.current!, undefined, {
-        className: 'docx-preview-body',
-        inWrapper: true,
-        ignoreWidth: false,
-        ignoreHeight: false,
-        ignoreFonts: false,
-        breakPages: true,
-        useBase64URL: true,
-      }).catch(() => setError(true))
-    })
-  }, [blob])
-
-  if (error) return (
-    <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-2">
-      <span className="text-3xl">⚠️</span><span>文件渲染失敗，請下載後查看</span>
-    </div>
-  )
-  return (
-    <div ref={containerRef}
-      style={{ padding: '16px 32px', background: '#f0f0f0', minHeight: 300 }} />
-  )
-}
-
-const XlsxPreview: React.FC<{ blob: Blob }> = ({ blob }) => {
-  const [sheets, setSheets] = useState<{ name: string; html: string }[]>([])
-  const [active, setActive] = useState(0)
-  const [error, setError] = useState<false | 'password' | 'error'>(false)
-
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const binary = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader()
-          reader.onload = () => resolve(reader.result as string)
-          reader.onerror = reject
-          reader.readAsBinaryString(blob)
-        })
-        const wb = XLSX.read(binary, { type: 'binary' })
-        const STYLE = `<style>
-body{font-family:sans-serif;font-size:12px;margin:8px;overflow:auto;}
-table{border-collapse:collapse;}
-td,th{border:1px solid #e2e8f0;padding:4px 8px;white-space:nowrap;vertical-align:top;}
-th{background:#f1f5f9;font-weight:600;}
-</style>`
-        const result = wb.SheetNames.map((name) => {
-          const ws   = wb.Sheets[name]
-          // sheet_to_json with header:1 returns rows as arrays — safer than sheet_to_html
-          const rows = XLSX.utils.sheet_to_json<(string | number | boolean | null)[]>(
-            ws, { header: 1, defval: '' }
-          )
-          const tbody = rows.map((row) =>
-            `<tr>${row.map((cell) => `<td>${String(cell ?? '').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</td>`).join('')}</tr>`
-          ).join('')
-          const html = `<!DOCTYPE html><html><head><meta charset="utf-8">${STYLE}</head><body><table>${tbody}</table></body></html>`
-          return { name, html }
-        })
-        setSheets(result)
-      } catch (e) {
-        console.error('XLSX parse error:', e)
-        const msg = e instanceof Error ? e.message : ''
-        setError(msg.includes('password') ? 'password' : 'error')
-      }
-    }
-    load()
-  }, [blob])
-
-  if (error) return (
-    <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-2">
-      <span className="text-3xl">⚠️</span>
-      <span>{error === 'password' ? '此文件已加密，請下載後用密碼開啟' : '文件渲染失敗，請下載後查看'}</span>
-    </div>
-  )
-  if (sheets.length === 0) return <div className="flex justify-center py-10"><Spin /></div>
-  return (
-    <div>
-      {sheets.length > 1 && (
-        <div style={{ borderBottom: '1px solid #e2e8f0', padding: '0 16px', background: '#f8fafc' }}>
-          {sheets.map((s, i) => (
-            <button key={s.name} onClick={() => setActive(i)}
-              style={{
-                padding: '8px 16px', border: 'none', background: 'transparent', cursor: 'pointer',
-                borderBottom: i === active ? '2px solid #2563eb' : '2px solid transparent',
-                color: i === active ? '#2563eb' : '#64748b', fontSize: 13, fontWeight: i === active ? 600 : 400,
-              }}>
-              {s.name}
-            </button>
-          ))}
-        </div>
-      )}
-      <iframe
-        srcDoc={sheets[active]?.html}
-        title="xlsx-preview"
-        style={{ width: '100%', height: '68vh', border: 'none', display: 'block' }}
-      />
-    </div>
-  )
-}
 
 const PRIORITY_OPTIONS = [
   { value: 1, label: '低' }, { value: 2, label: '中' },
@@ -180,9 +75,7 @@ const ProjectDetailPage: React.FC = () => {
   const [changeReqModal,  setChangeReqModal]   = useState(false)
   const [changeReqSaving, setChangeReqSaving]  = useState(false)
   const [changeReqForm]                        = Form.useForm()
-  const [preview,         setPreview]          = useState<{
-    file: ProjectFile; blobUrl?: string; blob?: Blob; text?: string; loading: boolean
-  } | null>(null)
+  const [previewFile,     setPreviewFile]      = useState<ProjectFile | null>(null)
   const [selectedFid,     setSelectedFid]      = useState<string | null>(null)
   const [showAddFunc,     setShowAddFunc]      = useState(false)
   const [addFuncLoading,  setAddFuncLoading]   = useState(false)
@@ -196,9 +89,13 @@ const ProjectDetailPage: React.FC = () => {
   const [creatingGroup,   setCreatingGroup]   = useState(false)
 
   // ── 提交审核 ──────────────────────────────────────────────────────────────
-  const [showSubmit,    setShowSubmit]    = useState(false)
-  const [submitSaving,  setSubmitSaving]  = useState(false)
-  const [submitForm]                      = Form.useForm()
+  const [showSubmit,        setShowSubmit]        = useState(false)
+  const [submitSaving,      setSubmitSaving]      = useState(false)
+  const [submitReviewers,   setSubmitReviewers]   = useState<UserProfile[]>([])
+  const [supervisorsLoading, setSupervisorsLoading] = useState(false)
+  const [reviewerSearch,    setReviewerSearch]    = useState('')
+  const [searchResults,     setSearchResults]     = useState<UserProfile[]>([])
+  const [searchLoading,     setSearchLoading]     = useState(false)
 
   useEffect(() => {
     if (id) {
@@ -317,42 +214,10 @@ const ProjectDetailPage: React.FC = () => {
     finally { setChangeReqSaving(false) }
   }
 
-  const IMAGE_EXTS  = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp'])
-  const PDF_EXTS    = new Set(['pdf'])
-  const TEXT_EXTS   = new Set(['txt', 'md', 'yaml', 'yml', 'csv'])
-  const HTML_EXTS   = new Set(['html', 'htm'])
-  const DOCX_EXTS   = new Set(['docx'])
-  const XLSX_EXTS   = new Set(['xlsx', 'xls'])
-  const PPTX_EXTS   = new Set(['pptx', 'ppt'])
-  const DOC_LEGACY  = new Set(['doc', 'ppt', 'xls'])   // legacy binary — no client-side renderer
-  const PREVIEWABLE = new Set([...IMAGE_EXTS, ...PDF_EXTS, ...TEXT_EXTS, ...HTML_EXTS, ...DOCX_EXTS, ...XLSX_EXTS, ...PPTX_EXTS, ...DOC_LEGACY])
-
-  const handlePreview = async (file: ProjectFile) => {
-    const ext = file.file_ext.toLowerCase()
-    setPreview({ file, loading: true })
-    try {
-      if (TEXT_EXTS.has(ext)) {
-        const text = await projectApi.previewFileAsText(id!, file.id)
-        setPreview({ file, text, loading: false })
-      } else if (IMAGE_EXTS.has(ext) || PDF_EXTS.has(ext) || HTML_EXTS.has(ext)) {
-        const blobUrl = await projectApi.previewFileAsBlob(id!, file.id)
-        setPreview({ file, blobUrl, loading: false })
-      } else if (DOCX_EXTS.has(ext) || XLSX_EXTS.has(ext) || PPTX_EXTS.has(ext)) {
-        const blob = await projectApi.previewFileRawBlob(id!, file.id)
-        setPreview({ file, blob, loading: false })
-      } else {
-        setPreview({ file, loading: false })
-      }
-    } catch {
-      showToast.error('預覽失敗')
-      setPreview(null)
-    }
-  }
-
-  const closePreview = () => {
-    if (preview?.blobUrl) URL.revokeObjectURL(preview.blobUrl)
-    setPreview(null)
-  }
+  const PREVIEWABLE = new Set([
+    'png','jpg','jpeg','gif','webp','pdf','txt','md','yaml','yml','csv',
+    'html','htm','docx','xlsx','xls','pptx','ppt','doc',
+  ])
 
   const handleAddFunction = async (values: Record<string, unknown>) => {
     if (!id) return
@@ -427,13 +292,62 @@ const ProjectDetailPage: React.FC = () => {
     finally { setEditSaving(false) }
   }
 
-  const handleSubmitReview = async (values: { reviewer: string }) => {
-    if (!id || !current) return
+  const handleOpenSubmitModal = async () => {
+    setSubmitReviewers([])
+    setReviewerSearch('')
+    setSearchResults([])
+    setShowSubmit(true)
+    setSupervisorsLoading(true)
+    try {
+      const res = await userApi.getSupervisors(workNo)
+      const list = (Array.isArray(res.content) ? res.content : []) as UserProfile[]
+      // 若非主管，預設帶入直屬主管作為審核人
+      if (!isSupervisor && list.length > 0) {
+        setSubmitReviewers(list)
+      }
+    } catch { /* ignore */ }
+    finally { setSupervisorsLoading(false) }
+  }
+
+  const handleSearchReviewer = async (keyword: string) => {
+    setReviewerSearch(keyword)
+    if (!keyword.trim()) { setSearchResults([]); return }
+    setSearchLoading(true)
+    try {
+      const res = await userApi.list({ keyword, size: 10 })
+      const c = res.content as { data_list?: UserProfile[] }
+      setSearchResults(c.data_list ?? [])
+    } catch { /* ignore */ }
+    finally { setSearchLoading(false) }
+  }
+
+  const addReviewer = (user: UserProfile) => {
+    if (submitReviewers.some((r) => r.work_no === user.work_no)) return
+    setSubmitReviewers((prev) => [...prev, user])
+    setReviewerSearch('')
+    setSearchResults([])
+  }
+
+  const removeReviewer = (wn: string) => {
+    setSubmitReviewers((prev) => prev.filter((r) => r.work_no !== wn))
+  }
+
+  const moveReviewer = (index: number, dir: -1 | 1) => {
+    const next = index + dir
+    if (next < 0 || next >= submitReviewers.length) return
+    setSubmitReviewers((prev) => {
+      const arr = [...prev]
+      ;[arr[index], arr[next]] = [arr[next], arr[index]]
+      return arr
+    })
+  }
+
+  const handleSubmitReview = async () => {
+    if (!id || !current || submitReviewers.length === 0) return
     setSubmitSaving(true)
     try {
-      // 草稿(1) → 提交立案審核(status=2)；規劃中(3) → 提交規劃審核(status=4)
       const targetStatus = current.status === 1 ? 2 : 4
-      await projectApi.submitForReview(id, [values.reviewer], targetStatus)
+      await projectApi.submitForReview(id, submitReviewers.map((r) => r.work_no), targetStatus)
       showToast.success('已提交審核')
       setShowSubmit(false)
       dispatch(fetchProjectThunk(id))
@@ -556,13 +470,13 @@ const ProjectDetailPage: React.FC = () => {
           )}
           {/* 提交立案審核：僅草稿階段且當前用戶是産品PM */}
           {current.status === 1 && current.can_submit_review && (
-            <Button type="primary" style={{ background: '#2563eb' }} onClick={() => setShowSubmit(true)}>
+            <Button type="primary" style={{ background: '#2563eb' }} onClick={handleOpenSubmitModal}>
               提交立案審核
             </Button>
           )}
           {/* 提交規劃審核：規劃中階段 */}
           {current.status === 3 && (
-            <Button type="primary" style={{ background: '#2563eb' }} onClick={() => setShowSubmit(true)}>
+            <Button type="primary" style={{ background: '#2563eb' }} onClick={handleOpenSubmitModal}>
               提交規劃審核
             </Button>
           )}
@@ -608,7 +522,8 @@ const ProjectDetailPage: React.FC = () => {
                   <Descriptions.Item label="專案PM">{current.project_pm}</Descriptions.Item>
                   <Descriptions.Item label="預計完成">{current.expected_end_date ?? '—'}</Descriptions.Item>
                   <Descriptions.Item label="建立時間">{current.created_at}</Descriptions.Item>
-                  <Descriptions.Item label="描述" span={2}>{current.describe ?? '—'}</Descriptions.Item>
+                  <Descriptions.Item label="描述" span={2}>{current.describe || '—'}</Descriptions.Item>
+                  <Descriptions.Item label="預期效益" span={2}>{current.expected_benefit || '—'}</Descriptions.Item>
                 </Descriptions>
               </Card>
             ),
@@ -844,7 +759,7 @@ const ProjectDetailPage: React.FC = () => {
                             <div className="flex items-center gap-2">
                               {canPreview ? (
                                 <Button type="link" style={{ padding: 0 }}
-                                  onClick={() => handlePreview(record)}>
+                                  onClick={() => setPreviewFile(record)}>
                                   {name}
                                 </Button>
                               ) : (
@@ -1003,59 +918,11 @@ const ProjectDetailPage: React.FC = () => {
         </Form>
       </Modal>
 
-      {preview && (() => {
-        const ext = preview.file.file_ext.toLowerCase()
-        const isWide = PDF_EXTS.has(ext) || HTML_EXTS.has(ext) || DOCX_EXTS.has(ext) || XLSX_EXTS.has(ext) || PPTX_EXTS.has(ext)
-        return (
-          <Modal
-            open
-            title={preview.file.file_nm}
-            onCancel={closePreview}
-            footer={
-              <a href={projectApi.getFileDownloadUrl(id!, preview.file.id)}
-                target="_blank" rel="noreferrer">
-                <Button>下載</Button>
-              </a>
-            }
-            width={isWide ? '85vw' : 700}
-            styles={{ body: { padding: 0, maxHeight: '78vh', overflow: 'auto' } }}
-          >
-            {preview.loading ? (
-              <div className="flex justify-center items-center py-16"><Spin size="large" /></div>
-            ) : IMAGE_EXTS.has(ext) && preview.blobUrl ? (
-              <div className="flex justify-center p-4 bg-slate-50">
-                <img src={preview.blobUrl} alt={preview.file.file_nm}
-                  style={{ maxWidth: '100%', maxHeight: '72vh', objectFit: 'contain' }} />
-              </div>
-            ) : PDF_EXTS.has(ext) && preview.blobUrl ? (
-              <iframe src={preview.blobUrl} title={preview.file.file_nm}
-                style={{ width: '100%', height: '78vh', border: 'none', display: 'block' }} />
-            ) : HTML_EXTS.has(ext) && preview.blobUrl ? (
-              <iframe src={preview.blobUrl} title={preview.file.file_nm} sandbox="allow-same-origin"
-                style={{ width: '100%', height: '78vh', border: 'none', display: 'block' }} />
-            ) : TEXT_EXTS.has(ext) && preview.text !== undefined ? (
-              <pre style={{
-                margin: 0, padding: '16px 20px', fontSize: 13, lineHeight: 1.6,
-                fontFamily: 'ui-monospace, monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-all',
-                background: '#f8fafc', minHeight: 200,
-              }}>
-                {preview.text}
-              </pre>
-            ) : DOCX_EXTS.has(ext) && preview.blob ? (
-              <DocxPreview blob={preview.blob} />
-            ) : XLSX_EXTS.has(ext) && preview.blob ? (
-              <XlsxPreview blob={preview.blob} />
-            ) : PPTX_EXTS.has(ext) && preview.blob ? (
-              <PptxPreview blob={preview.blob} />
-            ) : (
-              <div className="flex flex-col items-center justify-center py-16 text-slate-400 gap-2">
-                <span className="text-4xl">📄</span>
-                <span>此文件類型不支持預覽，請下載後查看</span>
-              </div>
-            )}
-          </Modal>
-        )
-      })()}
+      <FilePreviewModal
+        file={previewFile}
+        projectId={id ?? ''}
+        onClose={() => setPreviewFile(null)}
+      />
 
       {/* Add Function Modal */}
       <Modal title="新增功能任務" open={showAddFunc}
@@ -1173,17 +1040,100 @@ const ProjectDetailPage: React.FC = () => {
       <Modal
         title={current.status === 1 ? '提交立案審核' : '提交規劃審核'}
         open={showSubmit} onCancel={() => setShowSubmit(false)}
-        footer={null} width={420} destroyOnHidden>
-        <Form form={submitForm} layout="vertical" onFinish={handleSubmitReview} className="mt-4">
-          <Form.Item name="reviewer" label="審核人（工號）" rules={[{ required: true, message: '請填寫審核人工號' }]}
-            extra="填寫直屬主管的工號，審核通過後專案將進入下一階段">
-            <Input placeholder="請輸入審核人工號" />
-          </Form.Item>
+        footer={null} width={520} destroyOnHidden>
+        <div className="mt-4 space-y-4">
+          {/* 審核流程說明 */}
+          <div className="text-xs text-slate-400">審核人將依列表順序逐一審核（OA流程），可拖動或上下移動調整順序。</div>
+
+          {/* 審核人列表 */}
+          <div>
+            <div className="text-sm font-medium text-slate-600 mb-2">審核流程</div>
+            {supervisorsLoading ? (
+              <div className="flex justify-center py-4"><Spin size="small" /></div>
+            ) : submitReviewers.length === 0 ? (
+              <div className="border border-dashed border-slate-300 rounded-lg py-5 text-center text-slate-400 text-sm">
+                尚未添加審核人，請搜尋並加入
+              </div>
+            ) : (
+              <div className="border border-slate-200 rounded-lg overflow-hidden">
+                {submitReviewers.map((r, i) => (
+                  <div key={r.work_no}
+                    className="flex items-center gap-3 px-3 py-2.5 border-b border-slate-100 last:border-b-0 bg-white hover:bg-slate-50 transition-colors">
+                    {/* 順序標號 */}
+                    <div className="w-6 h-6 rounded-full bg-blue-600 text-white text-xs flex items-center justify-center flex-shrink-0 font-semibold">
+                      {i + 1}
+                    </div>
+                    {/* 用戶信息 */}
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-slate-800">{r.name}</div>
+                      <div className="text-xs text-slate-400 truncate">
+                        {r.department}{r.position ? ` · ${r.position}` : ''} · {r.work_no}
+                      </div>
+                    </div>
+                    {/* 上下移動 + 刪除 */}
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <Button size="small" type="text" disabled={i === 0}
+                        onClick={() => moveReviewer(i, -1)}
+                        style={{ padding: '0 4px', fontSize: 12, color: i === 0 ? '#cbd5e1' : '#64748b' }}>↑</Button>
+                      <Button size="small" type="text" disabled={i === submitReviewers.length - 1}
+                        onClick={() => moveReviewer(i, 1)}
+                        style={{ padding: '0 4px', fontSize: 12, color: i === submitReviewers.length - 1 ? '#cbd5e1' : '#64748b' }}>↓</Button>
+                      <Button size="small" type="text" danger
+                        icon={<TrashIcon className="w-3.5 h-3.5" />}
+                        onClick={() => removeReviewer(r.work_no)} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* 搜尋加簽 */}
+          <div>
+            <div className="text-sm font-medium text-slate-600 mb-2">加簽審核人</div>
+            <div className="relative">
+              <Input
+                placeholder="輸入姓名或工號搜尋"
+                value={reviewerSearch}
+                onChange={(e) => handleSearchReviewer(e.target.value)}
+                prefix={searchLoading ? <Spin size="small" /> : undefined}
+                allowClear
+              />
+              {searchResults.length > 0 && (
+                <div className="absolute z-50 top-full left-0 right-0 mt-1 border border-slate-200 rounded-lg bg-white shadow-lg overflow-hidden">
+                  {searchResults.map((u) => {
+                    const already = submitReviewers.some((r) => r.work_no === u.work_no)
+                    return (
+                      <div key={u.work_no}
+                        className={`flex items-center gap-3 px-3 py-2 border-b border-slate-50 last:border-b-0 transition-colors ${already ? 'opacity-40 cursor-not-allowed' : 'hover:bg-blue-50 cursor-pointer'}`}
+                        onClick={() => !already && addReviewer(u)}>
+                        <div className="w-7 h-7 rounded-full bg-slate-200 flex items-center justify-center text-xs font-semibold text-slate-600 flex-shrink-0">
+                          {u.name.charAt(0)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium text-slate-800">{u.name}</div>
+                          <div className="text-xs text-slate-400">{u.department}{u.position ? ` · ${u.position}` : ''} · {u.work_no}</div>
+                        </div>
+                        {already && <span className="text-xs text-slate-400">已添加</span>}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <Divider style={{ margin: '8px 0' }} />
           <div className="flex justify-end gap-3">
             <Button onClick={() => setShowSubmit(false)}>取消</Button>
-            <Button type="primary" htmlType="submit" loading={submitSaving} style={{ background: '#2563eb' }}>提交</Button>
+            <Button type="primary" loading={submitSaving}
+              disabled={submitReviewers.length === 0}
+              style={{ background: '#2563eb' }}
+              onClick={handleSubmitReview}>
+              提交審核
+            </Button>
           </div>
-        </Form>
+        </div>
       </Modal>
     </div>
   )
