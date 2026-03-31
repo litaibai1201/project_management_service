@@ -168,7 +168,6 @@ export interface ProjectFunction {
   describe?: string
   project_id: string
   responsible?: string[]
-  developers?: string[]
   priority: number
   status: FunctionStatus
   progress: number
@@ -186,7 +185,6 @@ export interface AddFunctionPayload {
   responsible?: string[]
   expected_start_date?: string
   expected_end_date?: string
-  developers?: string[]
   priority: number
   group1: string
   group2?: string
@@ -196,7 +194,7 @@ export interface AddFunctionPayload {
 export interface FunctionAllocationPayload {
   expected_start_date?: string
   expected_end_date?: string
-  developers: string[]
+  responsible: string[]
 }
 
 // ─── Progress Record ──────────────────────────────────────────────────────────

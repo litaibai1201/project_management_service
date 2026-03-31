@@ -80,7 +80,7 @@ class GroupController:
         completed = (
             db.session.query(FunctionDataModel)
             .filter(
-                FunctionDataModel.developers.like(f"%{work_no}%"),
+                FunctionDataModel.responsible.like(f'%"{work_no}"%'),
                 FunctionDataModel.function_status == 4,
             ).count()
         )

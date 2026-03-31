@@ -258,7 +258,6 @@ class FunctionDataModel(BaseMixinModel):
     describe = db.Column(db.Text, comment="描述")
     project_id = db.Column(db.String(32), db.ForeignKey("project_data_form.id"), nullable=False, index=True)
     responsible = db.Column(db.Text, comment="负责人工号列表(JSON数组)")
-    developers = db.Column(db.Text, comment="开发人员(JSON数组)")
     priority = db.Column(db.Integer, default=2)
     # 1=待开始 2=进行中 3=完结审核 4=已完结 8=搁置 9=删除
     function_status = db.Column(db.Integer, default=1)
@@ -271,17 +270,11 @@ class FunctionDataModel(BaseMixinModel):
     group2 = db.Column(db.String(64), comment="功能分组2")
 
     def to_dict(self):
-        devs = []
-        if self.developers:
-            try:
-                devs = json.loads(self.developers)
-            except Exception:
-                devs = [self.developers]
         return {
             "id": self.id, "function_nm": self.function_nm, "describe": self.describe or "",
             "project_id": self.project_id,
             "responsible": json.loads(self.responsible) if self.responsible else [],
-            "developers": devs, "priority": self.priority,
+            "priority": self.priority,
             "status": self.function_status, "progress": self.progress,
             "expected_start_date": self.expected_start_date or "",
             "expected_end_date": self.expected_end_date or "",
@@ -305,6 +298,7 @@ class ProgressRecordDataModel(BaseMixinModel):
     time_consum = db.Column(db.Float, default=0)
     start_time = db.Column(db.String(10))
     is_read = db.Column(db.Integer, default=0)
+    files_json = db.Column(db.Text, comment="附件信息(JSON数组)")
 
     def to_dict(self):
         coops = []
@@ -313,11 +307,20 @@ class ProgressRecordDataModel(BaseMixinModel):
                 coops = json.loads(self.cooperator)
             except Exception:
                 coops = [self.cooperator]
+        raw_files = []
+        if self.files_json:
+            try:
+                raw_files = json.loads(self.files_json)
+            except Exception:
+                pass
+        base = f"/api/project/{self.project_id}/function/{self.function_id}/progress/{self.progress_id}/files"
+        files = [{"name": f["name"], "url": f"{base}/{f['id']}/preview", "size": f.get("size")} for f in raw_files]
         return {
             "progress_id": self.progress_id, "progress": self.progress,
             "progress_record": self.progress_record or "", "submitter": self.submitter,
             "cooperator": coops, "time_consum": self.time_consum or 0,
             "start_time": self.start_time or "", "created_at": self.created_at,
+            "files": files,
         }
 
 

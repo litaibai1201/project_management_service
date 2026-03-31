@@ -62,6 +62,7 @@ const ProjectDetailPage: React.FC = () => {
   const { current, isLoading, groups } = useAppSelector((s) => s.project)
   const workNo = useAppSelector((s) => s.auth.workNo) ?? ''
   const { isAdmin, isSupervisor } = useAppSelector((s) => s.auth)
+  const isPm = (current?.project_pm?.toLowerCase() ?? '') === workNo.toLowerCase() && !!workNo
   const canManageGroups = isAdmin || isSupervisor
 
   const [functions,       setFunctions]       = useState<ProjectFunction[]>([])
@@ -494,7 +495,7 @@ const ProjectDetailPage: React.FC = () => {
   }
 
   const myFunctions = useMemo(
-    () => functions.filter((f) => (Array.isArray(f.developers) ? f.developers : []).includes(workNo)),
+    () => functions.filter((f) => (Array.isArray(f.responsible) ? f.responsible : []).includes(workNo)),
     [functions, workNo],
   )
   const displayedFunctions = funcView === 'mine' ? myFunctions : functions
@@ -557,7 +558,7 @@ const ProjectDetailPage: React.FC = () => {
     {
       title: '負責人', dataIndex: 'responsible', width: 150,
       render: (v: string[], record) => {
-        const ispm = current?.project_pm === workNo
+        const ispm = isPm && [3, 5, 10].includes(current?.status ?? 0)
         const openPicker = async () => {
           setRespSearchKw(''); setRespSearchResult(null)
           setQuickResponsible({ fid: record.id, persons: [] })
@@ -612,13 +613,13 @@ const ProjectDetailPage: React.FC = () => {
     },
     { title: '預計完成', dataIndex: 'expected_end_date', width: 110 },
     {
-      title: '操作', key: 'action', width: current?.project_pm === workNo ? 110 : 80, fixed: 'right',
+      title: '操作', key: 'action', width: isPm ? 110 : 80, fixed: 'right',
       render: (_: unknown, record) => {
-        const canModifyTask = (current?.status ?? 0) < 11
+        const canModifyTask = [3, 10].includes(current?.status ?? 0)
         return (
           <Space size={0}>
             <Tooltip title="查看"><Button icon={<EyeIcon className="w-4 h-4" />} size="small" type="text" onClick={() => setSelectedFid(record.id)} /></Tooltip>
-            {current?.project_pm === workNo && canModifyTask && (
+            {isPm && canModifyTask && (
               <Tooltip title="編輯"><Button icon={<EditIcon className="w-4 h-4" />} size="small" type="text" onClick={() => handleOpenFuncEdit(record.id)} /></Tooltip>
             )}
             {canModifyTask && (
@@ -783,7 +784,7 @@ const ProjectDetailPage: React.FC = () => {
                       ]}
                     />
                   </div>
-                  {current?.project_pm === workNo && [3, 10].includes(current?.status ?? 0) && (
+                  {isPm && [3, 10].includes(current?.status ?? 0) && (
                     <Button type="primary" icon={<PlusIcon className="w-4 h-4" />}
                       onClick={() => setShowAddFunc(true)} size="small" style={{ background: '#2563eb' }}>
                       新增功能
@@ -1259,8 +1260,9 @@ const ProjectDetailPage: React.FC = () => {
         <FunctionDetailDrawer projectId={id} functionId={selectedFid}
           open={!!selectedFid} onClose={() => setSelectedFid(null)}
           onRefresh={() => loadFunctions(id)}
-          isProjectPm={current?.project_pm === workNo && (current?.status ?? 0) < 11}
-          projectStatus={current?.status} />
+          isProjectPm={isPm && [3, 10].includes(current?.status ?? 0)}
+          projectStatus={current?.status}
+          projectPm={current?.project_pm} />
       )}
 
       {/* 編輯專案 Modal */}

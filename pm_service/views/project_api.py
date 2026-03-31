@@ -273,6 +273,17 @@ class FunctionDetailApi(MethodView):
         return response_result()
 
 
+@blp.route("/<string:project_id>/function/<string:function_id>/submit_completion")
+class FunctionSubmitCompletionApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def post(self, project_id, function_id):
+        """提交任务完结审核"""
+        work_no = get_identity()
+        result = func_ctrl.submit_function_completion(project_id, function_id, submitter=work_no)
+        return response_result(content=result)
+
+
 @blp.route("/<string:project_id>/function/<string:function_id>/set_status")
 class FunctionSetStatusApi(MethodView):
     @jwt_required()
@@ -327,7 +338,35 @@ class FunctionProgressApi(MethodView):
         """创建功能任务进度"""
         work_no = get_identity()
         payload = request.form.to_dict()
-        return response_result(content=func_ctrl.create_progress(project_id, function_id, payload, submitter=work_no))
+        return response_result(content=func_ctrl.create_progress(
+            project_id, function_id, payload, submitter=work_no, files=request.files,
+        ))
+
+
+@blp.route("/<string:project_id>/function/<string:function_id>/progress/<string:progress_id>/files/<string:file_id>/preview")
+class ProgressFilePreviewApi(MethodView):
+    @jwt_required()
+    def get(self, project_id, function_id, progress_id, file_id):
+        """内联预览进度附件"""
+        import mimetypes
+        abs_path, original_name = func_ctrl.get_progress_file_path(project_id, progress_id, file_id)
+        ext = original_name.rsplit(".", 1)[-1].lower() if "." in original_name else ""
+        text_exts = {"txt", "md", "yaml", "yml", "csv"}
+        if ext in text_exts:
+            mime_type = "text/plain; charset=utf-8"
+        else:
+            mime_type, _ = mimetypes.guess_type(original_name)
+            mime_type = mime_type or "application/octet-stream"
+        return send_file(abs_path, mimetype=mime_type, as_attachment=False, download_name=original_name)
+
+
+@blp.route("/<string:project_id>/function/<string:function_id>/progress/<string:progress_id>/files/<string:file_id>/download")
+class ProgressFileDownloadApi(MethodView):
+    @jwt_required()
+    def get(self, project_id, function_id, progress_id, file_id):
+        """下载进度附件"""
+        abs_path, original_name = func_ctrl.get_progress_file_path(project_id, progress_id, file_id)
+        return send_file(abs_path, as_attachment=True, download_name=original_name)
 
 
 # ─── Review ──────────────────────────────────────────────────────────────────

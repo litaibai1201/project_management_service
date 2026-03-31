@@ -2,6 +2,7 @@
 """项目控制器"""
 import json
 import os
+import uuid
 
 from utils.tools import CommonTools
 from utils.exceptions import ResourceNotFoundException, BusinessException
@@ -69,11 +70,14 @@ class ProjectController:
             else:
                 all_members = [work_no]
 
-            # 通过功能任务参与的专案ID
-            dev_func_conds = [FunctionDataModel.developers.like(f'%"{m}"%') for m in all_members]
-            dev_proj_ids = (
+            # 通过功能任务参与的专案ID（开发者 or 负责人）
+            resp_func_conds = [FunctionDataModel.responsible.like(f'%"{m}"%') for m in all_members]
+            func_proj_ids = (
                 db.session.query(FunctionDataModel.project_id)
-                .filter(db.or_(*dev_func_conds), FunctionDataModel.function_status != 9)
+                .filter(
+                    db.or_(*resp_func_conds),
+                    FunctionDataModel.function_status != 9,
+                )
                 .distinct().subquery()
             )
             role_conds = [
@@ -84,7 +88,7 @@ class ProjectController:
                 )
                 for m in all_members
             ]
-            q = q.filter(db.or_(*role_conds, ProjectDataModel.id.in_(dev_proj_ids)))
+            q = q.filter(db.or_(*role_conds, ProjectDataModel.id.in_(func_proj_ids)))
 
         # ── 其他过滤条件 ────────────────────────────────────────────────────────
         if keyword:
@@ -752,7 +756,6 @@ class FunctionController:
             raise ResourceNotFoundException(resource_type="项目")
         if project.project_status not in (3, 10):
             raise PermissionException(msg="只有規劃中或排程安排階段可以新增功能任務")
-        devs = payload.get("developers", [])
         resp = payload.get("responsible", [])
         if isinstance(resp, str):
             try:
@@ -765,7 +768,6 @@ class FunctionController:
             describe=payload.get("describe", ""),
             project_id=project_id,
             responsible=json.dumps(resp, ensure_ascii=False),
-            developers=json.dumps(devs, ensure_ascii=False),
             priority=payload.get("priority", 2),
             expected_start_date=payload.get("expected_start_date", ""),
             expected_end_date=payload.get("expected_end_date", ""),
@@ -793,14 +795,6 @@ class FunctionController:
                     resp = [resp] if resp else []
             resp = [w.strip().lower() for w in (resp if isinstance(resp, list) else [resp]) if w]
             f.responsible = json.dumps(resp, ensure_ascii=False)
-        if "developers" in payload and payload["developers"] is not None:
-            devs = payload["developers"]
-            if isinstance(devs, str):
-                try:
-                    devs = json.loads(devs)
-                except (json.JSONDecodeError, ValueError):
-                    devs = [devs] if devs else []
-            f.developers = json.dumps(devs if isinstance(devs, list) else [devs], ensure_ascii=False)
         f.update_at = CommonTools.get_now()
         db.session.commit()
 
@@ -820,11 +814,68 @@ class FunctionController:
         f.update_at = CommonTools.get_now()
         db.session.commit()
 
+    def submit_function_completion(self, project_id: str, function_id: str, submitter: str):
+        """提交任务完结：
+        - 若提交人是专案 PM → 直接设为已完结（status=4）
+        - 否则 → 创建审核记录发给专案 PM，设为完结审核（status=3）
+        """
+        f = db.session.query(FunctionDataModel).filter_by(id=function_id).first()
+        if not f:
+            raise ResourceNotFoundException(resource_type="功能任务")
+        if f.function_status == 4:
+            raise BusinessException(msg="任务已完结，无法重复提交")
+        if f.function_status == 3:
+            raise BusinessException(msg="任务已提交完结审核，等待审核中")
+
+        project = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
+        if not project:
+            raise ResourceNotFoundException(resource_type="项目")
+
+        project_pm = (project.project_pm or "").strip().lower()
+        now = CommonTools.get_now()
+
+        if submitter.strip().lower() == project_pm:
+            # 专案 PM 直接完结
+            f.function_status = 4
+            f.update_at = now
+            db.session.commit()
+            return {"direct_complete": True}
+        else:
+            # 创建审核记录，等待 PM 审批
+            from dbs.mysql_db.model_tables import generate_uuid
+            review = ReviewApplyModel(
+                id=generate_uuid(),
+                project_id=project_id,
+                function_id=function_id,
+                apply_type="功能完結審核",
+                apply_type_code="function_complete",
+                submitter=submitter,
+                reviewer=json.dumps([project_pm], ensure_ascii=False),
+                apply_status=1,
+                approval_nodes_json=json.dumps([{
+                    "node_id": generate_uuid(),
+                    "order": 1,
+                    "approver": project_pm,
+                    "approver_work_no": project_pm,
+                    "status": 0,
+                    "is_countersign": False,
+                    "approved_at": None,
+                    "comment": None,
+                }], ensure_ascii=False),
+            )
+            f.function_status = 3
+            f.update_at = now
+            db.session.add(review)
+            db.session.commit()
+            return {"direct_complete": False}
+
     def allocate(self, function_id: str, payload: dict):
         f = db.session.query(FunctionDataModel).filter_by(id=function_id).first()
         if not f:
             raise ResourceNotFoundException(resource_type="功能任务")
-        f.developers = json.dumps(payload.get("developers", []), ensure_ascii=False)
+        resp = payload.get("responsible", [])
+        resp = [w.strip().lower() for w in (resp if isinstance(resp, list) else [resp]) if w]
+        f.responsible = json.dumps(resp, ensure_ascii=False)
         if payload.get("expected_start_date"):
             f.expected_start_date = payload["expected_start_date"]
         if payload.get("expected_end_date"):
@@ -852,9 +903,19 @@ class FunctionController:
             "data_list": [f.to_dict() for f in funcs],
         }
 
-    def create_progress(self, project_id: str, function_id: str, payload: dict, submitter: str):
+    def _progress_upload_dir(self, project_id: str, progress_id: str) -> str:
+        from configs.base import BaseConfig
+        base = os.path.abspath(BaseConfig.UPLOAD_DIR)
+        path = os.path.join(base, "progress_files", project_id, progress_id)
+        os.makedirs(path, exist_ok=True)
+        return path
+
+    def create_progress(self, project_id: str, function_id: str, payload: dict, submitter: str, files=None):
+        from dbs.mysql_db.model_tables import generate_uuid
         devs = payload.get("cooperator", [])
+        progress_id = generate_uuid()   # generate before record so we can use it for file paths
         rec = ProgressRecordDataModel(
+            progress_id=progress_id,
             project_id=project_id,
             function_id=function_id,
             progress=payload["progress"],
@@ -864,13 +925,55 @@ class FunctionController:
             time_consum=payload.get("time_consum", 0),
             start_time=payload.get("start_time", ""),
         )
+        # Save attachments
+        if files:
+            from configs.base import BaseConfig
+            from utils.exceptions import ValidationException
+            saved = []
+            upload_list = files.getlist("files") if hasattr(files, "getlist") else []
+            for f_obj in upload_list:
+                if not f_obj or not f_obj.filename:
+                    continue
+                ext = f_obj.filename.rsplit(".", 1)[-1].lower() if "." in f_obj.filename else ""
+                if ext not in BaseConfig.UPLOAD_ALLOWED_EXTENSIONS:
+                    raise ValidationException(msg=f"不支持的文件类型: .{ext}")
+                fid = uuid.uuid4().hex
+                dest_dir = self._progress_upload_dir(project_id, progress_id)
+                dest = os.path.join(dest_dir, f"{fid}.{ext}" if ext else fid)
+                f_obj.save(dest)
+                saved.append({"id": fid, "name": f_obj.filename, "ext": ext, "size": os.path.getsize(dest)})
+            if saved:
+                rec.files_json = json.dumps(saved, ensure_ascii=False)
         db.session.add(rec)
-        f = db.session.query(FunctionDataModel).filter_by(id=function_id).first()
-        if f:
-            f.progress = payload["progress"]
-            f.update_at = CommonTools.get_now()
+        # Update task progress and auto-advance status
+        func = db.session.query(FunctionDataModel).filter_by(id=function_id).first()
+        if func:
+            func.progress = payload["progress"]
+            if func.function_status == 1:
+                func.function_status = 2   # 待開始 → 進行中
+            func.update_at = CommonTools.get_now()
         db.session.commit()
-        return rec.progress_id
+        return {"progress_id": rec.progress_id}
+
+    def get_progress_file_path(self, project_id: str, progress_id: str, file_id: str):
+        from utils.exceptions import ResourceNotFoundException
+        rec = db.session.query(ProgressRecordDataModel).filter_by(progress_id=progress_id).first()
+        if not rec or not rec.files_json:
+            raise ResourceNotFoundException(resource_type="进度附件")
+        try:
+            file_list = json.loads(rec.files_json)
+        except Exception:
+            raise ResourceNotFoundException(resource_type="进度附件")
+        meta = next((f for f in file_list if f["id"] == file_id), None)
+        if not meta:
+            raise ResourceNotFoundException(resource_type="进度附件")
+        ext = meta.get("ext", "")
+        filename = f"{file_id}.{ext}" if ext else file_id
+        dest_dir = self._progress_upload_dir(project_id, progress_id)
+        abs_path = os.path.join(dest_dir, filename)
+        if not os.path.exists(abs_path):
+            raise ResourceNotFoundException(resource_type="进度附件")
+        return abs_path, meta["name"]
 
     def get_progress(self, function_id: str, page=1, size=20, unread=0):
         q = db.session.query(ProgressRecordDataModel).filter_by(function_id=function_id)

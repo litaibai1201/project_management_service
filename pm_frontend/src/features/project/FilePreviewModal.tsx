@@ -110,31 +110,55 @@ interface FilePreviewState {
 }
 
 interface Props {
-  file: ProjectFile | null
-  projectId: string
+  // Project file mode
+  file?: ProjectFile | null
+  projectId?: string
+  // Direct URL mode (for progress attachments — token already in URL)
+  directUrl?: string | null
+  filename?: string
   onClose: () => void
 }
 
-const FilePreviewModal: React.FC<Props> = ({ file, projectId, onClose }) => {
+const FilePreviewModal: React.FC<Props> = ({ file, projectId, directUrl, filename, onClose }) => {
   const [state, setState] = useState<FilePreviewState>({ loading: false })
 
   useEffect(() => {
-    if (!file) return
-    const ext = file.file_ext.toLowerCase()
+    const isProjectMode = !!file && !!projectId
+    const isDirectMode  = !!directUrl && !!filename
+    if (!isProjectMode && !isDirectMode) return
+
+    const ext = isProjectMode ? file!.file_ext.toLowerCase() : (filename!.split('.').pop()?.toLowerCase() ?? '')
     setState({ loading: true })
+
     const load = async () => {
       try {
-        if (TEXT_EXTS.has(ext)) {
-          const text = await projectApi.previewFileAsText(projectId, file.id)
-          setState({ text, loading: false })
-        } else if (IMAGE_EXTS.has(ext) || PDF_EXTS.has(ext) || HTML_EXTS.has(ext)) {
-          const blobUrl = await projectApi.previewFileAsBlob(projectId, file.id)
-          setState({ blobUrl, loading: false })
-        } else if (DOCX_EXTS.has(ext) || XLSX_EXTS.has(ext) || PPTX_EXTS.has(ext)) {
-          const blob = await projectApi.previewFileRawBlob(projectId, file.id)
-          setState({ blob, loading: false })
+        if (isDirectMode) {
+          // Direct URL — token is already embedded in the query string
+          if (TEXT_EXTS.has(ext)) {
+            const text = await window.fetch(directUrl!).then((r) => r.text())
+            setState({ text, loading: false })
+          } else if (IMAGE_EXTS.has(ext) || PDF_EXTS.has(ext) || HTML_EXTS.has(ext)) {
+            const blob = await window.fetch(directUrl!).then((r) => r.blob())
+            setState({ blobUrl: URL.createObjectURL(blob), loading: false })
+          } else if (DOCX_EXTS.has(ext) || XLSX_EXTS.has(ext) || PPTX_EXTS.has(ext)) {
+            const blob = await window.fetch(directUrl!).then((r) => r.blob())
+            setState({ blob, loading: false })
+          } else {
+            setState({ loading: false })
+          }
         } else {
-          setState({ loading: false })
+          if (TEXT_EXTS.has(ext)) {
+            const text = await projectApi.previewFileAsText(projectId!, file!.id)
+            setState({ text, loading: false })
+          } else if (IMAGE_EXTS.has(ext) || PDF_EXTS.has(ext) || HTML_EXTS.has(ext)) {
+            const blobUrl = await projectApi.previewFileAsBlob(projectId!, file!.id)
+            setState({ blobUrl, loading: false })
+          } else if (DOCX_EXTS.has(ext) || XLSX_EXTS.has(ext) || PPTX_EXTS.has(ext)) {
+            const blob = await projectApi.previewFileRawBlob(projectId!, file!.id)
+            setState({ blob, loading: false })
+          } else {
+            setState({ loading: false })
+          }
         }
       } catch {
         setState({ loading: false })
@@ -144,23 +168,26 @@ const FilePreviewModal: React.FC<Props> = ({ file, projectId, onClose }) => {
     return () => {
       setState((prev) => { if (prev.blobUrl) URL.revokeObjectURL(prev.blobUrl); return { loading: false } })
     }
-  }, [file, projectId])
+  }, [file, projectId, directUrl, filename])
 
-  if (!file) return null
+  if (!file && !directUrl) return null
 
-  const ext = file.file_ext.toLowerCase()
+  const title = file ? file.file_nm : (filename ?? '')
+  const ext   = file ? file.file_ext.toLowerCase() : (filename?.split('.').pop()?.toLowerCase() ?? '')
   const isWide = PDF_EXTS.has(ext) || HTML_EXTS.has(ext) || DOCX_EXTS.has(ext) || XLSX_EXTS.has(ext) || PPTX_EXTS.has(ext)
+
+  const footerBtn = file && projectId
+    ? <a href={projectApi.getFileDownloadUrl(projectId, file.id)} target="_blank" rel="noreferrer"><Button>下載</Button></a>
+    : directUrl
+      ? <a href={directUrl} target="_blank" rel="noreferrer"><Button>下載</Button></a>
+      : null
 
   return (
     <Modal
       open
-      title={file.file_nm}
+      title={title}
       onCancel={onClose}
-      footer={
-        <a href={projectApi.getFileDownloadUrl(projectId, file.id)} target="_blank" rel="noreferrer">
-          <Button>下載</Button>
-        </a>
-      }
+      footer={footerBtn}
       width={isWide ? '85vw' : 700}
       styles={{ body: { padding: 0, maxHeight: '78vh', overflow: 'auto' } }}
       destroyOnHidden
@@ -169,14 +196,14 @@ const FilePreviewModal: React.FC<Props> = ({ file, projectId, onClose }) => {
         <div className="flex justify-center items-center py-16"><Spin size="large" /></div>
       ) : IMAGE_EXTS.has(ext) && state.blobUrl ? (
         <div className="flex justify-center p-4 bg-slate-50">
-          <img src={state.blobUrl} alt={file.file_nm}
+          <img src={state.blobUrl} alt={title}
             style={{ maxWidth: '100%', maxHeight: '72vh', objectFit: 'contain' }} />
         </div>
       ) : PDF_EXTS.has(ext) && state.blobUrl ? (
-        <iframe src={state.blobUrl} title={file.file_nm}
+        <iframe src={state.blobUrl} title={title}
           style={{ width: '100%', height: '78vh', border: 'none', display: 'block' }} />
       ) : HTML_EXTS.has(ext) && state.blobUrl ? (
-        <iframe src={state.blobUrl} title={file.file_nm} sandbox="allow-same-origin"
+        <iframe src={state.blobUrl} title={title} sandbox="allow-same-origin"
           style={{ width: '100%', height: '78vh', border: 'none', display: 'block' }} />
       ) : TEXT_EXTS.has(ext) && state.text !== undefined ? (
         <pre style={{

@@ -54,6 +54,8 @@ class BaseConfig:
     JWT_SECRET_KEY = _get_secret("JWT_SECRET_KEY", "jwt-secret-key")
     JWT_ACCESS_TOKEN_EXPIRES = _get_int("JWT_ACCESS_TOKEN_EXPIRES", 3600)
     JWT_REFRESH_TOKEN_EXPIRES = _get_int("JWT_REFRESH_TOKEN_EXPIRES", 86400 * 7)
+    JWT_TOKEN_LOCATION = ["headers", "query_string"]
+    JWT_QUERY_STRING_NAME = "token"
 
     # ==================== 请求配置 ====================
     REQUEST_TIMEOUT = _get_int("REQUEST_TIMEOUT", 30)

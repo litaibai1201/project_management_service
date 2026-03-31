@@ -45,7 +45,7 @@ class StatisticsController:
         # ── 功能任务统计 ───────────────────────────────────────────────
         all_funcs = db.session.query(FunctionDataModel).filter(
             FunctionDataModel.status == 1,
-            FunctionDataModel.developers.like(f"%{work_no}%"),
+            FunctionDataModel.responsible.like(f'%"{work_no}"%'),
         ).all()
 
         completed_tasks = 0
@@ -54,9 +54,8 @@ class StatisticsController:
         overdue_days = 0
 
         for f in all_funcs:
-            # 确认该成员确实在 developers 列表中
-            devs = json.loads(f.developers) if f.developers else []
-            if work_no not in devs:
+            resp = json.loads(f.responsible) if f.responsible else []
+            if work_no not in resp:
                 continue
 
             s = f.function_status or 0

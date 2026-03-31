@@ -148,6 +148,10 @@ export const projectApi = {
   setFunctionStatus: (pid: string, fid: string, status: number): Promise<ApiResponse<null>> =>
     put(`/project/${pid}/function/${fid}/set_status`, { status }),
 
+  /** POST /api/project/:pid/function/:fid/submit_completion — 提交任務完結審核 */
+  submitFunctionCompletion: (pid: string, fid: string): Promise<ApiResponse<{ direct_complete: boolean }>> =>
+    post(`/project/${pid}/function/${fid}/submit_completion`, {}),
+
   /** PUT /api/project/:pid/function/:fid/allocation */
   allocateFunction: (pid: string, fid: string, payload: FunctionAllocationPayload): Promise<ApiResponse<null>> =>
     put(`/project/${pid}/function/${fid}/allocation`, payload),

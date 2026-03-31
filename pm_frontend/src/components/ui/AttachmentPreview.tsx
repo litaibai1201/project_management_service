@@ -20,6 +20,7 @@ export interface FileItem {
 interface AttachmentPreviewProps {
   files?: FileItem[]
   images?: FileItem[]
+  onPreview?: (file: FileItem) => void
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -49,7 +50,7 @@ function getFileIcon(name: string): React.ReactNode {
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
-const AttachmentPreview: React.FC<AttachmentPreviewProps> = ({ files = [], images = [] }) => {
+const AttachmentPreview: React.FC<AttachmentPreviewProps> = ({ files = [], images = [], onPreview }) => {
   if (files.length === 0 && images.length === 0) return null
 
   // Separate: explicit images + any image-like files
@@ -94,17 +95,16 @@ const AttachmentPreview: React.FC<AttachmentPreviewProps> = ({ files = [], image
           <PaperClipIcon className="w-3.5 h-3.5 text-slate-300 flex-shrink-0 mt-0.5" />
           <div className="flex flex-wrap gap-1.5">
             {docItems.map((f, i) => (
-              <a
+              <button
                 key={i}
-                href={f.url}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 hover:bg-blue-50 hover:border-blue-200 transition-colors group"
+                type="button"
+                onClick={() => onPreview ? onPreview(f) : window.open(f.url, '_blank')}
+                className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 hover:bg-blue-50 hover:border-blue-200 transition-colors group cursor-pointer"
               >
                 <div className="w-6 h-6 rounded flex items-center justify-center bg-white border border-slate-100 flex-shrink-0">
                   {getFileIcon(f.name)}
                 </div>
-                <div className="min-w-0">
+                <div className="min-w-0 text-left">
                   <div className="text-xs text-slate-600 font-medium truncate max-w-[120px] group-hover:text-blue-600">
                     {f.name}
                   </div>
@@ -112,7 +112,7 @@ const AttachmentPreview: React.FC<AttachmentPreviewProps> = ({ files = [], image
                     <div className="text-[10px] text-slate-300 leading-none">{formatSize(f.size)}</div>
                   )}
                 </div>
-              </a>
+              </button>
             ))}
           </div>
         </div>

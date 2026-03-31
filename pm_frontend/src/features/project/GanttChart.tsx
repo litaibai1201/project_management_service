@@ -94,7 +94,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [] }) =
   const devOptions = useMemo(() => {
     const devSet = new Set<string>()
     functions.forEach((f) => {
-      if (f.developers) f.developers.split(';').forEach((d) => d.trim() && devSet.add(d.trim()))
+      if (Array.isArray(f.responsible)) f.responsible.forEach((d) => d && devSet.add(d))
     })
     return Array.from(devSet).map((d) => ({ label: d, value: d }))
   }, [functions])
@@ -103,7 +103,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [] }) =
   const visibleFunctions = useMemo(() => {
     return functions.filter((f) => {
       if (filterGroup && f.group1 !== filterGroup) return false
-      if (filterDev && (!f.developers || !f.developers.split(';').map((d) => d.trim()).includes(filterDev))) return false
+      if (filterDev && (!Array.isArray(f.responsible) || !f.responsible.includes(filterDev))) return false
       return true
     })
   }, [functions, filterGroup, filterDev])

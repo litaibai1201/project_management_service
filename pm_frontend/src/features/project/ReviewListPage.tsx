@@ -12,9 +12,10 @@ import {
 import { projectApi } from '@/api/project.api'
 import { dutyApi } from '@/api/duty.api'
 import { userApi } from '@/api/user.api'
-import { ApplyRecord, Project, ProjectFile, ProjectFunction, ReviewPayload } from '@/types/api.types'
+import { ApplyRecord, Project, ProjectFile, ProjectFunction, ProgressRecord, FileInfo, ReviewPayload } from '@/types/api.types'
 import { showToast } from '@/utils/toast'
 import FilePreviewModal from './FilePreviewModal'
+import { tokenStorage } from '@/api/httpClient'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -33,13 +34,14 @@ const STAMP_COLORS: Record<number, string> = {
 }
 
 const APPLY_TYPE_COLOR: Record<string, string> = {
-  initiate:           'blue',
-  plan:               'geekblue',
-  schedule:           'purple',
-  function_complete:  'cyan',
-  project_complete:   'green',
-  duty_complete:      'volcano',
-  requirement_change: 'orange',
+  initiate:            'blue',
+  plan:                'geekblue',
+  schedule:            'purple',
+  function_complete:   'cyan',
+  function_completion: 'cyan',   // alias — 兼容旧记录
+  project_complete:    'green',
+  duty_complete:       'volcano',
+  requirement_change:  'orange',
 }
 
 // 每種申請類型的詳細說明：告訴審核人這是什麼、通過後會發生什麼
@@ -68,9 +70,9 @@ const APPLY_TYPE_META: Record<string, {
     icon:    '🗓️',
   },
   function_complete: {
-    what:    '負責人認為此功能任務已完成，申請完結審核',
-    approve: '通過後，功能任務將標記為「已完結」',
-    reject:  '拒絕後，功能任務退回執行中，負責人需繼續完善',
+    what:    '負責人認為此功能已完成，申請功能完結審核，請核對下方任務詳情及進度記錄後進行審批',
+    approve: '通過後，功能將標記為「已完結」，後續無法再更新進度',
+    reject:  '拒絕後，功能退回「進行中」狀態，負責人需繼續完善後重新提交',
     icon:    '✅',
   },
   project_complete: {
@@ -98,7 +100,7 @@ const APPLY_TYPE_TABS = [
   { key: 'initiate',          label: '立案申請'  },
   { key: 'plan',              label: '規劃審核'  },
   { key: 'schedule',          label: '排程審核'  },
-  { key: 'function_complete', label: '功能完結'  },
+  { key: 'function_complete', label: '功能完結審核'  },
   { key: 'project_complete',  label: '專案完結'  },
   { key: 'duty_complete',     label: '臨時任務'  },
   { key: 'done',              label: '已審核'    },
@@ -367,17 +369,57 @@ const ReviewDetailDrawer: React.FC<{
   userOptions: { value: string; label: string }[]
   onAction: (action: 'approve' | 'reject' | 'return', record: ApplyRecord, countersigns?: ChainPerson[]) => void
 }> = ({ record, open, onClose, userOptions, onAction }) => {
-  const [project,            setProject]            = useState<Project | null>(null)
-  const [files,              setFiles]              = useState<ProjectFile[]>([])
-  const [functions,          setFunctions]          = useState<ProjectFunction[]>([])
-  const [projectLoading,     setProjectLoading]     = useState(false)
-  const [previewFile,        setPreviewFile]        = useState<ProjectFile | null>(null)
-  const [countersignPeople,  setCountersignPeople]  = useState<ChainPerson[]>([])
+  const PAGE_SIZE = 5
 
-  useEffect(() => { setCountersignPeople([]) }, [record?.id])
+  const [project,              setProject]              = useState<Project | null>(null)
+  const [files,                setFiles]                = useState<ProjectFile[]>([])
+  const [functions,            setFunctions]            = useState<ProjectFunction[]>([])
+  const [funcDetail,           setFuncDetail]           = useState<ProjectFunction | null>(null)
+  const [progressRecords,      setProgressRecords]      = useState<ProgressRecord[]>([])
+  const [progressPage,         setProgressPage]         = useState(1)
+  const [progressHasMore,      setProgressHasMore]      = useState(false)
+  const [progressLoading,      setProgressLoading]      = useState(false)
+  const [projectLoading,       setProjectLoading]       = useState(false)
+  const [projectInfoCollapsed, setProjectInfoCollapsed] = useState(false)
+  const [previewFile,          setPreviewFile]          = useState<ProjectFile | null>(null)
+  const [previewDirect,        setPreviewDirect]        = useState<FileInfo | null>(null)
+  const [countersignPeople,    setCountersignPeople]    = useState<ChainPerson[]>([])
 
   useEffect(() => {
-    if (!record?.project_id) { setProject(null); setFiles([]); setFunctions([]); return }
+    setCountersignPeople([])
+    // 功能完結審核：預設折疊專案資訊
+    setProjectInfoCollapsed(record?.apply_type_code === 'function_complete')
+    setProgressRecords([])
+    setProgressPage(1)
+    setProgressHasMore(false)
+  }, [record?.id])
+
+  const addToken = (items: FileInfo[] | undefined): FileInfo[] => {
+    if (!items?.length) return []
+    const token = tokenStorage.get()
+    return items.map((f) => ({ ...f, url: token ? `${f.url}?token=${token}` : f.url }))
+  }
+
+  const loadProgress = async (pid: string, fid: string, page: number, append = false) => {
+    setProgressLoading(true)
+    try {
+      const res = await projectApi.getProgress(pid, fid, { page, size: PAGE_SIZE })
+      const c = res.content as { data_list?: ProgressRecord[]; total_count?: number; total_page?: number }
+      const list = (c.data_list ?? []) as ProgressRecord[]
+      const withToken = list.map((r) => ({ ...r, files: addToken(r.files) }))
+      setProgressRecords((prev) => append ? [...prev, ...withToken] : withToken)
+      setProgressPage(page)
+      setProgressHasMore((c.total_page ?? 1) > page)
+    } catch { /* global */ }
+    finally { setProgressLoading(false) }
+  }
+
+  useEffect(() => {
+    if (!record?.project_id) {
+      setProject(null); setFiles([]); setFunctions([])
+      setFuncDetail(null); setProgressRecords([])
+      return
+    }
     setProjectLoading(true)
     const reqs: Promise<unknown>[] = [
       projectApi.get(record.project_id),
@@ -386,15 +428,32 @@ const ReviewDetailDrawer: React.FC<{
     if (record.apply_type_code === 'schedule') {
       reqs.push(projectApi.functionList(record.project_id, { page: 1, size: 200 }))
     }
-    Promise.all(reqs).then(([pRes, fRes, fnRes]) => {
-      setProject((pRes as Awaited<ReturnType<typeof projectApi.get>>).content as Project)
+    if (record.apply_type_code === 'function_complete' && record.function_id) {
+      reqs.push(projectApi.getFunction(record.project_id, record.function_id))
+    }
+    Promise.all(reqs).then((results) => {
+      const [pRes, fRes, extra1] = results as [
+        Awaited<ReturnType<typeof projectApi.get>>,
+        { content: unknown },
+        unknown?,
+      ]
+      setProject(pRes.content as Project)
       setFiles(Array.isArray((fRes as { content: unknown }).content) ? ((fRes as { content: ProjectFile[] }).content) : [])
-      if (fnRes) {
-        const c = (fnRes as { content: { data_list?: ProjectFunction[] } }).content
+
+      if (record.apply_type_code === 'schedule' && extra1) {
+        const c = (extra1 as { content: { data_list?: ProjectFunction[] } }).content
         setFunctions(c.data_list ?? [])
       }
+      if (record.apply_type_code === 'function_complete' && extra1) {
+        setFuncDetail((extra1 as { content: ProjectFunction }).content)
+      }
     }).catch(() => {}).finally(() => setProjectLoading(false))
-  }, [record?.project_id, record?.apply_type_code])
+
+    // Load first page of progress records separately
+    if (record.apply_type_code === 'function_complete' && record.function_id) {
+      loadProgress(record.project_id, record.function_id, 1, false)
+    }
+  }, [record?.project_id, record?.apply_type_code, record?.function_id])
 
   if (!record) return null
 
@@ -420,7 +479,7 @@ const ReviewDetailDrawer: React.FC<{
       }
       open={open}
       onClose={onClose}
-      width={record?.apply_type_code === 'schedule' ? 900 : 720}
+      width={record?.apply_type_code === 'schedule' ? 900 : record?.apply_type_code === 'function_complete' ? 780 : 720}
       footer={
         record.is_my_turn ? (
           <div className="flex flex-col gap-3">
@@ -522,45 +581,166 @@ const ReviewDetailDrawer: React.FC<{
       {/* ─── ④ 申請資訊 Grid Table ─── */}
       {record.project_id && (
         <div className="mb-5">
-          <div className="text-sm font-semibold text-slate-700 mb-2">申請資訊</div>
-          {projectLoading ? (
-            <div className="flex justify-center py-6"><Spin size="small" /></div>
-          ) : project ? (
-            <table className="w-full text-sm border-collapse">
-              <tbody>
-                <tr>
-                  <td className="bg-slate-50 px-3 py-2.5 border border-slate-200 font-medium text-slate-500 whitespace-nowrap w-[21%]">専案名稱</td>
-                  <td className="px-3 py-2.5 border border-slate-200 font-medium text-slate-800" colSpan={3}>{project.project_nm}</td>
-                </tr>
-                <tr>
-                  <td className="bg-slate-50 px-3 py-2.5 border border-slate-200 font-medium text-slate-500 whitespace-nowrap">所屬部門</td>
-                  <td className="px-3 py-2.5 border border-slate-200 text-slate-700 w-[29%]">{project.department || '—'}</td>
-                  <td className="bg-slate-50 px-3 py-2.5 border border-slate-200 font-medium text-slate-500 whitespace-nowrap w-[21%]">産品PM</td>
-                  <td className="px-3 py-2.5 border border-slate-200 text-slate-700">{project.product_pm || '—'}</td>
-                </tr>
-                <tr>
-                  <td className="bg-slate-50 px-3 py-2.5 border border-slate-200 font-medium text-slate-500 whitespace-nowrap">專案PM</td>
-                  <td className="px-3 py-2.5 border border-slate-200 text-slate-700">{project.project_pm || '—'}</td>
-                  <td className="bg-slate-50 px-3 py-2.5 border border-slate-200 font-medium text-slate-500 whitespace-nowrap">預計完結</td>
-                  <td className="px-3 py-2.5 border border-slate-200 text-slate-700">{project.expected_end_date || '—'}</td>
-                </tr>
-                <tr>
-                  <td className="bg-slate-50 px-3 py-2.5 border border-slate-200 font-medium text-slate-500 whitespace-nowrap">專案描述</td>
-                  <td className="px-3 py-2.5 border border-slate-200 text-slate-700 leading-relaxed" colSpan={3}>{project.describe || '—'}</td>
-                </tr>
-                <tr>
-                  <td className="bg-slate-50 px-3 py-2.5 border border-slate-200 font-medium text-slate-500 whitespace-nowrap">預期效益</td>
-                  <td className="px-3 py-2.5 border border-slate-200 text-slate-700 leading-relaxed" colSpan={3}>{project.expected_benefit || '—'}</td>
-                </tr>
-              </tbody>
-            </table>
-          ) : (
-            <div className="text-xs text-slate-400 text-center py-4 border border-slate-200 rounded-lg">無法載入專案資料</div>
+          <button
+            type="button"
+            className="flex items-center gap-1.5 text-sm font-semibold text-slate-700 mb-2 hover:text-blue-600 transition-colors cursor-pointer select-none border-0 bg-transparent outline-none focus:outline-none p-0"
+            onClick={() => setProjectInfoCollapsed((v) => !v)}
+          >
+            <span
+              className="text-[10px] text-slate-400 font-normal"
+            >
+              {projectInfoCollapsed ? '展開' : '收起'}
+            </span>
+            申請資訊
+          </button>
+          {!projectInfoCollapsed && (
+            projectLoading ? (
+              <div className="flex justify-center py-6"><Spin size="small" /></div>
+            ) : project ? (
+              <table className="w-full text-sm border-collapse">
+                <tbody>
+                  <tr>
+                    <td className="bg-slate-50 px-3 py-2.5 border border-slate-200 font-medium text-slate-500 whitespace-nowrap w-[21%]">専案名稱</td>
+                    <td className="px-3 py-2.5 border border-slate-200 font-medium text-slate-800" colSpan={3}>{project.project_nm}</td>
+                  </tr>
+                  <tr>
+                    <td className="bg-slate-50 px-3 py-2.5 border border-slate-200 font-medium text-slate-500 whitespace-nowrap">所屬部門</td>
+                    <td className="px-3 py-2.5 border border-slate-200 text-slate-700 w-[29%]">{project.department || '—'}</td>
+                    <td className="bg-slate-50 px-3 py-2.5 border border-slate-200 font-medium text-slate-500 whitespace-nowrap w-[21%]">産品PM</td>
+                    <td className="px-3 py-2.5 border border-slate-200 text-slate-700">{project.product_pm || '—'}</td>
+                  </tr>
+                  <tr>
+                    <td className="bg-slate-50 px-3 py-2.5 border border-slate-200 font-medium text-slate-500 whitespace-nowrap">專案PM</td>
+                    <td className="px-3 py-2.5 border border-slate-200 text-slate-700">{project.project_pm || '—'}</td>
+                    <td className="bg-slate-50 px-3 py-2.5 border border-slate-200 font-medium text-slate-500 whitespace-nowrap">預計完結</td>
+                    <td className="px-3 py-2.5 border border-slate-200 text-slate-700">{project.expected_end_date || '—'}</td>
+                  </tr>
+                  <tr>
+                    <td className="bg-slate-50 px-3 py-2.5 border border-slate-200 font-medium text-slate-500 whitespace-nowrap">專案描述</td>
+                    <td className="px-3 py-2.5 border border-slate-200 text-slate-700 leading-relaxed" colSpan={3}>{project.describe || '—'}</td>
+                  </tr>
+                  <tr>
+                    <td className="bg-slate-50 px-3 py-2.5 border border-slate-200 font-medium text-slate-500 whitespace-nowrap">預期效益</td>
+                    <td className="px-3 py-2.5 border border-slate-200 text-slate-700 leading-relaxed" colSpan={3}>{project.expected_benefit || '—'}</td>
+                  </tr>
+                </tbody>
+              </table>
+            ) : (
+              <div className="text-xs text-slate-400 text-center py-4 border border-slate-200 rounded-lg">無法載入專案資料</div>
+            )
           )}
         </div>
       )}
 
-      {/* ─── ④-b WBS 任務表（排程審核專用） ─── */}
+      {/* ─── ④-b 功能詳情（功能完結審核專用） ─── */}
+      {record.apply_type_code === 'function_complete' && (
+        <div className="mb-5">
+          {projectLoading ? (
+            <div className="flex justify-center py-4"><Spin size="small" /></div>
+          ) : funcDetail ? (
+            <>
+              {/* Compact meta strip */}
+              <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 mb-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-sm">
+                <span className="font-semibold text-slate-800">{funcDetail.function_nm}</span>
+                <span className="text-slate-400 text-xs">|</span>
+                <span className="text-slate-500 text-xs">負責人：
+                  {(funcDetail.responsible ?? []).length > 0
+                    ? funcDetail.responsible!.map((r) => (
+                        <Tag key={r} color="purple" style={{ fontSize: 11, margin: '0 2px' }}>{r}</Tag>
+                      ))
+                    : '—'}
+                </span>
+                {PRIORITY_LABEL[funcDetail.priority] && (
+                  <span className="text-xs" style={{ color: PRIORITY_LABEL[funcDetail.priority].color }}>
+                    優先：{PRIORITY_LABEL[funcDetail.priority].label}
+                  </span>
+                )}
+                {funcDetail.expected_start_date && (
+                  <span className="text-slate-400 text-xs">{funcDetail.expected_start_date} → {funcDetail.expected_end_date ?? '—'}</span>
+                )}
+                {/* Overall progress inline */}
+                <div className="flex items-center gap-2 ml-auto">
+                  <div className="w-24 bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                    <div className="h-1.5 rounded-full bg-blue-500" style={{ width: `${funcDetail.progress ?? 0}%` }} />
+                  </div>
+                  <span className="text-xs font-semibold text-blue-600 tabular-nums">{funcDetail.progress ?? 0}%</span>
+                </div>
+              </div>
+              {funcDetail.describe && (
+                <p className="text-xs text-slate-500 mb-3 px-1">{funcDetail.describe}</p>
+              )}
+
+              {/* Progress records with load-more */}
+              <div className="text-xs font-medium text-slate-500 mb-1.5 px-1">
+                進度更新記錄（已載入 {progressRecords.length} 筆）
+              </div>
+              {progressLoading && progressRecords.length === 0 ? (
+                <div className="flex justify-center py-4"><Spin size="small" /></div>
+              ) : progressRecords.length === 0 ? (
+                <div className="text-xs text-slate-400 py-3 text-center border border-dashed border-slate-200 rounded-lg">暫無進度記錄</div>
+              ) : (
+                <div className="space-y-1.5">
+                  {progressRecords.map((rec) => (
+                    <div key={rec.progress_id} className="flex gap-2.5 bg-white border border-slate-100 rounded-lg px-2.5 py-2 hover:border-slate-200 transition-colors">
+                      <Avatar size={22} style={{ background: '#2563eb', fontSize: 10, fontWeight: 700, flexShrink: 0, marginTop: 1 }}>
+                        {rec.submitter?.[0]?.toUpperCase()}
+                      </Avatar>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-xs font-semibold text-slate-700">{rec.submitter}</span>
+                          <Tag color="blue" style={{ fontSize: 10, padding: '0 4px', lineHeight: '16px' }}>{rec.progress}%</Tag>
+                          {Number(rec.time_consum) > 0 && (
+                            <Tag style={{ fontSize: 10, padding: '0 4px', lineHeight: '16px' }}>{rec.time_consum}h</Tag>
+                          )}
+                          <span className="ml-auto text-[11px] text-slate-400 tabular-nums flex-shrink-0">{rec.created_at}</span>
+                        </div>
+                        {rec.progress_record && (
+                          <p className="text-xs text-slate-600 mt-0.5 leading-relaxed">{rec.progress_record}</p>
+                        )}
+                        {(rec.files ?? []).length > 0 && (
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {(rec.files ?? []).map((f, fi) => (
+                              <button
+                                key={fi}
+                                type="button"
+                                onClick={() => setPreviewDirect(f)}
+                                className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded px-1.5 py-0.5 text-[11px] text-blue-600 hover:bg-blue-50 hover:border-blue-200 transition-colors cursor-pointer"
+                              >
+                                <PaperClipIcon className="w-2.5 h-2.5 flex-shrink-0" />
+                                <span className="truncate max-w-[120px]">{f.name}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {/* Load-more / all-loaded footer */}
+                  <div className="text-center pt-1">
+                    {progressHasMore ? (
+                      <button
+                        type="button"
+                        disabled={progressLoading}
+                        onClick={() => record?.project_id && record?.function_id &&
+                          loadProgress(record.project_id, record.function_id, progressPage + 1, true)}
+                        className="text-xs text-blue-500 hover:text-blue-700 disabled:text-slate-300 transition-colors cursor-pointer border-0 bg-transparent outline-none focus:outline-none p-0"
+                      >
+                        {progressLoading ? '載入中…' : '繼續載入更多'}
+                      </button>
+                    ) : (
+                      <span className="text-xs text-slate-300">已全部載入</span>
+                    )}
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="text-xs text-slate-400 text-center py-4 border border-slate-200 rounded-lg">無法載入功能資料</div>
+          )}
+        </div>
+      )}
+
+      {/* ─── ④-c WBS 任務表（排程審核專用） ─── */}
       {record.apply_type_code === 'schedule' && (
         <div className="mb-5">
           <div className="text-sm font-semibold text-slate-700 mb-2 flex items-center gap-1.5">
@@ -767,12 +947,22 @@ const ReviewDetailDrawer: React.FC<{
         )}
       </div>
 
-      {/* 附件預覽 */}
-      <FilePreviewModal
-        file={previewFile}
-        projectId={record.project_id ?? ''}
-        onClose={() => setPreviewFile(null)}
-      />
+      {/* 附件預覽 — 專案檔案 */}
+      {previewFile && (
+        <FilePreviewModal
+          file={previewFile}
+          projectId={record.project_id ?? ''}
+          onClose={() => setPreviewFile(null)}
+        />
+      )}
+      {/* 附件預覽 — 進度附件（直接 URL） */}
+      {previewDirect && (
+        <FilePreviewModal
+          directUrl={previewDirect.url}
+          filename={previewDirect.name}
+          onClose={() => setPreviewDirect(null)}
+        />
+      )}
     </Drawer>
   )
 }
@@ -803,6 +993,17 @@ const ReviewListPage: React.FC = () => {
       .catch(() => {})
   }, [])
 
+  // 兼容旧版本 apply_type_code 命名，统一归一
+  const normalizeRecord = (r: ApplyRecord): ApplyRecord => {
+    if (r.apply_type_code === 'function_completion') {
+      return { ...r, apply_type_code: 'function_complete', apply_type: '功能完結審核' }
+    }
+    if (r.apply_type_code === 'function_complete' && r.apply_type !== '功能完結審核') {
+      return { ...r, apply_type: '功能完結審核' }
+    }
+    return r
+  }
+
   const loadData = async () => {
     setIsLoading(true)
     try {
@@ -814,9 +1015,9 @@ const ReviewListPage: React.FC = () => {
       const dutyContent = duty.content as { project_list?: ApplyRecord[]; data_list?: ApplyRecord[] }
       const projList = (projContent.project_list ?? projContent.data_list ?? []) as ApplyRecord[]
       const dutyList = (dutyContent.project_list ?? dutyContent.data_list ?? []) as ApplyRecord[]
-      const merged = [...projList, ...dutyList].sort(
-        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-      )
+      const merged = [...projList, ...dutyList]
+        .map(normalizeRecord)
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
       setAllRecords(merged)
     } catch { /* global handler */ }
     finally { setIsLoading(false) }

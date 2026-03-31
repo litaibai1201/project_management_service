@@ -54,7 +54,6 @@ class AddFunctionSchema(Schema):
     describe = fields.Str(load_default="")
     expected_start_date = fields.Str(load_default="")
     expected_end_date = fields.Str(load_default="")
-    developers = fields.List(fields.Str(), load_default=[])
     priority = fields.Int(load_default=2)
     group1 = fields.Str(load_default="")
     group2 = fields.Str(load_default="")
@@ -66,7 +65,6 @@ class UpdateFunctionSchema(Schema):
     describe = fields.Str()
     expected_start_date = fields.Str()
     expected_end_date = fields.Str()
-    developers = fields.List(fields.Str())
     priority = fields.Int()
     group1 = fields.Str()
     group2 = fields.Str()
@@ -82,7 +80,7 @@ class FunctionListQuerySchema(Schema):
 class FunctionAllocationSchema(Schema):
     expected_start_date = fields.Str(load_default="")
     expected_end_date = fields.Str(load_default="")
-    developers = fields.List(fields.Str(), required=True)
+    responsible = fields.List(fields.Str(), required=True)
 
 
 class CreateProgressSchema(Schema):

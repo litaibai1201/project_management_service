@@ -1,13 +1,15 @@
 import React, { useEffect, useState } from 'react'
 import {
   Drawer, Descriptions, Progress, Button, Form, Input, InputNumber,
-  Timeline, Avatar, Typography, Tag, Upload, Spin, Divider, Steps, Select,
+  Timeline, Avatar, Typography, Tag, Upload, Spin, Divider, Steps, Select, Modal,
 } from 'antd'
 import { PlusIcon, PaperClipIcon, PencilSquareIcon } from '@heroicons/react/24/outline'
 import AttachmentPreview from '@/components/ui/AttachmentPreview'
+import FilePreviewModal from './FilePreviewModal'
 import type { UploadFile } from 'antd'
 import { projectApi } from '@/api/project.api'
-import { ProjectFunction, ProgressRecord } from '@/types/api.types'
+import { tokenStorage } from '@/api/httpClient'
+import { ProjectFunction, ProgressRecord, FileInfo } from '@/types/api.types'
 import { FUNCTION_STATUS_MAP, PRIORITY_MAP } from '@/utils/status'
 import { showToast } from '@/utils/toast'
 import { useAppSelector } from '@/hooks/redux'
@@ -22,7 +24,15 @@ export interface FunctionDetailDrawerProps {
   onRefresh?:     () => void
   isProjectPm?:   boolean
   projectStatus?: number
+  projectPm?:     string
 }
+
+// Allowed file extensions (must match backend UPLOAD_ALLOWED_EXTENSIONS)
+const ALLOWED_EXTENSIONS = new Set([
+  'png', 'jpg', 'jpeg', 'gif', 'webp',
+  'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
+  'txt', 'md', 'yaml', 'yml', 'csv', 'html', 'htm',
+])
 
 // Map function status to Steps index
 const FUNC_STEPS = ['待開始', '進行中', '完結審核', '已完結']
@@ -34,11 +44,10 @@ const PRIORITY_OPTIONS = [
 ]
 
 const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
-  projectId, functionId, open, onClose, onRefresh, isProjectPm = false, projectStatus,
+  projectId, functionId, open, onClose, onRefresh, isProjectPm = false, projectStatus, projectPm,
 }) => {
-  const canUpdateProgress = projectStatus === 5
-  // workNo will be used for progress submission in production
-  useAppSelector((s) => s.auth.workNo)
+  const workNo = useAppSelector((s) => s.auth.workNo) ?? ''
+  const [previewFile, setPreviewFile] = useState<FileInfo | null>(null)
   const [funcData,   setFuncData]   = useState<ProjectFunction | null>(null)
   const [records,    setRecords]    = useState<ProgressRecord[]>([])
   const [isLoading,  setIsLoading]  = useState(false)
@@ -52,6 +61,12 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
 
   useEffect(() => { if (open) loadData() }, [open, functionId])
 
+  const addTokenToFiles = (items: FileInfo[] | undefined): FileInfo[] => {
+    if (!items?.length) return []
+    const token = tokenStorage.get()
+    return items.map((f) => ({ ...f, url: token ? `${f.url}?token=${token}` : f.url }))
+  }
+
   const loadData = async () => {
     setIsLoading(true)
     try {
@@ -61,7 +76,8 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
       ])
       setFuncData(funcRes.content)
       const c = progressRes.content as { data_list?: ProgressRecord[] }
-      setRecords((c.data_list ?? []) as ProgressRecord[])
+      const list = (c.data_list ?? []) as ProgressRecord[]
+      setRecords(list.map((r) => ({ ...r, files: addTokenToFiles(r.files) })))
     } catch { /* global */ }
     finally { setIsLoading(false) }
   }
@@ -79,6 +95,27 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
       showToast.success('進度更新成功')
       setShowForm(false); form.resetFields(); setFileList([])
       loadData(); onRefresh?.()
+
+      // 進度 100% → 詢問是否提交完結審核
+      if ((values.progress as number) === 100) {
+        const submitterIsPm = !!projectPm && workNo.toLowerCase() === projectPm.toLowerCase()
+        Modal.confirm({
+          title: '任務已完成',
+          content: submitterIsPm
+            ? '進度已達 100%，確認後將直接標記任務為已完結，後續無法繼續更新進度，是否繼續？'
+            : `進度已達 100%，確認後將提交功能完結審核至專案 PM（${projectPm ?? ''}），審核通過後功能標記完結，後續無法繼續更新進度，是否繼續？`,
+          okText: '確認完結',
+          cancelText: '稍後再說',
+          onOk: async () => {
+            try {
+              const res = await projectApi.submitFunctionCompletion(projectId, functionId)
+              const direct = (res.content as { direct_complete?: boolean })?.direct_complete
+              showToast.success(direct ? '任務已完結' : '完結審核已提交至專案 PM，等待審核')
+              loadData(); onRefresh?.()
+            } catch { /* global */ }
+          },
+        })
+      }
     } catch { /* global */ }
     finally { setIsSaving(false) }
   }
@@ -110,8 +147,20 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
   }
 
   const priorityColor = funcData ? ['', '#22c55e', '#f59e0b', '#ef4444', '#7c3aed'][funcData.priority] ?? '#94a3b8' : '#94a3b8'
+  const isCompleted       = funcData?.status === 4
+  const isReviewing       = funcData?.status === 3
+  const canUpdateProgress = projectStatus === 5 && !isCompleted && !isReviewing
+  const canEdit           = isProjectPm && !isCompleted
 
   return (
+    <>
+    {previewFile && (
+      <FilePreviewModal
+        directUrl={previewFile.url}
+        filename={previewFile.name}
+        onClose={() => setPreviewFile(null)}
+      />
+    )}
     <Drawer
       title={
         funcData ? (
@@ -127,7 +176,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
       width={560}
       extra={
         <div className="flex gap-2">
-          {isProjectPm && (
+          {canEdit && (
             <Button icon={<PencilSquareIcon className="w-4 h-4" />} size="small" onClick={handleEditOpen}>
               編輯
             </Button>
@@ -170,7 +219,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
             </Descriptions.Item>
             <Descriptions.Item label="負責人">
               {funcData.responsible && funcData.responsible.length > 0
-                ? funcData.responsible.map((wn, i) => (
+                ? funcData.responsible.map((wn) => (
                     <Tag key={wn} style={{ marginBottom: 2 }} color="purple">{wn}</Tag>
                   ))
                 : '—'}
@@ -233,7 +282,19 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
                   <Input.TextArea rows={2} placeholder="本次完成了哪些工作..." />
                 </Form.Item>
                 <Form.Item label="附件">
-                  <Upload fileList={fileList} onChange={({ fileList: fl }) => setFileList(fl)} beforeUpload={() => false} multiple>
+                  <Upload
+                    fileList={fileList}
+                    onChange={({ fileList: fl }) => setFileList(fl)}
+                    beforeUpload={(file) => {
+                      const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
+                      if (!ALLOWED_EXTENSIONS.has(ext)) {
+                        showToast.error(`不支持的文件類型：.${ext}`)
+                        return Upload.LIST_IGNORE
+                      }
+                      return false
+                    }}
+                    multiple
+                  >
                     <Button icon={<PaperClipIcon className="w-4 h-4" />} size="small">選擇附件</Button>
                   </Upload>
                 </Form.Item>
@@ -270,7 +331,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
                       <p className="text-sm text-slate-600 mt-1 mb-1 leading-relaxed">{item.progress_record}</p>
                     )}
                     <span className="text-xs text-slate-300">{item.created_at}</span>
-                    <AttachmentPreview files={item.files} images={item.images} />
+                    <AttachmentPreview files={item.files} images={item.images} onPreview={setPreviewFile} />
                   </div>
                 ),
               }))}
@@ -281,6 +342,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
         <Text type="secondary" className="block text-center py-10">功能資料不存在</Text>
       )}
     </Drawer>
+    </>
   )
 }
 
