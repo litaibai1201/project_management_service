@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react'
 import {
   Drawer, Descriptions, Progress, Button, Form, Input, InputNumber,
-  Timeline, Avatar, Typography, Tag, Upload, Spin, Divider, Steps,
+  Timeline, Avatar, Typography, Tag, Upload, Spin, Divider, Steps, Select,
 } from 'antd'
-import { PlusIcon, PaperClipIcon } from '@heroicons/react/24/outline'
+import { PlusIcon, PaperClipIcon, PencilSquareIcon } from '@heroicons/react/24/outline'
 import AttachmentPreview from '@/components/ui/AttachmentPreview'
 import type { UploadFile } from 'antd'
 import { projectApi } from '@/api/project.api'
@@ -15,29 +15,40 @@ import { useAppSelector } from '@/hooks/redux'
 const { Text } = Typography
 
 export interface FunctionDetailDrawerProps {
-  projectId:  string
-  functionId: string
-  open:       boolean
-  onClose:    () => void
-  onRefresh?: () => void
+  projectId:      string
+  functionId:     string
+  open:           boolean
+  onClose:        () => void
+  onRefresh?:     () => void
+  isProjectPm?:   boolean
+  projectStatus?: number
 }
 
 // Map function status to Steps index
 const FUNC_STEPS = ['待開始', '進行中', '完結審核', '已完結']
 const statusToStep = (s: number) => ({ 1: 0, 2: 1, 3: 2, 4: 3 }[s] ?? 0)
 
+const PRIORITY_OPTIONS = [
+  { value: 1, label: '低' }, { value: 2, label: '中' },
+  { value: 3, label: '高' }, { value: 4, label: '緊急' },
+]
+
 const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
-  projectId, functionId, open, onClose, onRefresh,
+  projectId, functionId, open, onClose, onRefresh, isProjectPm = false, projectStatus,
 }) => {
+  const canUpdateProgress = projectStatus === 5
   // workNo will be used for progress submission in production
   useAppSelector((s) => s.auth.workNo)
-  const [funcData,  setFuncData]  = useState<ProjectFunction | null>(null)
-  const [records,   setRecords]   = useState<ProgressRecord[]>([])
-  const [isLoading, setIsLoading] = useState(false)
-  const [isSaving,  setIsSaving]  = useState(false)
-  const [showForm,  setShowForm]  = useState(false)
-  const [fileList,  setFileList]  = useState<UploadFile[]>([])
-  const [form]                    = Form.useForm()
+  const [funcData,   setFuncData]   = useState<ProjectFunction | null>(null)
+  const [records,    setRecords]    = useState<ProgressRecord[]>([])
+  const [isLoading,  setIsLoading]  = useState(false)
+  const [isSaving,   setIsSaving]   = useState(false)
+  const [showForm,   setShowForm]   = useState(false)
+  const [showEdit,   setShowEdit]   = useState(false)
+  const [editSaving, setEditSaving] = useState(false)
+  const [fileList,   setFileList]   = useState<UploadFile[]>([])
+  const [form]                      = Form.useForm()
+  const [editForm]                  = Form.useForm()
 
   useEffect(() => { if (open) loadData() }, [open, functionId])
 
@@ -72,6 +83,32 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
     finally { setIsSaving(false) }
   }
 
+  const handleEditOpen = () => {
+    if (!funcData) return
+    editForm.setFieldsValue({
+      function_nm:         funcData.function_nm,
+      describe:            funcData.describe,
+      responsible:         funcData.responsible,
+      priority:            funcData.priority,
+      group1:              funcData.group1,
+      expected_start_date: funcData.expected_start_date,
+      expected_end_date:   funcData.expected_end_date,
+    })
+    setShowEdit(true)
+  }
+
+  const handleEditSave = async (values: Record<string, unknown>) => {
+    setEditSaving(true)
+    try {
+      await projectApi.updateFunction(projectId, functionId, values as Parameters<typeof projectApi.updateFunction>[2])
+      showToast.success('任務已更新')
+      setShowEdit(false)
+      loadData()
+      onRefresh?.()
+    } catch { /* global */ }
+    finally { setEditSaving(false) }
+  }
+
   const priorityColor = funcData ? ['', '#22c55e', '#f59e0b', '#ef4444', '#7c3aed'][funcData.priority] ?? '#94a3b8' : '#94a3b8'
 
   return (
@@ -89,10 +126,19 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
       onClose={onClose}
       width={560}
       extra={
-        <Button type="primary" icon={<PlusIcon className="w-4 h-4" />} size="small"
-          style={{ background: '#2563eb' }} onClick={() => setShowForm((v) => !v)}>
-          更新進度
-        </Button>
+        <div className="flex gap-2">
+          {isProjectPm && (
+            <Button icon={<PencilSquareIcon className="w-4 h-4" />} size="small" onClick={handleEditOpen}>
+              編輯
+            </Button>
+          )}
+          {canUpdateProgress && (
+            <Button type="primary" icon={<PlusIcon className="w-4 h-4" />} size="small"
+              style={{ background: '#2563eb' }} onClick={() => setShowForm((v) => !v)}>
+              更新進度
+            </Button>
+          )}
+        </div>
       }
     >
       {isLoading ? (
@@ -122,6 +168,13 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
             <Descriptions.Item label="優先級">
               {(() => { const p = PRIORITY_MAP[funcData.priority]; return p ? <Tag color={p.color} style={{ fontSize: 11 }}>{p.label}</Tag> : funcData.priority })()}
             </Descriptions.Item>
+            <Descriptions.Item label="負責人">
+              {funcData.responsible && funcData.responsible.length > 0
+                ? funcData.responsible.map((wn, i) => (
+                    <Tag key={wn} style={{ marginBottom: 2 }} color="purple">{wn}</Tag>
+                  ))
+                : '—'}
+            </Descriptions.Item>
             <Descriptions.Item label="分組">{funcData.group1 ?? '—'}</Descriptions.Item>
             <Descriptions.Item label="預計開始">{funcData.expected_start_date ?? '—'}</Descriptions.Item>
             <Descriptions.Item label="預計完成">{funcData.expected_end_date ?? '—'}</Descriptions.Item>
@@ -130,8 +183,41 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
             )}
           </Descriptions>
 
+          {/* Edit form — project PM only */}
+          {showEdit && (
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4">
+              <p className="font-semibold text-slate-700 text-sm mb-3">編輯任務資訊</p>
+              <Form form={editForm} layout="vertical" onFinish={handleEditSave}>
+                <Form.Item name="function_nm" label="功能名稱" rules={[{ required: true }]}>
+                  <Input />
+                </Form.Item>
+                <div className="grid grid-cols-2 gap-x-3">
+                  <Form.Item name="priority" label="優先級">
+                    <Select options={PRIORITY_OPTIONS} />
+                  </Form.Item>
+                  <Form.Item name="responsible" label="負責人工號">
+                    <Input placeholder="請輸入工號" />
+                  </Form.Item>
+                  <Form.Item name="expected_start_date" label="預計開始">
+                    <Input type="date" />
+                  </Form.Item>
+                  <Form.Item name="expected_end_date" label="預計完成">
+                    <Input type="date" />
+                  </Form.Item>
+                </div>
+                <Form.Item name="describe" label="功能描述">
+                  <Input.TextArea rows={2} />
+                </Form.Item>
+                <div className="flex justify-end gap-2">
+                  <Button size="small" onClick={() => setShowEdit(false)}>取消</Button>
+                  <Button type="primary" size="small" htmlType="submit" loading={editSaving} style={{ background: '#2563eb' }}>儲存</Button>
+                </div>
+              </Form>
+            </div>
+          )}
+
           {/* Progress submit form */}
-          {showForm && (
+          {showForm && canUpdateProgress && (
             <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 mb-4">
               <p className="font-semibold text-slate-700 text-sm mb-3">提交本次進度</p>
               <Form form={form} layout="vertical" onFinish={handleSubmit}>

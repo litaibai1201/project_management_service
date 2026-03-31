@@ -1,19 +1,18 @@
 import React, { useEffect, useState, useMemo } from 'react'
 import {
   Tabs, Table, Button, Tag, Modal, Form, Input, Select, Space,
-  Avatar, Badge, Tooltip, Drawer, Descriptions, Divider, Steps, Spin, Empty,
+  Avatar, Badge, Tooltip, Drawer, Spin, Empty,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import {
   CheckIcon, XMarkIcon, ArrowUturnLeftIcon, UserPlusIcon, EyeIcon,
-  ClockIcon, CheckCircleIcon, ExclamationTriangleIcon,
-  DocumentTextIcon, InformationCircleIcon, PaperClipIcon,
-  ArrowDownTrayIcon, BuildingOfficeIcon, UserIcon, PlusIcon,
+  CheckCircleIcon, InformationCircleIcon, PaperClipIcon,
+  ArrowDownTrayIcon, PlusIcon,
 } from '@heroicons/react/24/outline'
 import { projectApi } from '@/api/project.api'
 import { dutyApi } from '@/api/duty.api'
 import { userApi } from '@/api/user.api'
-import { ApplyRecord, ApprovalNode, Project, ProjectFile, ReviewPayload } from '@/types/api.types'
+import { ApplyRecord, Project, ProjectFile, ProjectFunction, ReviewPayload } from '@/types/api.types'
 import { showToast } from '@/utils/toast'
 import FilePreviewModal from './FilePreviewModal'
 
@@ -26,12 +25,20 @@ const REVIEW_STATUS: Record<number, { label: string; color: string }> = {
   4: { label: '已退回', color: 'warning'    },
 }
 
+const STAMP_COLORS: Record<number, string> = {
+  1: '#2563eb',
+  2: '#16a34a',
+  3: '#dc2626',
+  4: '#d97706',
+}
+
 const APPLY_TYPE_COLOR: Record<string, string> = {
   initiate:           'blue',
   plan:               'geekblue',
+  schedule:           'purple',
   function_complete:  'cyan',
   project_complete:   'green',
-  duty_complete:      'purple',
+  duty_complete:      'volcano',
   requirement_change: 'orange',
 }
 
@@ -49,10 +56,16 @@ const APPLY_TYPE_META: Record<string, {
     icon:    '🚀',
   },
   plan: {
-    what:    '申請人提交了專案規劃方案，希望通過審核後進入執行',
-    approve: '通過後，專案將進入「執行中」階段，可以開始開發',
+    what:    '申請人提交了專案規劃方案，希望通過審核後進入排程安排',
+    approve: '通過後，專案將進入「排程安排」階段，由專案PM分配任務與時程',
     reject:  '拒絕後，專案退回規劃中，申請人需調整方案後重新提交',
     icon:    '📋',
+  },
+  schedule: {
+    what:    '專案PM已完成任務拆解與人員時程安排，申請審核後正式開始執行',
+    approve: '通過後，專案將進入「執行中」階段，開發團隊可開始正式開發',
+    reject:  '拒絕後，專案退回排程安排，專案PM需調整排程後重新提交',
+    icon:    '🗓️',
   },
   function_complete: {
     what:    '負責人認為此功能任務已完成，申請完結審核',
@@ -84,195 +97,12 @@ const APPLY_TYPE_TABS = [
   { key: 'pending',           label: '全部待審'  },
   { key: 'initiate',          label: '立案申請'  },
   { key: 'plan',              label: '規劃審核'  },
+  { key: 'schedule',          label: '排程審核'  },
   { key: 'function_complete', label: '功能完結'  },
   { key: 'project_complete',  label: '專案完結'  },
   { key: 'duty_complete',     label: '臨時任務'  },
   { key: 'done',              label: '已審核'    },
 ]
-
-// ─── Apply type → Overall workflow steps mapping ───────────────────────────────
-const WORKFLOW_STEPS: Record<string, string[]> = {
-  initiate:           ['提交申請', '審核中', '立案完成'],
-  plan:               ['提交方案', '審核中', '規劃確認'],
-  function_complete:  ['提交完結', '審核中', '功能完結'],
-  project_complete:   ['提交申請', '審核中', '專案完結'],
-  duty_complete:      ['提交申請', '審核中', '任務完結'],
-  requirement_change: ['提交申請', '審核中', '變更通過'],
-}
-
-
-// ─── Three-phase Approval Chain ────────────────────────────────────────────────
-const ApprovalChain: React.FC<{ nodes: ApprovalNode[]; currentUserWorkNo?: string }> = ({
-  nodes,
-  currentUserWorkNo = 'MGR001',   // simulate current logged-in user
-}) => {
-  const sorted = [...nodes].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-
-  // Find the current active node (first pending)
-  const firstPendingOrder = sorted.find((n) => n.status === 0)?.order ?? Infinity
-
-  const pastNodes    = sorted.filter((n) => n.status !== 0)
-  const currentNode  = sorted.find((n) => n.status === 0 && n.order === firstPendingOrder) ?? null
-  const futureNodes  = sorted.filter((n) => n.status === 0 && n.order > firstPendingOrder)
-
-  const isMyTurn = currentNode?.approver_work_no === currentUserWorkNo
-
-  const outcomeConfig: Record<number, { label: string; color: string; bg: string; border: string }> = {
-    1: { label: '已通過', color: '#16a34a', bg: '#f0fdf4', border: '#bbf7d0' },
-    2: { label: '已拒絕', color: '#dc2626', bg: '#fef2f2', border: '#fecaca' },
-    3: { label: '已退回', color: '#d97706', bg: '#fffbeb', border: '#fde68a' },
-  }
-
-  const PastNode: React.FC<{ node: ApprovalNode; isLast: boolean }> = ({ node, isLast }) => {
-    const cfg = outcomeConfig[node.status] ?? outcomeConfig[1]
-    return (
-      <div className="flex gap-3">
-        <div className="flex flex-col items-center flex-shrink-0">
-          <div
-            className="w-8 h-8 rounded-full flex items-center justify-center border-2 text-white text-xs font-bold"
-            style={{ borderColor: cfg.color, background: cfg.color }}
-          >
-            {node.status === 1 ? '✓' : node.status === 2 ? '✕' : '↩'}
-          </div>
-          {(!isLast || currentNode || futureNodes.length > 0) && (
-            <div className="w-0.5 flex-1 bg-slate-200 my-1.5" style={{ minHeight: 16 }} />
-          )}
-        </div>
-        <div className="flex-1 pb-3">
-          <div className="rounded-xl p-3 border" style={{ background: cfg.bg, borderColor: cfg.border }}>
-            <div className="flex items-center gap-2 mb-1">
-              <Avatar size={20} style={{ background: cfg.color, fontSize: 9, fontWeight: 700 }}>
-                {node.approver?.[0]}
-              </Avatar>
-              <span className="font-semibold text-sm" style={{ color: cfg.color }}>{node.approver}</span>
-              {node.is_countersign && (
-                <Tag color="orange" style={{ fontSize: 9, padding: '0 3px', margin: 0, lineHeight: '14px' }}>加簽</Tag>
-              )}
-              <Tag style={{ fontSize: 9, padding: '0 3px', margin: 0, lineHeight: '14px', color: cfg.color, borderColor: cfg.border, background: 'white' }}>
-                {cfg.label}
-              </Tag>
-              <span className="text-xs text-slate-400 ml-auto">{node.approved_at}</span>
-            </div>
-            {node.comment ? (
-              <div className="text-xs text-slate-600 mt-1.5 leading-relaxed pl-1 border-l-2" style={{ borderColor: cfg.color }}>
-                「{node.comment}」
-              </div>
-            ) : (
-              <div className="text-xs text-slate-300 mt-1 italic">未留審批意見</div>
-            )}
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div>
-      {/* Past completed nodes */}
-      {pastNodes.length > 0 && (
-        <div className="mb-1">
-          <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-            <CheckCircleIcon className="w-3 h-3" />已完成審批
-          </div>
-          {pastNodes.map((n, i) => (
-            <PastNode key={n.node_id} node={n} isLast={i === pastNodes.length - 1} />
-          ))}
-        </div>
-      )}
-
-      {/* Current awaiting node */}
-      {currentNode && (
-        <div className="flex gap-3">
-          <div className="flex flex-col items-center flex-shrink-0">
-            {/* Animated pulse ring */}
-            <div className="relative w-8 h-8 flex items-center justify-center flex-shrink-0">
-              <div className="absolute inset-0 rounded-full bg-blue-400 opacity-20 animate-ping" />
-              <div className="w-8 h-8 rounded-full border-2 border-blue-500 bg-blue-50 flex items-center justify-center">
-                <ClockIcon className="w-4 h-4 text-blue-500" />
-              </div>
-            </div>
-            {futureNodes.length > 0 && (
-              <div className="w-0.5 flex-1 bg-slate-200 my-1.5" style={{ minHeight: 16 }} />
-            )}
-          </div>
-          <div className="flex-1 pb-3">
-            <div className="rounded-xl p-3 border-2 border-blue-300 bg-blue-50 shadow-sm">
-              <div className="flex items-center gap-2 mb-1">
-                <Avatar size={20} style={{ background: '#2563eb', fontSize: 9, fontWeight: 700 }}>
-                  {currentNode.approver?.[0]}
-                </Avatar>
-                <span className="font-semibold text-sm text-blue-700">{currentNode.approver}</span>
-                {currentNode.is_countersign && (
-                  <Tag color="orange" style={{ fontSize: 9, padding: '0 3px', margin: 0, lineHeight: '14px' }}>加簽</Tag>
-                )}
-                <Tag color="processing" style={{ fontSize: 9, padding: '0 3px', margin: 0, lineHeight: '14px' }}>
-                  等待審核
-                </Tag>
-                {isMyTurn && (
-                  <div className="ml-auto flex items-center gap-1 bg-blue-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
-                    <span>👈</span> 待您審核
-                  </div>
-                )}
-              </div>
-              <div className="text-xs text-blue-500 mt-1">
-                {isMyTurn
-                  ? '此步驟需要您來做出審批決定，請在下方選擇通過、拒絕或退回。'
-                  : `此步驟正在等待 ${currentNode.approver} 審核，您的決定將影響後續流程。`
-                }
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Future nodes */}
-      {futureNodes.length > 0 && (
-        <div className="mt-1">
-          <div className="text-[10px] font-semibold text-slate-300 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-            <InformationCircleIcon className="w-3 h-3" />後續審批流程
-          </div>
-          {futureNodes.map((node, i) => (
-            <div key={node.node_id} className="flex gap-3">
-              <div className="flex flex-col items-center flex-shrink-0">
-                <div className="w-8 h-8 rounded-full border-2 border-dashed border-slate-300 bg-white flex items-center justify-center">
-                  <span className="text-xs font-bold text-slate-300">{node.order}</span>
-                </div>
-                {i < futureNodes.length - 1 && (
-                  <div className="w-0.5 flex-1 bg-slate-100 my-1.5" style={{ minHeight: 16, borderRight: '2px dashed #e2e8f0' }} />
-                )}
-              </div>
-              <div className="flex-1 pb-3">
-                <div className="rounded-xl p-3 border border-dashed border-slate-200 bg-slate-50/50">
-                  <div className="flex items-center gap-2">
-                    <Avatar size={20} style={{ background: '#e2e8f0', color: '#94a3b8', fontSize: 9, fontWeight: 700 }}>
-                      {node.approver?.[0]}
-                    </Avatar>
-                    <span className="text-sm text-slate-400 font-medium">{node.approver}</span>
-                    {node.is_countersign && (
-                      <Tag color="default" style={{ fontSize: 9, padding: '0 3px', margin: 0, lineHeight: '14px' }}>加簽</Tag>
-                    )}
-                    <Tag style={{ fontSize: 9, padding: '0 3px', margin: 0, lineHeight: '14px', color: '#94a3b8', borderColor: '#e2e8f0' }}>
-                      待輪到
-                    </Tag>
-                  </div>
-                  <div className="text-xs text-slate-300 mt-1">前序審批完成後，將由此人繼續審核</div>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* All done */}
-      {!currentNode && futureNodes.length === 0 && pastNodes.length > 0 && (
-        <div className="flex items-center gap-2 mt-1 py-2 px-3 bg-green-50 rounded-xl border border-green-100">
-          <CheckCircleIcon className="w-4 h-4 text-green-500" />
-          <span className="text-sm font-medium text-green-700">審批流程已全部完成</span>
-        </div>
-      )}
-    </div>
-  )
-}
 
 // ─── 每種審批類型需要展示的附件分類 ──────────────────────────────────────────────
 const STAGE_FILES: Record<string, string[]> = {
@@ -373,6 +203,161 @@ const ReviewerChain: React.FC<{
   )
 }
 
+// ─── WBS Table ────────────────────────────────────────────────────────────────
+
+const PRIORITY_LABEL: Record<number, { label: string; color: string }> = {
+  1: { label: '低',   color: '#22c55e' },
+  2: { label: '中',   color: '#f59e0b' },
+  3: { label: '高',   color: '#ef4444' },
+  4: { label: '緊急', color: '#7c3aed' },
+}
+const FUNC_STATUS_LABEL: Record<number, { label: string; color: string }> = {
+  1: { label: '待開始',  color: '#94a3b8' },
+  2: { label: '進行中',  color: '#2563eb' },
+  3: { label: '完結審核', color: '#f59e0b' },
+  4: { label: '已完結',  color: '#16a34a' },
+  8: { label: '擱置',    color: '#6b7280' },
+}
+
+const WbsTable: React.FC<{ functions: ProjectFunction[] }> = ({ functions }) => {
+  // Build ordered groups
+  const groups = useMemo(() => {
+    const map: Record<string, ProjectFunction[]> = {}
+    functions.forEach((f) => {
+      const g = f.group1 || '未分組'
+      if (!map[g]) map[g] = []
+      map[g].push(f)
+    })
+    return Object.entries(map) // [groupName, tasks][]
+  }, [functions])
+
+  // Default: all collapsed
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set(groups.map(([g]) => g)))
+
+  const allCollapsed = collapsed.size === groups.length
+  const toggleAll   = () => setCollapsed(allCollapsed ? new Set() : new Set(groups.map(([g]) => g)))
+  const toggle      = (g: string) => setCollapsed((prev) => {
+    const next = new Set(prev)
+    next.has(g) ? next.delete(g) : next.add(g)
+    return next
+  })
+
+  // Compute date range for a group
+  const groupRange = (tasks: ProjectFunction[]) => {
+    const starts = tasks.map((t) => t.expected_start_date).filter(Boolean) as string[]
+    const ends   = tasks.map((t) => t.expected_end_date).filter(Boolean) as string[]
+    const start  = starts.length ? starts.sort()[0] : null
+    const end    = ends.length   ? ends.sort().at(-1)! : null
+    return { start, end }
+  }
+
+  // Collect unique responsible persons across all tasks in a group
+  const groupResponsible = (tasks: ProjectFunction[]) => {
+    const seen = new Set<string>()
+    tasks.forEach((t) => (t.responsible ?? []).forEach((r) => seen.add(r)))
+    return [...seen]
+  }
+
+
+  return (
+    <div className="border border-slate-200 rounded-lg overflow-hidden text-xs">
+      {/* Column header */}
+      <div className="grid bg-slate-100 border-b border-slate-200 font-semibold text-slate-500"
+        style={{ gridTemplateColumns: '24px 2fr 1fr 1fr 1fr 1fr 1fr' }}>
+        <div className="flex items-center justify-center py-2">
+          <button
+            onClick={toggleAll}
+            className="w-4 h-4 rounded border border-slate-300 hover:border-violet-400 hover:text-violet-600 text-slate-400 bg-white hover:bg-violet-50 transition-colors cursor-pointer flex items-center justify-center text-[10px] font-bold leading-none"
+            title={allCollapsed ? '展開全部' : '折疊全部'}
+          >
+            {allCollapsed ? '+' : '−'}
+          </button>
+        </div>
+        <div className="px-2 py-2">任務名稱</div>
+        <div className="px-2 py-2">負責人</div>
+        <div className="px-2 py-2">優先級</div>
+        <div className="px-2 py-2">預計開始</div>
+        <div className="px-2 py-2">預計完成</div>
+        <div className="px-2 py-2">狀態</div>
+      </div>
+
+      {groups.map(([groupName, tasks], gi) => {
+        const isCollapsed  = collapsed.has(groupName)
+        const { start, end } = groupRange(tasks)
+        const responsible  = groupResponsible(tasks)
+
+        return (
+          <div key={groupName}>
+            {/* Group header row */}
+            <div
+              className="grid items-center border-b border-slate-200 bg-violet-50 hover:bg-violet-100 cursor-pointer select-none transition-colors"
+              style={{ gridTemplateColumns: '24px 2fr 1fr 1fr 1fr 1fr 1fr' }}
+              onClick={() => toggle(groupName)}
+            >
+              {/* Toggle icon */}
+              <div className="flex items-center justify-center py-2">
+                <span className="w-4 h-4 rounded border border-violet-300 text-violet-500 bg-white flex items-center justify-center text-[10px] font-bold leading-none flex-shrink-0">
+                  {isCollapsed ? '+' : '−'}
+                </span>
+              </div>
+              {/* Group name */}
+              <div className="px-2 py-2 font-semibold text-violet-700 flex items-center gap-1.5">
+                <span className="w-4 h-4 rounded-sm bg-violet-200 text-violet-700 text-[10px] font-bold flex items-center justify-center flex-shrink-0">{gi + 1}</span>
+                <span className="truncate">{groupName}</span>
+                <span className="font-normal text-violet-400 text-[11px] flex-shrink-0">（{tasks.length} 項）</span>
+              </div>
+              {/* When collapsed: show date range summary across remaining columns */}
+              {isCollapsed ? (
+                <>
+                  <div className="px-2 py-2 text-violet-500 truncate">
+                    {responsible.length > 0 ? responsible.join('、') : <span className="text-violet-300">—</span>}
+                  </div>
+                  <div className="px-2 py-2 col-span-2" />
+                  <div className="px-2 py-2 text-violet-500 tabular-nums">{start ?? '—'}</div>
+                  <div className="px-2 py-2 text-violet-500 tabular-nums">{end ?? '—'}</div>
+                  <div className="px-2 py-2" />
+                </>
+              ) : (
+                <div className="col-span-5" />
+              )}
+            </div>
+
+            {/* Task rows */}
+            {!isCollapsed && tasks.map((task, ti) => (
+              <div key={task.id}
+                className={`grid border-b border-slate-100 last:border-b-0 hover:bg-slate-50 transition-colors ${ti % 2 === 1 ? 'bg-slate-50/40' : ''}`}
+                style={{ gridTemplateColumns: '24px 2fr 1fr 1fr 1fr 1fr 1fr' }}>
+                <div />
+                <div className="px-2 py-2 text-slate-700 flex items-center gap-1.5">
+                  <span className="text-slate-300 flex-shrink-0 tabular-nums">{gi + 1}.{ti + 1}</span>
+                  <span className="truncate">{task.function_nm}</span>
+                </div>
+                <div className="px-2 py-2 text-slate-600 truncate">
+                  {task.responsible && task.responsible.length > 0
+                    ? task.responsible.join('、')
+                    : <span className="text-slate-300">—</span>}
+                </div>
+                <div className="px-2 py-2">
+                  {PRIORITY_LABEL[task.priority]
+                    ? <span className="font-medium" style={{ color: PRIORITY_LABEL[task.priority].color }}>{PRIORITY_LABEL[task.priority].label}</span>
+                    : '—'}
+                </div>
+                <div className="px-2 py-2 text-slate-500 tabular-nums">{task.expected_start_date || '—'}</div>
+                <div className="px-2 py-2 text-slate-500 tabular-nums">{task.expected_end_date || '—'}</div>
+                <div className="px-2 py-2">
+                  {FUNC_STATUS_LABEL[task.status]
+                    ? <span style={{ color: FUNC_STATUS_LABEL[task.status].color }}>{FUNC_STATUS_LABEL[task.status].label}</span>
+                    : '—'}
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ─── Detail Drawer ────────────────────────────────────────────────────────────
 
 const ReviewDetailDrawer: React.FC<{
@@ -384,6 +369,7 @@ const ReviewDetailDrawer: React.FC<{
 }> = ({ record, open, onClose, userOptions, onAction }) => {
   const [project,            setProject]            = useState<Project | null>(null)
   const [files,              setFiles]              = useState<ProjectFile[]>([])
+  const [functions,          setFunctions]          = useState<ProjectFunction[]>([])
   const [projectLoading,     setProjectLoading]     = useState(false)
   const [previewFile,        setPreviewFile]        = useState<ProjectFile | null>(null)
   const [countersignPeople,  setCountersignPeople]  = useState<ChainPerson[]>([])
@@ -391,26 +377,29 @@ const ReviewDetailDrawer: React.FC<{
   useEffect(() => { setCountersignPeople([]) }, [record?.id])
 
   useEffect(() => {
-    if (!record?.project_id) { setProject(null); setFiles([]); return }
+    if (!record?.project_id) { setProject(null); setFiles([]); setFunctions([]); return }
     setProjectLoading(true)
-    Promise.all([
+    const reqs: Promise<unknown>[] = [
       projectApi.get(record.project_id),
       projectApi.listFiles(record.project_id),
-    ]).then(([pRes, fRes]) => {
-      setProject(pRes.content as Project)
-      setFiles(Array.isArray(fRes.content) ? (fRes.content as ProjectFile[]) : [])
+    ]
+    if (record.apply_type_code === 'schedule') {
+      reqs.push(projectApi.functionList(record.project_id, { page: 1, size: 200 }))
+    }
+    Promise.all(reqs).then(([pRes, fRes, fnRes]) => {
+      setProject((pRes as Awaited<ReturnType<typeof projectApi.get>>).content as Project)
+      setFiles(Array.isArray((fRes as { content: unknown }).content) ? ((fRes as { content: ProjectFile[] }).content) : [])
+      if (fnRes) {
+        const c = (fnRes as { content: { data_list?: ProjectFunction[] } }).content
+        setFunctions(c.data_list ?? [])
+      }
     }).catch(() => {}).finally(() => setProjectLoading(false))
-  }, [record?.project_id])
+  }, [record?.project_id, record?.apply_type_code])
 
   if (!record) return null
 
   const targetName    = record.project_nm || record.duty_nm || record.function_nm || '—'
   const nodes         = [...(record.approval_nodes ?? [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-  const approvedCnt   = nodes.filter((n) => n.status === 1).length
-  const workflowSteps = WORKFLOW_STEPS[record.apply_type_code] ?? ['提交申請', '審核中', '完成']
-  const overallStep   = record.status === 1
-    ? Math.min(approvedCnt + 1, workflowSteps.length - 1)
-    : workflowSteps.length - 1
 
   // 本次審批需要展示的附件分類
   const relevantCategories = STAGE_FILES[record.apply_type_code] ?? []
@@ -431,7 +420,7 @@ const ReviewDetailDrawer: React.FC<{
       }
       open={open}
       onClose={onClose}
-      width={600}
+      width={record?.apply_type_code === 'schedule' ? 900 : 720}
       footer={
         record.is_my_turn ? (
           <div className="flex flex-col gap-3">
@@ -462,167 +451,319 @@ const ReviewDetailDrawer: React.FC<{
         ) : null
       }
     >
-      {/* ① 審批摘要 */}
-      <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 mb-4">
-        <div className="flex items-center gap-3 mb-2">
-          <div className="flex-1 min-w-0">
-            <div className="font-semibold text-slate-800 text-base truncate">{targetName}</div>
-            {record.function_nm && record.project_nm && (
-              <div className="text-xs text-slate-400 mt-0.5">功能任務 · {record.project_nm}</div>
-            )}
-          </div>
+      {/* ─── ① 頂部摘要欄 ─── */}
+      <div className="flex items-center gap-5 pb-5 mb-5 border-b border-slate-100">
+        {/* 狀態印章 */}
+        <div className="relative w-[68px] h-[68px] flex-shrink-0 flex items-center justify-center">
+          <div className="absolute inset-0 rounded-full"
+            style={{ border: `3px dashed ${STAMP_COLORS[record.status] ?? '#94a3b8'}`, transform: 'rotate(-12deg)' }} />
+          <span className="text-sm font-bold text-center leading-tight"
+            style={{ color: STAMP_COLORS[record.status] ?? '#94a3b8' }}>
+            {REVIEW_STATUS[record.status]?.label}
+          </span>
         </div>
-        <div className="flex items-center gap-4 text-xs text-slate-500">
-          <div className="flex items-center gap-1">
-            <Avatar size={16} style={{ background: '#7c3aed', fontSize: 8, fontWeight: 600 }}>
-              {(record.submitter_name || record.submitter)?.[0]?.toUpperCase()}
-            </Avatar>
-            <span>申請人：<span className="font-medium text-slate-700">{record.submitter_name || record.submitter}</span></span>
-          </div>
-          <span>提交：{record.created_at}</span>
+
+        {/* 申請人 */}
+        <div className="flex flex-col items-center gap-1">
+          <Avatar size={36} style={{ background: '#7c3aed', fontSize: 14, fontWeight: 600 }}>
+            {(record.submitter_name || record.submitter)?.[0]?.toUpperCase()}
+          </Avatar>
+          <div className="text-xs font-medium text-slate-700">{record.submitter_name || record.submitter}</div>
+          <div className="text-[11px] text-slate-400">申請人</div>
+        </div>
+
+        {/* 當前審批人 */}
+        {nodes.find((n) => n.status === 0) && (
+          <>
+            <div className="text-slate-300 text-lg">→</div>
+            <div className="flex flex-col items-center gap-1">
+              <Avatar size={36} style={{ background: '#2563eb', fontSize: 14, fontWeight: 600 }}>
+                {nodes.find((n) => n.status === 0)?.approver?.[0]?.toUpperCase()}
+              </Avatar>
+              <div className="text-xs font-medium text-slate-700">{nodes.find((n) => n.status === 0)?.approver}</div>
+              <div className="text-[11px] text-slate-400">當前審批人</div>
+            </div>
+          </>
+        )}
+
+        {/* 右側申請信息 */}
+        <div className="ml-auto text-right flex flex-col gap-1.5">
+          <Tag color={APPLY_TYPE_COLOR[record.apply_type_code]} style={{ margin: 0 }}>{record.apply_type}</Tag>
+          {record.function_nm && record.project_nm && (
+            <div className="text-xs text-slate-400">功能任務 · {record.project_nm}</div>
+          )}
+          <div className="text-xs text-slate-400">提交：{record.created_at}</div>
           {nodes.length > 0 && (
-            <span>審批進度：<span className="text-blue-600 font-semibold">{approvedCnt}/{nodes.length}</span></span>
+            <div className="text-xs text-slate-500">
+              審批進度：<span className="text-blue-600 font-semibold">{nodes.filter((n) => n.status === 1).length}/{nodes.length}</span>
+            </div>
           )}
         </div>
       </div>
 
-      {/* ② 審批階段進度 */}
-      <div className="mb-5">
-        <Steps size="small" current={overallStep}
-          status={record.status === 3 || record.status === 4 ? 'error' : 'process'}
-          items={workflowSteps.map((s) => ({ title: <span className="text-xs">{s}</span> }))}
-        />
-      </div>
+      {/* ─── ② 申請動態說明 ─── */}
+      {APPLY_TYPE_META[record.apply_type_code] && (
+        <div className="bg-blue-50 border border-blue-100 rounded-lg px-4 py-3 mb-5 text-sm text-slate-600 flex items-start gap-2">
+          <InformationCircleIcon className="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" />
+          <span>{APPLY_TYPE_META[record.apply_type_code].what}</span>
+        </div>
+      )}
 
-      {/* ③ 申請說明（如有） */}
+      {/* ─── ③ 申請說明（如有） ─── */}
       {record.description && (
-        <div className="mb-4">
-          <div className="text-xs font-semibold text-slate-500 mb-2 flex items-center gap-1.5">
-            <InformationCircleIcon className="w-3.5 h-3.5" />申請說明
-          </div>
-          <div className="text-sm text-slate-700 bg-amber-50 border border-amber-100 rounded-xl p-3 leading-relaxed">
+        <div className="mb-5">
+          <div className="text-sm font-semibold text-slate-700 mb-2">申請說明</div>
+          <div className="text-sm text-slate-600 bg-amber-50 border border-amber-100 rounded-lg p-3 leading-relaxed">
             {record.description}
           </div>
         </div>
       )}
 
-      {/* ④ 專案資料（核心：讓主管看到要審批什麼） */}
+      {/* ─── ④ 申請資訊 Grid Table ─── */}
       {record.project_id && (
         <div className="mb-5">
-          <div className="text-xs font-semibold text-slate-500 mb-2 flex items-center gap-1.5">
-            <DocumentTextIcon className="w-3.5 h-3.5" />
-            專案資料
-            {APPLY_TYPE_META[record.apply_type_code] && (
-              <span className="font-normal text-slate-400">· {APPLY_TYPE_META[record.apply_type_code].what}</span>
-            )}
-          </div>
-
+          <div className="text-sm font-semibold text-slate-700 mb-2">申請資訊</div>
           {projectLoading ? (
             <div className="flex justify-center py-6"><Spin size="small" /></div>
           ) : project ? (
-            <div className="border border-slate-200 rounded-xl overflow-hidden">
-              {/* 基本信息 */}
-              <div className="p-4 bg-white">
-                <Descriptions column={2} size="small"
-                  labelStyle={{ color: '#94a3b8', fontSize: 11, whiteSpace: 'nowrap' }}
-                  contentStyle={{ fontSize: 12, fontWeight: 500 }}
-                >
-                  <Descriptions.Item label={<span className="flex items-center gap-1"><BuildingOfficeIcon className="w-3 h-3" />所屬部門</span>}>
-                    {project.department || '—'}
-                  </Descriptions.Item>
-                  <Descriptions.Item label={<span className="flex items-center gap-1"><UserIcon className="w-3 h-3" />産品PM</span>}>
-                    {project.product_pm || '—'}
-                  </Descriptions.Item>
-                  <Descriptions.Item label={<span className="flex items-center gap-1"><UserIcon className="w-3 h-3" />專案PM</span>}>
-                    {project.project_pm || '—'}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="預計完成">
-                    {project.expected_end_date || '—'}
-                  </Descriptions.Item>
-                </Descriptions>
-
-                {/* 專案描述 */}
-                <div className="mt-3 pt-3 border-t border-slate-100">
-                  <div className="text-xs text-slate-400 mb-1">專案描述</div>
-                  <div className="text-sm text-slate-700 leading-relaxed">{project.describe || '—'}</div>
-                </div>
-
-                {/* 預期效益（立案審核時特別重要） */}
-                <div className="mt-3 pt-3 border-t border-slate-100">
-                  <div className="text-xs text-slate-400 mb-1">預期效益</div>
-                  <div className="text-sm text-slate-700 leading-relaxed">{project.expected_benefit || '—'}</div>
-                </div>
-              </div>
-
-              {/* 相關附件 */}
-              {relevantCategories.length > 0 && (
-                <div className="border-t border-slate-100 bg-slate-50 px-4 py-3">
-                  <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 mb-2">
-                    <PaperClipIcon className="w-3.5 h-3.5" />
-                    相關附件
-                    <span className="font-normal text-slate-400">
-                      （{relevantCategories.map((c) => FILE_CATEGORY_LABEL[c]).join('、')}）
-                    </span>
-                  </div>
-                  {relevantFiles.length === 0 ? (
-                    <div className="text-xs text-slate-400 py-2">暫無相關附件</div>
-                  ) : (
-                    <div className="space-y-1.5">
-                      {relevantFiles.map((f) => (
-                        <div key={f.id} className="flex items-center gap-2.5 bg-white rounded-lg px-3 py-2 border border-slate-200">
-                          <span className="text-base">{
-                            f.file_ext === 'pdf' ? '📄' :
-                            ['doc','docx'].includes(f.file_ext) ? '📝' :
-                            ['xls','xlsx'].includes(f.file_ext) ? '📊' :
-                            ['ppt','pptx'].includes(f.file_ext) ? '📋' :
-                            ['png','jpg','jpeg','gif'].includes(f.file_ext) ? '🖼️' : '📎'
-                          }</span>
-                          <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setPreviewFile(f)}>
-                            <div className="text-sm text-blue-600 hover:text-blue-700 truncate font-medium">{f.file_nm}</div>
-                            <div className="text-xs text-slate-400 flex items-center gap-1.5">
-                              <Tag style={{ margin: 0, fontSize: 10, padding: '0 4px', lineHeight: '16px' }}>
-                                {FILE_CATEGORY_LABEL[f.file_category]}
-                              </Tag>
-                              <span>{f.uploader}</span>
-                              <span>·</span>
-                              <span>{f.created_at}</span>
-                            </div>
-                          </div>
-                          <Tooltip title="預覽">
-                            <Button size="small" type="text"
-                              icon={<EyeIcon className="w-3.5 h-3.5" />}
-                              onClick={() => setPreviewFile(f)} />
-                          </Tooltip>
-                          <Tooltip title="下載">
-                            <a href={projectApi.getFileDownloadUrl(record.project_id!, f.id)}
-                              target="_blank" rel="noreferrer">
-                              <Button size="small" type="text" icon={<ArrowDownTrayIcon className="w-3.5 h-3.5" />} />
-                            </a>
-                          </Tooltip>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+            <table className="w-full text-sm border-collapse">
+              <tbody>
+                <tr>
+                  <td className="bg-slate-50 px-3 py-2.5 border border-slate-200 font-medium text-slate-500 whitespace-nowrap w-[21%]">専案名稱</td>
+                  <td className="px-3 py-2.5 border border-slate-200 font-medium text-slate-800" colSpan={3}>{project.project_nm}</td>
+                </tr>
+                <tr>
+                  <td className="bg-slate-50 px-3 py-2.5 border border-slate-200 font-medium text-slate-500 whitespace-nowrap">所屬部門</td>
+                  <td className="px-3 py-2.5 border border-slate-200 text-slate-700 w-[29%]">{project.department || '—'}</td>
+                  <td className="bg-slate-50 px-3 py-2.5 border border-slate-200 font-medium text-slate-500 whitespace-nowrap w-[21%]">産品PM</td>
+                  <td className="px-3 py-2.5 border border-slate-200 text-slate-700">{project.product_pm || '—'}</td>
+                </tr>
+                <tr>
+                  <td className="bg-slate-50 px-3 py-2.5 border border-slate-200 font-medium text-slate-500 whitespace-nowrap">專案PM</td>
+                  <td className="px-3 py-2.5 border border-slate-200 text-slate-700">{project.project_pm || '—'}</td>
+                  <td className="bg-slate-50 px-3 py-2.5 border border-slate-200 font-medium text-slate-500 whitespace-nowrap">預計完結</td>
+                  <td className="px-3 py-2.5 border border-slate-200 text-slate-700">{project.expected_end_date || '—'}</td>
+                </tr>
+                <tr>
+                  <td className="bg-slate-50 px-3 py-2.5 border border-slate-200 font-medium text-slate-500 whitespace-nowrap">專案描述</td>
+                  <td className="px-3 py-2.5 border border-slate-200 text-slate-700 leading-relaxed" colSpan={3}>{project.describe || '—'}</td>
+                </tr>
+                <tr>
+                  <td className="bg-slate-50 px-3 py-2.5 border border-slate-200 font-medium text-slate-500 whitespace-nowrap">預期效益</td>
+                  <td className="px-3 py-2.5 border border-slate-200 text-slate-700 leading-relaxed" colSpan={3}>{project.expected_benefit || '—'}</td>
+                </tr>
+              </tbody>
+            </table>
           ) : (
-            <div className="text-xs text-slate-400 text-center py-4">無法載入專案資料</div>
+            <div className="text-xs text-slate-400 text-center py-4 border border-slate-200 rounded-lg">無法載入專案資料</div>
           )}
         </div>
       )}
 
-      <Divider style={{ margin: '0 0 16px' }} />
-
-      {/* ⑤ 審批流程詳情 */}
-      <div>
-        <div className="text-xs font-semibold text-slate-500 mb-3 flex items-center gap-1.5">
-          <ExclamationTriangleIcon className="w-3.5 h-3.5" />審批流程
+      {/* ─── ④-b WBS 任務表（排程審核專用） ─── */}
+      {record.apply_type_code === 'schedule' && (
+        <div className="mb-5">
+          <div className="text-sm font-semibold text-slate-700 mb-2 flex items-center gap-1.5">
+            🗓️ 任務排程（WBS）
+            <span className="font-normal text-xs text-slate-400">共 {functions.length} 項任務</span>
+          </div>
+          {projectLoading ? (
+            <div className="flex justify-center py-6"><Spin size="small" /></div>
+          ) : functions.length === 0 ? (
+            <div className="text-xs text-slate-400 py-4 text-center border border-dashed border-slate-200 rounded-lg">暫無任務資料</div>
+          ) : (
+            <WbsTable functions={functions} />
+          )}
         </div>
+      )}
+
+      {/* ─── ⑤ 相關附件 ─── */}
+      {relevantCategories.length > 0 && project && (
+        <div className="mb-5">
+          <div className="text-sm font-semibold text-slate-700 mb-2 flex items-center gap-1.5">
+            <PaperClipIcon className="w-4 h-4 text-slate-400" />
+            相關附件
+            <span className="font-normal text-xs text-slate-400">（{relevantCategories.map((c) => FILE_CATEGORY_LABEL[c]).join('、')}）</span>
+          </div>
+          {relevantFiles.length === 0 ? (
+            <div className="text-xs text-slate-400 py-3 text-center border border-dashed border-slate-200 rounded-lg">暫無相關附件</div>
+          ) : (
+            <div className="space-y-1.5">
+              {relevantFiles.map((f) => (
+                <div key={f.id} className="flex items-center gap-2.5 bg-white rounded-lg px-3 py-2 border border-slate-200">
+                  <span className="text-base">{
+                    f.file_ext === 'pdf' ? '📄' :
+                    ['doc','docx'].includes(f.file_ext) ? '📝' :
+                    ['xls','xlsx'].includes(f.file_ext) ? '📊' :
+                    ['ppt','pptx'].includes(f.file_ext) ? '📋' :
+                    ['png','jpg','jpeg','gif'].includes(f.file_ext) ? '🖼️' : '📎'
+                  }</span>
+                  <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setPreviewFile(f)}>
+                    <div className="text-sm text-blue-600 hover:text-blue-700 truncate font-medium">{f.file_nm}</div>
+                    <div className="text-xs text-slate-400">{FILE_CATEGORY_LABEL[f.file_category]} · {f.uploader} · {f.created_at}</div>
+                  </div>
+                  <Tooltip title="預覽">
+                    <Button size="small" type="text" icon={<EyeIcon className="w-3.5 h-3.5" />} onClick={() => setPreviewFile(f)} />
+                  </Tooltip>
+                  <Tooltip title="下載">
+                    <a href={projectApi.getFileDownloadUrl(record.project_id!, f.id)} target="_blank" rel="noreferrer">
+                      <Button size="small" type="text" icon={<ArrowDownTrayIcon className="w-3.5 h-3.5" />} />
+                    </a>
+                  </Tooltip>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ─── ⑥ 審批流程 ─── */}
+      <div>
+        <div className="text-sm font-semibold text-slate-700 mb-4">審批流程</div>
         {nodes.length === 0 ? (
-          <div className="text-xs text-slate-300 text-center py-6">暫無審批節點資訊</div>
+          <div className="text-xs text-slate-300 text-center py-6 border border-dashed border-slate-200 rounded-lg">暫無審批節點資訊</div>
         ) : (
-          <ApprovalChain nodes={nodes} />
+          <>
+            {/* 水平頭像鏈 */}
+            <div className="flex items-end overflow-x-auto pb-1 mb-4">
+              {/* 申請人節點 */}
+              <div className="flex flex-col items-center gap-1 flex-shrink-0 min-w-[64px]">
+                <div className="relative">
+                  <Avatar size={38} style={{ background: '#7c3aed', fontSize: 15, fontWeight: 600 }}>
+                    {(record.submitter_name || record.submitter)?.[0]?.toUpperCase()}
+                  </Avatar>
+                  <div className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-blue-500 border-2 border-white flex items-center justify-center">
+                    <CheckIcon className="w-2.5 h-2.5 text-white" />
+                  </div>
+                </div>
+                <div className="text-[11px] font-medium text-slate-700 text-center leading-tight mt-1">
+                  {record.submitter_name || record.submitter}
+                </div>
+                <div className="text-[10px] text-blue-500">提交申請</div>
+              </div>
+
+              {/* 審批節點 */}
+              {nodes.map((node, i) => {
+                const dotColors: Record<number, string> = { 1: '#16a34a', 2: '#dc2626', 3: '#d97706', 0: '#94a3b8' }
+                const actionLabels: Record<number, string> = { 1: '同意審批', 2: '拒絕', 3: '退回', 0: '待審核' }
+                const dotColor = dotColors[node.status] ?? '#94a3b8'
+                return (
+                  <React.Fragment key={node.node_id || i}>
+                    {/* 連接線 */}
+                    <div className="flex items-center mx-1 mb-8" style={{ minWidth: 28 }}>
+                      <div className="w-1.5 h-1.5 rounded-full bg-slate-200" />
+                      <div className="flex-1 border-t-2 border-dashed border-slate-200" style={{ minWidth: 16 }} />
+                      <div className="w-1.5 h-1.5 rounded-full bg-slate-200 opacity-60" />
+                    </div>
+                    <div className="flex flex-col items-center gap-1 flex-shrink-0 min-w-[64px]">
+                      <div className="relative">
+                        <Avatar size={38} style={{
+                          background: node.is_countersign ? '#8b5cf6' : '#2563eb',
+                          fontSize: 15, fontWeight: 600,
+                          opacity: node.status === 0 ? 0.55 : 1,
+                        }}>
+                          {node.approver?.[0]?.toUpperCase()}
+                        </Avatar>
+                        <div className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-white flex items-center justify-center"
+                          style={{ background: dotColor }}>
+                          {node.status === 1 ? <CheckIcon className="w-2.5 h-2.5 text-white" />
+                            : node.status === 2 ? <XMarkIcon className="w-2.5 h-2.5 text-white" />
+                            : node.status === 3 ? <ArrowUturnLeftIcon className="w-2.5 h-2.5 text-white" />
+                            : <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                        </div>
+                      </div>
+                      <div className="text-[11px] font-medium text-slate-700 text-center leading-tight mt-1">{node.approver}</div>
+                      <div className="flex flex-col items-center gap-0.5">
+                        <span className="text-[10px]" style={{ color: dotColor }}>{actionLabels[node.status] ?? '—'}</span>
+                        {node.is_countersign && (
+                          <Tag style={{ margin: 0, fontSize: 9, padding: '0 3px', lineHeight: '14px' }} color="purple">加簽</Tag>
+                        )}
+                      </div>
+                    </div>
+                  </React.Fragment>
+                )
+              })}
+
+              {/* 終止節點（已全部通過） */}
+              {record.status === 2 && (
+                <>
+                  <div className="flex items-center mx-1 mb-8" style={{ minWidth: 28 }}>
+                    <div className="w-1.5 h-1.5 rounded-full bg-green-300" />
+                    <div className="flex-1 border-t-2 border-dashed border-green-300" style={{ minWidth: 16 }} />
+                    <div className="w-1.5 h-1.5 rounded-full bg-green-200" />
+                  </div>
+                  <div className="flex flex-col items-center gap-1 flex-shrink-0 min-w-[64px]">
+                    <div className="w-[38px] h-[38px] rounded-full bg-green-100 border-2 border-green-500 flex items-center justify-center">
+                      <CheckIcon className="w-5 h-5 text-green-600" />
+                    </div>
+                    <div className="text-[11px] font-medium text-green-700 mt-1">審批通過</div>
+                    <div className="text-[10px] text-slate-400">已完結</div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* 審批歷程表格 */}
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="bg-slate-50">
+                  <th className="text-left px-3 py-2 border border-slate-200 font-medium text-slate-500 text-xs">審批人</th>
+                  <th className="text-left px-3 py-2 border border-slate-200 font-medium text-slate-500 text-xs">操作</th>
+                  <th className="text-left px-3 py-2 border border-slate-200 font-medium text-slate-500 text-xs">時間</th>
+                  <th className="text-left px-3 py-2 border border-slate-200 font-medium text-slate-500 text-xs">意見</th>
+                </tr>
+              </thead>
+              <tbody>
+                {/* 提交申請行 */}
+                <tr>
+                  <td className="px-3 py-2.5 border border-slate-200">
+                    <div className="flex items-center gap-2">
+                      <Avatar size={22} style={{ background: '#7c3aed', fontSize: 10, fontWeight: 600 }}>
+                        {(record.submitter_name || record.submitter)?.[0]?.toUpperCase()}
+                      </Avatar>
+                      <span className="text-xs text-slate-700">{record.submitter_name || record.submitter}</span>
+                    </div>
+                  </td>
+                  <td className="px-3 py-2.5 border border-slate-200 text-xs text-blue-500">提交申請</td>
+                  <td className="px-3 py-2.5 border border-slate-200 text-xs text-slate-500">{record.created_at}</td>
+                  <td className="px-3 py-2.5 border border-slate-200 text-xs text-slate-300">—</td>
+                </tr>
+                {/* 各審批節點 */}
+                {nodes.map((node) => {
+                  const rowColors: Record<number, string> = { 1: '#16a34a', 2: '#dc2626', 3: '#d97706' }
+                  const rowLabels: Record<number, string> = { 1: '同意審批', 2: '拒絕', 3: '退回', 0: '待審核' }
+                  return (
+                    <tr key={node.node_id} className={node.status === 0 ? 'bg-blue-50/30' : ''}>
+                      <td className="px-3 py-2.5 border border-slate-200">
+                        <div className="flex items-center gap-2">
+                          <Avatar size={22} style={{
+                            background: node.is_countersign ? '#8b5cf6' : '#2563eb',
+                            fontSize: 10, fontWeight: 600,
+                          }}>
+                            {node.approver?.[0]?.toUpperCase()}
+                          </Avatar>
+                          <span className="text-xs text-slate-700">{node.approver}</span>
+                          {node.is_countersign && (
+                            <Tag style={{ margin: 0, fontSize: 9, padding: '0 3px', lineHeight: '14px' }} color="purple">加簽</Tag>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2.5 border border-slate-200 text-xs"
+                        style={{ color: rowColors[node.status] ?? '#94a3b8' }}>
+                        {rowLabels[node.status] ?? '—'}
+                      </td>
+                      <td className="px-3 py-2.5 border border-slate-200 text-xs text-slate-500">
+                        {node.approved_at || <span className="text-slate-300">—</span>}
+                      </td>
+                      <td className="px-3 py-2.5 border border-slate-200 text-xs text-slate-500">
+                        {node.comment || <span className="text-slate-300">—</span>}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </>
         )}
       </div>
 

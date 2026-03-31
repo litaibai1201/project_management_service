@@ -161,7 +161,7 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ open, onClose, 
             <Controller
               name="project_pm"
               control={control}
-              render={({ field }) => <Input {...field} placeholder="請輸入PM工號" />}
+              render={({ field }) => <Input {...field} placeholder="請輸入PM工號" onChange={(e) => field.onChange(e.target.value.toLowerCase())} />}
             />
           </Form.Item>
 
@@ -174,7 +174,7 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ open, onClose, 
             <Controller
               name="product_pm"
               control={control}
-              render={({ field }) => <Input {...field} placeholder="（可空，預設與建立人相同）" />}
+              render={({ field }) => <Input {...field} placeholder="（可空，預設與建立人相同）" onChange={(e) => field.onChange(e.target.value.toLowerCase())} />}
             />
           </Form.Item>
 

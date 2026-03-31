@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react'
+import React, { useEffect, useState, useMemo, useRef } from 'react'
 import dayjs from 'dayjs'
 import FilePreviewModal from './FilePreviewModal'
 import { useParams, useNavigate } from 'react-router-dom'
@@ -7,10 +7,11 @@ import {
   Space, Tooltip, Popconfirm, Modal, Form, Input, Select, Steps, Avatar,
   Timeline, Card, Segmented, Collapse, AutoComplete, DatePicker, InputNumber, Divider, Upload,
 } from 'antd'
-import { PencilSquareIcon as EditIcon } from '@heroicons/react/24/outline'
+import type { InputRef } from 'antd'
+import { PencilSquareIcon as EditIcon, PencilSquareIcon } from '@heroicons/react/24/outline'
 import type { ColumnsType } from 'antd/es/table'
 import {
-  ArrowLeftIcon, PlusIcon, EyeIcon, TrashIcon,
+  ArrowLeftIcon, PlusIcon, EyeIcon, TrashIcon, XMarkIcon,
   CodeBracketIcon, UserCircleIcon, FolderIcon,
 } from '@heroicons/react/24/outline'
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
@@ -36,13 +37,15 @@ const PRIORITY_COLORS = ['', '#22c55e', '#f59e0b', '#ef4444', '#7c3aed']
 
 // ─── Status Steps ─────────────────────────────────────────────────────────────
 const STATUS_STEPS = [
-  { title: '草稿',     statuses: [1] },
-  { title: '立案審核', statuses: [2] },
-  { title: '規劃中',   statuses: [3] },
-  { title: '規劃審核', statuses: [4] },
-  { title: '執行中',   statuses: [5] },
-  { title: '完結審核', statuses: [6] },
-  { title: '已完結',   statuses: [7] },
+  { title: '草稿',     statuses: [1]  },
+  { title: '立案審核', statuses: [2]  },
+  { title: '規劃中',   statuses: [3]  },
+  { title: '規劃審核', statuses: [4]  },
+  { title: '排程安排', statuses: [10] },
+  { title: '排程審核', statuses: [11] },
+  { title: '執行中',   statuses: [5]  },
+  { title: '完結審核', statuses: [6]  },
+  { title: '已完結',   statuses: [7]  },
 ]
 
 const getStepIndex = (status: number) => {
@@ -87,6 +90,33 @@ const ProjectDetailPage: React.FC = () => {
   const [editForm]                            = Form.useForm()
   const [newGroupName,    setNewGroupName]    = useState('')
   const [creatingGroup,   setCreatingGroup]   = useState(false)
+
+  // ── 新增功能負責人 picker ──────────────────────────────────────────────────
+  const [addFuncPersons,     setAddFuncPersons]     = useState<UserProfile[]>([])
+  const [addFuncSearchKw,    setAddFuncSearchKw]    = useState('')
+  const [addFuncSearchRes,   setAddFuncSearchRes]   = useState<UserProfile | null | false>(null)
+  const [addFuncSearching,   setAddFuncSearching]   = useState(false)
+  const addFuncSearchRef = useRef<InputRef>(null)
+
+  // ── 快速設定任務負責人 ─────────────────────────────────────────────────────
+  const [quickResponsible,   setQuickResponsible]   = useState<{ fid: string; persons: UserProfile[] } | null>(null)
+  const [quickSaving,        setQuickSaving]         = useState(false)
+  const [respSearchKw,       setRespSearchKw]        = useState('')
+  const [respSearchResult,   setRespSearchResult]    = useState<UserProfile | null | false>(null)
+  const [respSearching,      setRespSearching]       = useState(false)
+  const [respPreloading,     setRespPreloading]      = useState(false)
+  const respSearchRef = useRef<InputRef>(null)
+
+  // ── 任務編輯 Modal ─────────────────────────────────────────────────────────
+  const [editFunctionId, setEditFunctionId] = useState<string | null>(null)
+  const [funcEditData,   setFuncEditData]   = useState<ProjectFunction | null>(null)
+  const [funcEditSaving, setFuncEditSaving] = useState(false)
+  const [funcEditForm]                      = Form.useForm()
+
+  // ── 设定专案PM ─────────────────────────────────────────────────────────────
+  const [showSetPm,       setShowSetPm]       = useState(false)
+  const [setPmValue,      setSetPmValue]      = useState('')
+  const [setPmSaving,     setSetPmSaving]     = useState(false)
 
   // ── 提交审核 ──────────────────────────────────────────────────────────────
   const [showSubmit,        setShowSubmit]        = useState(false)
@@ -171,13 +201,15 @@ const ProjectDetailPage: React.FC = () => {
 
   // 各状态下锁定的分类（上传/删除均不可用，上传在有变更审批后可解锁）
   const UPLOAD_LOCKED: Record<number, Set<string>> = {
-    2: new Set(['requirement']),
-    3: new Set(['requirement']),
-    4: new Set(['requirement', 'design']),
-    5: new Set(['requirement', 'design']),
-    6: new Set(['requirement', 'design']),
-    7: new Set(['requirement', 'design']),
-    8: new Set(['requirement', 'design']),
+    2:  new Set(['requirement']),
+    3:  new Set(['requirement']),
+    4:  new Set(['requirement', 'design']),
+    10: new Set(['requirement', 'design']),
+    11: new Set(['requirement', 'design']),
+    5:  new Set(['requirement', 'design']),
+    6:  new Set(['requirement', 'design']),
+    7:  new Set(['requirement', 'design']),
+    8:  new Set(['requirement', 'design']),
   }
   const DELETE_LOCKED = UPLOAD_LOCKED  // 删除比上传更严，变更审批也不解锁删除
 
@@ -224,15 +256,19 @@ const ProjectDetailPage: React.FC = () => {
     setAddFuncLoading(true)
     try {
       await projectApi.addFunction(id, {
-        function_nm: values.function_nm as string,
-        describe:    values.describe as string | undefined,
-        priority:    values.priority as number,
-        group1:      values.group1 as string,
+        function_nm:  values.function_nm as string,
+        describe:     values.describe as string | undefined,
+        responsible:  addFuncPersons.length > 0 ? addFuncPersons.map((p) => p.work_no) : undefined,
+        priority:     values.priority as number,
+        group1:       values.group1 as string,
         expected_start_date: values.expected_start_date as string | undefined,
         expected_end_date:   values.expected_end_date as string | undefined,
       })
       showToast.success('功能新增成功')
-      setShowAddFunc(false); funcForm.resetFields(); loadFunctions(id)
+      setShowAddFunc(false)
+      funcForm.resetFields()
+      setAddFuncPersons([]); setAddFuncSearchKw(''); setAddFuncSearchRes(null)
+      loadFunctions(id)
     } catch { /* global */ }
     finally { setAddFuncLoading(false) }
   }
@@ -292,6 +328,107 @@ const ProjectDetailPage: React.FC = () => {
     finally { setEditSaving(false) }
   }
 
+  const handleAddFuncSearch = async (kw: string) => {
+    const trimmed = kw.trim().toLowerCase()
+    if (trimmed.length < 4) { setAddFuncSearchRes(null); return }
+    setAddFuncSearching(true)
+    setAddFuncSearchRes(null)
+    try {
+      const res = await userApi.getQuiet(trimmed)
+      setAddFuncSearchRes(res.content ?? false)
+    } catch {
+      setAddFuncSearchRes(false)
+    } finally {
+      setAddFuncSearching(false)
+      addFuncSearchRef.current?.focus()
+    }
+  }
+
+  useEffect(() => {
+    if (addFuncSearchKw.trim().length < 4) { setAddFuncSearchRes(null); return }
+    const t = setTimeout(() => handleAddFuncSearch(addFuncSearchKw), 600)
+    return () => clearTimeout(t)
+  }, [addFuncSearchKw])
+
+  const handleRespSearch = async (kw: string) => {
+    const trimmed = kw.trim().toLowerCase()
+    if (trimmed.length < 4) { setRespSearchResult(null); return }
+    setRespSearching(true)
+    setRespSearchResult(null)
+    try {
+      const res = await userApi.getQuiet(trimmed)
+      setRespSearchResult(res.content ?? false)
+    } catch {
+      setRespSearchResult(false)
+    } finally {
+      setRespSearching(false)
+      respSearchRef.current?.focus()
+    }
+  }
+
+  useEffect(() => {
+    if (respSearchKw.trim().length < 4) { setRespSearchResult(null); return }
+    const t = setTimeout(() => handleRespSearch(respSearchKw), 600)
+    return () => clearTimeout(t)
+  }, [respSearchKw])
+
+  const handleQuickSetResponsible = async () => {
+    if (!id || !quickResponsible) return
+    setQuickSaving(true)
+    try {
+      await projectApi.updateFunction(id, quickResponsible.fid, {
+        responsible: quickResponsible.persons.map((p) => p.work_no),
+      })
+      showToast.success('負責人已更新')
+      setQuickResponsible(null)
+      loadFunctions(id)
+    } catch { /* global */ }
+    finally { setQuickSaving(false) }
+  }
+
+  const handleOpenFuncEdit = async (fid: string) => {
+    setEditFunctionId(fid)
+    setFuncEditData(null)
+    try {
+      const res = await projectApi.getFunction(id!, fid)
+      const data = res.content as ProjectFunction
+      setFuncEditData(data)
+      funcEditForm.setFieldsValue({
+        function_nm:         data.function_nm,
+        describe:            data.describe,
+        priority:            data.priority,
+        group1:              data.group1,
+        expected_start_date: data.expected_start_date,
+        expected_end_date:   data.expected_end_date,
+      })
+    } catch { setEditFunctionId(null) }
+  }
+
+  const handleFuncEditSave = async (values: Record<string, unknown>) => {
+    if (!id || !editFunctionId) return
+    setFuncEditSaving(true)
+    try {
+      await projectApi.updateFunction(id, editFunctionId, values as Parameters<typeof projectApi.updateFunction>[2])
+      showToast.success('任務已更新')
+      setEditFunctionId(null)
+      loadFunctions(id)
+    } catch { /* global */ }
+    finally { setFuncEditSaving(false) }
+  }
+
+  const handleSetProjectPm = async () => {
+    if (!id || !setPmValue.trim()) return
+    setSetPmSaving(true)
+    try {
+      await projectApi.setProjectPm(id, setPmValue.trim())
+      showToast.success('專案PM已設定')
+      setShowSetPm(false)
+      setSetPmValue('')
+      dispatch(fetchProjectThunk(id))
+    } catch { /* global */ }
+    finally { setSetPmSaving(false) }
+  }
+
   const handleOpenSubmitModal = async () => {
     setSubmitReviewers([])
     setReviewerSearch('')
@@ -346,7 +483,8 @@ const ProjectDetailPage: React.FC = () => {
     if (!id || !current || submitReviewers.length === 0) return
     setSubmitSaving(true)
     try {
-      const targetStatus = current.status === 1 ? 2 : 4
+      const statusMap: Record<number, number> = { 1: 2, 3: 4, 10: 11 }
+      const targetStatus = statusMap[current.status] ?? 2
       await projectApi.submitForReview(id, submitReviewers.map((r) => r.work_no), targetStatus)
       showToast.success('已提交審核')
       setShowSubmit(false)
@@ -356,7 +494,7 @@ const ProjectDetailPage: React.FC = () => {
   }
 
   const myFunctions = useMemo(
-    () => functions.filter((f) => (f.developers ?? '').split(';').some((d) => d.trim() === workNo)),
+    () => functions.filter((f) => (Array.isArray(f.developers) ? f.developers : []).includes(workNo)),
     [functions, workNo],
   )
   const displayedFunctions = funcView === 'mine' ? myFunctions : functions
@@ -416,17 +554,81 @@ const ProjectDetailPage: React.FC = () => {
         </div>
       ),
     },
+    {
+      title: '負責人', dataIndex: 'responsible', width: 150,
+      render: (v: string[], record) => {
+        const ispm = current?.project_pm === workNo
+        const openPicker = async () => {
+          setRespSearchKw(''); setRespSearchResult(null)
+          setQuickResponsible({ fid: record.id, persons: [] })
+          const existing = v && v.length > 0 ? v : []
+          if (existing.length > 0) {
+            setRespPreloading(true)
+            const profiles = await Promise.all(existing.map(async (wn) => {
+              try { return (await userApi.get(wn)).content as UserProfile }
+              catch { return { work_no: wn, name: wn, department: '' } as UserProfile }
+            }))
+            setQuickResponsible({ fid: record.id, persons: profiles })
+            setRespPreloading(false)
+          }
+        }
+        const COLORS = ['#7c3aed', '#2563eb', '#059669', '#d97706', '#dc2626']
+        if (v && v.length > 0) {
+          const shown = v.slice(0, 3)
+          const extra = v.length - shown.length
+          return (
+            <div className="flex items-center gap-1.5 group">
+              <div className="flex items-center" style={{ gap: -4 }}>
+                {shown.map((wn, i) => (
+                  <Tooltip key={wn} title={wn}>
+                    <Avatar size={22} style={{ background: COLORS[i % COLORS.length], fontSize: 10, fontWeight: 700, border: '2px solid white', marginLeft: i > 0 ? -6 : 0, zIndex: shown.length - i }}>
+                      {wn[0]?.toUpperCase()}
+                    </Avatar>
+                  </Tooltip>
+                ))}
+                {extra > 0 && (
+                  <Avatar size={22} style={{ background: '#94a3b8', fontSize: 10, border: '2px solid white', marginLeft: -6 }}>+{extra}</Avatar>
+                )}
+              </div>
+              <span className="text-xs text-slate-600">{v[0]}{v.length > 1 ? ` 等${v.length}人` : ''}</span>
+              {ispm && (
+                <button className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-blue-500 border-0 outline-none bg-transparent p-0 cursor-pointer" onClick={openPicker} title="修改負責人">
+                  <PencilSquareIcon className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          )
+        }
+        if (!ispm) return <span className="text-slate-300 text-xs">未指定</span>
+        return (
+          <button
+            className="flex items-center gap-1 text-xs text-slate-400 hover:text-blue-500 hover:bg-blue-50 px-2 py-0.5 rounded-full border border-dashed border-slate-300 hover:border-blue-300 transition-colors"
+            onClick={openPicker}
+          >
+            <PlusIcon className="w-3 h-3" />指定負責人
+          </button>
+        )
+      },
+    },
     { title: '預計完成', dataIndex: 'expected_end_date', width: 110 },
     {
-      title: '操作', key: 'action', width: 90, fixed: 'right',
-      render: (_: unknown, record) => (
-        <Space size={0}>
-          <Tooltip title="查看"><Button icon={<EyeIcon className="w-4 h-4" />} size="small" type="text" onClick={() => setSelectedFid(record.id)} /></Tooltip>
-          <Popconfirm title="確認刪除？" onConfirm={() => handleDeleteFunction(record.id)} okText="確認" cancelText="取消">
-            <Tooltip title="刪除"><Button icon={<TrashIcon className="w-4 h-4" />} size="small" type="text" danger /></Tooltip>
-          </Popconfirm>
-        </Space>
-      ),
+      title: '操作', key: 'action', width: current?.project_pm === workNo ? 110 : 80, fixed: 'right',
+      render: (_: unknown, record) => {
+        const canModifyTask = (current?.status ?? 0) < 11
+        return (
+          <Space size={0}>
+            <Tooltip title="查看"><Button icon={<EyeIcon className="w-4 h-4" />} size="small" type="text" onClick={() => setSelectedFid(record.id)} /></Tooltip>
+            {current?.project_pm === workNo && canModifyTask && (
+              <Tooltip title="編輯"><Button icon={<EditIcon className="w-4 h-4" />} size="small" type="text" onClick={() => handleOpenFuncEdit(record.id)} /></Tooltip>
+            )}
+            {canModifyTask && (
+              <Popconfirm title="確認刪除？" onConfirm={() => handleDeleteFunction(record.id)} okText="確認" cancelText="取消">
+                <Tooltip title="刪除"><Button icon={<TrashIcon className="w-4 h-4" />} size="small" type="text" danger /></Tooltip>
+              </Popconfirm>
+            )}
+          </Space>
+        )
+      },
     },
   ]
 
@@ -474,10 +676,22 @@ const ProjectDetailPage: React.FC = () => {
               提交立案審核
             </Button>
           )}
-          {/* 提交規劃審核：規劃中階段 */}
-          {current.status === 3 && (
+          {/* 設定專案PM：規劃中且尚未設定PM，由創建人/産品PM操作 */}
+          {current.status === 3 && current.can_set_project_pm && (
+            <Button onClick={() => { setSetPmValue(''); setShowSetPm(true) }}>
+              設定專案PM
+            </Button>
+          )}
+          {/* 提交規劃審核：規劃中且當前用戶是專案PM */}
+          {current.status === 3 && current.can_submit_review && (
             <Button type="primary" style={{ background: '#2563eb' }} onClick={handleOpenSubmitModal}>
               提交規劃審核
+            </Button>
+          )}
+          {/* 提交排程審核：排程安排階段且當前用戶是專案PM */}
+          {current.status === 10 && current.can_submit_review && (
+            <Button type="primary" style={{ background: '#7c3aed' }} onClick={handleOpenSubmitModal}>
+              提交排程審核
             </Button>
           )}
         </div>
@@ -500,6 +714,20 @@ const ProjectDetailPage: React.FC = () => {
           </div>
         )}
       </Card>
+
+      {/* 排程安排提示 Banner */}
+      {current.status === 10 && (
+        <div className="mb-5 rounded-xl border border-violet-200 bg-violet-50 px-5 py-4 flex items-start gap-3">
+          <span className="text-2xl flex-shrink-0">📋</span>
+          <div>
+            <div className="font-semibold text-violet-800 text-sm mb-1">排程安排階段</div>
+            <div className="text-xs text-violet-600 leading-relaxed">
+              規劃審核已通過，請在「功能任務」分頁中建立任務、分配開發人員並設定開發時程。
+              安排完成後，由專案PM點擊「提交排程審核」，通過審批後專案將正式進入執行中。
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Tabs */}
       <Tabs
@@ -555,10 +783,12 @@ const ProjectDetailPage: React.FC = () => {
                       ]}
                     />
                   </div>
-                  <Button type="primary" icon={<PlusIcon className="w-4 h-4" />}
-                    onClick={() => setShowAddFunc(true)} size="small" style={{ background: '#2563eb' }}>
-                    新增功能
-                  </Button>
+                  {current?.project_pm === workNo && [3, 10].includes(current?.status ?? 0) && (
+                    <Button type="primary" icon={<PlusIcon className="w-4 h-4" />}
+                      onClick={() => setShowAddFunc(true)} size="small" style={{ background: '#2563eb' }}>
+                      新增功能
+                    </Button>
+                  )}
                 </div>
 
                 {funcGroupMode === 'flat' ? (
@@ -926,8 +1156,8 @@ const ProjectDetailPage: React.FC = () => {
 
       {/* Add Function Modal */}
       <Modal title="新增功能任務" open={showAddFunc}
-        onCancel={() => { setShowAddFunc(false); funcForm.resetFields() }}
-        footer={null} width={520} destroyOnHidden>
+        onCancel={() => { setShowAddFunc(false); funcForm.resetFields(); setAddFuncPersons([]); setAddFuncSearchKw(''); setAddFuncSearchRes(null) }}
+        footer={null} width={540} destroyOnHidden>
         <Form form={funcForm} layout="vertical" onFinish={handleAddFunction} className="mt-4">
           <Form.Item name="function_nm" label="功能名稱" rules={[{ required: true }]}>
             <Input placeholder="請輸入功能名稱" />
@@ -946,11 +1176,79 @@ const ProjectDetailPage: React.FC = () => {
             <Form.Item name="expected_start_date" label="預計開始"><Input type="date" /></Form.Item>
             <Form.Item name="expected_end_date"   label="預計結束"><Input type="date" /></Form.Item>
           </div>
+
+          {/* 負責人 picker */}
+          <div className="mb-4">
+            <div className="text-sm font-medium text-slate-700 mb-1.5">
+              負責人
+              {addFuncPersons.length > 0 && (
+                <span className="ml-1.5 text-xs font-normal text-slate-400">（已選 {addFuncPersons.length} 人）</span>
+              )}
+            </div>
+            <Input
+              ref={addFuncSearchRef}
+              placeholder="輸入工號，自動搜索"
+              value={addFuncSearchKw}
+              onChange={(e) => setAddFuncSearchKw(e.target.value)}
+              suffix={addFuncSearching ? <Spin size="small" /> : null}
+              className="mb-2"
+            />
+            {addFuncSearchRes === false && (
+              <div className="text-xs text-red-400 mb-2">找不到該工號，請確認後重試</div>
+            )}
+            {typeof addFuncSearchRes === 'object' && addFuncSearchRes !== null && (
+              <div className="flex items-center gap-2.5 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 mb-2">
+                <Avatar size={28} style={{ background: '#2563eb', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
+                  {(addFuncSearchRes as UserProfile).name?.[0]?.toUpperCase()}
+                </Avatar>
+                <div className="flex-1 min-w-0">
+                  <span className="text-sm font-medium text-slate-700">{(addFuncSearchRes as UserProfile).name}</span>
+                  <span className="text-xs text-slate-400 ml-1.5">{(addFuncSearchRes as UserProfile).work_no} · {(addFuncSearchRes as UserProfile).department}</span>
+                </div>
+                <Button
+                  size="small" type="primary" style={{ background: '#2563eb' }}
+                  disabled={addFuncPersons.some((p) => p.work_no === (addFuncSearchRes as UserProfile).work_no)}
+                  onClick={() => {
+                    const person = addFuncSearchRes as UserProfile
+                    if (!addFuncPersons.some((p) => p.work_no === person.work_no)) {
+                      setAddFuncPersons((prev) => [...prev, person])
+                    }
+                    setAddFuncSearchKw(''); setAddFuncSearchRes(null)
+                  }}
+                >
+                  {addFuncPersons.some((p) => p.work_no === (addFuncSearchRes as UserProfile).work_no) ? '已加入' : '加入'}
+                </Button>
+              </div>
+            )}
+            {addFuncPersons.length > 0 && (
+              <div className="space-y-1.5">
+                {addFuncPersons.map((p, i) => (
+                  <div key={p.work_no} className="flex items-center gap-2.5 bg-slate-50 rounded-lg px-3 py-2">
+                    <div className="w-5 h-5 rounded-full bg-violet-100 text-violet-600 text-[10px] font-bold flex items-center justify-center flex-shrink-0">{i + 1}</div>
+                    <Avatar size={24} style={{ background: '#7c3aed', fontSize: 10, fontWeight: 700, flexShrink: 0 }}>
+                      {p.name?.[0]?.toUpperCase()}
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm font-medium text-slate-700">{p.name}</span>
+                      <span className="text-xs text-slate-400 ml-1.5">{p.work_no} · {p.department}</span>
+                    </div>
+                    <button
+                      className="text-red-400 hover:text-red-600 transition-colors flex-shrink-0 border-0 outline-none bg-transparent p-0 cursor-pointer"
+                      onClick={() => setAddFuncPersons((prev) => prev.filter((x) => x.work_no !== p.work_no))}
+                    >
+                      <XMarkIcon className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           <Form.Item name="describe" label="功能描述">
             <Input.TextArea rows={3} placeholder="請描述功能需求" />
           </Form.Item>
           <div className="flex justify-end gap-3">
-            <Button onClick={() => { setShowAddFunc(false); funcForm.resetFields() }}>取消</Button>
+            <Button onClick={() => { setShowAddFunc(false); funcForm.resetFields(); setAddFuncPersons([]); setAddFuncSearchKw(''); setAddFuncSearchRes(null) }}>取消</Button>
             <Button type="primary" htmlType="submit" loading={addFuncLoading} style={{ background: '#2563eb' }}>新增</Button>
           </div>
         </Form>
@@ -960,7 +1258,9 @@ const ProjectDetailPage: React.FC = () => {
       {selectedFid && id && (
         <FunctionDetailDrawer projectId={id} functionId={selectedFid}
           open={!!selectedFid} onClose={() => setSelectedFid(null)}
-          onRefresh={() => loadFunctions(id)} />
+          onRefresh={() => loadFunctions(id)}
+          isProjectPm={current?.project_pm === workNo && (current?.status ?? 0) < 11}
+          projectStatus={current?.status} />
       )}
 
       {/* 編輯專案 Modal */}
@@ -977,10 +1277,10 @@ const ProjectDetailPage: React.FC = () => {
             <Form.Item name="priority" label="優先級" rules={[{ required: true }]}>
               <Select options={PRIORITY_OPTIONS} />
             </Form.Item>
-            <Form.Item name="project_pm" label="專案PM（工號）" rules={[{ required: true }]}>
+            <Form.Item name="project_pm" label="專案PM（工號）" rules={[{ required: true }]} normalize={(v) => (v || '').toLowerCase()}>
               <Input />
             </Form.Item>
-            <Form.Item name="product_pm" label="産品PM（工號）">
+            <Form.Item name="product_pm" label="産品PM（工號）" normalize={(v) => (v || '').toLowerCase()}>
               <Input placeholder="（可空，預設與建立人相同）" />
             </Form.Item>
             <Form.Item name="group_id" label="專案分組" rules={[{ required: true, message: '請選擇專案分組' }]}>
@@ -1036,9 +1336,174 @@ const ProjectDetailPage: React.FC = () => {
         </Form>
       </Modal>
 
+      {/* 快速設定任務負責人 Modal */}
+      <Modal
+        title="設定任務負責人"
+        open={!!quickResponsible}
+        onCancel={() => setQuickResponsible(null)}
+        onOk={handleQuickSetResponsible}
+        okText="確認儲存"
+        confirmLoading={quickSaving}
+        okButtonProps={{ style: { background: '#2563eb' } }}
+        width={440}
+        destroyOnHidden
+      >
+        <div className="py-3 space-y-4">
+          {/* 搜尋區 */}
+          <div>
+            <div className="text-sm font-medium text-slate-700 mb-2">透過工號搜尋人員</div>
+            <Input
+              ref={respSearchRef}
+              value={respSearchKw}
+              onChange={(e) => setRespSearchKw(e.target.value)}
+              placeholder="輸入工號，自動搜索（如：EMP001）"
+              suffix={respSearching ? <Spin size="small" /> : null}
+              autoFocus
+            />
+
+            {/* 搜尋結果 */}
+            {respSearchResult === false && (
+              <div className="mt-2 text-xs text-red-500 flex items-center gap-1">
+                <XMarkIcon className="w-3.5 h-3.5" />查無此工號，請確認後重試
+              </div>
+            )}
+            {respSearchResult && typeof respSearchResult === 'object' && (
+              <div className="mt-2 flex items-center justify-between bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+                <div className="flex items-center gap-2">
+                  <Avatar size={28} style={{ background: '#2563eb', fontSize: 11, fontWeight: 700 }}>
+                    {(respSearchResult as UserProfile).name?.[0]?.toUpperCase()}
+                  </Avatar>
+                  <div>
+                    <div className="text-sm font-medium text-slate-800">{(respSearchResult as UserProfile).name}</div>
+                    <div className="text-xs text-slate-400">{(respSearchResult as UserProfile).work_no} · {(respSearchResult as UserProfile).department}</div>
+                  </div>
+                </div>
+                <Button
+                  size="small" type="primary" style={{ background: '#2563eb' }}
+                  disabled={quickResponsible?.persons.some((p) => p.work_no === (respSearchResult as UserProfile).work_no)}
+                  onClick={() => {
+                    const person = respSearchResult as UserProfile
+                    if (!quickResponsible?.persons.some((p) => p.work_no === person.work_no)) {
+                      setQuickResponsible((prev) => prev ? { ...prev, persons: [...prev.persons, person] } : null)
+                    }
+                    setRespSearchKw(''); setRespSearchResult(null)
+                  }}
+                >
+                  {quickResponsible?.persons.some((p) => p.work_no === (respSearchResult as UserProfile).work_no) ? '已加入' : '加入'}
+                </Button>
+              </div>
+            )}
+          </div>
+
+          {/* 已選人員列表 */}
+          <div>
+            <div className="text-sm font-medium text-slate-700 mb-2">
+              已選負責人
+              {quickResponsible && quickResponsible.persons.length > 0 && (
+                <span className="ml-1.5 text-xs font-normal text-slate-400">（共 {quickResponsible.persons.length} 人，儲存後生效）</span>
+              )}
+            </div>
+            {respPreloading ? (
+              <div className="flex items-center justify-center py-5 text-slate-400 text-xs gap-2"><Spin size="small" />載入中…</div>
+            ) : !quickResponsible || quickResponsible.persons.length === 0 ? (
+              <div className="border border-dashed border-slate-200 rounded-lg py-5 text-center text-slate-400 text-xs">尚未加入任何負責人</div>
+            ) : (
+              <div className="space-y-1.5">
+                {quickResponsible.persons.map((p, i) => (
+                  <div key={p.work_no} className="flex items-center gap-2.5 bg-slate-50 rounded-lg px-3 py-2">
+                    <div className="w-5 h-5 rounded-full bg-violet-100 text-violet-600 text-[10px] font-bold flex items-center justify-center flex-shrink-0">{i + 1}</div>
+                    <Avatar size={24} style={{ background: '#7c3aed', fontSize: 10, fontWeight: 700, flexShrink: 0 }}>
+                      {p.name?.[0]?.toUpperCase()}
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm font-medium text-slate-700">{p.name}</span>
+                      <span className="text-xs text-slate-400 ml-1.5">{p.work_no} · {p.department}</span>
+                    </div>
+                    <button
+                      className="text-red-400 hover:text-red-600 transition-colors flex-shrink-0 border-0 outline-none bg-transparent p-0 cursor-pointer"
+                      onClick={() => setQuickResponsible((prev) => prev ? { ...prev, persons: prev.persons.filter((x) => x.work_no !== p.work_no) } : null)}
+                    >
+                      <XMarkIcon className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </Modal>
+
+      {/* 任務編輯 Modal */}
+      <Modal
+        title="編輯功能任務"
+        open={!!editFunctionId}
+        onCancel={() => setEditFunctionId(null)}
+        onOk={() => funcEditForm.submit()}
+        okText="儲存"
+        confirmLoading={funcEditSaving}
+        okButtonProps={{ style: { background: '#2563eb' } }}
+        width={520}
+        destroyOnHidden
+      >
+        {!funcEditData ? (
+          <div className="flex items-center justify-center py-12"><Spin /></div>
+        ) : (
+          <Form form={funcEditForm} layout="vertical" onFinish={handleFuncEditSave} className="mt-2">
+            <Form.Item name="function_nm" label="功能名稱" rules={[{ required: true, message: '請輸入功能名稱' }]}>
+              <Input />
+            </Form.Item>
+            <div className="grid grid-cols-2 gap-x-4">
+              <Form.Item name="priority" label="優先級" rules={[{ required: true }]}>
+                <Select options={[{value:1,label:'低'},{value:2,label:'中'},{value:3,label:'高'},{value:4,label:'緊急'}]} />
+              </Form.Item>
+              <Form.Item name="group1" label="任務分組" rules={[{ required: true }]}>
+                <Input />
+              </Form.Item>
+              <Form.Item name="expected_start_date" label="預計開始"><Input type="date" /></Form.Item>
+              <Form.Item name="expected_end_date" label="預計完成"><Input type="date" /></Form.Item>
+            </div>
+            <Form.Item name="describe" label="功能描述">
+              <Input.TextArea rows={3} />
+            </Form.Item>
+          </Form>
+        )}
+      </Modal>
+
+      {/* 設定專案PM Modal */}
+      <Modal
+        title="設定專案PM"
+        open={showSetPm}
+        onCancel={() => setShowSetPm(false)}
+        onOk={handleSetProjectPm}
+        okText="確認設定"
+        confirmLoading={setPmSaving}
+        width={400}
+        destroyOnHidden
+      >
+        <div className="py-3 space-y-3">
+          <div className="text-sm text-slate-500">
+            立案審核通過後，專案PM尚未設定。請輸入專案PM的工號，設定後由專案PM負責提交規劃審核。
+          </div>
+          <div>
+            <div className="text-sm font-medium text-slate-700 mb-1.5">專案PM 工號</div>
+            <Input
+              value={setPmValue}
+              onChange={(e) => setSetPmValue(e.target.value.toLowerCase())}
+              placeholder="請輸入工號"
+              onPressEnter={handleSetProjectPm}
+              autoFocus
+            />
+          </div>
+        </div>
+      </Modal>
+
       {/* 提交審核 Modal */}
       <Modal
-        title={current.status === 1 ? '提交立案審核' : '提交規劃審核'}
+        title={
+          current.status === 1 ? '提交立案審核' :
+          current.status === 3 ? '提交規劃審核' :
+          '提交排程審核'
+        }
         open={showSubmit} onCancel={() => setShowSubmit(false)}
         footer={null} width={520} destroyOnHidden>
         <div className="mt-4 space-y-4">

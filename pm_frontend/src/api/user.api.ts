@@ -1,4 +1,4 @@
-import { get, post, put, del } from './httpClient'
+import { get, getSilent, post, put, del } from './httpClient'
 import { ApiResponse, UserProfile } from '@/types/api.types'
 
 export interface CreateUserPayload {
@@ -36,6 +36,10 @@ export const userApi = {
   /** GET /api/user/mgmt/user/:work_no */
   get: (workNo: string): Promise<ApiResponse<UserProfile>> =>
     get(`/user/mgmt/user/${workNo}`),
+
+  /** GET /api/user/mgmt/user/:work_no — silent (no toast on 404) for search pickers */
+  getQuiet: (workNo: string): Promise<ApiResponse<UserProfile>> =>
+    getSilent(`/user/mgmt/user/${workNo}`),
 
   /** POST /api/user/mgmt/user */
   create: (payload: CreateUserPayload): Promise<ApiResponse<{ work_no: string }>> =>

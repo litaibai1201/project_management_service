@@ -79,8 +79,8 @@ export interface UserStatistical {
 
 // ─── Project ──────────────────────────────────────────────────────────────────
 
-export type ProjectStatus = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
-// 1=草稿 2=立案審核 3=規劃中 4=規劃審核 5=執行中 6=完結審核 7=完結 8=擱置 9=刪除
+export type ProjectStatus = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11
+// 1=草稿 2=立案審核 3=規劃中 4=規劃審核 10=排程安排 11=排程審核 5=執行中 6=完結審核 7=完結 8=擱置 9=刪除
 
 export interface Project {
   id: string
@@ -102,6 +102,7 @@ export interface Project {
   progress?: number
   can_edit?: boolean
   can_submit_review?: boolean
+  can_set_project_pm?: boolean
   can_manage_files?: boolean
   has_approved_change_request?: boolean
   change_request_status?: number | null   // 1=待審 2=通過 3=拒絕 4=退回
@@ -166,7 +167,8 @@ export interface ProjectFunction {
   function_nm: string
   describe?: string
   project_id: string
-  developers?: string
+  responsible?: string[]
+  developers?: string[]
   priority: number
   status: FunctionStatus
   progress: number
@@ -181,6 +183,7 @@ export interface ProjectFunction {
 export interface AddFunctionPayload {
   function_nm: string
   describe?: string
+  responsible?: string[]
   expected_start_date?: string
   expected_end_date?: string
   developers?: string[]

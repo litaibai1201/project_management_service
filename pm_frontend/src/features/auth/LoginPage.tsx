@@ -71,6 +71,7 @@ const LoginPage: React.FC = () => {
             name="work_no"
             label="工號"
             rules={[{ required: true, message: '請輸入工號' }]}
+            normalize={(v) => (v || '').toLowerCase()}
           >
             <Input
               prefix={<UserIcon className="w-4 h-4 text-gray-400" />}

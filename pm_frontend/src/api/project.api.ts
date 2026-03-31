@@ -62,6 +62,10 @@ export const projectApi = {
   delete: (id: string): Promise<ApiResponse<null>> =>
     del(`/project/${id}`),
 
+  /** PUT /api/project/:id/set_project_pm */
+  setProjectPm: (id: string, projectPm: string): Promise<ApiResponse<null>> =>
+    put(`/project/${id}/set_project_pm`, { project_pm: projectPm }),
+
   /** PUT /api/project/:id/set_status */
   setStatus: (id: string, status: number): Promise<ApiResponse<null>> =>
     put(`/project/${id}/set_status`, { status }),
@@ -129,7 +133,7 @@ export const projectApi = {
     const fd = new FormData()
     Object.entries(payload).forEach(([k, v]) => {
       if (v !== undefined && v !== null) {
-        if (Array.isArray(v)) v.forEach((item) => fd.append(k, item))
+        if (Array.isArray(v)) fd.append(k, JSON.stringify(v))
         else fd.append(k, String(v))
       }
     })

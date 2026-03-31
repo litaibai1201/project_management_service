@@ -191,7 +191,7 @@ class ProjectDataModel(BaseMixinModel):
     product_pm = db.Column(db.String(32), comment="产品PM工号")
     project_pm = db.Column(db.String(32), nullable=False, comment="项目PM工号")
     creator = db.Column(db.String(32), comment="创建人工号")
-    # 1=草稿 2=立案审核 3=规划中 4=规划审核 5=执行中 6=完结审核 7=完结 8=搁置 9=删除
+    # 1=草稿 2=立案审核 3=规划中 4=规划审核 10=排程安排 11=排程审核 5=执行中 6=完结审核 7=完结 8=搁置 9=删除
     project_status = db.Column(db.Integer, default=1, comment="项目状态")
     priority = db.Column(db.Integer, default=2, comment="优先级(1低2中3高4紧急)")
     expected_end_date = db.Column(db.String(10), comment="预计结束日期")
@@ -257,6 +257,7 @@ class FunctionDataModel(BaseMixinModel):
     function_nm = db.Column(db.String(128), nullable=False, comment="功能名称")
     describe = db.Column(db.Text, comment="描述")
     project_id = db.Column(db.String(32), db.ForeignKey("project_data_form.id"), nullable=False, index=True)
+    responsible = db.Column(db.Text, comment="负责人工号列表(JSON数组)")
     developers = db.Column(db.Text, comment="开发人员(JSON数组)")
     priority = db.Column(db.Integer, default=2)
     # 1=待开始 2=进行中 3=完结审核 4=已完结 8=搁置 9=删除
@@ -278,7 +279,9 @@ class FunctionDataModel(BaseMixinModel):
                 devs = [self.developers]
         return {
             "id": self.id, "function_nm": self.function_nm, "describe": self.describe or "",
-            "project_id": self.project_id, "developers": devs, "priority": self.priority,
+            "project_id": self.project_id,
+            "responsible": json.loads(self.responsible) if self.responsible else [],
+            "developers": devs, "priority": self.priority,
             "status": self.function_status, "progress": self.progress,
             "expected_start_date": self.expected_start_date or "",
             "expected_end_date": self.expected_end_date or "",

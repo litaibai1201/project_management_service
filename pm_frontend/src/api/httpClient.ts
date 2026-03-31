@@ -1,4 +1,4 @@
-import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse, InternalAxiosRequestConfig } from 'axios'
+import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse, InternalAxiosRequestConfig, AxiosError } from 'axios'
 import { ApiResponse } from '@/types/api.types'
 import { showToast } from '@/utils/toast'
 
@@ -63,26 +63,31 @@ httpClient.interceptors.response.use(
     const { code, msg } = response.data
     // Backend uses code === 'S10000' for success, 'F10001' for failure
     if (code !== 'S10000' && code !== undefined) {
-      showToast.error(msg || '請求失敗')
+      if (!(response.config as InternalAxiosRequestConfig & { skipErrorToast?: boolean }).skipErrorToast) {
+        showToast.error(msg || '請求失敗')
+      }
       return Promise.reject(new Error(msg))
     }
     return response
   },
-  (error) => {
+  (error: AxiosError) => {
+    const silent = (error.config as (InternalAxiosRequestConfig & { skipErrorToast?: boolean }) | undefined)?.skipErrorToast
     if (error.response) {
       const status = error.response.status
       if (status === 401) {
         tokenStorage.remove()
         showToast.error('登入已過期，請重新登入')
         window.location.href = '/login'
-      } else if (status === 403) {
-        showToast.error('無此操作權限')
-      } else if (status === 404) {
-        showToast.error('請求的資源不存在')
-      } else if (status >= 500) {
-        showToast.error('伺服器錯誤，請稍後再試')
+      } else if (!silent) {
+        if (status === 403) {
+          showToast.error('無此操作權限')
+        } else if (status === 404) {
+          showToast.error('請求的資源不存在')
+        } else if (status >= 500) {
+          showToast.error('伺服器錯誤，請稍後再試')
+        }
       }
-    } else if (error.request) {
+    } else if (error.request && !silent) {
       showToast.error('網路連線異常，請檢查網路')
     }
     return Promise.reject(error)
@@ -93,6 +98,10 @@ httpClient.interceptors.response.use(
 
 export const get = <T>(url: string, config?: AxiosRequestConfig): Promise<ApiResponse<T>> =>
   httpClient.get<ApiResponse<T>>(url, config).then((r) => r.data)
+
+/** Same as get but suppresses all global error toasts — caller handles errors silently */
+export const getSilent = <T>(url: string, config?: AxiosRequestConfig): Promise<ApiResponse<T>> =>
+  httpClient.get<ApiResponse<T>>(url, { ...config, skipErrorToast: true } as AxiosRequestConfig).then((r) => r.data)
 
 export const post = <T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<ApiResponse<T>> =>
   httpClient.post<ApiResponse<T>>(url, data, config).then((r) => r.data)

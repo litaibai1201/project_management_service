@@ -125,9 +125,22 @@ class ProjectController:
         else:
             result["can_edit"] = False
 
-        # can_submit_review: 草稿(1)阶段提交立案审核 或 规划中(3)提交规划审核
-        result["can_submit_review"] = (
-            p.project_status in (1, 3) and operator == product_pm
+        # can_submit_review:
+        #   草稿(1)   → 只有产品PM可提交立案审核
+        #   规划中(3) → 只有专案PM可提交规划审核
+        #   排程安排(10)→ 只有专案PM可提交排程审核
+        if p.project_status == 1:
+            result["can_submit_review"] = operator == product_pm
+        elif p.project_status in (3, 10):
+            result["can_submit_review"] = bool(project_pm) and operator == project_pm
+        else:
+            result["can_submit_review"] = False
+
+        # can_set_project_pm: 立案通过后(规划中)，若专案PM尚未设定，由创建人或产品PM设定
+        result["can_set_project_pm"] = (
+            p.project_status == 3 and
+            not project_pm and
+            operator in (p.creator or "", product_pm)
         )
 
         # can_manage_files: PM 在非删除状态下均可管理附件
@@ -155,8 +168,8 @@ class ProjectController:
             project_nm=payload["project_nm"],
             describe=payload.get("describe", ""),
             department=payload.get("department", ""),
-            product_pm=payload.get("product_pm", ""),
-            project_pm=payload["project_pm"],
+            product_pm=(payload.get("product_pm") or "").strip().lower(),
+            project_pm=(payload.get("project_pm") or "").strip().lower(),
             creator=creator,
             expected_end_date=payload.get("expected_end_date", ""),
             priority=payload.get("priority", 2),
@@ -187,11 +200,29 @@ class ProjectController:
                 ).first() is not None
                 if not is_supervisor:
                     raise PermissionException(msg="只有产品PM或其直属上级可以编辑专案")
+        WN_FIELDS = {"product_pm", "project_pm"}
         fields = ("project_nm", "describe", "department", "product_pm", "project_pm",
                   "expected_end_date", "priority", "group_id", "code_url", "expected_benefit")
         for f in fields:
             if f in payload and payload[f] is not None:
-                setattr(p, f, payload[f])
+                v = (payload[f] or "").strip().lower() if f in WN_FIELDS else payload[f]
+                setattr(p, f, v)
+        p.update_at = CommonTools.get_now()
+        db.session.commit()
+
+    def set_project_pm(self, project_id: str, project_pm: str, operator: str):
+        """规划中阶段由创建人/产品PM设定专案PM（仅在专案PM为空时允许）"""
+        from utils.exceptions import PermissionException
+        p = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
+        if not p or p.project_status == 9:
+            raise ResourceNotFoundException(resource_type="项目")
+        if p.project_status != 3:
+            raise PermissionException(msg="只有规划中阶段可以设定专案PM")
+        if p.project_pm:
+            raise PermissionException(msg="专案PM已设定，如需变更请编辑专案")
+        if operator not in (p.creator or "", p.product_pm or ""):
+            raise PermissionException(msg="只有创建人或产品PM可以设定专案PM")
+        p.project_pm = (project_pm or "").strip().lower()
         p.update_at = CommonTools.get_now()
         db.session.commit()
 
@@ -223,9 +254,25 @@ class ProjectController:
                 raise PermissionException(msg="只有草稿阶段的专案才能提交立案审核")
             if submitter != (p.product_pm or ""):
                 raise PermissionException(msg="只有产品PM可以提交立案审核")
+        # 提交规划审核：只有专案PM可以提交，且专案必须处于规划中阶段
+        if status == 4:
+            if p.project_status != 3:
+                raise PermissionException(msg="只有规划中阶段的专案才能提交规划审核")
+            if not (p.project_pm or ""):
+                raise PermissionException(msg="请先设定专案PM再提交规划审核")
+            if submitter != (p.project_pm or ""):
+                raise PermissionException(msg="只有专案PM可以提交规划审核")
+        # 提交排程审核：只有专案PM可以提交，且专案必须处于排程安排阶段
+        if status == 11:
+            if p.project_status != 10:
+                raise PermissionException(msg="只有排程安排阶段的专案才能提交排程审核")
+            if submitter != (p.project_pm or ""):
+                raise PermissionException(msg="只有专案PM可以提交排程审核")
         type_map = {
-            2: ("立案申请", "initiate"), 4: ("规划审核", "plan"),
-            6: ("完结审核", "project_complete"),
+            2:  ("立案申请", "initiate"),
+            4:  ("规划审核", "plan"),
+            11: ("排程审核", "schedule"),
+            6:  ("完结审核", "project_complete"),
         }
         apply_type, apply_type_code = type_map.get(status, ("状态变更", "other"))
 
@@ -534,9 +581,10 @@ class ProjectController:
             if p:
                 # (通過後的狀態, 拒絕/退回後的狀態)
                 project_status_map = {
-                    "initiate":         (3, 1),  # 通過→規劃中(3), 拒絕→草稿(1)
-                    "plan":             (5, 3),  # 通過→執行中(5), 拒絕→規劃中(3)
-                    "project_complete": (7, 5),  # 通過→完結(7),   拒絕→執行中(5)
+                    "initiate":         (3,  1),   # 通過→規劃中(3),   拒絕→草稿(1)
+                    "plan":             (10, 3),   # 通過→排程安排(10),拒絕→規劃中(3)
+                    "schedule":         (5,  10),  # 通過→執行中(5),   拒絕→排程安排(10)
+                    "project_complete": (7,  5),   # 通過→完結(7),     拒絕→執行中(5)
                 }
                 next_pass, next_fail = project_status_map.get(r.apply_type_code or "", (None, None))
                 if final_status == 2 and next_pass:
@@ -698,11 +746,25 @@ class FunctionController:
         return f.to_dict()
 
     def add_function(self, project_id: str, payload: dict, creator: str):
+        from utils.exceptions import PermissionException
+        project = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
+        if not project or project.project_status == 9:
+            raise ResourceNotFoundException(resource_type="项目")
+        if project.project_status not in (3, 10):
+            raise PermissionException(msg="只有規劃中或排程安排階段可以新增功能任務")
         devs = payload.get("developers", [])
+        resp = payload.get("responsible", [])
+        if isinstance(resp, str):
+            try:
+                resp = json.loads(resp)
+            except (json.JSONDecodeError, ValueError):
+                resp = [resp] if resp else []
+        resp = [w.strip().lower() for w in (resp if isinstance(resp, list) else [resp]) if w]
         f = FunctionDataModel(
             function_nm=payload["function_nm"],
             describe=payload.get("describe", ""),
             project_id=project_id,
+            responsible=json.dumps(resp, ensure_ascii=False),
             developers=json.dumps(devs, ensure_ascii=False),
             priority=payload.get("priority", 2),
             expected_start_date=payload.get("expected_start_date", ""),
@@ -718,12 +780,27 @@ class FunctionController:
         f = db.session.query(FunctionDataModel).filter_by(id=function_id).first()
         if not f or f.function_status == 9:
             raise ResourceNotFoundException(resource_type="功能任务")
-        for field in ("function_nm", "describe", "expected_start_date", "expected_end_date",
-                      "priority", "group1", "group2"):
+        for field in ("function_nm", "describe", "expected_start_date",
+                      "expected_end_date", "priority", "group1", "group2"):
             if field in payload and payload[field] is not None:
                 setattr(f, field, payload[field])
+        if "responsible" in payload and payload["responsible"] is not None:
+            resp = payload["responsible"]
+            if isinstance(resp, str):
+                try:
+                    resp = json.loads(resp)
+                except (json.JSONDecodeError, ValueError):
+                    resp = [resp] if resp else []
+            resp = [w.strip().lower() for w in (resp if isinstance(resp, list) else [resp]) if w]
+            f.responsible = json.dumps(resp, ensure_ascii=False)
         if "developers" in payload and payload["developers"] is not None:
-            f.developers = json.dumps(payload["developers"], ensure_ascii=False)
+            devs = payload["developers"]
+            if isinstance(devs, str):
+                try:
+                    devs = json.loads(devs)
+                except (json.JSONDecodeError, ValueError):
+                    devs = [devs] if devs else []
+            f.developers = json.dumps(devs if isinstance(devs, list) else [devs], ensure_ascii=False)
         f.update_at = CommonTools.get_now()
         db.session.commit()
 

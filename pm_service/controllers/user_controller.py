@@ -36,13 +36,14 @@ class UserController:
         }
 
     def get_user(self, work_no: str):
+        work_no = (work_no or "").strip().lower()
         user = db.session.query(UserProfileModel).filter_by(work_no=work_no, status=1).first()
         if not user:
             raise ResourceNotFoundException(resource_type="用户")
         return user.to_dict()
 
     def create_user(self, payload: dict):
-        work_no = payload["work_no"]
+        work_no = (payload["work_no"] or "").strip().lower()
         if db.session.query(UserProfileModel).filter_by(work_no=work_no).first():
             raise ResourceExistsException(resource_type="工号")
         user = UserProfileModel(
@@ -205,6 +206,7 @@ class UserController:
 
     def login(self, work_no: str, password: str, location: str = "") -> dict:
         """登录验证：优先检查管理员表，再检查普通用户表"""
+        work_no = (work_no or "").strip().lower()
         from utils.auth import create_token
         from controllers.system_admin_controller import SystemAdminController
         from dbs.mysql_db.model_tables import AdminUserModel

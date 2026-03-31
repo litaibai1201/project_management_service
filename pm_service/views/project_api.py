@@ -64,6 +64,18 @@ class ProjectDetailApi(MethodView):
         return response_result()
 
 
+@blp.route("/<string:project_id>/set_project_pm")
+class ProjectSetProjectPmApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def put(self, project_id):
+        """设定专案PM（规划中阶段，专案PM为空时由创建人/产品PM操作）"""
+        work_no = get_identity()
+        payload = request.get_json() or {}
+        proj_ctrl.set_project_pm(project_id, payload.get("project_pm", ""), operator=work_no)
+        return response_result()
+
+
 @blp.route("/<string:project_id>/set_status")
 class ProjectSetStatusApi(MethodView):
     @jwt_required()

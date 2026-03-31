@@ -45,6 +45,12 @@ class DutyController:
 
     def create_duty(self, payload: dict, creator: str):
         resp = payload.get("responsible", [])
+        if isinstance(resp, str):
+            try:
+                resp = json.loads(resp)
+            except Exception:
+                resp = [resp] if resp else []
+        resp = [w.strip().lower() for w in (resp if isinstance(resp, list) else [resp]) if w]
         d = TemporaryDutyModel(
             duty_nm=payload["duty_nm"],
             describe=payload.get("describe", ""),
@@ -68,7 +74,14 @@ class DutyController:
             if field in payload and payload[field] is not None:
                 setattr(d, field, payload[field])
         if "responsible" in payload and payload["responsible"] is not None:
-            d.responsible = json.dumps(payload["responsible"], ensure_ascii=False)
+            resp = payload["responsible"]
+            if isinstance(resp, str):
+                try:
+                    resp = json.loads(resp)
+                except Exception:
+                    resp = [resp] if resp else []
+            resp = [w.strip().lower() for w in (resp if isinstance(resp, list) else [resp]) if w]
+            d.responsible = json.dumps(resp, ensure_ascii=False)
         d.revision_count = (d.revision_count or 0) + 1
         d.update_at = CommonTools.get_now()
         db.session.commit()
