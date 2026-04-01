@@ -6,6 +6,7 @@ import React, { useMemo, useRef, useEffect, useState, useCallback } from 'react'
 import { Segmented, Tooltip, Empty, Select } from 'antd'
 import { FunnelIcon, FolderIcon, ChevronRightIcon, ChevronDownIcon } from '@heroicons/react/24/outline'
 import { ProjectFunction, Milestone } from '@/types/api.types'
+import { useWorkNoToName } from '@/hooks/useWorkNoToName'
 import dayjs, { Dayjs } from 'dayjs'
 import isBetween from 'dayjs/plugin/isBetween'
 import weekOfYear from 'dayjs/plugin/weekOfYear'
@@ -20,8 +21,10 @@ interface Column { label: string; date: Dayjs; width: number }
 interface GroupData {
   name: string
   items: ProjectFunction[]
-  minDate: Dayjs | null
-  maxDate: Dayjs | null
+  minDate: Dayjs | null   // earliest expected_start_date
+  maxDate: Dayjs | null   // latest expected_end_date
+  actualStart: Dayjs | null  // earliest start_time among items
+  actualEnd: Dayjs | null    // latest end_time (only when ALL items are done)
   avgProgress: number
 }
 
@@ -30,12 +33,25 @@ const ROW_H   = 44
 const GROUP_H = 36
 const NAME_W  = 230
 const COL_W   = { day: 30, week: 70, month: 100 }
-const STATUS_COLORS: Record<number, { bar: string; text: string }> = {
-  1: { bar: '#cbd5e1', text: '#64748b' }, // 待開始
-  2: { bar: '#93c5fd', text: '#2563eb' }, // 進行中
-  3: { bar: '#fcd34d', text: '#d97706' }, // 完結審核
-  4: { bar: '#86efac', text: '#16a34a' }, // 已完結
+// Left-side dot color for a task row
+function getDotColor(f: ProjectFunction, today: Dayjs): string {
+  if (f.status === 1) return '#94a3b8'
+  if (f.status === 3) return '#d97706'
+  if (f.status === 4) {
+    const late = f.end_time && f.expected_end_date && f.end_time > f.expected_end_date
+    return late ? '#ef4444' : '#16a34a'
+  }
+  const overdue = f.expected_end_date && dayjs(f.expected_end_date).isBefore(today)
+  return overdue ? '#ef4444' : '#f59e0b'
 }
+
+const LEGEND_ITEMS = [
+  { label: '未開始 / 計劃剩餘', color: '#d1d5db' },
+  { label: '進行中(準時)',       color: '#fbbf24' },
+  { label: '超時進行中 / 超時完結', color: '#f87171' },
+  { label: '已完結',             color: '#4ade80' },
+]
+
 const GROUP_COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#06b6d4']
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -75,6 +91,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [] }) =
   const [filterDev,   setFilterDev]   = useState<string | null>(null)
   const [groupView,   setGroupView]   = useState<'flat' | 'grouped'>('grouped')
   const [collapsed,   setCollapsed]   = useState<Set<string>>(new Set())
+  const toName = useWorkNoToName()
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const toggleGroup = useCallback((name: string) => {
@@ -96,8 +113,8 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [] }) =
     functions.forEach((f) => {
       if (Array.isArray(f.responsible)) f.responsible.forEach((d) => d && devSet.add(d))
     })
-    return Array.from(devSet).map((d) => ({ label: d, value: d }))
-  }, [functions])
+    return Array.from(devSet).map((d) => ({ label: toName(d), value: d }))
+  }, [functions, toName])
 
   // Filtered functions
   const visibleFunctions = useMemo(() => {
@@ -122,11 +139,16 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [] }) =
         f.expected_start_date ? dayjs(f.expected_start_date) : null,
         f.expected_end_date ? dayjs(f.expected_end_date) : null,
       ]).filter(Boolean) as Dayjs[]
+      const startTimes = items.map((f) => f.start_time ? dayjs(f.start_time) : null).filter(Boolean) as Dayjs[]
+      const allDone = items.every((f) => f.status === 4)
+      const endTimes = allDone ? items.map((f) => f.end_time ? dayjs(f.end_time) : null).filter(Boolean) as Dayjs[] : []
       return {
         name,
         items,
         minDate: dates.length > 0 ? dates.reduce((a, b) => (a.isBefore(b) ? a : b)) : null,
         maxDate: dates.length > 0 ? dates.reduce((a, b) => (a.isAfter(b) ? a : b)) : null,
+        actualStart: startTimes.length > 0 ? startTimes.reduce((a, b) => (a.isBefore(b) ? a : b)) : null,
+        actualEnd: endTimes.length > 0 && allDone ? endTimes.reduce((a, b) => (a.isAfter(b) ? a : b)) : null,
         avgProgress: Math.round(items.reduce((s, f) => s + (f.progress ?? 0), 0) / items.length),
       }
     })
@@ -158,8 +180,13 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [] }) =
     visibleFunctions.forEach((f) => {
       if (f.expected_start_date) dates.push(dayjs(f.expected_start_date))
       if (f.expected_end_date)   dates.push(dayjs(f.expected_end_date))
+      if (f.start_time)          dates.push(dayjs(f.start_time))
+      if (f.end_time)            dates.push(dayjs(f.end_time))
     })
-    milestones.forEach((m) => dates.push(dayjs(m.target_date)))
+    milestones.forEach((m) => {
+      dates.push(dayjs(m.target_date))
+      if (m.achieved_at) dates.push(dayjs(m.achieved_at.slice(0, 10)))
+    })
     if (dates.length === 0) return { rangeStart: dayjs().subtract(1, 'week'), rangeEnd: dayjs().add(8, 'week') }
     const min = dates.reduce((a, b) => (a.isBefore(b) ? a : b))
     const max = dates.reduce((a, b) => (a.isAfter(b) ? a : b))
@@ -175,7 +202,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [] }) =
   const columns = useMemo(() => buildColumns(rangeStart, rangeEnd, mode), [rangeStart, rangeEnd, mode])
   const totalW  = columns.reduce((s, c) => s + c.width, 0)
   const today   = dayjs()
-  const todayX  = dateToOffset(today, rangeStart, mode)
+  const todayX  = dateToOffset(today, rangeStart, mode) + COL_W[mode] / 2
 
   // Scroll to show today on mount
   useEffect(() => {
@@ -205,52 +232,125 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [] }) =
   // ─── Render helpers ──────────────────────────────────────────────────────────
 
   const renderTaskBar = (f: ProjectFunction) => {
-    const start = f.expected_start_date ? dayjs(f.expected_start_date) : null
-    const end   = f.expected_end_date   ? dayjs(f.expected_end_date)   : null
-    if (!start || !end) return null
+    const planStart = f.expected_start_date ? dayjs(f.expected_start_date) : null
+    const planEnd   = f.expected_end_date   ? dayjs(f.expected_end_date)   : null
+    if (!planStart || !planEnd) return null
 
-    const x1  = Math.max(0, dateToOffset(start, rangeStart, mode))
-    const x2  = dateToOffset(end.add(1, 'day'), rangeStart, mode)
-    const w   = Math.max(8, x2 - x1)
-    const colors = STATUS_COLORS[f.status] ?? STATUS_COLORS[1]
-    const isOverdue = end.isBefore(today) && f.status !== 4
+    const actualStart = f.start_time ? dayjs(f.start_time) : null
+    const actualEnd   = f.end_time   ? dayjs(f.end_time)   : null
+
+    const GRAY   = '#d1d5db'
+    const YELLOW = '#fbbf24'
+    const RED    = '#f87171'
+    const GREEN  = '#4ade80'
+
+    // Right edge of the whole bar
+    const barEnd = actualEnd && actualEnd.isAfter(planEnd)
+      ? actualEnd
+      : !actualEnd && today.isAfter(planEnd) && actualStart
+        ? today
+        : planEnd
+
+    const toX = (d: Dayjs) => Math.max(0, dateToOffset(d, rangeStart, mode))
+
+    interface Seg { key: string; left: number; width: number; color: string }
+    const segs: Seg[] = []
+
+    const addSeg = (from: Dayjs, to: Dayjs, color: string, key: string) => {
+      if (to.isBefore(from)) return
+      const x1 = toX(from)
+      const x2 = toX(to.add(1, 'day'))
+      const w  = x2 - x1
+      if (w > 0) segs.push({ key, left: x1, width: w, color })
+    }
+
+    if (!actualStart) {
+      // Not started: full gray
+      addSeg(planStart, planEnd, GRAY, 'g0')
+    } else {
+      // Pre-start gray (actual start was later than plan start)
+      if (actualStart.isAfter(planStart)) {
+        addSeg(planStart, actualStart.subtract(1, 'day'), GRAY, 'g-pre')
+      }
+
+      if (actualEnd) {
+        if (!actualEnd.isAfter(planEnd)) {
+          // Completed on time or early
+          if (!actualEnd.subtract(1, 'day').isBefore(actualStart)) {
+            addSeg(actualStart, actualEnd.subtract(1, 'day'), YELLOW, 'y')
+          }
+          addSeg(actualEnd, actualEnd, GREEN, 'g-done')
+          // Trailing gray for remaining planned time
+          if (actualEnd.isBefore(planEnd)) {
+            addSeg(actualEnd.add(1, 'day'), planEnd, GRAY, 'g-trail')
+          }
+        } else {
+          // Completed late
+          addSeg(actualStart, planEnd.subtract(1, 'day'), YELLOW, 'y')
+          addSeg(planEnd, actualEnd.subtract(1, 'day'), RED, 'r')
+          addSeg(actualEnd, actualEnd, GREEN, 'g-done')
+        }
+      } else if (today.isAfter(planEnd)) {
+        // Still in progress, overdue
+        addSeg(actualStart, planEnd.subtract(1, 'day'), YELLOW, 'y')
+        addSeg(planEnd, today, RED, 'r')
+      } else {
+        // Still in progress, on time
+        addSeg(actualStart, today, YELLOW, 'y')
+        if (today.isBefore(planEnd)) {
+          addSeg(today.add(1, 'day'), planEnd, GRAY, 'g-future')
+        }
+      }
+    }
+
+    const containerX = toX(planStart)
+    const containerW = Math.max(8, toX(barEnd.add(1, 'day')) - containerX)
+    const isLateDone  = actualEnd && actualEnd.isAfter(planEnd)
+
+    const tooltipContent = (
+      <div style={{ fontSize: 11 }}>
+        <div className="font-semibold mb-1">{f.function_nm}</div>
+        <div className="opacity-70">計劃：{f.expected_start_date || '—'} → {f.expected_end_date || '—'}</div>
+        {(f.start_time || f.end_time) && (
+          <div className={isLateDone ? 'text-red-300' : 'text-green-300'}>
+            實際：{f.start_time || '—'} → {f.end_time || '進行中'}
+            {isLateDone ? ' ⚠ 超時' : f.end_time ? ' ✓ 準時' : ''}
+          </div>
+        )}
+        <div className="opacity-70 mt-0.5">進度 {f.progress}%</div>
+      </div>
+    )
 
     return (
-      <Tooltip
-        title={
-          <div>
-            <div className="font-semibold">{f.function_nm}</div>
-            <div className="text-xs opacity-80 mt-0.5">{f.expected_start_date} → {f.expected_end_date}</div>
-            <div className="text-xs opacity-80">進度 {f.progress}%</div>
-          </div>
-        }
-      >
+      <Tooltip title={tooltipContent}>
         <div
           style={{
             position: 'absolute',
-            left: x1, top: 10, height: 24, width: w,
-            borderRadius: 4,
-            background: isOverdue ? '#fecaca' : colors.bar,
-            border: `1.5px solid ${isOverdue ? '#f87171' : colors.text}40`,
-            cursor: 'pointer',
-            overflow: 'hidden',
+            left: containerX, top: 12,
+            height: 20, width: containerW,
+            borderRadius: 4, overflow: 'hidden', cursor: 'pointer',
           }}
         >
-          <div
-            style={{
-              position: 'absolute', left: 0, top: 0, bottom: 0,
-              width: `${f.progress}%`,
-              background: `${colors.text}30`,
-              borderRadius: 4,
-            }}
-          />
-          {w > 50 && (
-            <span
+          {segs.map((seg) => (
+            <div
+              key={seg.key}
               style={{
-                position: 'absolute', left: 6, top: '50%', transform: 'translateY(-50%)',
-                fontSize: 10, fontWeight: 600, color: colors.text, whiteSpace: 'nowrap',
+                position: 'absolute',
+                left: seg.left - containerX,
+                top: 0, bottom: 0,
+                width: seg.width,
+                background: seg.color,
               }}
-            >
+            />
+          ))}
+          {containerW > 44 && (
+            <span style={{
+              position: 'absolute', left: 6, top: '50%',
+              transform: 'translateY(-50%)',
+              fontSize: 10, fontWeight: 700, color: '#374151',
+              whiteSpace: 'nowrap', zIndex: 1,
+              textShadow: '0 0 3px rgba(255,255,255,0.9)',
+            }}>
               {f.progress}%
             </span>
           )}
@@ -259,42 +359,105 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [] }) =
     )
   }
 
-  const renderGroupBand = (g: GroupData, colorIdx: number) => {
-    if (!g.minDate || !g.maxDate) return null
-    const x1 = Math.max(0, dateToOffset(g.minDate, rangeStart, mode))
-    const x2 = dateToOffset(g.maxDate.add(1, 'day'), rangeStart, mode)
-    const w  = Math.max(20, x2 - x1)
-    const color = GROUP_COLORS[colorIdx % GROUP_COLORS.length]
+  const renderGroupBand = (g: GroupData, _colorIdx: number) => {
+    const planStart = g.minDate
+    const planEnd   = g.maxDate
+    if (!planStart || !planEnd) return null
+
+    const actualStart = g.actualStart
+    const actualEnd   = g.actualEnd
+
+    const GRAY   = '#d1d5db'
+    const YELLOW = '#fbbf24'
+    const RED    = '#f87171'
+    const GREEN  = '#4ade80'
+
+    const barEnd = actualEnd && actualEnd.isAfter(planEnd)
+      ? actualEnd
+      : !actualEnd && today.isAfter(planEnd) && actualStart
+        ? today
+        : planEnd
+
+    const toX = (d: Dayjs) => Math.max(0, dateToOffset(d, rangeStart, mode))
+
+    interface Seg { key: string; left: number; width: number; color: string }
+    const segs: Seg[] = []
+
+    const addSeg = (from: Dayjs, to: Dayjs, color: string, key: string) => {
+      if (to.isBefore(from)) return
+      const x1 = toX(from)
+      const x2 = toX(to.add(1, 'day'))
+      const w  = x2 - x1
+      if (w > 0) segs.push({ key, left: x1, width: w, color })
+    }
+
+    if (!actualStart) {
+      addSeg(planStart, planEnd, GRAY, 'g0')
+    } else {
+      if (actualStart.isAfter(planStart)) {
+        addSeg(planStart, actualStart.subtract(1, 'day'), GRAY, 'g-pre')
+      }
+      if (actualEnd) {
+        if (!actualEnd.isAfter(planEnd)) {
+          if (!actualEnd.subtract(1, 'day').isBefore(actualStart)) {
+            addSeg(actualStart, actualEnd.subtract(1, 'day'), YELLOW, 'y')
+          }
+          addSeg(actualEnd, actualEnd, GREEN, 'g-done')
+          if (actualEnd.isBefore(planEnd)) {
+            addSeg(actualEnd.add(1, 'day'), planEnd, GRAY, 'g-trail')
+          }
+        } else {
+          addSeg(actualStart, planEnd.subtract(1, 'day'), YELLOW, 'y')
+          addSeg(planEnd, actualEnd.subtract(1, 'day'), RED, 'r')
+          addSeg(actualEnd, actualEnd, GREEN, 'g-done')
+        }
+      } else if (today.isAfter(planEnd)) {
+        addSeg(actualStart, planEnd.subtract(1, 'day'), YELLOW, 'y')
+        addSeg(planEnd, today, RED, 'r')
+      } else {
+        addSeg(actualStart, today, YELLOW, 'y')
+        if (today.isBefore(planEnd)) {
+          addSeg(today.add(1, 'day'), planEnd, GRAY, 'g-future')
+        }
+      }
+    }
+
+    const containerX = toX(planStart)
+    const containerW = Math.max(20, toX(barEnd.add(1, 'day')) - containerX)
 
     return (
       <Tooltip title={`${g.name}：${g.items.length} 項任務，平均進度 ${g.avgProgress}%`}>
         <div
           style={{
             position: 'absolute',
-            left: x1, top: 6, height: GROUP_H - 12, width: w,
-            borderRadius: 6,
-            background: `${color}18`,
-            border: `1.5px solid ${color}50`,
-            overflow: 'hidden',
+            left: containerX, top: 6, height: GROUP_H - 12, width: containerW,
+            borderRadius: 5, overflow: 'hidden', cursor: 'pointer',
           }}
         >
-          {/* Progress fill */}
-          <div
-            style={{
-              position: 'absolute', left: 0, top: 0, bottom: 0,
-              width: `${g.avgProgress}%`,
-              background: `${color}25`,
-              borderRadius: 6,
-            }}
-          />
-          <span
-            style={{
-              position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)',
-              fontSize: 10, fontWeight: 700, color, whiteSpace: 'nowrap',
-            }}
-          >
-            {g.avgProgress}%
-          </span>
+          {segs.map((seg) => (
+            <div
+              key={seg.key}
+              style={{
+                position: 'absolute',
+                left: seg.left - containerX,
+                top: 0, bottom: 0,
+                width: seg.width,
+                background: seg.color,
+                opacity: 0.75,
+              }}
+            />
+          ))}
+          {containerW > 44 && (
+            <span style={{
+              position: 'absolute', left: 8, top: '50%',
+              transform: 'translateY(-50%)',
+              fontSize: 10, fontWeight: 700, color: '#374151',
+              whiteSpace: 'nowrap', zIndex: 1,
+              textShadow: '0 0 3px rgba(255,255,255,0.9)',
+            }}>
+              {g.avgProgress}%
+            </span>
+          )}
         </div>
       </Tooltip>
     )
@@ -306,10 +469,10 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [] }) =
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4 px-1">
         {/* Legend */}
         <div className="flex items-center gap-3 text-xs text-slate-400 flex-wrap">
-          {Object.entries(STATUS_COLORS).map(([status, c]) => (
-            <div key={status} className="flex items-center gap-1">
-              <div className="w-3 h-3 rounded-sm" style={{ background: c.bar }} />
-              <span>{{ 1:'待開始', 2:'進行中', 3:'完結審核', 4:'已完結' }[Number(status)]}</span>
+          {LEGEND_ITEMS.map((item) => (
+            <div key={item.label} className="flex items-center gap-1">
+              <div className="w-5 h-3 rounded-sm flex-shrink-0" style={{ background: item.color }} />
+              <span>{item.label}</span>
             </div>
           ))}
           <div className="flex items-center gap-1">
@@ -427,7 +590,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [] }) =
                 >
                   <div
                     className="w-2 h-2 rounded-full flex-shrink-0"
-                    style={{ background: STATUS_COLORS[row.func.status]?.bar ?? '#cbd5e1' }}
+                    style={{ background: getDotColor(row.func, today) }}
                   />
                   <Tooltip title={row.func.function_nm}>
                     <span className="text-xs text-slate-700 truncate font-medium">{row.func.function_nm}</span>
@@ -441,14 +604,21 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [] }) =
                 <div className="flex items-center px-3 border-b border-r border-slate-200 bg-slate-50" style={{ height: ROW_H }}>
                   <span className="text-xs font-semibold text-slate-500">里程碑</span>
                 </div>
-                {milestones.map((m) => (
-                  <div key={m.id} className="flex items-center px-3 gap-2 border-b border-r border-slate-100" style={{ height: ROW_H }}>
-                    <span className="text-base leading-none" style={{
-                      color: m.status === 'achieved' ? '#16a34a' : m.status === 'overdue' ? '#dc2626' : '#2563eb'
-                    }}>◆</span>
-                    <span className="text-xs text-slate-700 truncate">{m.name}</span>
-                  </div>
-                ))}
+                {milestones.map((m) => {
+                  // Dot color: if achieved, reflect early/on-time/late
+                  let dotColor = '#2563eb'
+                  if (m.status === 'overdue') dotColor = '#dc2626'
+                  else if (m.status === 'achieved' && m.achieved_at) {
+                    const diff = dayjs(m.achieved_at.slice(0, 10)).diff(dayjs(m.target_date), 'day')
+                    dotColor = diff < 0 ? '#16a34a' : diff === 0 ? '#2563eb' : '#dc2626'
+                  } else if (m.status === 'achieved') dotColor = '#16a34a'
+                  return (
+                    <div key={m.id} className="flex items-center px-3 gap-2 border-b border-r border-slate-100" style={{ height: ROW_H }}>
+                      <span className="text-base leading-none" style={{ color: dotColor }}>◆</span>
+                      <span className="text-xs text-slate-700 truncate">{m.name}</span>
+                    </div>
+                  )
+                })}
               </div>
             )}
           </div>
@@ -539,27 +709,61 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [] }) =
                     {/* Section header row */}
                     <div style={{ height: ROW_H, borderTop: '2px solid #e2e8f0', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }} />
                     {milestones.map((m) => {
-                      const mDate = dayjs(m.target_date)
-                      const mx = dateToOffset(mDate, rangeStart, mode)
-                      const markerColor = m.status === 'achieved' ? '#16a34a' : m.status === 'overdue' ? '#dc2626' : '#2563eb'
+                      const targetDate = dayjs(m.target_date)
+                      const tx = dateToOffset(targetDate, rangeStart, mode) + COL_W[mode] / 2
+
+                      // Actual achievement diamond (only when achieved)
+                      let ax: number | null = null
+                      let actualColor = '#16a34a'
+                      if (m.status === 'achieved' && m.achieved_at) {
+                        const achievedDate = dayjs(m.achieved_at.slice(0, 10))
+                        ax = dateToOffset(achievedDate, rangeStart, mode) + COL_W[mode] / 2
+                        const diff = achievedDate.diff(targetDate, 'day')
+                        actualColor = diff < 0 ? '#16a34a' : diff === 0 ? '#2563eb' : '#dc2626'
+                      }
+
+                      const tooltipText = m.status === 'achieved' && m.achieved_at
+                        ? `${m.name} · 目標: ${m.target_date} · 達成: ${m.achieved_at.slice(0, 10)}`
+                        : `${m.name} · 目標: ${m.target_date}`
+
                       return (
                         <div key={m.id} style={{ height: ROW_H, borderBottom: '1px solid #f1f5f9', position: 'relative' }}>
-                          <Tooltip title={`${m.name} · 目標: ${m.target_date}`}>
+                          {/* Target date diamond — always shown (hollow/gray) */}
+                          <Tooltip title={tooltipText}>
                             <div
                               style={{
                                 position: 'absolute',
-                                left: mx - 9,
+                                left: tx - 9,
                                 top: 12,
                                 fontSize: 18,
-                                color: markerColor,
+                                color: '#94a3b8',
                                 cursor: 'pointer',
                                 userSelect: 'none',
-                                filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.2))',
+                                WebkitTextStroke: '1px #64748b',
                               }}
                             >
-                              ◆
+                              ◇
                             </div>
                           </Tooltip>
+                          {/* Actual achievement diamond — only when achieved */}
+                          {ax !== null && (
+                            <Tooltip title={tooltipText}>
+                              <div
+                                style={{
+                                  position: 'absolute',
+                                  left: ax - 9,
+                                  top: 12,
+                                  fontSize: 18,
+                                  color: actualColor,
+                                  cursor: 'pointer',
+                                  userSelect: 'none',
+                                  filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.2))',
+                                }}
+                              >
+                                ◆
+                              </div>
+                            </Tooltip>
+                          )}
                         </div>
                       )
                     })}

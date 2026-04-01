@@ -10,6 +10,7 @@ import {
   Squares2X2Icon, ListBulletIcon,
 } from '@heroicons/react/24/outline'
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
+import { useWorkNoToName } from '@/hooks/useWorkNoToName'
 import {
   fetchProjectListThunk, deleteProjectThunk, setQuery, fetchProjectGroupsThunk,
 } from './projectSlice'
@@ -64,7 +65,9 @@ const KanbanView: React.FC<{
   list: ProjectListItem[]
   onView: (id: string) => void
   onDelete: (id: string) => void
-}> = ({ list, onView, onDelete }) => (
+}> = ({ list, onView, onDelete }) => {
+  const toName = useWorkNoToName()
+  return (
   <div className="flex gap-4 overflow-x-auto pb-4" style={{ minHeight: 400 }}>
     {KANBAN_COLS.map((col) => {
       const cards = list.filter((p) => p.status === col.status)
@@ -104,9 +107,9 @@ const KanbanView: React.FC<{
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1">
                       <Avatar size={18} style={{ background: '#2563eb', fontSize: 10, fontWeight: 600 }}>
-                        {p.project_pm?.[0]?.toUpperCase()}
+                        {toName(p.project_pm)?.[0]?.toUpperCase()}
                       </Avatar>
-                      <span className="text-xs text-slate-400 truncate" style={{ maxWidth: 60 }}>{p.project_pm}</span>
+                      <span className="text-xs text-slate-400 truncate" style={{ maxWidth: 60 }}>{toName(p.project_pm)}</span>
                     </div>
                     <DaysLeftBadge date={p.expected_end_date} />
                   </div>
@@ -132,7 +135,8 @@ const KanbanView: React.FC<{
       )
     })}
   </div>
-)
+  )
+}
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
@@ -141,6 +145,7 @@ const ProjectListPage: React.FC = () => {
   const navigate  = useNavigate()
   const { list, totalCount, isLoading, query, groups } = useAppSelector((s) => s.project)
   const { isManagerView } = useAppSelector((s) => s.auth)
+  const toName = useWorkNoToName()
   const [showCreate, setShowCreate] = useState(false)
   const [viewMode,   setViewMode]   = useState<'table' | 'kanban'>('table')
 
@@ -184,8 +189,8 @@ const ProjectListPage: React.FC = () => {
       title: 'PM', dataIndex: 'project_pm', width: 100,
       render: (v: string) => (
         <div className="flex items-center gap-1.5">
-          <Avatar size={20} style={{ background: '#7c3aed', fontSize: 10, fontWeight: 600 }}>{v?.[0]?.toUpperCase()}</Avatar>
-          <span className="text-sm text-slate-600">{v}</span>
+          <Avatar size={20} style={{ background: '#7c3aed', fontSize: 10, fontWeight: 600 }}>{toName(v)?.[0]?.toUpperCase()}</Avatar>
+          <span className="text-sm text-slate-600">{toName(v)}</span>
         </div>
       ),
     },

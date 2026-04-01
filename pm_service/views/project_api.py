@@ -405,6 +405,7 @@ class ReviewApproveApi(MethodView):
             status=payload.get("status"),
             reject_reason=payload.get("reject_reason", ""),
             countersigns=payload.get("countersigns", []),
+            approver_work_no=get_identity(),
         )
         return response_result()
 
@@ -429,7 +430,7 @@ class ReviewCountersignApi(MethodView):
 @blp.route("/<string:project_id>/milestones")
 class MilestoneListApi(MethodView):
     @jwt_required()
-    @blp.response(200, RspMsgDictSchema)
+    @blp.response(200, RspMsgRawSchema)
     def get(self, project_id):
         """获取里程碑列表"""
         return response_result(content=mile_ctrl.list_milestones(project_id))

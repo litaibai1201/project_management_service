@@ -13,6 +13,7 @@ import { ProjectFunction, ProgressRecord, FileInfo } from '@/types/api.types'
 import { FUNCTION_STATUS_MAP, PRIORITY_MAP } from '@/utils/status'
 import { showToast } from '@/utils/toast'
 import { useAppSelector } from '@/hooks/redux'
+import { useWorkNoToName } from '@/hooks/useWorkNoToName'
 
 const { Text } = Typography
 
@@ -47,6 +48,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
   projectId, functionId, open, onClose, onRefresh, isProjectPm = false, projectStatus, projectPm,
 }) => {
   const workNo = useAppSelector((s) => s.auth.workNo) ?? ''
+  const toName = useWorkNoToName()
   const [previewFile, setPreviewFile] = useState<FileInfo | null>(null)
   const [funcData,   setFuncData]   = useState<ProjectFunction | null>(null)
   const [records,    setRecords]    = useState<ProgressRecord[]>([])
@@ -220,7 +222,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
             <Descriptions.Item label="負責人">
               {funcData.responsible && funcData.responsible.length > 0
                 ? funcData.responsible.map((wn) => (
-                    <Tag key={wn} style={{ marginBottom: 2 }} color="purple">{wn}</Tag>
+                    <Tag key={wn} style={{ marginBottom: 2 }} color="purple">{toName(wn)}</Tag>
                   ))
                 : '—'}
             </Descriptions.Item>
@@ -315,13 +317,13 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
               items={records.map((item) => ({
                 dot: (
                   <Avatar size={26} style={{ background: '#2563eb', fontSize: 11, fontWeight: 700 }}>
-                    {item.submitter?.[0]?.toUpperCase()}
+                    {toName(item.submitter)?.[0]?.toUpperCase()}
                   </Avatar>
                 ),
                 children: (
                   <div className="pb-3">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold text-slate-700 text-sm">{item.submitter}</span>
+                      <span className="font-semibold text-slate-700 text-sm">{toName(item.submitter)}</span>
                       <Tag color="blue" style={{ fontSize: 11, padding: '0 6px' }}>{item.progress}%</Tag>
                       {Number(item.time_consum) > 0 && (
                         <Tag style={{ fontSize: 11, padding: '0 6px' }}>{item.time_consum}h</Tag>

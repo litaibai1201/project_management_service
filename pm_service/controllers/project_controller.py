@@ -37,6 +37,13 @@ class ProjectController:
         8: {'requirement', 'design'},
     }
 
+    def _assert_project_not_in_review(self, project_id: str):
+        """完結審核中（status=6）任何人不得修改專案內容"""
+        from utils.exceptions import PermissionException
+        p = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
+        if p and p.project_status == 6:
+            raise PermissionException(msg="专案正处于完结审核中，暂不允许任何修改操作")
+
     def _has_approved_change_request(self, project_id: str) -> bool:
         """检查项目是否存在已通过的需求变更申请"""
         return db.session.query(ReviewApplyModel).filter_by(
@@ -100,6 +107,33 @@ class ProjectController:
 
         total = q.count()
         projects = q.order_by(ProjectDataModel.created_at.desc()).offset((page-1)*size).limit(size).all()
+
+        # Lazy-recalculate project progress from function data (one extra query for the whole page)
+        from sqlalchemy import func as sql_func
+        project_ids = [p.id for p in projects]
+        if project_ids:
+            rows = (
+                db.session.query(
+                    FunctionDataModel.project_id,
+                    sql_func.avg(FunctionDataModel.progress).label('avg')
+                )
+                .filter(
+                    FunctionDataModel.project_id.in_(project_ids),
+                    FunctionDataModel.function_status != 9,
+                )
+                .group_by(FunctionDataModel.project_id)
+                .all()
+            )
+            progress_map = {row.project_id: int(row.avg or 0) for row in rows}
+            needs_commit = False
+            for p in projects:
+                calc = progress_map.get(p.id, 0)
+                if p.progress != calc:
+                    p.progress = calc
+                    needs_commit = True
+            if needs_commit:
+                db.session.commit()
+
         return {
             "total_count": total,
             "total_page": (total + size - 1) // size,
@@ -249,29 +283,41 @@ class ProjectController:
     def submit_for_review(self, project_id: str, reviewer: list, status: int, submitter: str):
         from utils.exceptions import PermissionException
         from dbs.mysql_db.model_tables import UserProfileModel
+        submitter = (submitter or "").strip().lower()
+        reviewer = [(w or "").strip().lower() for w in reviewer if w]
         p = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
         if not p:
             raise ResourceNotFoundException(resource_type="项目")
+        project_pm  = (p.project_pm  or "").strip().lower()
+        product_pm  = (p.product_pm  or "").strip().lower()
         # 提交立案审核：只有产品PM可以提交，且专案必须处于草稿阶段
         if status == 2:
             if p.project_status != 1:
                 raise PermissionException(msg="只有草稿阶段的专案才能提交立案审核")
-            if submitter != (p.product_pm or ""):
+            if submitter != product_pm:
                 raise PermissionException(msg="只有产品PM可以提交立案审核")
         # 提交规划审核：只有专案PM可以提交，且专案必须处于规划中阶段
         if status == 4:
             if p.project_status != 3:
                 raise PermissionException(msg="只有规划中阶段的专案才能提交规划审核")
-            if not (p.project_pm or ""):
+            if not project_pm:
                 raise PermissionException(msg="请先设定专案PM再提交规划审核")
-            if submitter != (p.project_pm or ""):
+            if submitter != project_pm:
                 raise PermissionException(msg="只有专案PM可以提交规划审核")
         # 提交排程审核：只有专案PM可以提交，且专案必须处于排程安排阶段
         if status == 11:
             if p.project_status != 10:
                 raise PermissionException(msg="只有排程安排阶段的专案才能提交排程审核")
-            if submitter != (p.project_pm or ""):
+            if submitter != project_pm:
                 raise PermissionException(msg="只有专案PM可以提交排程审核")
+        # 提交完结审核：只有专案PM可以提交，且专案必须处于执行中且整体进度达到100%
+        if status == 6:
+            if p.project_status != 5:
+                raise PermissionException(msg="只有执行中的专案才能提交完结申请")
+            if submitter != project_pm:
+                raise PermissionException(msg="只有专案PM可以提交完结申请")
+            if (p.progress or 0) < 100:
+                raise PermissionException(msg="专案整体进度未达到100%，无法提交完结申请")
         type_map = {
             2:  ("立案申请", "initiate"),
             4:  ("规划审核", "plan"),
@@ -317,12 +363,14 @@ class ProjectController:
     def submit_change_request(self, project_id: str, reviewer: list, description: str, submitter: str):
         """提交需求变更申请（执行阶段申请补充需求/规划文档）"""
         from utils.exceptions import PermissionException
+        submitter = (submitter or "").strip().lower()
+        reviewer = [(w or "").strip().lower() for w in reviewer if w]
         p = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
         if not p or p.project_status == 9:
             raise ResourceNotFoundException(resource_type="项目")
         if submitter not in (p.product_pm or "", p.project_pm or ""):
             raise PermissionException(msg="只有专案PM可以提交需求变更申请")
-        if p.project_status not in (5, 6, 7):
+        if p.project_status not in (5, 7):
             raise PermissionException(msg="只有执行阶段的专案才能提交需求变更申请")
         # 已有待审申请时不允许重复提交
         existing = db.session.query(ReviewApplyModel).filter_by(
@@ -375,6 +423,7 @@ class ProjectController:
         return {"progress": avg_progress, "total_hours": total_hours}
 
     def get_member_dynamics(self, project_id: str, page=1, size=20):
+        from dbs.mysql_db.model_tables import UserProfileModel
         q = (
             db.session.query(ProgressRecordDataModel)
             .filter_by(project_id=project_id)
@@ -382,17 +431,34 @@ class ProjectController:
         )
         total = q.count()
         records = q.offset((page - 1) * size).limit(size).all()
+        # Build function name map for this project
+        funcs = db.session.query(FunctionDataModel).filter_by(project_id=project_id).all()
+        func_map = {f.id: f.function_nm for f in funcs}
+        # Build user name map
+        submitters = list({r.submitter for r in records if r.submitter})
+        user_map = {}
+        for wn in submitters:
+            u = db.session.query(UserProfileModel).filter_by(work_no=wn).first()
+            user_map[wn] = u.name if u else wn
+        def _enrich(r):
+            d = r.to_dict()
+            d["operator"] = d["submitter"]
+            d["operator_name"] = user_map.get(d["submitter"], d["submitter"])
+            d["function_nm"] = func_map.get(r.function_id, "")
+            d["action"] = f"更新進度至 {d['progress']}%"
+            return d
         return {
             "total_count": total,
             "total_page": (total + size - 1) // size,
-            "data_list": [r.to_dict() for r in records],
+            "data_list": [_enrich(r) for r in records],
         }
 
     def get_project_groups(self):
         groups = db.session.query(ProjectGroupModel).filter_by(status=1).all()
         return [g.to_dict() for g in groups]
 
-    def _enrich_review(self, r: 'ReviewApplyModel', viewer_work_no: str = "") -> dict:
+    def _enrich_review(self, r: 'ReviewApplyModel', viewer_work_no: str = "",
+                       viewer_is_supervisor: bool = False) -> dict:
         """为审批记录补充关联项目/功能/任务名称及提交人姓名，并标记当前用户是否轮到审核"""
         from dbs.mysql_db.model_tables import UserProfileModel
         project_nm = function_nm = duty_nm = None
@@ -434,53 +500,98 @@ class ProjectController:
                     "comment": None,
                 })
             result["approval_nodes"] = nodes
-        # 标记当前查看者是否「轮到审核」：仅当该用户有 status=0 的节点时为 True
+        # 标记当前查看者是否「轮到审核」
+        # 规则：（1）明确列在节点中且是当前待审节点；
+        #       （2）主管查看专案完结申请时，若申请仍待审（apply_status=1），主管也可审批
         if viewer_work_no and result["approval_nodes"]:
             nodes = result["approval_nodes"]
             sorted_nodes = sorted(nodes, key=lambda n: n.get("order", 0))
-            # 找到第一个待审节点，判断是否是当前用户
             first_pending = next((n for n in sorted_nodes if n.get("status") == 0), None)
-            result["is_my_turn"] = (
+            is_listed_turn = (
                 first_pending is not None and
                 first_pending.get("approver_work_no") == viewer_work_no
             )
+            # 主管对专案完结申请有额外审批权（即使未在节点列表中）
+            # 但若主管已签核过（节点列表中已有其 work_no），则不重复
+            already_acted = any(
+                n.get("approver_work_no") == viewer_work_no
+                for n in nodes
+            )
+            is_supervisor_override = (
+                viewer_is_supervisor and
+                not already_acted and
+                r.apply_type_code == "project_complete" and
+                r.apply_status == 1 and
+                first_pending is not None
+            )
+            result["is_my_turn"] = is_listed_turn or is_supervisor_override
         else:
             result["is_my_turn"] = False
         return result
+
+    def _is_supervisor(self, work_no: str) -> bool:
+        """检查 work_no 是否是主管（在层级表中有下属）"""
+        from dbs.mysql_db.model_tables import HierarchyModel
+        return db.session.query(HierarchyModel).filter_by(
+            supervisor_work_no=work_no
+        ).first() is not None
 
     def get_review_list(self, page=1, size=20, work_no=None):
         from sqlalchemy import or_
         q = db.session.query(ReviewApplyModel).filter(
             ReviewApplyModel.duty_id.is_(None)
         )
+        is_sup = self._is_supervisor(work_no) if work_no else False
         if work_no:
-            # 包含原始审核人 OR 作为加签节点出现在 approval_nodes_json 中的人
-            q = q.filter(or_(
-                ReviewApplyModel.reviewer.like(f"%{work_no}%"),
-                ReviewApplyModel.approval_nodes_json.like(f"%{work_no}%"),
-            ))
+            if is_sup:
+                # 主管可以看到：（1）自己是审核人的记录，（2）所有专案完结申请
+                q = q.filter(or_(
+                    ReviewApplyModel.reviewer.like(f"%{work_no}%"),
+                    ReviewApplyModel.approval_nodes_json.like(f"%{work_no}%"),
+                    ReviewApplyModel.apply_type_code == "project_complete",
+                ))
+            else:
+                q = q.filter(or_(
+                    ReviewApplyModel.reviewer.like(f"%{work_no}%"),
+                    ReviewApplyModel.approval_nodes_json.like(f"%{work_no}%"),
+                ))
         total = q.count()
         records = q.order_by(ReviewApplyModel.created_at.desc()).offset((page-1)*size).limit(size).all()
         return {
             "total_count": total,
             "total_page": (total + size - 1) // size,
-            "data_list": [self._enrich_review(r, viewer_work_no=work_no or "") for r in records],
+            "data_list": [
+                self._enrich_review(r, viewer_work_no=work_no or "", viewer_is_supervisor=is_sup)
+                for r in records
+            ],
         }
 
     def get_all_reviews(self, work_no=None):
         from sqlalchemy import or_
         q = db.session.query(ReviewApplyModel).filter(ReviewApplyModel.apply_status == 1)
+        is_sup = self._is_supervisor(work_no) if work_no else False
         if work_no:
-            q = q.filter(or_(
-                ReviewApplyModel.reviewer.like(f"%{work_no}%"),
-                ReviewApplyModel.approval_nodes_json.like(f"%{work_no}%"),
-            ))
-        enriched = [self._enrich_review(r, viewer_work_no=work_no or "") for r in q.all()]
+            if is_sup:
+                q = q.filter(or_(
+                    ReviewApplyModel.reviewer.like(f"%{work_no}%"),
+                    ReviewApplyModel.approval_nodes_json.like(f"%{work_no}%"),
+                    ReviewApplyModel.apply_type_code == "project_complete",
+                ))
+            else:
+                q = q.filter(or_(
+                    ReviewApplyModel.reviewer.like(f"%{work_no}%"),
+                    ReviewApplyModel.approval_nodes_json.like(f"%{work_no}%"),
+                ))
+        enriched = [
+            self._enrich_review(r, viewer_work_no=work_no or "", viewer_is_supervisor=is_sup)
+            for r in q.all()
+        ]
         # 只返回轮到当前用户审核的记录
         return [e for e in enriched if e.get("is_my_turn")]
 
     def approve_review(self, review_id: str, status: int, reject_reason: str = "",
-                       countersigns: list = None):
+                       countersigns: list = None, approver_work_no: str = ""):
+        from dbs.mysql_db.model_tables import UserProfileModel
         r = db.session.query(ReviewApplyModel).filter_by(id=review_id).first()
         if not r:
             raise ResourceNotFoundException(resource_type="审核记录")
@@ -510,6 +621,39 @@ class ProjectController:
                     "approved_at": None,
                     "comment": None,
                 })
+
+        # 检查审批人是否在节点列表中
+        approver_in_nodes = any(
+            n.get("approver_work_no") == approver_work_no
+            for n in nodes
+        ) if approver_work_no else True
+
+        # 主管审批 project_complete 时不在节点中 → 插入主管节点并立即标记为已审
+        if (not approver_in_nodes and approver_work_no and
+                r.apply_type_code == "project_complete" and
+                self._is_supervisor(approver_work_no)):
+            u = db.session.query(UserProfileModel).filter_by(work_no=approver_work_no).first()
+            max_order = max((n.get("order", 0) for n in nodes), default=0)
+            nodes.append({
+                "node_id":          f"sup_{CommonTools.get_now().replace(' ', '')}",
+                "order":            max_order + 1,
+                "approver":         u.name if u else approver_work_no,
+                "approver_work_no": approver_work_no,
+                "is_countersign":   False,
+                "status":           node_status_map.get(status, status),
+                "approved_at":      now,
+                "comment":          reject_reason or "",
+            })
+            r.approval_nodes_json = json.dumps(nodes, ensure_ascii=False)
+            r.update_at = now
+            # 主管批准（status=2）→ 仅记录签核，仍等原审核人审批，不终结流程
+            if status == 2:
+                db.session.commit()
+                return
+            # 主管拒绝/退回 → 终结流程，走下方状态更新逻辑
+            r.apply_status = status
+            # 继续执行下方的项目状态同步
+
         approved_order = None
         for node in sorted(nodes, key=lambda n: n.get("order", 0)):
             if node.get("status") == 0:
@@ -576,9 +720,19 @@ class ProjectController:
             if func:
                 if final_status == 2:        # 通過 → 已完結
                     func.function_status = 4
+                    func.end_time = now[:10]
                 elif final_status in (3, 4):  # 拒絕/退回 → 退回進行中
                     func.function_status = 2
                 func.update_at = now
+                # Recalculate project overall progress
+                if r.project_id:
+                    active_funcs = db.session.query(FunctionDataModel).filter_by(project_id=r.project_id).filter(
+                        FunctionDataModel.function_status != 9
+                    ).all()
+                    proj = db.session.query(ProjectDataModel).filter_by(id=r.project_id).first()
+                    if active_funcs and proj:
+                        proj.progress = sum(fn.progress or 0 for fn in active_funcs) // len(active_funcs)
+                        proj.update_at = now
         # 同步更新专案状态（仅专案级别的申请）
         elif r.project_id:
             p = db.session.query(ProjectDataModel).filter_by(id=r.project_id).first()
@@ -599,6 +753,7 @@ class ProjectController:
         db.session.commit()
 
     def countersign_review(self, review_id: str, approver_work_no: str, approver_name: str):
+        approver_work_no = (approver_work_no or "").strip().lower()
         r = db.session.query(ReviewApplyModel).filter_by(id=review_id).first()
         if not r:
             raise ResourceNotFoundException(resource_type="审核记录")
@@ -657,6 +812,7 @@ class ProjectController:
 
     def upload_project_file(self, project_id: str, file, uploader: str, file_category: str = "other"):
         from utils.exceptions import PermissionException
+        self._assert_project_not_in_review(project_id)
         p = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
         if not p or p.project_status == 9:
             raise ResourceNotFoundException(resource_type="项目")
@@ -702,6 +858,7 @@ class ProjectController:
 
     def delete_project_file(self, project_id: str, file_id: str, operator: str):
         from utils.exceptions import PermissionException
+        self._assert_project_not_in_review(project_id)
         p = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
         if not p or p.project_status == 9:
             raise ResourceNotFoundException(resource_type="项目")
@@ -782,6 +939,7 @@ class FunctionController:
         f = db.session.query(FunctionDataModel).filter_by(id=function_id).first()
         if not f or f.function_status == 9:
             raise ResourceNotFoundException(resource_type="功能任务")
+        self._assert_project_not_in_review(f.project_id)
         for field in ("function_nm", "describe", "expected_start_date",
                       "expected_end_date", "priority", "group1", "group2"):
             if field in payload and payload[field] is not None:
@@ -819,6 +977,7 @@ class FunctionController:
         - 若提交人是专案 PM → 直接设为已完结（status=4）
         - 否则 → 创建审核记录发给专案 PM，设为完结审核（status=3）
         """
+        self._assert_project_not_in_review(project_id)
         f = db.session.query(FunctionDataModel).filter_by(id=function_id).first()
         if not f:
             raise ResourceNotFoundException(resource_type="功能任务")
@@ -837,7 +996,15 @@ class FunctionController:
         if submitter.strip().lower() == project_pm:
             # 专案 PM 直接完结
             f.function_status = 4
+            f.end_time = now[:10]
             f.update_at = now
+            # Recalculate project overall progress
+            active_funcs = db.session.query(FunctionDataModel).filter_by(project_id=project_id).filter(
+                FunctionDataModel.function_status != 9
+            ).all()
+            if active_funcs:
+                project.progress = sum(fn.progress or 0 for fn in active_funcs) // len(active_funcs)
+                project.update_at = now
             db.session.commit()
             return {"direct_complete": True}
         else:
@@ -849,7 +1016,7 @@ class FunctionController:
                 function_id=function_id,
                 apply_type="功能完結審核",
                 apply_type_code="function_complete",
-                submitter=submitter,
+                submitter=submitter.strip().lower(),
                 reviewer=json.dumps([project_pm], ensure_ascii=False),
                 apply_status=1,
                 approval_nodes_json=json.dumps([{
@@ -897,6 +1064,34 @@ class FunctionController:
             q = q.filter(FunctionDataModel.function_status == status)
         total = q.count()
         funcs = q.offset((page - 1) * size).limit(size).all()
+
+        # Lazy backfill: derive start_time/end_time from progress records for tasks missing them
+        needs_commit = False
+        for f in funcs:
+            if f.start_time and f.end_time:
+                continue
+            records = (
+                db.session.query(ProgressRecordDataModel)
+                .filter_by(function_id=f.id)
+                .order_by(ProgressRecordDataModel.created_at.asc())
+                .all()
+            )
+            if not records:
+                continue
+            if not f.start_time:
+                earliest = records[0].created_at
+                if earliest:
+                    f.start_time = earliest[:10]
+                    needs_commit = True
+            if not f.end_time and f.function_status == 4:
+                # Use latest record's created_at as actual end
+                latest = records[-1].created_at
+                if latest:
+                    f.end_time = latest[:10]
+                    needs_commit = True
+        if needs_commit:
+            db.session.commit()
+
         return {
             "total_count": total,
             "total_page": (total + size - 1) // size,
@@ -911,6 +1106,7 @@ class FunctionController:
         return path
 
     def create_progress(self, project_id: str, function_id: str, payload: dict, submitter: str, files=None):
+        self._assert_project_not_in_review(project_id)
         from dbs.mysql_db.model_tables import generate_uuid
         devs = payload.get("cooperator", [])
         progress_id = generate_uuid()   # generate before record so we can use it for file paths
@@ -920,7 +1116,7 @@ class FunctionController:
             function_id=function_id,
             progress=payload["progress"],
             progress_record=payload.get("progress_record", ""),
-            submitter=submitter,
+            submitter=(submitter or "").strip().lower(),
             cooperator=json.dumps(devs, ensure_ascii=False),
             time_consum=payload.get("time_consum", 0),
             start_time=payload.get("start_time", ""),
@@ -951,7 +1147,19 @@ class FunctionController:
             func.progress = payload["progress"]
             if func.function_status == 1:
                 func.function_status = 2   # 待開始 → 進行中
+                # Record actual start date on first progress submission
+                if not func.start_time:
+                    func.start_time = CommonTools.get_now()[:10]
             func.update_at = CommonTools.get_now()
+        # Recalculate project overall progress (average of all active functions)
+        active_funcs = db.session.query(FunctionDataModel).filter_by(project_id=project_id).filter(
+            FunctionDataModel.function_status != 9
+        ).all()
+        if active_funcs:
+            project = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
+            if project:
+                project.progress = sum(f.progress or 0 for f in active_funcs) // len(active_funcs)
+                project.update_at = CommonTools.get_now()
         db.session.commit()
         return {"progress_id": rec.progress_id}
 
@@ -991,12 +1199,41 @@ class FunctionController:
 class MilestoneController:
 
     def list_milestones(self, project_id: str):
+        from datetime import date as _date
         items = db.session.query(MilestoneModel).filter_by(project_id=project_id).filter(
             MilestoneModel.status == 1
         ).all()
-        return [m.to_dict() for m in items]
+        # Build function status map for this project
+        funcs = db.session.query(FunctionDataModel).filter_by(project_id=project_id).filter(
+            FunctionDataModel.function_status != 9
+        ).all()
+        func_status_map = {f.id: f.function_status for f in funcs}
+        today = str(_date.today())
+
+        result = []
+        for m in items:
+            d = m.to_dict()
+            # Recompute status dynamically from linked functions
+            linked_ids = d.get("linked_functions") or []
+            if linked_ids:
+                statuses = [func_status_map.get(fid) for fid in linked_ids if fid in func_status_map]
+                if statuses and all(s == 4 for s in statuses):
+                    d["status"] = "achieved"
+                    if not d.get("achieved_at"):
+                        d["achieved_at"] = today
+                elif m.target_date and m.target_date < today:
+                    d["status"] = "overdue"
+                else:
+                    d["status"] = "pending"
+            else:
+                # No linked functions: rely on target_date
+                if m.target_date and m.target_date < today and m.milestone_status != "achieved":
+                    d["status"] = "overdue"
+            result.append(d)
+        return result
 
     def create_milestone(self, project_id: str, payload: dict, creator: str):
+        self._assert_project_not_in_review(project_id)
         m = MilestoneModel(
             project_id=project_id,
             name=payload["name"],
@@ -1013,6 +1250,7 @@ class MilestoneController:
         m = db.session.query(MilestoneModel).filter_by(id=milestone_id).first()
         if not m:
             raise ResourceNotFoundException(resource_type="里程碑")
+        self._assert_project_not_in_review(m.project_id)
         for field in ("name", "target_date", "note", "achieved_at"):
             if field in payload and payload[field] is not None:
                 setattr(m, field, payload[field])
@@ -1027,6 +1265,7 @@ class MilestoneController:
         m = db.session.query(MilestoneModel).filter_by(id=milestone_id).first()
         if not m:
             raise ResourceNotFoundException(resource_type="里程碑")
+        self._assert_project_not_in_review(m.project_id)
         m.status = 0
         m.update_at = CommonTools.get_now()
         db.session.commit()

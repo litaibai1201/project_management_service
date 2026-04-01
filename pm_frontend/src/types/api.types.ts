@@ -346,6 +346,7 @@ export interface Milestone {
   note?:            string
   linked_functions?: string[]
   status:           'pending' | 'achieved' | 'overdue'
+  achieved_at?:     string   // actual achievement date (YYYY-MM-DD or datetime)
   created_at?:      string
 }
 

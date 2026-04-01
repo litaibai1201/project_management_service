@@ -15,6 +15,7 @@ import {
   CodeBracketIcon, UserCircleIcon, FolderIcon,
 } from '@heroicons/react/24/outline'
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
+import { useWorkNoToName } from '@/hooks/useWorkNoToName'
 import { fetchProjectThunk, clearCurrent, fetchProjectGroupsThunk } from './projectSlice'
 import { projectApi } from '@/api/project.api'
 import { userApi } from '@/api/user.api'
@@ -62,7 +63,10 @@ const ProjectDetailPage: React.FC = () => {
   const { current, isLoading, groups } = useAppSelector((s) => s.project)
   const workNo = useAppSelector((s) => s.auth.workNo) ?? ''
   const { isAdmin, isSupervisor } = useAppSelector((s) => s.auth)
+  const toName = useWorkNoToName()
   const isPm = (current?.project_pm?.toLowerCase() ?? '') === workNo.toLowerCase() && !!workNo
+  // 完結審核中，除系統管理員外任何人不得操作
+  const isProjectLocked = current?.status === 6 && !isAdmin
   const canManageGroups = isAdmin || isSupervisor
 
   const [functions,       setFunctions]       = useState<ProjectFunction[]>([])
@@ -127,6 +131,7 @@ const ProjectDetailPage: React.FC = () => {
   const [reviewerSearch,    setReviewerSearch]    = useState('')
   const [searchResults,     setSearchResults]     = useState<UserProfile[]>([])
   const [searchLoading,     setSearchLoading]     = useState(false)
+  const [isCompletionSubmit, setIsCompletionSubmit] = useState(false)  // distinguish completion from other reviews
 
   useEffect(() => {
     if (id) {
@@ -215,12 +220,14 @@ const ProjectDetailPage: React.FC = () => {
   const DELETE_LOCKED = UPLOAD_LOCKED  // 删除比上传更严，变更审批也不解锁删除
 
   const canUploadCategory = (cat: string) => {
+    if (isProjectLocked) return false
     const locked = UPLOAD_LOCKED[current?.status ?? 0] ?? new Set()
     if (!locked.has(cat)) return true
     return !!current?.has_approved_change_request  // 有已通过的变更审批可上传
   }
 
   const canDeleteCategory = (cat: string) => {
+    if (isProjectLocked) return false
     const locked = DELETE_LOCKED[current?.status ?? 0] ?? new Set()
     return !locked.has(cat)  // 原始文件永远不能删除
   }
@@ -431,6 +438,7 @@ const ProjectDetailPage: React.FC = () => {
   }
 
   const handleOpenSubmitModal = async () => {
+    setIsCompletionSubmit(false)
     setSubmitReviewers([])
     setReviewerSearch('')
     setSearchResults([])
@@ -443,6 +451,40 @@ const ProjectDetailPage: React.FC = () => {
       if (!isSupervisor && list.length > 0) {
         setSubmitReviewers(list)
       }
+    } catch { /* ignore */ }
+    finally { setSupervisorsLoading(false) }
+  }
+
+  const handleOpenCompletionModal = async () => {
+    setIsCompletionSubmit(true)
+    setSubmitReviewers([])
+    setReviewerSearch('')
+    setSearchResults([])
+    setShowSubmit(true)
+    setSupervisorsLoading(true)
+    try {
+      const reviewers: UserProfile[] = []
+      const seenWnos = new Set<string>()
+      // 1. Pre-load product PM as first reviewer
+      const productPmWn = current?.product_pm
+      if (productPmWn) {
+        const res = await userApi.get(productPmWn)
+        const profile = res.content as UserProfile
+        if (profile?.work_no && !seenWnos.has(profile.work_no)) {
+          reviewers.push(profile)
+          seenWnos.add(profile.work_no)
+        }
+      }
+      // 2. Also load supervisors of the project PM as additional reviewers
+      const supRes = await userApi.getSupervisors(workNo)
+      const supList = (Array.isArray(supRes.content) ? supRes.content : []) as UserProfile[]
+      for (const sup of supList) {
+        if (sup.work_no && !seenWnos.has(sup.work_no)) {
+          reviewers.push(sup)
+          seenWnos.add(sup.work_no)
+        }
+      }
+      if (reviewers.length > 0) setSubmitReviewers(reviewers)
     } catch { /* ignore */ }
     finally { setSupervisorsLoading(false) }
   }
@@ -484,10 +526,10 @@ const ProjectDetailPage: React.FC = () => {
     if (!id || !current || submitReviewers.length === 0) return
     setSubmitSaving(true)
     try {
-      const statusMap: Record<number, number> = { 1: 2, 3: 4, 10: 11 }
+      const statusMap: Record<number, number> = { 1: 2, 3: 4, 10: 11, 5: 6 }
       const targetStatus = statusMap[current.status] ?? 2
       await projectApi.submitForReview(id, submitReviewers.map((r) => r.work_no), targetStatus)
-      showToast.success('已提交審核')
+      showToast.success(isCompletionSubmit ? '完結申請已提交' : '已提交審核')
       setShowSubmit(false)
       dispatch(fetchProjectThunk(id))
     } catch { /* global */ }
@@ -539,7 +581,7 @@ const ProjectDetailPage: React.FC = () => {
       title: '狀態', dataIndex: 'status', width: 110,
       render: (v: number) => {
         const s = FUNCTION_STATUS_MAP[v]
-        return s ? <div className="flex items-center gap-1.5"><span className="status-dot" style={{ background: ['#94a3b8','#2563eb','#d97706','#16a34a','','#f59e0b','','','#94a3b8','#dc2626'][v] ?? '#94a3b8' }} /><span className="text-sm">{s.label}</span></div> : v
+        return s ? <div className="flex items-center gap-1.5"><span className="status-dot" style={{ background: s.dot }} /><span className="text-sm">{s.label}</span></div> : v
       },
     },
     {
@@ -558,7 +600,7 @@ const ProjectDetailPage: React.FC = () => {
     {
       title: '負責人', dataIndex: 'responsible', width: 150,
       render: (v: string[], record) => {
-        const ispm = isPm && [3, 5, 10].includes(current?.status ?? 0)
+        const ispm = isPm && [3, 5, 10].includes(current?.status ?? 0) && record.status !== 4 && record.status !== 3 && !isProjectLocked
         const openPicker = async () => {
           setRespSearchKw(''); setRespSearchResult(null)
           setQuickResponsible({ fid: record.id, persons: [] })
@@ -581,9 +623,9 @@ const ProjectDetailPage: React.FC = () => {
             <div className="flex items-center gap-1.5 group">
               <div className="flex items-center" style={{ gap: -4 }}>
                 {shown.map((wn, i) => (
-                  <Tooltip key={wn} title={wn}>
+                  <Tooltip key={wn} title={toName(wn)}>
                     <Avatar size={22} style={{ background: COLORS[i % COLORS.length], fontSize: 10, fontWeight: 700, border: '2px solid white', marginLeft: i > 0 ? -6 : 0, zIndex: shown.length - i }}>
-                      {wn[0]?.toUpperCase()}
+                      {toName(wn)[0]?.toUpperCase()}
                     </Avatar>
                   </Tooltip>
                 ))}
@@ -591,7 +633,7 @@ const ProjectDetailPage: React.FC = () => {
                   <Avatar size={22} style={{ background: '#94a3b8', fontSize: 10, border: '2px solid white', marginLeft: -6 }}>+{extra}</Avatar>
                 )}
               </div>
-              <span className="text-xs text-slate-600">{v[0]}{v.length > 1 ? ` 等${v.length}人` : ''}</span>
+              <span className="text-xs text-slate-600">{toName(v[0])}{v.length > 1 ? ` 等${v.length}人` : ''}</span>
               {ispm && (
                 <button className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-blue-500 border-0 outline-none bg-transparent p-0 cursor-pointer" onClick={openPicker} title="修改負責人">
                   <PencilSquareIcon className="w-3.5 h-3.5" />
@@ -611,7 +653,32 @@ const ProjectDetailPage: React.FC = () => {
         )
       },
     },
-    { title: '預計完成', dataIndex: 'expected_end_date', width: 110 },
+    {
+      title: '預計完成', dataIndex: 'expected_end_date', width: 110,
+      render: (v: string, record) => {
+        if (!v) return <span className="text-slate-300 text-xs">—</span>
+        const isLate = record.end_time && record.end_time > v
+        const isEarly = record.end_time && record.end_time <= v
+        return (
+          <span className={isLate ? 'text-red-500 text-xs' : isEarly ? 'text-green-600 text-xs' : 'text-xs'}>
+            {v}
+          </span>
+        )
+      },
+    },
+    {
+      title: '實際完成', dataIndex: 'end_time', width: 110,
+      render: (v: string, record) => {
+        if (!v) return <span className="text-slate-300 text-xs">—</span>
+        const exp = record.expected_end_date
+        const isLate = exp && v > exp
+        return (
+          <span className={isLate ? 'text-red-500 text-xs font-medium' : 'text-green-600 text-xs font-medium'}>
+            {v}{isLate ? ' ⚠' : ' ✓'}
+          </span>
+        )
+      },
+    },
     {
       title: '操作', key: 'action', width: isPm ? 110 : 80, fixed: 'right',
       render: (_: unknown, record) => {
@@ -649,11 +716,11 @@ const ProjectDetailPage: React.FC = () => {
             <Tag color="blue" style={{ fontSize: 12 }}>{current.department}</Tag>
             {current.product_pm && (
               <div className="flex items-center gap-1 text-xs text-slate-500">
-                <UserCircleIcon className="w-3.5 h-3.5" /> 産品：{current.product_pm}
+                <UserCircleIcon className="w-3.5 h-3.5" /> 産品：{toName(current.product_pm)}
               </div>
             )}
             <div className="flex items-center gap-1 text-xs text-slate-500">
-              <UserCircleIcon className="w-3.5 h-3.5" /> 專案：{current.project_pm}
+              <UserCircleIcon className="w-3.5 h-3.5" /> 專案：{toName(current.project_pm)}
             </div>
             {current.code_url && (
               <a href={current.code_url} target="_blank" rel="noreferrer"
@@ -693,6 +760,12 @@ const ProjectDetailPage: React.FC = () => {
           {current.status === 10 && current.can_submit_review && (
             <Button type="primary" style={{ background: '#7c3aed' }} onClick={handleOpenSubmitModal}>
               提交排程審核
+            </Button>
+          )}
+          {/* 提交完結申請：執行中 + 進度100% + 專案PM */}
+          {current.status === 5 && isPm && current.progress === 100 && (
+            <Button type="primary" style={{ background: '#059669' }} onClick={handleOpenCompletionModal}>
+              提交完結申請
             </Button>
           )}
         </div>
@@ -746,9 +819,9 @@ const ProjectDetailPage: React.FC = () => {
                   <Descriptions.Item label="優先級">
                     {(() => { const p = PRIORITY_MAP[current.priority]; return p ? <Tag color={p.color}>{p.label}</Tag> : current.priority })()}
                   </Descriptions.Item>
-                  <Descriptions.Item label="建立人">{current.creator}</Descriptions.Item>
-                  <Descriptions.Item label="産品PM">{current.product_pm}</Descriptions.Item>
-                  <Descriptions.Item label="專案PM">{current.project_pm}</Descriptions.Item>
+                  <Descriptions.Item label="建立人">{toName(current.creator)}</Descriptions.Item>
+                  <Descriptions.Item label="産品PM">{toName(current.product_pm)}</Descriptions.Item>
+                  <Descriptions.Item label="專案PM">{toName(current.project_pm)}</Descriptions.Item>
                   <Descriptions.Item label="預計完成">{current.expected_end_date ?? '—'}</Descriptions.Item>
                   <Descriptions.Item label="建立時間">{current.created_at}</Descriptions.Item>
                   <Descriptions.Item label="描述" span={2}>{current.describe || '—'}</Descriptions.Item>
@@ -784,7 +857,7 @@ const ProjectDetailPage: React.FC = () => {
                       ]}
                     />
                   </div>
-                  {isPm && [3, 10].includes(current?.status ?? 0) && (
+                  {isPm && [3, 10].includes(current?.status ?? 0) && !isProjectLocked && (
                     <Button type="primary" icon={<PlusIcon className="w-4 h-4" />}
                       onClick={() => setShowAddFunc(true)} size="small" style={{ background: '#2563eb' }}>
                       新增功能
@@ -848,20 +921,27 @@ const ProjectDetailPage: React.FC = () => {
                   <Empty description="暫無動態記錄" />
                 ) : (
                   <Timeline
-                    items={dynamics.map((d) => ({
-                      dot: (
-                        <Avatar size={24} style={{ background: '#2563eb', fontSize: 11, fontWeight: 600 }}>
-                          {String(d.operator ?? '?')[0]?.toUpperCase()}
-                        </Avatar>
-                      ),
-                      children: (
-                        <div>
-                          <span className="font-medium text-slate-700 text-sm">{String(d.operator ?? '')}</span>
-                          <span className="text-slate-400 text-sm"> · {String(d.action ?? '')}</span>
-                          <div className="text-xs text-slate-300 mt-0.5">{String(d.created_at ?? '')}</div>
-                        </div>
-                      ),
-                    }))}
+                    items={dynamics.map((d) => {
+                      const name = String(d.operator_name ?? d.operator ?? '')
+                      const fnm  = String(d.function_nm ?? '')
+                      const note = String(d.progress_record ?? '')
+                      return {
+                        dot: (
+                          <Avatar size={24} style={{ background: '#2563eb', fontSize: 11, fontWeight: 600 }}>
+                            {name[0]?.toUpperCase() ?? '?'}
+                          </Avatar>
+                        ),
+                        children: (
+                          <div>
+                            <span className="font-medium text-slate-700 text-sm">{name}</span>
+                            {fnm && <span className="text-slate-500 text-sm"> · {fnm}</span>}
+                            <span className="text-slate-400 text-sm"> {String(d.action ?? '')}</span>
+                            {note && <div className="text-xs text-slate-500 mt-0.5">{note}</div>}
+                            <div className="text-xs text-slate-300 mt-0.5">{String(d.created_at ?? '')}</div>
+                          </div>
+                        ),
+                      }
+                    })}
                   />
                 )}
               </Card>
@@ -881,7 +961,11 @@ const ProjectDetailPage: React.FC = () => {
             label: `里程碑 (${milestones.length})`,
             children: (
               <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: 20 } }}>
-                {id && <MilestoneTab projectId={id} functions={functions} />}
+                {id && <MilestoneTab
+                  projectId={id}
+                  functions={functions}
+                  canManage={!isProjectLocked && (isPm || (current?.product_pm?.toLowerCase() === workNo.toLowerCase() && !!workNo) || isSupervisor || isAdmin)}
+                />}
               </Card>
             ),
           },
@@ -897,7 +981,7 @@ const ProjectDetailPage: React.FC = () => {
                 extra={
                   <Space size={8}>
                     {/* 需求变更申请按钮：执行阶段且 PM 且当前没有待审/通过的申请 */}
-                    {current.can_submit_change_request && (
+                    {current.can_submit_change_request && !isProjectLocked && (
                       <Button size="small" onClick={() => setChangeReqModal(true)}>
                         申請需求變更
                       </Button>
@@ -1260,7 +1344,7 @@ const ProjectDetailPage: React.FC = () => {
         <FunctionDetailDrawer projectId={id} functionId={selectedFid}
           open={!!selectedFid} onClose={() => setSelectedFid(null)}
           onRefresh={() => loadFunctions(id)}
-          isProjectPm={isPm && [3, 10].includes(current?.status ?? 0)}
+          isProjectPm={isPm && [3, 10].includes(current?.status ?? 0) && !isProjectLocked}
           projectStatus={current?.status}
           projectPm={current?.project_pm} />
       )}
@@ -1502,6 +1586,7 @@ const ProjectDetailPage: React.FC = () => {
       {/* 提交審核 Modal */}
       <Modal
         title={
+          isCompletionSubmit ? '提交完結申請' :
           current.status === 1 ? '提交立案審核' :
           current.status === 3 ? '提交規劃審核' :
           '提交排程審核'
@@ -1595,9 +1680,9 @@ const ProjectDetailPage: React.FC = () => {
             <Button onClick={() => setShowSubmit(false)}>取消</Button>
             <Button type="primary" loading={submitSaving}
               disabled={submitReviewers.length === 0}
-              style={{ background: '#2563eb' }}
+              style={{ background: isCompletionSubmit ? '#059669' : '#2563eb' }}
               onClick={handleSubmitReview}>
-              提交審核
+              {isCompletionSubmit ? '提交完結申請' : '提交審核'}
             </Button>
           </div>
         </div>

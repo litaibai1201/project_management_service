@@ -27,11 +27,11 @@ const MS_STATUS_CONFIG = {
 type MsStatus = keyof typeof MS_STATUS_CONFIG
 
 const DaysDisplay: React.FC<{ date: string; status: MsStatus }> = ({ date, status }) => {
-  if (status === 'achieved') return <span className="text-green-600 text-xs font-medium">已達成</span>
+  if (status === 'achieved') return <span className="text-green-600 text-xs font-medium">{date}</span>
   const diff = dayjs(date).diff(dayjs(), 'day')
-  if (diff < 0) return <span className="days-overdue">逾期 {Math.abs(diff)} 天</span>
-  if (diff === 0) return <span className="days-overdue">今天截止</span>
-  if (diff <= 7)  return <span className="days-warning">剩 {diff} 天</span>
+  if (diff < 0) return <span className="days-overdue">{date} · 逾期 {Math.abs(diff)} 天</span>
+  if (diff === 0) return <span className="days-overdue">{date} · 今天截止</span>
+  if (diff <= 7)  return <span className="days-warning">{date} · 剩 {diff} 天</span>
   return <span className="days-ok">{date}</span>
 }
 
@@ -39,9 +39,10 @@ const DaysDisplay: React.FC<{ date: string; status: MsStatus }> = ({ date, statu
 interface Props {
   projectId: string
   functions: ProjectFunction[]  // for linking milestones to functions
+  canManage?: boolean           // project_pm / product_pm / supervisor only
 }
 
-const MilestoneTab: React.FC<Props> = ({ projectId, functions }) => {
+const MilestoneTab: React.FC<Props> = ({ projectId, functions, canManage = false }) => {
   const [milestones, setMilestones] = useState<Milestone[]>([])
   const [isLoading,  setIsLoading]  = useState(false)
   const [isSaving,   setIsSaving]   = useState(false)
@@ -162,9 +163,9 @@ const MilestoneTab: React.FC<Props> = ({ projectId, functions }) => {
       },
     },
     { title: '備注', dataIndex: 'note', ellipsis: true, render: (v?: string) => v ?? <span className="text-slate-300 text-xs">—</span> },
-    {
-      title: '操作', key: 'action', width: 90, fixed: 'right',
-      render: (_: unknown, record) => (
+    ...(canManage ? [{
+      title: '操作', key: 'action', width: 90, fixed: 'right' as const,
+      render: (_: unknown, record: Milestone) => (
         <Space size={0}>
           <Tooltip title="編輯">
             <Button icon={<PencilIcon className="w-3.5 h-3.5" />} size="small" type="text" onClick={() => openEdit(record)} />
@@ -176,7 +177,7 @@ const MilestoneTab: React.FC<Props> = ({ projectId, functions }) => {
           </Popconfirm>
         </Space>
       ),
-    },
+    }] : []),
   ]
 
   return (
@@ -199,12 +200,14 @@ const MilestoneTab: React.FC<Props> = ({ projectId, functions }) => {
             </div>
           )}
         </div>
-        <Button
-          type="primary" icon={<PlusIcon className="w-4 h-4" />}
-          size="small" style={{ background: '#2563eb' }} onClick={openCreate}
-        >
-          新增里程碑
-        </Button>
+        {canManage && (
+          <Button
+            type="primary" icon={<PlusIcon className="w-4 h-4" />}
+            size="small" style={{ background: '#2563eb' }} onClick={openCreate}
+          >
+            新增里程碑
+          </Button>
+        )}
       </div>
 
       {/* Table */}

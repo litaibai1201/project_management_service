@@ -10,6 +10,7 @@ import { ArrowLeftIcon, PlusIcon, PaperClipIcon } from '@heroicons/react/24/outl
 import AttachmentPreview from '@/components/ui/AttachmentPreview'
 import type { FileInfo } from '@/types/api.types'
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
+import { useWorkNoToName } from '@/hooks/useWorkNoToName'
 import { fetchDutyThunk, clearCurrentDuty } from './dutySlice'
 import { dutyApi } from '@/api/duty.api'
 import { DUTY_STATUS_MAP, PRIORITY_MAP } from '@/utils/status'
@@ -37,6 +38,7 @@ const DutyDetailPage: React.FC = () => {
   const navigate = useNavigate()
   const dispatch = useAppDispatch()
   const workNo   = useAppSelector((s) => s.auth.workNo)
+  const toName   = useWorkNoToName()
   const { current, isLoading } = useAppSelector((s) => s.duty)
 
   const [records,  setRecords]  = useState<Record<string, unknown>[]>([])
@@ -118,7 +120,7 @@ const DutyDetailPage: React.FC = () => {
         <Descriptions column={2} size="small"
           labelStyle={{ color: '#94a3b8', fontSize: 12, fontWeight: 500 }}
           contentStyle={{ fontSize: 13, color: '#334155' }}>
-          <Descriptions.Item label="建立人">{current.creator}</Descriptions.Item>
+          <Descriptions.Item label="建立人">{toName(current.creator)}</Descriptions.Item>
           <Descriptions.Item label="負責人">
             {current.responsible
               ? <div className="flex items-center gap-1.5">
@@ -185,13 +187,13 @@ const DutyDetailPage: React.FC = () => {
             items={records.map((item) => ({
               dot: (
                 <Avatar size={26} style={{ background: '#2563eb', fontSize: 11, fontWeight: 700 }}>
-                  {String(item.submitter ?? '?')[0]?.toUpperCase()}
+                  {toName(String(item.submitter ?? ''))?.[0]?.toUpperCase()}
                 </Avatar>
               ),
               children: (
                 <div className="pb-3">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-semibold text-slate-700 text-sm">{String(item.submitter ?? '')}</span>
+                    <span className="font-semibold text-slate-700 text-sm">{toName(String(item.submitter ?? ''))}</span>
                     <Tag color="blue" style={{ fontSize: 11, padding: '0 6px' }}>{Number(item.progress ?? 0)}%</Tag>
                     {Number(item.time_consum ?? 0) > 0 && <Tag style={{ fontSize: 11 }}>{Number(item.time_consum)}h</Tag>}
                   </div>

@@ -16,6 +16,7 @@ import { ApplyRecord, Project, ProjectFile, ProjectFunction, ProgressRecord, Fil
 import { showToast } from '@/utils/toast'
 import FilePreviewModal from './FilePreviewModal'
 import { tokenStorage } from '@/api/httpClient'
+import { useWorkNoToName } from '@/hooks/useWorkNoToName'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -370,6 +371,7 @@ const ReviewDetailDrawer: React.FC<{
   onAction: (action: 'approve' | 'reject' | 'return', record: ApplyRecord, countersigns?: ChainPerson[]) => void
 }> = ({ record, open, onClose, userOptions, onAction }) => {
   const PAGE_SIZE = 5
+  const toName = useWorkNoToName()
 
   const [project,              setProject]              = useState<Project | null>(null)
   const [files,                setFiles]                = useState<ProjectFile[]>([])
@@ -525,9 +527,9 @@ const ReviewDetailDrawer: React.FC<{
         {/* 申請人 */}
         <div className="flex flex-col items-center gap-1">
           <Avatar size={36} style={{ background: '#7c3aed', fontSize: 14, fontWeight: 600 }}>
-            {(record.submitter_name || record.submitter)?.[0]?.toUpperCase()}
+            {(record.submitter_name || toName(record.submitter))?.[0]?.toUpperCase()}
           </Avatar>
-          <div className="text-xs font-medium text-slate-700">{record.submitter_name || record.submitter}</div>
+          <div className="text-xs font-medium text-slate-700">{record.submitter_name || toName(record.submitter)}</div>
           <div className="text-[11px] text-slate-400">申請人</div>
         </div>
 
@@ -607,11 +609,11 @@ const ReviewDetailDrawer: React.FC<{
                     <td className="bg-slate-50 px-3 py-2.5 border border-slate-200 font-medium text-slate-500 whitespace-nowrap">所屬部門</td>
                     <td className="px-3 py-2.5 border border-slate-200 text-slate-700 w-[29%]">{project.department || '—'}</td>
                     <td className="bg-slate-50 px-3 py-2.5 border border-slate-200 font-medium text-slate-500 whitespace-nowrap w-[21%]">産品PM</td>
-                    <td className="px-3 py-2.5 border border-slate-200 text-slate-700">{project.product_pm || '—'}</td>
+                    <td className="px-3 py-2.5 border border-slate-200 text-slate-700">{toName(project.product_pm) || '—'}</td>
                   </tr>
                   <tr>
                     <td className="bg-slate-50 px-3 py-2.5 border border-slate-200 font-medium text-slate-500 whitespace-nowrap">專案PM</td>
-                    <td className="px-3 py-2.5 border border-slate-200 text-slate-700">{project.project_pm || '—'}</td>
+                    <td className="px-3 py-2.5 border border-slate-200 text-slate-700">{toName(project.project_pm) || '—'}</td>
                     <td className="bg-slate-50 px-3 py-2.5 border border-slate-200 font-medium text-slate-500 whitespace-nowrap">預計完結</td>
                     <td className="px-3 py-2.5 border border-slate-200 text-slate-700">{project.expected_end_date || '—'}</td>
                   </tr>
@@ -683,11 +685,11 @@ const ReviewDetailDrawer: React.FC<{
                   {progressRecords.map((rec) => (
                     <div key={rec.progress_id} className="flex gap-2.5 bg-white border border-slate-100 rounded-lg px-2.5 py-2 hover:border-slate-200 transition-colors">
                       <Avatar size={22} style={{ background: '#2563eb', fontSize: 10, fontWeight: 700, flexShrink: 0, marginTop: 1 }}>
-                        {rec.submitter?.[0]?.toUpperCase()}
+                        {toName(rec.submitter)?.[0]?.toUpperCase()}
                       </Avatar>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="text-xs font-semibold text-slate-700">{rec.submitter}</span>
+                          <span className="text-xs font-semibold text-slate-700">{toName(rec.submitter)}</span>
                           <Tag color="blue" style={{ fontSize: 10, padding: '0 4px', lineHeight: '16px' }}>{rec.progress}%</Tag>
                           {Number(rec.time_consum) > 0 && (
                             <Tag style={{ fontSize: 10, padding: '0 4px', lineHeight: '16px' }}>{rec.time_consum}h</Tag>
@@ -810,14 +812,14 @@ const ReviewDetailDrawer: React.FC<{
               <div className="flex flex-col items-center gap-1 flex-shrink-0 min-w-[64px]">
                 <div className="relative">
                   <Avatar size={38} style={{ background: '#7c3aed', fontSize: 15, fontWeight: 600 }}>
-                    {(record.submitter_name || record.submitter)?.[0]?.toUpperCase()}
+                    {(record.submitter_name || toName(record.submitter))?.[0]?.toUpperCase()}
                   </Avatar>
                   <div className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-blue-500 border-2 border-white flex items-center justify-center">
                     <CheckIcon className="w-2.5 h-2.5 text-white" />
                   </div>
                 </div>
                 <div className="text-[11px] font-medium text-slate-700 text-center leading-tight mt-1">
-                  {record.submitter_name || record.submitter}
+                  {record.submitter_name || toName(record.submitter)}
                 </div>
                 <div className="text-[10px] text-blue-500">提交申請</div>
               </div>
@@ -899,9 +901,9 @@ const ReviewDetailDrawer: React.FC<{
                   <td className="px-3 py-2.5 border border-slate-200">
                     <div className="flex items-center gap-2">
                       <Avatar size={22} style={{ background: '#7c3aed', fontSize: 10, fontWeight: 600 }}>
-                        {(record.submitter_name || record.submitter)?.[0]?.toUpperCase()}
+                        {(record.submitter_name || toName(record.submitter))?.[0]?.toUpperCase()}
                       </Avatar>
-                      <span className="text-xs text-slate-700">{record.submitter_name || record.submitter}</span>
+                      <span className="text-xs text-slate-700">{record.submitter_name || toName(record.submitter)}</span>
                     </div>
                   </td>
                   <td className="px-3 py-2.5 border border-slate-200 text-xs text-blue-500">提交申請</td>
@@ -970,6 +972,7 @@ const ReviewDetailDrawer: React.FC<{
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 const ReviewListPage: React.FC = () => {
+  const toName = useWorkNoToName()
   const [allRecords,   setAllRecords]   = useState<ApplyRecord[]>([])
   const [isLoading,    setIsLoading]    = useState(false)
   const [isSaving,     setIsSaving]     = useState(false)
@@ -1094,7 +1097,7 @@ const ReviewListPage: React.FC = () => {
     {
       title: '申請人', dataIndex: 'submitter_name', width: 90,
       render: (v: string, r) => {
-        const display = v || r.submitter || '—'
+        const display = v || toName(r.submitter) || '—'
         return (
           <div className="flex items-center gap-1.5">
             <Avatar size={20} style={{ background: '#7c3aed', fontSize: 10, fontWeight: 600 }}>
