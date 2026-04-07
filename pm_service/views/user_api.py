@@ -61,6 +61,26 @@ class TeamStatisticalApi(MethodView):
         return response_result(content=ctrl.get_team_statistical(work_no))
 
 
+@blp.route("/weekly_activity")
+class WeeklyActivityApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgRawSchema)
+    def get(self):
+        """获取本周活动概览（每天进度更新条数）"""
+        work_no = get_identity()
+        return response_result(content=ctrl.get_weekly_activity(work_no))
+
+
+@blp.route("/alert_tasks")
+class AlertTasksApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgRawSchema)
+    def get(self):
+        """获取待关注任务（7天内到期或已超期）"""
+        work_no = get_identity()
+        return response_result(content=ctrl.get_alert_tasks(work_no))
+
+
 @blp.route("/latest_news")
 class LatestNewsApi(MethodView):
     @jwt_required()

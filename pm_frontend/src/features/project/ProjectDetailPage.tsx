@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react'
 import dayjs from 'dayjs'
 import FilePreviewModal from './FilePreviewModal'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Tabs, Descriptions, Button, Tag, Progress, Spin, Empty, Table,
   Space, Tooltip, Popconfirm, Modal, Form, Input, Select, Steps, Avatar,
@@ -59,6 +59,7 @@ const getStepIndex = (status: number) => {
 const ProjectDetailPage: React.FC = () => {
   const { id }   = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const dispatch = useAppDispatch()
   const { current, isLoading, groups } = useAppSelector((s) => s.project)
   const workNo = useAppSelector((s) => s.auth.workNo) ?? ''
@@ -149,7 +150,13 @@ const ProjectDetailPage: React.FC = () => {
     try {
       const res = await projectApi.functionList(pid, { page: 1, size: 100 })
       const c = res.content as { project_list?: ProjectFunction[]; data_list?: ProjectFunction[] }
-      setFunctions((c.project_list ?? c.data_list ?? []) as ProjectFunction[])
+      const list = (c.project_list ?? c.data_list ?? []) as ProjectFunction[]
+      setFunctions(list)
+      // 若 URL 带有 ?fid=xxx，自动打开对应任务详情
+      const fid = searchParams.get('fid')
+      if (fid && list.some((f) => f.id === fid)) {
+        setSelectedFid(fid)
+      }
     } catch { /* global */ }
     finally { setFuncLoading(false) }
   }
@@ -348,7 +355,6 @@ const ProjectDetailPage: React.FC = () => {
       setAddFuncSearchRes(false)
     } finally {
       setAddFuncSearching(false)
-      addFuncSearchRef.current?.focus()
     }
   }
 
@@ -569,11 +575,11 @@ const ProjectDetailPage: React.FC = () => {
 
   const funcColumns: ColumnsType<ProjectFunction> = [
     {
-      title: '功能名稱', dataIndex: 'function_nm',
+      title: '功能名稱', dataIndex: 'function_nm', width: 200, ellipsis: true,
       render: (name: string, r) => (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
           <div style={{ width: 3, height: 24, borderRadius: 2, flexShrink: 0, background: PRIORITY_COLORS[r.priority] }} />
-          <Button type="link" style={{ padding: 0, fontWeight: 500 }} onClick={() => setSelectedFid(r.id)}>{name}</Button>
+          <Button type="link" style={{ padding: 0, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%' }} onClick={() => setSelectedFid(r.id)}>{name}</Button>
         </div>
       ),
     },
@@ -1275,7 +1281,7 @@ const ProjectDetailPage: React.FC = () => {
               placeholder="輸入工號，自動搜索"
               value={addFuncSearchKw}
               onChange={(e) => setAddFuncSearchKw(e.target.value)}
-              suffix={addFuncSearching ? <Spin size="small" /> : null}
+              suffix={<Spin size="small" style={{ opacity: addFuncSearching ? 1 : 0 }} />}
               className="mb-2"
             />
             {addFuncSearchRes === false && (

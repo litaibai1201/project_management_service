@@ -13,6 +13,14 @@ from dbs.mysql_db.model_tables import (
 )
 
 
+def _assert_project_not_in_review(project_id: str):
+    """完結審核中（status=6）任何人不得修改專案內容"""
+    from utils.exceptions import PermissionException
+    p = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
+    if p and p.project_status == 6:
+        raise PermissionException(msg="专案正处于完结审核中，暂不允许任何修改操作")
+
+
 class ProjectController:
 
     # ── 文件分类权限矩阵 ────────────────────────────────────────────────────────
@@ -916,10 +924,11 @@ class FunctionController:
         resp = payload.get("responsible", [])
         if isinstance(resp, str):
             try:
-                resp = json.loads(resp)
+                parsed = json.loads(resp)
+                resp = parsed if isinstance(parsed, list) else [resp]
             except (json.JSONDecodeError, ValueError):
                 resp = [resp] if resp else []
-        resp = [w.strip().lower() for w in (resp if isinstance(resp, list) else [resp]) if w]
+        resp = [str(w).strip().lower() for w in (resp if isinstance(resp, list) else [resp]) if w]
         f = FunctionDataModel(
             function_nm=payload["function_nm"],
             describe=payload.get("describe", ""),
@@ -939,7 +948,7 @@ class FunctionController:
         f = db.session.query(FunctionDataModel).filter_by(id=function_id).first()
         if not f or f.function_status == 9:
             raise ResourceNotFoundException(resource_type="功能任务")
-        self._assert_project_not_in_review(f.project_id)
+        _assert_project_not_in_review(f.project_id)
         for field in ("function_nm", "describe", "expected_start_date",
                       "expected_end_date", "priority", "group1", "group2"):
             if field in payload and payload[field] is not None:
@@ -948,10 +957,11 @@ class FunctionController:
             resp = payload["responsible"]
             if isinstance(resp, str):
                 try:
-                    resp = json.loads(resp)
+                    parsed = json.loads(resp)
+                    resp = parsed if isinstance(parsed, list) else [resp]
                 except (json.JSONDecodeError, ValueError):
                     resp = [resp] if resp else []
-            resp = [w.strip().lower() for w in (resp if isinstance(resp, list) else [resp]) if w]
+            resp = [str(w).strip().lower() for w in (resp if isinstance(resp, list) else [resp]) if w]
             f.responsible = json.dumps(resp, ensure_ascii=False)
         f.update_at = CommonTools.get_now()
         db.session.commit()
@@ -977,7 +987,7 @@ class FunctionController:
         - 若提交人是专案 PM → 直接设为已完结（status=4）
         - 否则 → 创建审核记录发给专案 PM，设为完结审核（status=3）
         """
-        self._assert_project_not_in_review(project_id)
+        _assert_project_not_in_review(project_id)
         f = db.session.query(FunctionDataModel).filter_by(id=function_id).first()
         if not f:
             raise ResourceNotFoundException(resource_type="功能任务")
@@ -1106,7 +1116,16 @@ class FunctionController:
         return path
 
     def create_progress(self, project_id: str, function_id: str, payload: dict, submitter: str, files=None):
-        self._assert_project_not_in_review(project_id)
+        _assert_project_not_in_review(project_id)
+        from utils.exceptions import PermissionException
+        func_check = db.session.query(FunctionDataModel).filter_by(id=function_id).first()
+        if func_check:
+            try:
+                responsible_list = json.loads(func_check.responsible or "[]")
+            except Exception:
+                responsible_list = []
+            if responsible_list and (submitter or "").strip().lower() not in [r.lower() for r in responsible_list]:
+                raise PermissionException(msg="只有任務負責人才能提交進度更新")
         from dbs.mysql_db.model_tables import generate_uuid
         devs = payload.get("cooperator", [])
         progress_id = generate_uuid()   # generate before record so we can use it for file paths
@@ -1158,7 +1177,7 @@ class FunctionController:
         if active_funcs:
             project = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
             if project:
-                project.progress = sum(f.progress or 0 for f in active_funcs) // len(active_funcs)
+                project.progress = sum(int(f.progress or 0) for f in active_funcs) // len(active_funcs)
                 project.update_at = CommonTools.get_now()
         db.session.commit()
         return {"progress_id": rec.progress_id}
@@ -1233,7 +1252,7 @@ class MilestoneController:
         return result
 
     def create_milestone(self, project_id: str, payload: dict, creator: str):
-        self._assert_project_not_in_review(project_id)
+        _assert_project_not_in_review(project_id)
         m = MilestoneModel(
             project_id=project_id,
             name=payload["name"],
@@ -1250,7 +1269,7 @@ class MilestoneController:
         m = db.session.query(MilestoneModel).filter_by(id=milestone_id).first()
         if not m:
             raise ResourceNotFoundException(resource_type="里程碑")
-        self._assert_project_not_in_review(m.project_id)
+        _assert_project_not_in_review(m.project_id)
         for field in ("name", "target_date", "note", "achieved_at"):
             if field in payload and payload[field] is not None:
                 setattr(m, field, payload[field])
@@ -1265,7 +1284,7 @@ class MilestoneController:
         m = db.session.query(MilestoneModel).filter_by(id=milestone_id).first()
         if not m:
             raise ResourceNotFoundException(resource_type="里程碑")
-        self._assert_project_not_in_review(m.project_id)
+        _assert_project_not_in_review(m.project_id)
         m.status = 0
         m.update_at = CommonTools.get_now()
         db.session.commit()

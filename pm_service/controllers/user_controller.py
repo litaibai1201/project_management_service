@@ -494,30 +494,228 @@ class UserController:
             "team_size": len(sub_work_nos),
         }
 
-    def get_latest_news(self, work_no: str, page=1, size=10):
-        """获取最新动态（审核通知）"""
-        from dbs.mysql_db.model_tables import ReviewApplyModel
-        q = (
-            db.session.query(ReviewApplyModel)
-            .filter(ReviewApplyModel.reviewer.like(f"%{work_no}%"))
-            .order_by(ReviewApplyModel.created_at.desc())
+    def get_alert_tasks(self, work_no: str) -> list:
+        """返回当前用户7天内到期或已超期的功能任务 / 临时任务"""
+        import datetime
+        from dbs.mysql_db.model_tables import FunctionDataModel, TemporaryDutyModel, ProjectDataModel
+
+        today_dt   = datetime.date.today()
+        threshold  = (today_dt + datetime.timedelta(days=7)).strftime("%Y-%m-%d")
+        today      = today_dt.strftime("%Y-%m-%d")
+        resp_pat   = f'%"{work_no}"%'
+
+        funcs = (
+            db.session.query(FunctionDataModel)
+            .filter(
+                FunctionDataModel.responsible.like(resp_pat),
+                FunctionDataModel.function_status.in_([1, 2]),
+                FunctionDataModel.expected_end_date.isnot(None),
+                FunctionDataModel.expected_end_date != "",
+                FunctionDataModel.expected_end_date <= threshold,
+            ).all()
         )
-        total = q.count()
-        items = q.offset((page - 1) * size).limit(size).all()
+        duties = (
+            db.session.query(TemporaryDutyModel)
+            .filter(
+                TemporaryDutyModel.responsible.like(resp_pat),
+                TemporaryDutyModel.duty_status.in_([1]),
+                TemporaryDutyModel.expected_end_date.isnot(None),
+                TemporaryDutyModel.expected_end_date != "",
+                TemporaryDutyModel.expected_end_date <= threshold,
+            ).all()
+        )
+
+        project_ids = list({f.project_id for f in funcs})
+        project_map: dict = {}
+        if project_ids:
+            projs = db.session.query(ProjectDataModel).filter(ProjectDataModel.id.in_(project_ids)).all()
+            project_map = {p.id: p.project_nm for p in projs}
+
+        result = []
+        for f in funcs:
+            end = datetime.date.fromisoformat(f.expected_end_date)
+            result.append({
+                "id": f.id,
+                "name": f.function_nm,
+                "type": "function",
+                "project_id": f.project_id,
+                "project_nm": project_map.get(f.project_id, ""),
+                "responsible": work_no,
+                "expected_end_date": f.expected_end_date,
+                "days_diff": (end - today_dt).days,
+            })
+        for d in duties:
+            end = datetime.date.fromisoformat(d.expected_end_date)
+            result.append({
+                "id": d.id,
+                "name": d.duty_nm,
+                "type": "duty",
+                "project_nm": None,
+                "responsible": work_no,
+                "expected_end_date": d.expected_end_date,
+                "days_diff": (end - today_dt).days,
+            })
+        return result
+
+    def get_weekly_activity(self, work_no: str) -> list:
+        """返回本周（周一到周日）每天的进度更新条数"""
+        import datetime
+        from dbs.mysql_db.model_tables import ProgressRecordDataModel, DutyProgressRecordModel
+
+        today    = datetime.date.today()
+        mon      = today - datetime.timedelta(days=today.weekday())   # 本周一
+        week_start = mon.strftime("%Y-%m-%d")
+        week_end   = (mon + datetime.timedelta(days=6)).strftime("%Y-%m-%d")
+
+        # 查询本周该用户提交的功能进度记录
+        proj_recs = (
+            db.session.query(ProgressRecordDataModel)
+            .filter(
+                ProgressRecordDataModel.submitter == work_no,
+                ProgressRecordDataModel.created_at >= week_start,
+                ProgressRecordDataModel.created_at <= week_end + " 23:59:59",
+            ).all()
+        )
+        # 查询本周该用户提交的任务进度记录
+        duty_recs = (
+            db.session.query(DutyProgressRecordModel)
+            .filter(
+                DutyProgressRecordModel.submitter == work_no,
+                DutyProgressRecordModel.created_at >= week_start,
+                DutyProgressRecordModel.created_at <= week_end + " 23:59:59",
+            ).all()
+        )
+
+        DOW = ['一', '二', '三', '四', '五', '六', '日']
+        proj_by_day: dict = {i: 0 for i in range(7)}
+        duty_by_day: dict = {i: 0 for i in range(7)}
+
+        for r in proj_recs:
+            date_str = str(r.created_at)[:10]
+            try:
+                d = datetime.date.fromisoformat(date_str)
+                proj_by_day[d.weekday()] += 1
+            except Exception:
+                pass
+        for r in duty_recs:
+            date_str = str(r.created_at)[:10]
+            try:
+                d = datetime.date.fromisoformat(date_str)
+                duty_by_day[d.weekday()] += 1
+            except Exception:
+                pass
+
+        return [
+            {
+                "day": DOW[i],
+                "date": (mon + datetime.timedelta(days=i)).strftime("%m/%d"),
+                "project": proj_by_day[i],
+                "duty": duty_by_day[i],
+            }
+            for i in range(7)
+        ]
+
+    def get_latest_news(self, work_no: str, page=1, size=10):
+        """获取近期动态：进度更新 + 审核提交，按时间倒序"""
+        from dbs.mysql_db.model_tables import (
+            ProgressRecordDataModel, DutyProgressRecordModel,
+            ReviewApplyModel, FunctionDataModel, TemporaryDutyModel,
+        )
+
+        entries = []
+
+        # ── 功能任务进度更新（该用户提交的）─────────────────────────────────
+        proj_recs = (
+            db.session.query(ProgressRecordDataModel)
+            .filter(ProgressRecordDataModel.submitter == work_no)
+            .order_by(ProgressRecordDataModel.created_at.desc())
+            .limit(20).all()
+        )
+        func_ids = list({r.function_id for r in proj_recs})
+        func_map: dict = {}
+        if func_ids:
+            funcs = db.session.query(FunctionDataModel).filter(FunctionDataModel.id.in_(func_ids)).all()
+            func_map = {f.id: f.function_nm for f in funcs}
+        for r in proj_recs:
+            entries.append({
+                "id": r.progress_id,
+                "action": "提交了進度更新",
+                "subject": func_map.get(r.function_id, "功能任務"),
+                "type": "progress",
+                "created_at": str(r.created_at) if r.created_at else "",
+            })
+
+        # ── 临时任务进度更新（该用户提交的）─────────────────────────────────
+        duty_recs = (
+            db.session.query(DutyProgressRecordModel)
+            .filter(DutyProgressRecordModel.submitter == work_no)
+            .order_by(DutyProgressRecordModel.created_at.desc())
+            .limit(20).all()
+        )
+        duty_ids = list({r.duty_id for r in duty_recs})
+        duty_map: dict = {}
+        if duty_ids:
+            duties = db.session.query(TemporaryDutyModel).filter(TemporaryDutyModel.id.in_(duty_ids)).all()
+            duty_map = {d.id: d.duty_nm for d in duties}
+        for r in duty_recs:
+            entries.append({
+                "id": r.id,
+                "action": "提交了任務進度",
+                "subject": duty_map.get(r.duty_id, "臨時任務"),
+                "type": "duty_progress",
+                "created_at": str(r.created_at) if r.created_at else "",
+            })
+
+        # ── 审核申请（该用户提交的）─────────────────────────────────────────
+        from dbs.mysql_db.model_tables import ProjectDataModel
+        reviews = (
+            db.session.query(ReviewApplyModel)
+            .filter(ReviewApplyModel.submitter == work_no)
+            .order_by(ReviewApplyModel.created_at.desc())
+            .limit(20).all()
+        )
+        # 批量获取关联名称
+        rev_proj_ids  = [r.project_id  for r in reviews if r.project_id]
+        rev_func_ids  = [r.function_id for r in reviews if r.function_id]
+        rev_duty_ids  = [r.duty_id     for r in reviews if r.duty_id]
+        rev_proj_map: dict = {}
+        rev_func_map: dict = {}
+        rev_duty_map: dict = {}
+        if rev_proj_ids:
+            for p in db.session.query(ProjectDataModel).filter(ProjectDataModel.id.in_(rev_proj_ids)).all():
+                rev_proj_map[p.id] = p.project_nm
+        if rev_func_ids:
+            for f in db.session.query(FunctionDataModel).filter(FunctionDataModel.id.in_(rev_func_ids)).all():
+                rev_func_map[f.id] = f.function_nm
+        if rev_duty_ids:
+            for d in db.session.query(TemporaryDutyModel).filter(TemporaryDutyModel.id.in_(rev_duty_ids)).all():
+                rev_duty_map[d.id] = d.duty_nm
+
+        STATUS_LABEL = {1: "審核中", 2: "已通過", 3: "已拒絕", 4: "已退回"}
+        for r in reviews:
+            subject = (
+                rev_func_map.get(r.function_id or "")
+                or rev_proj_map.get(r.project_id or "")
+                or rev_duty_map.get(r.duty_id or "")
+                or ""
+            )
+            entries.append({
+                "id": r.id,
+                "action": f"提交了{r.apply_type or '審核申請'}",
+                "subject": subject,
+                "type": "review",
+                "status": STATUS_LABEL.get(r.apply_status, ""),
+                "created_at": str(r.created_at) if r.created_at else "",
+            })
+
+        # ── 按时间倒序排列并分页 ─────────────────────────────────────────────
+        entries.sort(key=lambda x: x["created_at"], reverse=True)
+        total = len(entries)
+        page_data = entries[(page - 1) * size: page * size]
         return {
             "total_count": total,
             "total_page": (total + size - 1) // size if size else 1,
-            "data_list": [
-                {
-                    "id": r.id,
-                    "apply_type": r.apply_type,
-                    "apply_status": r.apply_status,
-                    "submitter_name": r.submitter_name,
-                    "description": r.description,
-                    "created_at": str(r.created_at) if r.created_at else None,
-                }
-                for r in items
-            ],
+            "data_list": page_data,
         }
 
     def my_projects(self, work_no: str, page=1, size=20, status=None):

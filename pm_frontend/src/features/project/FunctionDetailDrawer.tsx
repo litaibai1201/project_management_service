@@ -151,7 +151,8 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
   const priorityColor = funcData ? ['', '#22c55e', '#f59e0b', '#ef4444', '#7c3aed'][funcData.priority] ?? '#94a3b8' : '#94a3b8'
   const isCompleted       = funcData?.status === 4
   const isReviewing       = funcData?.status === 3
-  const canUpdateProgress = projectStatus === 5 && !isCompleted && !isReviewing
+  const isResponsible     = (funcData?.responsible ?? []).map((r) => r.toLowerCase()).includes(workNo.toLowerCase())
+  const canUpdateProgress = projectStatus === 5 && !isCompleted && !isReviewing && isResponsible
   const canEdit           = isProjectPm && !isCompleted
 
   return (

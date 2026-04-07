@@ -18,8 +18,10 @@ import { useAppDispatch, useAppSelector } from '@/hooks/redux'
 import { fetchIndexThunk, setManagerView } from './authSlice'
 import { useNavigate } from 'react-router-dom'
 import dayjs from 'dayjs'
+import isoWeek from 'dayjs/plugin/isoWeek'
+dayjs.extend(isoWeek)
 import { projectApi } from '@/api/project.api'
-import { authApi } from '@/api/auth.api'
+import { authApi, type AlertTask, type WeeklyActivityItem, type NewsItem } from '@/api/auth.api'
 import { dailyLogApi, type BackendDailyLogSummary } from '@/api/daily_log.api'
 import type { ProjectListItem, UserStatistical, TeamStatistical } from '@/types/api.types'
 import { useDashboardConfig } from '@/hooks/useDashboardConfig'
@@ -47,12 +49,6 @@ const STATUS_LABEL: Record<number, string> = { 1:'草稿',2:'立案審核',3:'�
 const STATUS_COLOR: Record<number, string> = { 1:'default',2:'processing',3:'blue',4:'orange',5:'green',6:'orange',7:'success' }
 const PRIORITY_COLORS = ['#22c55e', '#f59e0b', '#ef4444', '#7c3aed']
 
-// ─── Alert data types ─────────────────────────────────────────────────────────
-interface AlertTask {
-  id: string; name: string; type: 'function' | 'duty'; project_nm?: string
-  responsible: string; expected_end_date: string; days_diff: number
-}
-
 // ─── Sub-components ────────────────────────────────────────────────────────────
 
 const DaysLeftBadge: React.FC<{ days: number }> = ({ days }) => {
@@ -76,9 +72,7 @@ const AlertBar: React.FC<{ pendingReview: number; alertTasks: AlertTask[] }> = (
 
   const handleTaskClick = (task: AlertTask) => {
     if (task.type === 'duty') navigate(`/duties/${task.id}`)
-    // function tasks navigate to the project (project_id embedded in first char: f002 → p001, f007 → p002)
-    else if (task.id.startsWith('f00') && task.id[3] <= '6') navigate('/projects/p001')
-    else navigate('/projects/p002')
+    else if (task.project_id) navigate(`/projects/${task.project_id}?fid=${task.id}`)
   }
 
   const AlertRow: React.FC<{ task: AlertTask }> = ({ task }) => (
@@ -166,23 +160,25 @@ const AlertBar: React.FC<{ pendingReview: number; alertTasks: AlertTask[] }> = (
           )}
 
           {/* Upcoming (4–7 days) + pending review */}
-          <div className="bg-white rounded-lg p-3 border border-amber-100">
-            <div className="flex items-center gap-1.5 mb-2">
-              <ClockIcon className="w-3.5 h-3.5 text-amber-500" />
-              <span className="text-xs font-semibold text-amber-600">即將到期 ({upcoming.length})</span>
-            </div>
-            {upcoming.map((t) => <AlertRow key={t.id} task={t} />)}
-            {pendingReview > 0 && (
-              <div
-                className="flex items-center gap-2 py-1.5 mt-1 border-t border-slate-50 cursor-pointer hover:bg-white/60 rounded-md px-1 -mx-1 transition-colors"
-                onClick={() => navigate('/review')}
-              >
-                <Tag style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }} color="blue">審批</Tag>
-                <span className="text-slate-700 text-xs flex-1">待我處理的審批</span>
-                <Badge count={pendingReview} color="#2563eb" style={{ fontSize: 10 }} />
+          {(upcoming.length > 0 || pendingReview > 0) && (
+            <div className="bg-white rounded-lg p-3 border border-amber-100">
+              <div className="flex items-center gap-1.5 mb-2">
+                <ClockIcon className="w-3.5 h-3.5 text-amber-500" />
+                <span className="text-xs font-semibold text-amber-600">即將到期 ({upcoming.length})</span>
               </div>
-            )}
-          </div>
+              {upcoming.map((t) => <AlertRow key={t.id} task={t} />)}
+              {pendingReview > 0 && (
+                <div
+                  className="flex items-center gap-2 py-1.5 mt-1 border-t border-slate-50 cursor-pointer hover:bg-white/60 rounded-md px-1 -mx-1 transition-colors"
+                  onClick={() => navigate('/review')}
+                >
+                  <Tag style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }} color="blue">審批</Tag>
+                  <span className="text-slate-700 text-xs flex-1">待我處理的審批</span>
+                  <Badge count={pendingReview} color="#2563eb" style={{ fontSize: 10 }} />
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -395,7 +391,7 @@ const MonthlyAttendanceCard: React.FC = () => {
 const DashboardPage: React.FC = () => {
   const dispatch  = useAppDispatch()
   const navigate  = useNavigate()
-  const { indexData, name, isSupervisor, isManagerView } = useAppSelector((s) => s.auth)
+  const { indexData, name, workNo, isSupervisor, isManagerView } = useAppSelector((s) => s.auth)
   const isManager = isManagerView
   const setIsManager = (v: boolean) => dispatch(setManagerView(v))
 
@@ -409,12 +405,14 @@ const DashboardPage: React.FC = () => {
     isEditing, setIsEditing,
     onLayoutChange, showWidget, hideWidget,
   } = useDashboardConfig(viewType)
-  const [memberStats,  setMemberStats]  = useState<MemberWorkStat[]>([])
-  const [myProjects,   setMyProjects]   = useState<ProjectListItem[]>([])
-  const [todayLog,     setTodayLog]     = useState<BackendDailyLogSummary | null>(null)
-  const [alertTasks,   setAlertTasks]   = useState<AlertTask[]>([])
-  const [userStat,     setUserStat]     = useState<UserStatistical | null>(null)
-  const [teamStat,     setTeamStat]     = useState<TeamStatistical | null>(null)
+  const [memberStats,    setMemberStats]    = useState<MemberWorkStat[]>([])
+  const [myProjects,     setMyProjects]     = useState<ProjectListItem[]>([])
+  const [todayLog,       setTodayLog]       = useState<BackendDailyLogSummary | null>(null)
+  const [alertTasks,     setAlertTasks]     = useState<AlertTask[]>([])
+  const [userStat,       setUserStat]       = useState<UserStatistical | null>(null)
+  const [teamStat,       setTeamStat]       = useState<TeamStatistical | null>(null)
+  const [weeklyActivity, setWeeklyActivity] = useState<WeeklyActivityItem[]>([])
+  const [latestNews,     setLatestNews]     = useState<NewsItem[]>([])
 
   useEffect(() => { dispatch(fetchIndexThunk()) }, [dispatch])
 
@@ -441,9 +439,9 @@ const DashboardPage: React.FC = () => {
     }
 
     if (visible.has('my_projects')) {
-      projectApi.list({ page: 1, size: 10, status: 5 })
+      projectApi.list({ page: 1, size: 10, work_no: workNo ?? undefined })
         .then((res) => {
-          const list = (res as { content?: { data_list?: ProjectListItem[] } }).content?.data_list ?? []
+          const list = (res as { content?: { project_list?: ProjectListItem[] } }).content?.project_list ?? []
           setMyProjects(list)
         })
         .catch(() => {})
@@ -459,7 +457,24 @@ const DashboardPage: React.FC = () => {
         .catch(() => {})
     }
 
-    setAlertTasks([])
+    if (visible.has('activity_chart')) {
+      authApi.getWeeklyActivity()
+        .then((res) => { if (Array.isArray(res.content)) setWeeklyActivity(res.content) })
+        .catch(() => {})
+    }
+
+    if (visible.has('latest_news')) {
+      authApi.getLatestNews({ page: 1, size: 10 })
+        .then((res) => {
+          const list = (res as { content?: { data_list?: NewsItem[] } }).content?.data_list ?? []
+          setLatestNews(list)
+        })
+        .catch(() => {})
+    }
+
+    authApi.getAlertTasks()
+      .then((res) => { if (Array.isArray(res.content)) setAlertTasks(res.content) })
+      .catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewType, allWidgets.length])
 
@@ -743,21 +758,21 @@ const DashboardPage: React.FC = () => {
               <Card
                 bordered={false} className="shadow-sm h-full"
                 title={<span className="font-semibold text-slate-700 text-sm">本週活動概覽</span>}
-                extra={<span className="text-xs text-slate-400">{dayjs().startOf('week').format('MM/DD')} – {dayjs().endOf('week').format('MM/DD')}</span>}
-                styles={{ body: { paddingTop: 8, flex: 1, display: 'flex', flexDirection: 'column' } }}
+                extra={<span className="text-xs text-slate-400">{dayjs().startOf('isoWeek').format('MM/DD')} – {dayjs().endOf('isoWeek').format('MM/DD')}</span>}
+                styles={{ body: { paddingTop: 8 } }}
               >
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={[]} barCategoryGap="35%">
+                <ResponsiveContainer width="100%" height={160}>
+                  <BarChart data={weeklyActivity} barCategoryGap="35%">
                     <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
                     <YAxis hide />
                     <RTooltip contentStyle={{ borderRadius: 10, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: 12 }} cursor={{ fill: '#f8fafc' }} />
-                    <Bar dataKey="project" name="專案更新" fill="#bfdbfe" radius={[4,4,0,0]} />
-                    <Bar dataKey="duty"    name="任務更新" fill="#2563eb" radius={[4,4,0,0]} />
+                    <Bar dataKey="project" name="功能任務進度" fill="#bfdbfe" radius={[4,4,0,0]} />
+                    <Bar dataKey="duty"    name="臨時任務進度" fill="#2563eb" radius={[4,4,0,0]} />
                   </BarChart>
                 </ResponsiveContainer>
                 <div className="flex gap-4 mt-1">
-                  <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-[#bfdbfe]" /><span className="text-xs text-slate-400">專案更新</span></div>
-                  <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-[#2563eb]" /><span className="text-xs text-slate-400">任務更新</span></div>
+                  <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-[#bfdbfe]" /><span className="text-xs text-slate-400">功能任務進度</span></div>
+                  <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-[#2563eb]" /><span className="text-xs text-slate-400">臨時任務進度</span></div>
                 </div>
               </Card>
             )
@@ -770,9 +785,9 @@ const DashboardPage: React.FC = () => {
                 styles={{ body: { padding: '0 24px 16px' } }}
               >
                 {myProjects.length === 0
-                  ? <Empty description="暫無進行中的專案" className="py-6" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                  ? <Empty description="暫無相關專案" className="py-6" image={Empty.PRESENTED_IMAGE_SIMPLE} />
                   : myProjects.map((p) => {
-                    const daysLeft = p.expected_end_date ? dayjs(p.expected_end_date).diff(dayjs(), 'day') : 999
+                    const daysLeft = p.expected_end_date ? dayjs(p.expected_end_date).diff(dayjs(), 'day') : null
                     return (
                       <div key={p.id} className="flex items-center gap-3 py-3 border-b border-slate-50 last:border-0 hover:bg-slate-50 -mx-4 px-4 rounded-lg cursor-pointer transition-colors" onClick={() => navigate(`/projects/${p.id}`)}>
                         <div className="w-1 self-stretch rounded-full flex-shrink-0" style={{ background: PRIORITY_COLORS[(p.priority ?? 1) - 1] }} />
@@ -785,7 +800,7 @@ const DashboardPage: React.FC = () => {
                         </div>
                         <div className="flex items-center gap-2 flex-shrink-0">
                           <span className="text-xs text-slate-400 hidden sm:block">{p.progress ?? 0}%</span>
-                          <DaysLeftBadge days={daysLeft} />
+                          {daysLeft !== null && <DaysLeftBadge days={daysLeft} />}
                         </div>
                       </div>
                     )
@@ -800,9 +815,29 @@ const DashboardPage: React.FC = () => {
               <Card
                 bordered={false} className="shadow-sm h-full"
                 title={<span className="font-semibold text-slate-700 text-sm">近期動態</span>}
-                styles={{ body: { padding: '0 16px 12px' } }}
+                style={{ display: 'flex', flexDirection: 'column' }}
+                styles={{ body: { padding: '0 16px 12px', overflowY: 'auto', flex: 1, minHeight: 0 } }}
               >
-                <Empty description="動態功能開發中" className="py-6" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                {latestNews.length === 0
+                  ? <Empty description="暫無近期動態" className="py-6" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                  : latestNews.map((item) => {
+                    const TYPE_COLOR: Record<string, string> = { progress: 'blue', duty_progress: 'purple', review: 'orange' }
+                    const TYPE_LABEL: Record<string, string> = { progress: '進度', duty_progress: '任務', review: '審核' }
+                    return (
+                      <div key={item.id} className="flex items-start gap-2 py-2.5 border-b border-slate-50 last:border-0">
+                        <Tag color={TYPE_COLOR[item.type] ?? 'default'} style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0, flexShrink: 0, marginTop: 1 }}>
+                          {TYPE_LABEL[item.type] ?? item.type}
+                        </Tag>
+                        <div className="flex-1 min-w-0">
+                          <span className="text-xs text-slate-600">{item.action}</span>
+                          {item.subject && <span className="text-xs text-slate-400 ml-1 truncate">· {item.subject}</span>}
+                          {item.status && <Tag color={item.status === '已通過' ? 'success' : item.status === '已拒絕' ? 'error' : 'default'} style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: '0 0 0 4px' }}>{item.status}</Tag>}
+                          <div className="text-[10px] text-slate-300 mt-0.5">{item.created_at?.slice(0, 16)}</div>
+                        </div>
+                      </div>
+                    )
+                  })
+                }
               </Card>
             )
 
