@@ -366,7 +366,11 @@ export interface MemberWorkStat {
   total_hours:       number
   completed_tasks:   number
   overdue_tasks:     number
+  overdue_days?:     number
+  urgent_tasks:      number
   in_progress_tasks: number
+  log_submitted:     boolean
+  weekly_hours?:     { week: string; hours: number }[]
 }
 
 // ─── Review ───────────────────────────────────────────────────────────────────
@@ -405,9 +409,18 @@ export interface DailyLogEntry {
   duty_id?:        string
   duty_nm?:        string
   bu_unit?:        string
+  group1?:         string
+  group2?:         string
+  files?:          { name: string; url: string; size?: number }[]
+  /** 來源進度記錄 ID（由 suggest 條目 promote 而來時保留，用於刷新後去重） */
+  suggest_id?:     string
+  /** 提交時間 HH:mm（來自進度記錄 created_at，用於日視圖顯示） */
+  record_time?:    string
 }
 
 export interface DailyLog {
+  log_id?:         string
+  work_no?:        string
   log_date:        string
   entries:         DailyLogEntry[]
   total_hours:     number

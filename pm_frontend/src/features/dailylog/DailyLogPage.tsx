@@ -20,6 +20,8 @@ import {
 import { useAppSelector } from '@/hooks/redux'
 import type { DailyLog, DailyLogEntry, WorkCategory } from '@/types/api.types'
 import { dailyLogApi, entriesToBackend, backendDetailToLog } from '@/api/daily_log.api'
+import { tokenStorage } from '@/api/httpClient'
+import FilePreviewModal from '@/features/project/FilePreviewModal'
 import { projectApi } from '@/api/project.api'
 import { dutyApi } from '@/api/duty.api'
 import dayjs, { Dayjs } from 'dayjs'
@@ -40,6 +42,109 @@ const WORK_CATEGORIES: { value: WorkCategory; label: string; color: string; icon
 ]
 
 const CATEGORY_MAP = Object.fromEntries(WORK_CATEGORIES.map((c) => [c.value, c]))
+
+// ─── Grouped view types & helper ─────────────────────────────────────────────
+
+interface TaskGroup {
+  taskKey:    string
+  taskNm:     string
+  group1?:    string
+  group2?:    string
+  entries:    DailyLogEntry[]
+  totalHours: number
+}
+
+interface SectionGroup {
+  sectionKey:   string
+  sectionLabel: string
+  color:        string
+  tasks:        TaskGroup[]
+  totalHours:   number
+}
+
+function groupDailyEntries(entries: DailyLogEntry[]): SectionGroup[] {
+  const sections: SectionGroup[] = []
+
+  // 1. Project entries: group by project_nm → function_id
+  const projEntries = entries.filter((e) => e.work_category === 'project')
+  if (projEntries.length > 0) {
+    const projMap = new Map<string, Map<string, DailyLogEntry[]>>()
+    for (const e of projEntries) {
+      const projNm  = e.project_nm ?? '未知專案'
+      const funcKey = e.function_id ?? e.entry_id
+      if (!projMap.has(projNm)) projMap.set(projNm, new Map())
+      const tm = projMap.get(projNm)!
+      if (!tm.has(funcKey)) tm.set(funcKey, [])
+      tm.get(funcKey)!.push(e)
+    }
+    for (const [projNm, taskMap] of projMap) {
+      const tasks: TaskGroup[] = []
+      for (const [, taskEntries] of taskMap) {
+        tasks.push({
+          taskKey:    taskEntries[0].function_id ?? taskEntries[0].entry_id,
+          taskNm:     taskEntries[0].function_nm ?? '',
+          group1:     taskEntries[0].group1,
+          group2:     taskEntries[0].group2,
+          entries:    taskEntries,
+          totalHours: taskEntries.reduce((s, e) => s + e.hours, 0),
+        })
+      }
+      sections.push({
+        sectionKey:   `proj-${projNm}`,
+        sectionLabel: projNm,
+        color:        '#2563eb',
+        tasks,
+        totalHours: tasks.reduce((s, t) => s + t.totalHours, 0),
+      })
+    }
+  }
+
+  // 2. Duty entries: group by duty_id under one "臨時任務" section
+  const dutyEntries = entries.filter((e) => e.work_category === 'duty')
+  if (dutyEntries.length > 0) {
+    const dutyMap = new Map<string, DailyLogEntry[]>()
+    for (const e of dutyEntries) {
+      const key = e.duty_id ?? e.entry_id
+      if (!dutyMap.has(key)) dutyMap.set(key, [])
+      dutyMap.get(key)!.push(e)
+    }
+    const tasks: TaskGroup[] = []
+    for (const [, taskEntries] of dutyMap) {
+      tasks.push({
+        taskKey:    taskEntries[0].duty_id ?? taskEntries[0].entry_id,
+        taskNm:     taskEntries[0].duty_nm ?? '',
+        entries:    taskEntries,
+        totalHours: taskEntries.reduce((s, e) => s + e.hours, 0),
+      })
+    }
+    sections.push({
+      sectionKey:   'duty',
+      sectionLabel: '臨時任務',
+      color:        '#7c3aed',
+      tasks,
+      totalHours: tasks.reduce((s, t) => s + t.totalHours, 0),
+    })
+  }
+
+  // 3. Free entries (cr_ar / training / meeting / other): one section per category
+  const freeCategories: WorkCategory[] = ['cr_ar', 'training', 'meeting', 'other']
+  for (const cat of freeCategories) {
+    const catEntries = entries.filter((e) => e.work_category === cat)
+    if (catEntries.length === 0) continue
+    const catInfo = CATEGORY_MAP[cat]
+    sections.push({
+      sectionKey:   cat,
+      sectionLabel: catInfo?.label ?? cat,
+      color:        catInfo?.color ?? '#94a3b8',
+      tasks: catEntries.map((e) => ({
+        taskKey: e.entry_id, taskNm: '', entries: [e], totalHours: e.hours,
+      })),
+      totalHours: catEntries.reduce((s, e) => s + e.hours, 0),
+    })
+  }
+
+  return sections
+}
 
 // ─── Runtime types for API-loaded dropdown options ───────────────────────────
 interface ProjectOpt  { id: string; name: string }
@@ -72,77 +177,6 @@ function exportDailyLogCSV(logs: DailyLog[], rangeLabel: string) {
   URL.revokeObjectURL(url)
 }
 
-// ─── Entry Card ─────────────────────────────────────────────────────────────
-const EntryCard: React.FC<{
-  entry: DailyLogEntry; index: number; onEdit: () => void; onDelete: () => void; readOnly?: boolean
-}> = ({ entry, onEdit, onDelete, readOnly }) => {
-  const cat = CATEGORY_MAP[entry.work_category]
-  return (
-    <div className="flex gap-3 group">
-      {/* Timeline dot */}
-      <div className="flex flex-col items-center flex-shrink-0 pt-1">
-        <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: cat?.color + '18', color: cat?.color }}>
-          {cat?.icon}
-        </div>
-        {/* connector line */}
-        <div className="w-px flex-1 bg-slate-200 mt-1" />
-      </div>
-
-      {/* Content */}
-      <div className="flex-1 pb-4 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap mb-1">
-          <Tag color={cat?.color} style={{ fontSize: 11, padding: '0 6px', margin: 0, lineHeight: '18px' }}>
-            {cat?.label}
-          </Tag>
-          {entry.project_nm && (
-            <span className="text-xs text-blue-500 bg-blue-50 border border-blue-100 rounded px-1.5 py-0.5">
-              {entry.project_nm}
-            </span>
-          )}
-          {(entry.function_nm || entry.duty_nm) && (
-            <span className="text-xs text-slate-500">
-              → {entry.function_nm || entry.duty_nm}
-            </span>
-          )}
-          {entry.bu_unit && (
-            <span className="text-[10px] text-slate-400 bg-slate-100 rounded px-1.5 py-0.5">
-              {entry.bu_unit}
-            </span>
-          )}
-          <span className="ml-auto flex items-center gap-1 text-xs font-semibold" style={{ color: entry.is_overtime ? '#d97706' : '#2563eb' }}>
-            <ClockIcon className="w-3.5 h-3.5" />
-            {entry.hours}h
-            {entry.is_overtime && (
-              <Tag color="orange" style={{ fontSize: 9, padding: '0 3px', margin: 0, lineHeight: '14px' }}>
-                加班
-              </Tag>
-            )}
-          </span>
-        </div>
-
-        <p className="text-sm text-slate-600 leading-relaxed bg-white rounded-lg px-3 py-2 border border-slate-100 shadow-sm">
-          {entry.description}
-        </p>
-
-        {/* Actions */}
-        {!readOnly && (
-          <div className="flex gap-1.5 mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-            <Button size="small" type="text" icon={<PencilSquareIcon className="w-3.5 h-3.5" />}
-              className="text-slate-400 hover:!text-blue-500" onClick={onEdit}>
-              編輯
-            </Button>
-            <Popconfirm title="確定刪除此條目？" onConfirm={onDelete} okText="刪除" cancelText="取消" placement="topRight">
-              <Button size="small" type="text" icon={<TrashIcon className="w-3.5 h-3.5" />}
-                className="text-slate-400 hover:!text-red-500" danger>
-                刪除
-              </Button>
-            </Popconfirm>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
 
 // ─── Self Report View (週報/月報/季報/年報) ───────────────────────────────────
 // Renders the engineer's own period report in the same format as the manager's
@@ -417,7 +451,11 @@ const DailyLogPage: React.FC = () => {
   const [viewMode, setViewMode] = useState<ViewMode>('day')
   const [modalOpen, setModalOpen] = useState(false)
   const [editingEntry, setEditingEntry] = useState<DailyLogEntry | null>(null)
+  const [previewFile, setPreviewFile] = useState<{ url: string; name: string } | null>(null)
   const [logs, setLogs] = useState<Record<string, DailyLog>>({})
+  // Suggest entries are kept separate and NEVER saved to DB.
+  // They are refreshed from /suggest on every day-view load.
+  const [suggestMap, setSuggestMap] = useState<Record<string, DailyLogEntry[]>>({})
   const [logsLoading, setLogsLoading] = useState(false)
   const [form] = Form.useForm()
   const [fileList, setFileList] = useState<UploadFile[]>([])
@@ -498,16 +536,61 @@ const DailyLogPage: React.FC = () => {
         )
 
         setLogs((prev) => ({ ...prev, ...incoming }))
+
+        // In day view: always fetch fresh suggest entries into separate state.
+        // Suggest entries are NEVER written to the DB — only manually added/edited
+        // entries are persisted. This ensures the latest task progress always shows.
+        if (viewMode === 'day') {
+          dailyLogApi.suggest(startStr)
+            .then((suggestRes) => {
+              const items = suggestRes.content ?? []
+              const freshEntries: DailyLogEntry[] = items.map((item, i) => ({
+                entry_id:      `suggest-${startStr}-${i}`,
+                work_category: (item.task_type === 'duty' ? 'duty' : 'project') as DailyLogEntry['work_category'],
+                project_id:    item.task_type === 'project' ? (item.project_id || undefined) : undefined,
+                function_id:   item.task_type === 'project' ? item.task_id : undefined,
+                function_nm:   item.task_type === 'project' ? item.task_nm : undefined,
+                duty_id:       item.task_type === 'duty' ? item.task_id : undefined,
+                duty_nm:       item.task_type === 'duty' ? item.task_nm : undefined,
+                project_nm:    item.project_nm ?? undefined,
+                group1:        item.group1 || undefined,
+                group2:        item.group2 || undefined,
+                description:   item.description,
+                hours:         item.work_hours || 0,
+                is_overtime:   false,
+                overtime_hours: 0,
+                files:         item.files?.length ? item.files : undefined,
+                suggest_id:    item.suggest_id,
+                record_time:   item.record_time ?? undefined,
+              }))
+              setSuggestMap((prev) => ({ ...prev, [startStr]: freshEntries }))
+            })
+            .catch(() => {})
+        }
       })
       .catch(() => { /* silently ignore — user sees empty state */ })
       .finally(() => setLogsLoading(false))
   }, [currentDate, viewMode]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const totalHours = currentLog?.total_hours ?? 0
-  const overtimeHours = currentLog?.overtime_hours ?? 0
+  // Display = manual entries (from DB) + suggest entries (from API, fresh each load).
+  // On page refresh, suggest entries whose suggest_id already appear in a manual entry
+  // are filtered out — those progress records have already been promoted and saved.
+  const suggestEntries = suggestMap[dateStr] ?? []
+  const displayEntries = useMemo(() => {
+    const promotedSuggestIds = new Set(
+      (currentLog?.entries ?? []).map((e) => e.suggest_id).filter(Boolean) as string[],
+    )
+    const dedupedSuggest = promotedSuggestIds.size > 0
+      ? suggestEntries.filter((e) => !e.suggest_id || !promotedSuggestIds.has(e.suggest_id))
+      : suggestEntries
+    return [...(currentLog?.entries ?? []), ...dedupedSuggest]
+  }, [currentLog, suggestEntries])
+
+  const totalHours = displayEntries.reduce((s, e) => s + e.hours, 0)
+  const overtimeHours = displayEntries.filter((e) => e.is_overtime).reduce((s, e) => s + (e.overtime_hours ?? e.hours), 0)
   const normalHours = totalHours - overtimeHours
   const sufficiencyPct = Math.min(100, Math.round((normalHours / STANDARD_DAILY_HOURS) * 100))
-  const isReadOnly = currentLog?.status === 'confirmed'
+  const isReadOnly = currentLog?.status === 'submitted' || currentLog?.status === 'confirmed'
 
   // Navigation
   const navigate = (delta: number) => {
@@ -555,7 +638,17 @@ const DailyLogPage: React.FC = () => {
   const openEntryModal = (entry?: DailyLogEntry) => {
     if (entry) {
       setEditingEntry(entry)
-      setSelectedProject(entry.project_id ?? null)
+      const projId = entry.project_id ?? null
+      setSelectedProject(projId)
+      // Eagerly load function list if not yet cached (needed for suggest entries)
+      if (projId && !functionsMap[projId]) {
+        projectApi.functionList(projId, { page: 1, size: 200 })
+          .then((res) => {
+            const list = (res.content as { data_list?: { id: string; function_nm: string }[] })?.data_list ?? []
+            setFunctionsMap((prev) => ({ ...prev, [projId]: list.map((f) => ({ id: f.id, name: f.function_nm })) }))
+          })
+          .catch(() => {})
+      }
       form.setFieldsValue({
         work_category: entry.work_category,
         project_id: entry.project_id,
@@ -583,7 +676,11 @@ const DailyLogPage: React.FC = () => {
     const dutyId = values.duty_id as string | undefined
 
     const newEntry: DailyLogEntry = {
-      entry_id: editingEntry?.entry_id ?? `e-${Date.now()}`,
+      // If editing a suggest-originated entry, promote it to a manual entry
+      // so it won't be overwritten by auto-suggest on next page load.
+      entry_id: editingEntry
+        ? (editingEntry.entry_id.startsWith('suggest-') ? `e-${Date.now()}` : editingEntry.entry_id)
+        : `e-${Date.now()}`,
       work_category: cat,
       project_id: projId,
       project_nm: projectOpts.find((p) => p.id === projId)?.name,
@@ -596,79 +693,123 @@ const DailyLogPage: React.FC = () => {
       hours: values.hours as number,
       is_overtime: (values.is_overtime as boolean) ?? false,
       overtime_hours: (values.is_overtime as boolean) ? (values.hours as number) : 0,
+      // Carry over the source progress-record ID so refreshes can deduplicate precisely
+      suggest_id: editingEntry?.suggest_id,
+      // Preserve attachments from the original progress record
+      files: editingEntry?.files?.length ? editingEntry.files : undefined,
+      // Preserve submission time; for brand-new entries record current time
+      record_time: editingEntry?.record_time ?? dayjs().format('HH:mm'),
     }
 
-    setLogs((prev) => {
-      const log = prev[dateStr] ?? {
-        log_id: `log-${dateStr}`, work_no: workNo, log_date: dateStr,
-        entries: [], total_hours: 0, overtime_hours: 0, status: 'draft' as const,
-      }
-      const entries = editingEntry
-        ? log.entries.map((e) => e.entry_id === editingEntry.entry_id ? newEntry : e)
-        : [...log.entries, newEntry]
-      const total = entries.reduce((s, e) => s + e.hours, 0)
-      const ot = entries.filter((e) => e.is_overtime).reduce((s, e) => s + (e.overtime_hours ?? e.hours), 0)
-      const updatedLog = { ...log, entries, total_hours: total, overtime_hours: ot }
+    const isSuggestEdit = editingEntry?.entry_id.startsWith('suggest-') ?? false
 
-      // Persist to backend (uses correct field names via entriesToBackend)
-      {
-        const backendPayload = entriesToPayload(entries, dateStr)
-        const hasRealId = log.log_id && !log.log_id.startsWith('log-')
-        const apiCall = hasRealId
-          ? dailyLogApi.update(log.log_id, {
-              task_items: backendPayload.task_items,
-              free_items: backendPayload.free_items,
-            })
-          : dailyLogApi.create(backendPayload).then((res) => {
-              if (res.content?.log_id) {
-                setLogs((p) => ({
-                  ...p,
-                  [dateStr]: { ...p[dateStr], log_id: res.content.log_id },
-                }))
-              }
-              return res
-            })
-        apiCall.catch(() => { /* toast already shown by httpClient */ })
-      }
+    // If the user edited a suggest entry, remove it from suggestMap
+    // (it will live in manual entries from now on)
+    if (isSuggestEdit && editingEntry) {
+      setSuggestMap((prev) => ({
+        ...prev,
+        [dateStr]: (prev[dateStr] ?? []).filter((e) => e.entry_id !== editingEntry.entry_id),
+      }))
+    }
 
-      return { ...prev, [dateStr]: updatedLog }
-    })
+    // Compute new entries and updated log outside the state updater to avoid
+    // running side effects (API calls) inside the updater, which React may invoke
+    // more than once (e.g. in StrictMode).
+    const prevLog = logs[dateStr] ?? {
+      log_id: `log-${dateStr}`, work_no: workNo, log_date: dateStr,
+      entries: [], total_hours: 0, overtime_hours: 0, status: 'draft' as const,
+    }
+    const newEntries = editingEntry && !isSuggestEdit
+      ? prevLog.entries.map((e) => e.entry_id === editingEntry.entry_id ? newEntry : e)
+      : [...prevLog.entries, newEntry]
+    const newTotal = newEntries.reduce((s, e) => s + e.hours, 0)
+    const newOt = newEntries.filter((e) => e.is_overtime).reduce((s, e) => s + (e.overtime_hours ?? e.hours), 0)
+    const updatedLog = { ...prevLog, entries: newEntries, total_hours: newTotal, overtime_hours: newOt }
+
+    setLogs((prev) => ({ ...prev, [dateStr]: updatedLog }))
+
+    // Persist to backend — called once, outside the state updater
+    const backendPayload = entriesToPayload(newEntries, dateStr)
+    const hasRealId = prevLog.log_id && !prevLog.log_id.startsWith('log-')
+    if (hasRealId) {
+      dailyLogApi.update(prevLog.log_id!, {
+        task_items: backendPayload.task_items,
+        free_items: backendPayload.free_items,
+      }).catch(() => {})
+    } else {
+      dailyLogApi.create(backendPayload)
+        .then((res) => {
+          if (res.content?.log_id) {
+            setLogs((p) => ({
+              ...p,
+              [dateStr]: { ...p[dateStr], log_id: res.content.log_id },
+            }))
+          }
+        })
+        .catch(() => {})
+    }
     setModalOpen(false)
     form.resetFields()
   }
 
   // Delete entry
   const handleDeleteEntry = (entryId: string) => {
-    setLogs((prev) => {
-      const log = prev[dateStr]
-      if (!log) return prev
-      const entries = log.entries.filter((e) => e.entry_id !== entryId)
-      const total = entries.reduce((s, e) => s + e.hours, 0)
-      const ot = entries.filter((e) => e.is_overtime).reduce((s, e) => s + (e.overtime_hours ?? e.hours), 0)
-      const updatedLog = { ...log, entries, total_hours: total, overtime_hours: ot }
-
-      // Sync deletion to backend
-      if (log.log_id && !log.log_id.startsWith('log-')) {
-        const backendPayload = entriesToPayload(entries, dateStr)
-        dailyLogApi.update(log.log_id, {
-          task_items: backendPayload.task_items,
-          free_items: backendPayload.free_items,
-        }).catch(() => { /* handled by httpClient interceptor */ })
-      }
-
-      return { ...prev, [dateStr]: updatedLog }
-    })
+    if (entryId.startsWith('suggest-')) {
+      // Suggest entries are local-only — just remove from suggestMap
+      setSuggestMap((prev) => ({
+        ...prev,
+        [dateStr]: (prev[dateStr] ?? []).filter((e) => e.entry_id !== entryId),
+      }))
+      return
+    }
+    const log = logs[dateStr]
+    if (!log) return
+    const entries = log.entries.filter((e) => e.entry_id !== entryId)
+    const total = entries.reduce((s, e) => s + e.hours, 0)
+    const ot = entries.filter((e) => e.is_overtime).reduce((s, e) => s + (e.overtime_hours ?? e.hours), 0)
+    setLogs((prev) => ({ ...prev, [dateStr]: { ...log, entries, total_hours: total, overtime_hours: ot } }))
+    if (log.log_id && !log.log_id.startsWith('log-')) {
+      const backendPayload = entriesToPayload(entries, dateStr)
+      dailyLogApi.update(log.log_id, {
+        task_items: backendPayload.task_items,
+        free_items: backendPayload.free_items,
+      }).catch(() => {})
+    }
   }
 
-  // Submit (mark as submitted — status: 2)
+  // Submit — merge manual + suggest entries, save all to DB, mark submitted
   const handleSubmit = () => {
-    if (currentLog?.log_id && !currentLog.log_id.startsWith('log-')) {
-      dailyLogApi.update(currentLog.log_id, { status: 2 })
-        .catch(() => { /* handled by httpClient interceptor */ })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const logId = (currentLog as any)?.log_id as string | undefined
+    const payload = entriesToPayload(displayEntries, dateStr)
+    if (logId && !logId.startsWith('log-')) {
+      dailyLogApi.update(logId, {
+        task_items: payload.task_items,
+        free_items: payload.free_items,
+        status: 2,
+      }).catch(() => {})
+    } else {
+      dailyLogApi.create(payload)
+        .then((res) => {
+          if (res.content?.log_id) {
+            const newLogId = res.content.log_id
+            setLogs((p) => ({ ...p, [dateStr]: { ...p[dateStr], log_id: newLogId } }))
+            dailyLogApi.update(newLogId, { status: 2 }).catch(() => {})
+          }
+        })
+        .catch(() => {})
     }
+    // Clear suggest entries for this date (they're now persisted in the submitted log)
+    setSuggestMap((prev) => ({ ...prev, [dateStr]: [] }))
     setLogs((prev) => ({
       ...prev,
-      [dateStr]: { ...prev[dateStr], status: 'submitted', submitted_at: dayjs().format('YYYY-MM-DD HH:mm:ss') },
+      [dateStr]: {
+        ...(prev[dateStr] ?? {}),
+        entries: displayEntries,
+        total_hours: totalHours,
+        status: 'submitted',
+        submitted_at: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+      },
     }))
   }
 
@@ -812,58 +953,189 @@ const DailyLogPage: React.FC = () => {
                 format={(p) => <span className={`text-xs font-bold ${(p ?? 0) >= 100 ? 'text-green-600' : (p ?? 0) >= 75 ? 'text-orange-500' : 'text-red-500'}`}>{p}%</span>}
               />
               <div className="text-[10px] text-slate-300 mt-0.5">
-                {currentLog?.entries.length ?? 0} 條記錄
+                {displayEntries.length} 條記錄
               </div>
             </Card>
           </div>
 
+          {/* Entries header */}
+          <div className="flex items-center gap-2 mb-3 px-1">
+            <PencilSquareIcon className="w-4 h-4 text-slate-400" />
+            <span className="text-sm font-semibold text-slate-700">日誌條目</span>
+            <Badge count={displayEntries.length} color="#2563eb" />
+            {!isReadOnly && (
+              <Button type="primary" size="small" icon={<PlusIcon className="w-4 h-4" />}
+                style={{ background: '#2563eb' }} className="ml-auto" onClick={() => openEntryModal()}>
+                新增條目
+              </Button>
+            )}
+          </div>
+
           {/* Entries */}
-          <Card
-            bordered={false}
-            className="shadow-sm mb-5"
-            title={
-              <div className="flex items-center gap-2">
-                <PencilSquareIcon className="w-4 h-4 text-slate-400" />
-                <span className="text-sm font-semibold text-slate-700">日誌條目</span>
-                <Badge count={currentLog?.entries.length ?? 0} color="#2563eb" />
-              </div>
-            }
-            extra={
-              !isReadOnly && (
-                <Button type="primary" size="small" icon={<PlusIcon className="w-4 h-4" />}
-                  style={{ background: '#2563eb' }} onClick={() => openEntryModal()}>
-                  新增條目
-                </Button>
-              )
-            }
-          >
-            {(!currentLog || currentLog.entries.length === 0) ? (
-              <Empty description="今日尚無工作記錄" className="py-8">
+          <div className="mb-5">
+            {displayEntries.length === 0 ? (
+              <div className="rounded-xl border border-slate-200 bg-white shadow-sm py-10 flex flex-col items-center gap-3">
+                <Empty description="今日尚無工作記錄" />
                 {!isReadOnly && (
                   <Button type="primary" icon={<PlusIcon className="w-4 h-4" />}
                     style={{ background: '#2563eb' }} onClick={() => openEntryModal()}>
                     新增第一條記錄
                   </Button>
                 )}
-              </Empty>
+              </div>
             ) : (
-              <div>
-                {currentLog.entries.map((entry, i) => (
-                  <EntryCard
-                    key={entry.entry_id}
-                    entry={entry}
-                    index={i}
-                    readOnly={isReadOnly}
-                    onEdit={() => openEntryModal(entry)}
-                    onDelete={() => handleDeleteEntry(entry.entry_id)}
-                  />
+              <div className="space-y-4">
+                {groupDailyEntries(displayEntries).map((section) => (
+                  <div key={section.sectionKey} className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
+
+                    {/* ── Level-1: Category / project section header ── */}
+                    <div
+                      className="flex items-center gap-2.5 px-4 py-3 flex-wrap"
+                      style={{ background: section.color + '0e', borderBottom: `2px solid ${section.color}30` }}
+                    >
+                      {(() => {
+                        const catKey = section.sectionKey.startsWith('proj-') ? 'project' : section.sectionKey
+                        const catLabel = CATEGORY_MAP[catKey as WorkCategory]?.label ?? section.sectionLabel
+                        return (
+                          <Tag style={{
+                            fontSize: 10, padding: '0 7px', margin: 0, lineHeight: '22px',
+                            background: section.color + '22', color: section.color,
+                            border: `1px solid ${section.color}55`, fontWeight: 700,
+                          }}>
+                            {catLabel}
+                          </Tag>
+                        )
+                      })()}
+                      {/* For project sections, show project name as a separate title */}
+                      {section.sectionKey.startsWith('proj-') && (
+                        <span className="text-sm font-bold text-slate-800">{section.sectionLabel}</span>
+                      )}
+                      <div className="ml-auto flex items-center gap-1 text-xs font-bold" style={{ color: section.color }}>
+                        <ClockIcon className="w-3.5 h-3.5" />
+                        {section.totalHours}h
+                      </div>
+                    </div>
+
+                    {/* ── Level-2: Task groups ── */}
+                    <div className="divide-y divide-slate-100">
+                      {section.tasks.map((task) => (
+                        <div key={task.taskKey}>
+
+                          {/* Function / duty sub-header */}
+                          {task.taskNm && (
+                            <div className="flex items-center gap-2 px-4 py-2.5 bg-slate-50/70">
+                              <div className="w-1 h-4 rounded-full flex-shrink-0" style={{ background: section.color }} />
+                              {(task.group1 || task.group2) && (
+                                <div className="flex items-center gap-1 flex-shrink-0">
+                                  {task.group1 && (
+                                    <span className="text-[10px] bg-white border border-slate-200 text-slate-500 rounded px-1.5 py-px leading-none">{task.group1}</span>
+                                  )}
+                                  {task.group2 && (
+                                    <>
+                                      <span className="text-slate-300 text-[10px]">/</span>
+                                      <span className="text-[10px] bg-white border border-slate-200 text-slate-400 rounded px-1.5 py-px leading-none">{task.group2}</span>
+                                    </>
+                                  )}
+                                </div>
+                              )}
+                              <span className="text-xs font-semibold text-slate-700 flex-1 min-w-0">{task.taskNm}</span>
+                              <span className="text-[11px] font-semibold text-slate-400 flex-shrink-0">{task.totalHours}h</span>
+                              {!isReadOnly && (
+                                <div className="flex gap-0.5 flex-shrink-0 ml-1">
+                                  <Button size="small" type="text"
+                                    icon={<PencilSquareIcon className="w-3.5 h-3.5" />}
+                                    className="text-slate-400 hover:!text-blue-500"
+                                    onClick={() => openEntryModal(task.entries[0])} />
+                                  <Popconfirm title="確定刪除此任務所有記錄？"
+                                    onConfirm={() => task.entries.forEach((e) => handleDeleteEntry(e.entry_id))}
+                                    okText="刪除" cancelText="取消" placement="topRight">
+                                    <Button size="small" type="text" danger
+                                      icon={<TrashIcon className="w-3.5 h-3.5" />}
+                                      className="text-slate-400 hover:!text-red-500" />
+                                  </Popconfirm>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Entries */}
+                          <div>
+                            {task.entries.map((entry, idx) => (
+                              <div key={entry.entry_id}>
+                                <div className="px-4 py-2 group flex items-start gap-3">
+                                  {/* Left: description + attachments */}
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm text-slate-700 leading-relaxed">
+                                      {entry.description || <span className="text-slate-300 italic">（無說明）</span>}
+                                    </p>
+                                    {entry.files && entry.files.length > 0 && (
+                                      <div className="flex flex-wrap gap-1.5 mt-1.5">
+                                        {entry.files.map((f, fi) => {
+                                          const token = tokenStorage.get()
+                                          const previewUrl = token ? `${f.url}?token=${token}` : f.url
+                                          return (
+                                            <button key={fi}
+                                              onClick={() => setPreviewFile({ url: previewUrl, name: f.name })}
+                                              className="inline-flex items-center gap-1 text-[11px] text-blue-500 bg-blue-50 border border-blue-100 rounded px-2 py-0.5 hover:bg-blue-100 hover:border-blue-200 transition-colors max-w-[180px] cursor-pointer">
+                                              <PaperClipIcon className="w-3 h-3 flex-shrink-0" />
+                                              <span className="truncate">{f.name}</span>
+                                            </button>
+                                          )
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* Right: hours on top, time below, actions */}
+                                  <div className="flex items-start gap-1 flex-shrink-0">
+                                    <div className="flex flex-col items-end gap-0.5">
+                                      <span className="flex items-center gap-0.5 text-xs font-semibold"
+                                        style={{ color: entry.is_overtime ? '#d97706' : section.color }}>
+                                        <ClockIcon className="w-3 h-3" />{entry.hours}h
+                                      </span>
+                                      {entry.is_overtime && (
+                                        <Tag color="orange" style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '14px' }}>加班</Tag>
+                                      )}
+                                      <span className="text-[10px] text-slate-400 tabular-nums">
+                                        {entry.record_time ?? '—'}
+                                      </span>
+                                    </div>
+                                    {!isReadOnly && (
+                                      <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <Button size="small" type="text"
+                                          icon={<PencilSquareIcon className="w-3.5 h-3.5" />}
+                                          className="text-slate-400 hover:!text-blue-500 !h-6 !w-6 !p-0 !min-w-0"
+                                          onClick={() => openEntryModal(entry)} />
+                                        <Popconfirm title="確定刪除此條目？" onConfirm={() => handleDeleteEntry(entry.entry_id)}
+                                          okText="刪除" cancelText="取消" placement="topRight">
+                                          <Button size="small" type="text" danger
+                                            icon={<TrashIcon className="w-3.5 h-3.5" />}
+                                            className="text-slate-400 hover:!text-red-500 !h-6 !w-6 !p-0 !min-w-0" />
+                                        </Popconfirm>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Divider between entries */}
+                                {idx < task.entries.length - 1 && (
+                                  <div style={{ height: '1px', background: '#e2e8f0', margin: '0 16px' }} />
+                                )}
+                              </div>
+                            ))}
+                          </div>
+
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 ))}
               </div>
             )}
-          </Card>
+          </div>
 
           {/* Action buttons */}
-          {currentLog && currentLog.status === 'draft' && currentLog.entries.length > 0 && (
+          {currentLog?.status !== 'submitted' && currentLog?.status !== 'confirmed' && displayEntries.length > 0 && (
             <div className="flex justify-end gap-3">
               <Popconfirm title="確定提交日報？提交後不可再修改。" onConfirm={handleSubmit} okText="確定提交" cancelText="取消">
                 <Button type="primary" icon={<ArrowUpTrayIcon className="w-4 h-4" />} size="large"
@@ -896,6 +1168,15 @@ const DailyLogPage: React.FC = () => {
           />
         )
       })()}
+
+      {/* ─── File Preview Modal ────────────────────────────────────── */}
+      {previewFile && (
+        <FilePreviewModal
+          directUrl={previewFile.url}
+          filename={previewFile.name}
+          onClose={() => setPreviewFile(null)}
+        />
+      )}
 
       {/* ─── Entry Modal ───────────────────────────────────────────── */}
       <Modal
@@ -992,7 +1273,27 @@ const DailyLogPage: React.FC = () => {
             <Switch checkedChildren="加班" unCheckedChildren="正常" />
           </Form.Item>
 
-          <Form.Item label="附件">
+          {/* Existing attachments from the progress record (read-only) */}
+          {editingEntry?.files && editingEntry.files.length > 0 && (
+            <Form.Item label="進度附件（來自任務進度記錄）">
+              <div className="flex flex-wrap gap-1.5">
+                {editingEntry.files.map((f, fi) => {
+                  const token = tokenStorage.get()
+                  const previewUrl = token ? `${f.url}?token=${token}` : f.url
+                  return (
+                    <button key={fi} type="button"
+                      onClick={() => setPreviewFile({ url: previewUrl, name: f.name })}
+                      className="inline-flex items-center gap-1 text-[11px] text-blue-500 bg-blue-50 border border-blue-100 rounded px-2 py-1 hover:bg-blue-100 hover:border-blue-200 transition-colors max-w-[180px]">
+                      <PaperClipIcon className="w-3 h-3 flex-shrink-0" />
+                      <span className="truncate">{f.name}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </Form.Item>
+          )}
+
+          <Form.Item label="新增附件">
             <Upload fileList={fileList} onChange={({ fileList: fl }) => setFileList(fl)} beforeUpload={() => false} multiple>
               <Button icon={<PaperClipIcon className="w-4 h-4" />} size="small">選擇附件</Button>
             </Upload>
@@ -1006,6 +1307,7 @@ const DailyLogPage: React.FC = () => {
           </div>
         </Form>
       </Modal>
+
     </div>
     </Spin>
   )

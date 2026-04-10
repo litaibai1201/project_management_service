@@ -52,6 +52,8 @@ class StatisticsController:
         in_progress_tasks = 0
         overdue_tasks = 0
         overdue_days = 0
+        urgent_tasks = 0
+        urgent_threshold = today + timedelta(days=7)
 
         for f in all_funcs:
             resp = json.loads(f.responsible) if f.responsible else []
@@ -63,7 +65,6 @@ class StatisticsController:
                 completed_tasks += 1
             elif s in (1, 2, 3): # 未开始/进行中/待验收
                 in_progress_tasks += 1
-                # 计算超期
                 end = f.expected_end_date
                 if end:
                     try:
@@ -71,6 +72,8 @@ class StatisticsController:
                         if end_dt < today:
                             overdue_tasks += 1
                             overdue_days += (today - end_dt).days
+                        elif end_dt <= urgent_threshold:
+                            urgent_tasks += 1
                     except ValueError:
                         pass
 
@@ -97,8 +100,17 @@ class StatisticsController:
                         if end_dt < today:
                             overdue_tasks += 1
                             overdue_days += (today - end_dt).days
+                        elif end_dt <= urgent_threshold:
+                            urgent_tasks += 1
                     except ValueError:
                         pass
+
+        # ── 今日日报是否提交 ───────────────────────────────────────────
+        today_str = today.strftime("%Y-%m-%d")
+        today_log = db.session.query(DailyLogModel).filter_by(
+            work_no=work_no, log_date=today_str
+        ).first()
+        log_submitted = today_log is not None and (today_log.status or 0) >= 2
 
         # ── 工时统计（从日志） ─────────────────────────────────────────
         lq = db.session.query(DailyLogModel).filter_by(work_no=work_no)
@@ -140,5 +152,7 @@ class StatisticsController:
             "in_progress_tasks": in_progress_tasks,
             "overdue_tasks": overdue_tasks,
             "overdue_days": overdue_days,
+            "urgent_tasks": urgent_tasks,
+            "log_submitted": log_submitted,
             "weekly_hours": weekly_hours,
         }

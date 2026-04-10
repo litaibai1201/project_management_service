@@ -35,6 +35,7 @@ type MonthLogEntry = { hours: number; ot: number; status: 'confirmed' | 'submitt
 interface MemberWorkStat {
   work_no: string; name: string; total_hours: number
   completed_tasks: number; in_progress_tasks: number; overdue_tasks: number
+  urgent_tasks: number; log_submitted: boolean
 }
 
 const getHeatColor = (hours: number) => {
@@ -488,7 +489,7 @@ const DashboardPage: React.FC = () => {
     name:    m.name,
     work_no: m.work_no,
     超時任務: m.overdue_tasks,
-    臨期任務: 0,
+    臨期任務: m.urgent_tasks ?? 0,
     進行中:   m.in_progress_tasks,
   })).sort((a, b) => (b.超時任務 + b.臨期任務) - (a.超時任務 + a.臨期任務))
 
@@ -596,7 +597,7 @@ const DashboardPage: React.FC = () => {
             )
 
             case 'daily_report_status': return !isManager ? null : (() => {
-              const submitted = memberStats.filter((m) => (m as MemberWorkStat & { log_submitted?: boolean }).log_submitted).length
+              const submitted = memberStats.filter((m) => m.log_submitted).length
               const total = memberStats.length
               const isLow = submitted < total
               return (
@@ -636,6 +637,7 @@ const DashboardPage: React.FC = () => {
                     <YAxis type="category" dataKey="name" tick={{ fontSize: 12, fill: '#64748b' }} axisLine={false} tickLine={false} width={52} />
                     <RTooltip
                       contentStyle={{ borderRadius: 10, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: 12 }}
+                      cursor={{ fill: 'rgba(0,0,0,0.04)' }}
                       formatter={(v, name) => [`${v} 項`, name]}
                     />
                     <Bar dataKey="超時任務" stackId="a" fill="#f87171" radius={[0,0,0,0]}>

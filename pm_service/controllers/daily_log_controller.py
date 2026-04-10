@@ -14,8 +14,9 @@ class DailyLogController:
                   work_no=None, status=None):
         """获取日报列表"""
         q = db.session.query(DailyLogModel).filter_by(status=1)
-        if work_no:
-            q = q.filter(DailyLogModel.work_no == work_no)
+        # 若未指定 work_no，则只返回当前登录用户自己的日报
+        target_work_no = work_no or get_identity()
+        q = q.filter(DailyLogModel.work_no == target_work_no)
         if start_date:
             q = q.filter(DailyLogModel.log_date >= start_date)
         if end_date:
@@ -69,7 +70,8 @@ class DailyLogController:
 
     def update_log(self, log_id: str, payload: dict):
         """更新日报"""
-        lg = db.session.query(DailyLogModel).filter_by(log_id=log_id, status=1).first()
+        work_no = get_identity()
+        lg = db.session.query(DailyLogModel).filter_by(log_id=log_id, work_no=work_no, status=1).first()
         if not lg:
             raise ResourceNotFoundException(msg="日报不存在")
 
@@ -100,6 +102,86 @@ class DailyLogController:
             "created_at": str(lg.created_at) if lg.created_at else None,
             "updated_at": str(lg.update_at) if lg.update_at else None,
         }
+
+    def get_suggest(self, work_no: str, date: str = None):
+        """从当天进度记录生成日志建议条目（功能任务 + 临时任务）"""
+        from dbs.mysql_db.model_tables import (
+            ProgressRecordDataModel, DutyProgressRecordModel,
+            FunctionDataModel, TemporaryDutyModel, ProjectDataModel,
+        )
+        if not date:
+            from utils.tools import CommonTools
+            date = CommonTools.get_now()[:10]
+
+        result = []
+
+        # ── 功能任务进度记录 ───────────────────────────────────────────
+        func_recs = (
+            db.session.query(ProgressRecordDataModel)
+            .filter(
+                ProgressRecordDataModel.submitter == work_no,
+                ProgressRecordDataModel.created_at.like(f"{date}%"),
+            ).order_by(ProgressRecordDataModel.created_at.asc()).all()
+        )
+        func_ids = list({r.function_id for r in func_recs})
+        func_map, proj_map = {}, {}
+        if func_ids:
+            funcs = db.session.query(FunctionDataModel).filter(FunctionDataModel.id.in_(func_ids)).all()
+            func_map = {f.id: f for f in funcs}
+            proj_ids = list({f.project_id for f in funcs if f.project_id})
+            if proj_ids:
+                projs = db.session.query(ProjectDataModel).filter(ProjectDataModel.id.in_(proj_ids)).all()
+                proj_map = {p.id: p.project_nm for p in projs}
+        for r in func_recs:
+            func = func_map.get(r.function_id)
+            # parse file attachments
+            try:
+                raw_files = json.loads(r.files_json or "[]")
+            except Exception:
+                raw_files = []
+            file_base = f"/api/project/{r.project_id}/function/{r.function_id}/progress/{r.progress_id}/files"
+            files = [{"name": f["name"], "url": f"{file_base}/{f['id']}/preview", "size": f.get("size")} for f in raw_files]
+            result.append({
+                "task_type": "project",
+                "task_id": r.function_id,
+                "task_nm": func.function_nm if func else "",
+                "project_id": func.project_id if func else "",
+                "project_nm": proj_map.get(func.project_id, "") if func else "",
+                "group1": func.group1 if func else "",
+                "group2": func.group2 if func else "",
+                "work_hours": float(r.time_consum or 0),
+                "description": r.progress_record or "",
+                "files": files,
+                "suggest_id": r.progress_id,
+                "record_time": str(r.created_at)[11:16] if r.created_at else None,
+            })
+
+        # ── 临时任务进度记录 ───────────────────────────────────────────
+        duty_recs = (
+            db.session.query(DutyProgressRecordModel)
+            .filter(
+                DutyProgressRecordModel.submitter == work_no,
+                DutyProgressRecordModel.created_at.like(f"{date}%"),
+            ).order_by(DutyProgressRecordModel.created_at.asc()).all()
+        )
+        duty_ids = list({r.duty_id for r in duty_recs})
+        duty_map = {}
+        if duty_ids:
+            duties = db.session.query(TemporaryDutyModel).filter(TemporaryDutyModel.id.in_(duty_ids)).all()
+            duty_map = {d.id: d.duty_nm for d in duties}
+        for r in duty_recs:
+            result.append({
+                "task_type": "duty",
+                "task_id": r.duty_id,
+                "task_nm": duty_map.get(r.duty_id, ""),
+                "project_nm": None,
+                "work_hours": float(r.time_consum or 0),
+                "description": r.progress_record or "",
+                "suggest_id": r.id,
+                "record_time": str(r.created_at)[11:16] if r.created_at else None,
+            })
+
+        return result
 
     def _to_detail(self, lg: DailyLogModel):
         base = self._to_summary(lg)

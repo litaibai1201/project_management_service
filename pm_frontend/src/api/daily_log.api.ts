@@ -10,6 +10,11 @@ export interface BackendTaskItem {
   task_nm: string                  // function_nm | duty_nm
   work_hours: number               // backend uses work_hours, not hours
   description: string
+  project_id?: string              // 所屬專案 ID（project 類型時使用）
+  project_nm?: string              // 所屬專案名稱（project 類型時使用）
+  suggest_id?: string              // 來源進度記錄 ID，用於刷新後去重
+  files?: { name: string; url: string; size?: number }[]  // 來自進度記錄的附件
+  record_time?: string             // 提交時間 HH:mm（來自進度記錄 created_at）
 }
 
 /** Backend: free_items 條目（會議 / 培訓 / 其他） */
@@ -93,11 +98,16 @@ export function entriesToBackend(
   const task_items: BackendTaskItem[] = entries
     .filter((e) => e.work_category === 'project' || e.work_category === 'duty')
     .map((e) => ({
-      task_type: e.work_category as 'project' | 'duty',
-      task_id:   e.work_category === 'project' ? (e.function_id ?? '') : (e.duty_id ?? ''),
-      task_nm:   e.work_category === 'project' ? (e.function_nm ?? '') : (e.duty_nm ?? ''),
-      work_hours: e.hours,
+      task_type:   e.work_category as 'project' | 'duty',
+      task_id:     e.work_category === 'project' ? (e.function_id ?? '') : (e.duty_id ?? ''),
+      task_nm:     e.work_category === 'project' ? (e.function_nm ?? '') : (e.duty_nm ?? ''),
+      work_hours:  e.hours,
       description: e.description,
+      project_id:  e.work_category === 'project' ? e.project_id : undefined,
+      project_nm:  e.work_category === 'project' ? e.project_nm : undefined,
+      suggest_id:  e.suggest_id,
+      files:       e.files?.length ? e.files : undefined,
+      record_time: e.record_time,
     }))
 
   const free_items: BackendFreeItem[] = entries
@@ -119,7 +129,8 @@ export function backendDetailToLog(raw: BackendDailyLogDetail): DailyLog {
   const taskEntries: DailyLogEntry[] = (raw.task_items ?? []).map((t, i) => ({
     entry_id:      `t-${i}-${t.task_id}`,
     work_category: t.task_type,
-    project_id:    t.task_type === 'project' ? undefined : undefined,  // project_id unknown from task item alone
+    project_id:    t.task_type === 'project' ? (t.project_id ?? undefined) : undefined,
+    project_nm:    t.task_type === 'project' ? (t.project_nm ?? undefined) : undefined,
     function_id:   t.task_type === 'project' ? t.task_id : undefined,
     function_nm:   t.task_type === 'project' ? t.task_nm : undefined,
     duty_id:       t.task_type === 'duty' ? t.task_id : undefined,
@@ -127,6 +138,10 @@ export function backendDetailToLog(raw: BackendDailyLogDetail): DailyLog {
     description:   t.description,
     hours:         Number(t.work_hours),
     is_overtime:   false,
+    overtime_hours: 0,
+    suggest_id:    t.suggest_id,
+    files:         t.files?.length ? t.files : undefined,
+    record_time:   t.record_time,
   }))
 
   const freeEntries: DailyLogEntry[] = (raw.free_items ?? []).map((f, i) => ({
@@ -135,6 +150,7 @@ export function backendDetailToLog(raw: BackendDailyLogDetail): DailyLog {
     description:   f.description,
     hours:         Number(f.work_hours),
     is_overtime:   false,
+    overtime_hours: 0,
   }))
 
   const statusMap: Record<number, DailyLog['status']> = { 1: 'draft', 2: 'submitted' }
@@ -178,4 +194,25 @@ export const dailyLogApi = {
     files.forEach((f) => fd.append('files', f))
     return postForm(`/daily_log/${logId}/upload`, fd)
   },
+
+  /** GET /api/daily_log/suggest?date=YYYY-MM-DD  — 從任務進度記錄生成建議條目 */
+  suggest: (date?: string): Promise<ApiResponse<SuggestItem[]>> =>
+    get('/daily_log/suggest', { params: date ? { date } : {} }),
+}
+
+/** Backend suggest item shape */
+export interface SuggestItem {
+  task_type:   'project' | 'duty'
+  task_id:     string
+  task_nm:     string
+  project_id?: string
+  project_nm:  string | null
+  group1?:     string
+  group2?:     string
+  work_hours:  number
+  description: string
+  files?:      { name: string; url: string; size?: number }[]
+  /** 進度記錄 ID（ProgressRecordDataModel.progress_id / DutyProgressRecordModel.id） */
+  suggest_id?: string
+  record_time?: string
 }

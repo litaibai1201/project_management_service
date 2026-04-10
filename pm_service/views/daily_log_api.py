@@ -3,10 +3,10 @@
 from flask import request
 from flask.views import MethodView
 from flask_smorest import Blueprint
-from utils.auth import jwt_required
+from utils.auth import jwt_required, get_identity
 from utils.response import response_result
 from controllers.daily_log_controller import DailyLogController
-from serializes.response_serialize import RspMsgDictSchema
+from serializes.response_serialize import RspMsgDictSchema, RspMsgRawSchema
 
 blp = Blueprint("daily_log_api", __name__, description="日报管理接口")
 ctrl = DailyLogController()
@@ -37,6 +37,17 @@ class DailyLogListApi(MethodView):
         """创建日报"""
         payload = request.get_json() or {}
         return response_result(content=ctrl.create_log(payload))
+
+
+@blp.route("/suggest")
+class DailyLogSuggestApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgRawSchema)
+    def get(self):
+        """从当天任务进度记录生成日志建议条目"""
+        work_no = get_identity()
+        date = request.args.get("date")
+        return response_result(content=ctrl.get_suggest(work_no, date=date))
 
 
 @blp.route("/<string:log_id>")
