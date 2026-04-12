@@ -62,6 +62,19 @@ def create_app(config_name=None):
         logger.error("Redis 初始化失败", category="error", event="redis_init_failed", error=e)
         if app.config.get("REDIS_REQUIRED", True):
             raise  # 如果 Redis 是必需的，则抛出异常
+
+    # 初始化 MongoDB 客户端
+    try:
+        from dbs.mongo_db.client import mongo_client
+        mongo_client.init_app(app)
+        # 确保日志集合索引存在
+        from controllers.daily_log_controller import DailyLogController
+        DailyLogController.ensure_indexes()
+        logger.info("✓ MongoDB 初始化成功")
+    except Exception as e:
+        logger.error("MongoDB 初始化失败", category="error", event="mongo_init_failed", error=str(e))
+        if app.config.get("MONGO_REQUIRED", True):
+            raise
     
     marsh = Marshmallow()
     marsh.init_app(app)

@@ -5,12 +5,12 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react'
 import {
   Card, Button, Tag, Progress, Modal, Form, Select, Input, InputNumber,
-  Switch, Upload, Segmented, Empty, Badge, Popconfirm,
+  Switch, Upload, Segmented, Empty, Badge, Popconfirm, Popover,
   AutoComplete, Alert, Spin,
 } from 'antd'
 import type { UploadFile } from 'antd'
 import {
-  PlusIcon, PaperClipIcon, ChevronLeftIcon, ChevronRightIcon,
+  PlusIcon, PaperClipIcon, ChevronLeftIcon, ChevronRightIcon, ChevronDownIcon,
   PencilSquareIcon, TrashIcon, ClockIcon, CalendarDaysIcon,
   ArrowUpTrayIcon,
   DocumentTextIcon, SunIcon, MoonIcon, BriefcaseIcon,
@@ -46,109 +46,154 @@ const CATEGORY_MAP = Object.fromEntries(WORK_CATEGORIES.map((c) => [c.value, c])
 // ─── Grouped view types & helper ─────────────────────────────────────────────
 
 interface TaskGroup {
-  taskKey:    string
-  taskNm:     string
-  group1?:    string
-  group2?:    string
-  entries:    DailyLogEntry[]
+  taskKey:             string
+  taskNm:              string
+  group1?:             string
+  group2?:             string
+  expectedStartDate?:  string
+  expectedEndDate?:    string
+  entries:             DailyLogEntry[]
+  totalHours:          number
+}
+
+/** Second-level: project / duty sub-group inside a category */
+interface ProjectSubGroup {
+  projKey:    string
+  projNm:     string   // project_nm, duty_nm, or '' for unnamed
   totalHours: number
+  tasks:      TaskGroup[]
 }
 
-interface SectionGroup {
-  sectionKey:   string
-  sectionLabel: string
-  color:        string
-  tasks:        TaskGroup[]
-  totalHours:   number
+/** Top-level: one card per WorkCategory */
+interface CategorySection {
+  category:      WorkCategory
+  label:         string
+  color:         string
+  totalHours:    number
+  projectGroups: ProjectSubGroup[]
 }
 
-function groupDailyEntries(entries: DailyLogEntry[]): SectionGroup[] {
-  const sections: SectionGroup[] = []
+function groupDailyEntries(entries: DailyLogEntry[]): CategorySection[] {
+  const result: CategorySection[] = []
 
-  // 1. Project entries: group by project_nm → function_id
-  const projEntries = entries.filter((e) => e.work_category === 'project')
-  if (projEntries.length > 0) {
-    const projMap = new Map<string, Map<string, DailyLogEntry[]>>()
-    for (const e of projEntries) {
-      const projNm  = e.project_nm ?? '未知專案'
-      const funcKey = e.function_id ?? e.entry_id
-      if (!projMap.has(projNm)) projMap.set(projNm, new Map())
-      const tm = projMap.get(projNm)!
-      if (!tm.has(funcKey)) tm.set(funcKey, [])
-      tm.get(funcKey)!.push(e)
-    }
-    for (const [projNm, taskMap] of projMap) {
+  for (const catInfo of WORK_CATEGORIES) {
+    const catEntries = entries.filter((e) => e.work_category === catInfo.value)
+    if (catEntries.length === 0) continue
+
+    let projectGroups: ProjectSubGroup[] = []
+
+    if (catInfo.value === 'project' || catInfo.value === 'cr_ar') {
+      // Group by project → function
+      const projMap = new Map<string, { nm: string; taskMap: Map<string, DailyLogEntry[]> }>()
+      for (const e of catEntries) {
+        const projKey = e.project_id ?? '__no_proj__'
+        const projNm  = e.project_nm ?? (catInfo.value === 'project' ? '未知專案' : '')
+        if (!projMap.has(projKey)) projMap.set(projKey, { nm: projNm, taskMap: new Map() })
+        const pg = projMap.get(projKey)!
+        const taskKey = e.function_id ?? e.entry_id
+        if (!pg.taskMap.has(taskKey)) pg.taskMap.set(taskKey, [])
+        pg.taskMap.get(taskKey)!.push(e)
+      }
+      for (const [projKey, pg] of projMap) {
+        const tasks: TaskGroup[] = []
+        for (const [, taskEntries] of pg.taskMap) {
+          tasks.push({
+            taskKey:           taskEntries[0].function_id ?? taskEntries[0].entry_id,
+            taskNm:            taskEntries[0].function_nm ?? '',
+            group1:            taskEntries[0].group1,
+            group2:            taskEntries[0].group2,
+            expectedStartDate: taskEntries[0].expected_start_date,
+            expectedEndDate:   taskEntries[0].expected_end_date,
+            entries:           taskEntries,
+            totalHours:        taskEntries.reduce((s, e) => s + e.hours, 0),
+          })
+        }
+        // Two-phase sort: keep same-group tasks together, order groups by their
+        // earliest start date (so backend always precedes testing even after re-work).
+        // Phase 1: compute each (group1, group2) pair's earliest start date.
+        const gKey = (t: TaskGroup) => `${t.group1 ?? ''}\x00${t.group2 ?? ''}`
+        const groupEarliest = new Map<string, string>()
+        for (const t of tasks) {
+          const k = gKey(t)
+          const cur = groupEarliest.get(k) ?? '9999-99-99'
+          const ts  = t.expectedStartDate ?? '9999-99-99'
+          if (ts < cur) groupEarliest.set(k, ts)
+        }
+        // Phase 2: sort by group's earliest start → task's own start → end date.
+        tasks.sort((a, b) => {
+          const ga = groupEarliest.get(gKey(a)) ?? '9999-99-99'
+          const gb = groupEarliest.get(gKey(b)) ?? '9999-99-99'
+          if (ga !== gb) return ga.localeCompare(gb)
+          // Same group: sort by task's own start date
+          const sa = a.expectedStartDate ?? '9999-99-99'
+          const sb = b.expectedStartDate ?? '9999-99-99'
+          if (sa !== sb) return sa.localeCompare(sb)
+          // Same start: by end date
+          const ea = a.expectedEndDate ?? '9999-99-99'
+          const eb = b.expectedEndDate ?? '9999-99-99'
+          return ea.localeCompare(eb)
+        })
+        projectGroups.push({
+          projKey,
+          projNm: pg.nm,
+          totalHours: tasks.reduce((s, t) => s + t.totalHours, 0),
+          tasks,
+        })
+      }
+    } else if (catInfo.value === 'duty') {
+      // Group by duty_id, all under one unnamed proj group
+      const dutyMap = new Map<string, DailyLogEntry[]>()
+      for (const e of catEntries) {
+        const key = e.duty_id ?? e.entry_id
+        if (!dutyMap.has(key)) dutyMap.set(key, [])
+        dutyMap.get(key)!.push(e)
+      }
       const tasks: TaskGroup[] = []
-      for (const [, taskEntries] of taskMap) {
+      for (const [, taskEntries] of dutyMap) {
         tasks.push({
-          taskKey:    taskEntries[0].function_id ?? taskEntries[0].entry_id,
-          taskNm:     taskEntries[0].function_nm ?? '',
-          group1:     taskEntries[0].group1,
-          group2:     taskEntries[0].group2,
+          taskKey:    taskEntries[0].duty_id ?? taskEntries[0].entry_id,
+          taskNm:     taskEntries[0].duty_nm ?? '',
           entries:    taskEntries,
           totalHours: taskEntries.reduce((s, e) => s + e.hours, 0),
         })
       }
-      sections.push({
-        sectionKey:   `proj-${projNm}`,
-        sectionLabel: projNm,
-        color:        '#2563eb',
+      projectGroups = [{
+        projKey: '__duty__', projNm: '',
+        totalHours: catEntries.reduce((s, e) => s + e.hours, 0),
         tasks,
-        totalHours: tasks.reduce((s, t) => s + t.totalHours, 0),
-      })
+      }]
+    } else {
+      // training / meeting / other — flat list, no sub-grouping
+      projectGroups = [{
+        projKey: catInfo.value, projNm: '',
+        totalHours: catEntries.reduce((s, e) => s + e.hours, 0),
+        tasks: [{
+          taskKey: catInfo.value, taskNm: '',
+          entries: catEntries,
+          totalHours: catEntries.reduce((s, e) => s + e.hours, 0),
+        }],
+      }]
     }
-  }
 
-  // 2. Duty entries: group by duty_id under one "臨時任務" section
-  const dutyEntries = entries.filter((e) => e.work_category === 'duty')
-  if (dutyEntries.length > 0) {
-    const dutyMap = new Map<string, DailyLogEntry[]>()
-    for (const e of dutyEntries) {
-      const key = e.duty_id ?? e.entry_id
-      if (!dutyMap.has(key)) dutyMap.set(key, [])
-      dutyMap.get(key)!.push(e)
-    }
-    const tasks: TaskGroup[] = []
-    for (const [, taskEntries] of dutyMap) {
-      tasks.push({
-        taskKey:    taskEntries[0].duty_id ?? taskEntries[0].entry_id,
-        taskNm:     taskEntries[0].duty_nm ?? '',
-        entries:    taskEntries,
-        totalHours: taskEntries.reduce((s, e) => s + e.hours, 0),
-      })
-    }
-    sections.push({
-      sectionKey:   'duty',
-      sectionLabel: '臨時任務',
-      color:        '#7c3aed',
-      tasks,
-      totalHours: tasks.reduce((s, t) => s + t.totalHours, 0),
+    result.push({
+      category:      catInfo.value,
+      label:         catInfo.label,
+      color:         catInfo.color,
+      totalHours:    catEntries.reduce((s, e) => s + e.hours, 0),
+      projectGroups,
     })
   }
 
-  // 3. Free entries (cr_ar / training / meeting / other): one section per category
-  const freeCategories: WorkCategory[] = ['cr_ar', 'training', 'meeting', 'other']
-  for (const cat of freeCategories) {
-    const catEntries = entries.filter((e) => e.work_category === cat)
-    if (catEntries.length === 0) continue
-    const catInfo = CATEGORY_MAP[cat]
-    sections.push({
-      sectionKey:   cat,
-      sectionLabel: catInfo?.label ?? cat,
-      color:        catInfo?.color ?? '#94a3b8',
-      tasks: catEntries.map((e) => ({
-        taskKey: e.entry_id, taskNm: '', entries: [e], totalHours: e.hours,
-      })),
-      totalHours: catEntries.reduce((s, e) => s + e.hours, 0),
-    })
-  }
-
-  return sections
+  return result
 }
 
 // ─── Runtime types for API-loaded dropdown options ───────────────────────────
 interface ProjectOpt  { id: string; name: string }
-interface FunctionOpt { id: string; name: string }
+interface FunctionOpt {
+  id: string; name: string
+  group1?: string; group2?: string
+  expected_start_date?: string; expected_end_date?: string
+}
 interface DutyOpt     { id: string; name: string }
 const BU_OPTIONS = ['製造部', '品保部', '資訊部', '業務部', '人資部', '財務部', '研發部', '客服中心']
 
@@ -187,7 +232,13 @@ const SelfReportView: React.FC<{
   startDate: Dayjs
   endDate: Dayjs
   logs: Record<string, DailyLog>
-}> = ({ startDate, endDate, logs }) => {
+  onPreviewFile: (url: string, name: string) => void
+  authToken: string | null
+}> = ({ startDate, endDate, logs, onPreviewFile, authToken }) => {
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+  const toggleGroup = (key: string) =>
+    setCollapsedGroups((prev) => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s })
+
   // Collect logs in range (chronological)
   const rangeLogs: DailyLog[] = []
   let cur = startDate
@@ -251,7 +302,7 @@ const SelfReportView: React.FC<{
         </Card>
       )}
 
-      {/* ── Progress updates — Project → Function → chronological entries ── */}
+      {/* ── Progress updates — same 3-level layout as day view ── */}
       {(() => {
         if (rangeLogs.length === 0) {
           return (
@@ -262,163 +313,189 @@ const SelfReportView: React.FC<{
         }
 
         type RichEntry = DailyLogEntry & { log_date: string; log_status: DailyLog['status'] }
-        // Level-2: function / duty sub-group
-        type SubGroup = { key: string; label: string; entries: RichEntry[]; totalHours: number }
-        // Level-1: project / category group
-        type ProjectGroup = {
-          key: string
-          cat: typeof WORK_CATEGORIES[0]
-          projectNm: string   // project name, duty name, or '' for pure-category
-          totalHours: number
-          subGroups: Map<string, SubGroup>
-        }
+        type RichTaskGroup = { taskKey: string; taskNm: string; group1?: string; group2?: string; expectedStartDate?: string; expectedEndDate?: string; totalHours: number; entries: RichEntry[] }
+        type RichProjGroup = { projKey: string; projNm: string; totalHours: number; tasks: RichTaskGroup[] }
+        type RichCatSection = { catKey: WorkCategory; cat: typeof WORK_CATEGORIES[0]; totalHours: number; projGroups: RichProjGroup[] }
 
-        const catOrder = WORK_CATEGORIES.map((c) => c.value)
-        const projMap = new Map<string, ProjectGroup>()
+        // Build 3-level hierarchy mirroring groupDailyEntries
+        const catMap = new Map<string, { cat: typeof WORK_CATEGORIES[0]; totalHours: number; projMap: Map<string, { projNm: string; totalHours: number; taskMap: Map<string, { taskKey: string; taskNm: string; group1?: string; group2?: string; expectedStartDate?: string; expectedEndDate?: string; totalHours: number; entries: RichEntry[] }> }> }>()
 
         for (const log of rangeLogs) {
           for (const e of log.entries) {
-            // ── Level-1 key (project group) ──
-            let projKey: string
-            let projNm: string
-            let subKey: string
-            let subLabel: string
+            const catKey = e.work_category
+            const cat = CATEGORY_MAP[catKey] ?? WORK_CATEGORIES[0]
+            if (!catMap.has(catKey)) catMap.set(catKey, { cat, totalHours: 0, projMap: new Map() })
+            const cs = catMap.get(catKey)!
+            cs.totalHours += e.hours
 
-            if (e.work_category === 'project' || e.work_category === 'cr_ar') {
-              projKey  = `${e.work_category}__${e.project_id ?? 'none'}`
-              projNm   = e.project_nm ?? ''
-              subKey   = e.function_id ?? '__no_func__'
-              subLabel = e.function_nm ?? '（無關聯任務）'
-            } else if (e.work_category === 'duty') {
-              projKey  = `duty__${e.duty_id ?? 'none'}`
-              projNm   = e.duty_nm ?? ''
-              subKey   = '__only__'
-              subLabel = ''
+            let projKey: string, projNm: string, taskKey: string, taskNm: string
+            if (catKey === 'project' || catKey === 'cr_ar') {
+              projKey = e.project_id ?? '__no_proj__'; projNm = e.project_nm ?? ''
+              taskKey = e.function_id ?? e.entry_id;   taskNm = e.function_nm ?? '（無關聯任務）'
+            } else if (catKey === 'duty') {
+              projKey = '__duty__'; projNm = ''
+              taskKey = e.duty_id ?? e.entry_id; taskNm = e.duty_nm ?? ''
             } else {
-              projKey  = `cat__${e.work_category}`
-              projNm   = ''
-              subKey   = '__only__'
-              subLabel = ''
+              projKey = '__flat__'; projNm = ''
+              taskKey = '__flat__'; taskNm = ''
             }
 
-            if (!projMap.has(projKey)) {
-              projMap.set(projKey, {
-                key: projKey,
-                cat: CATEGORY_MAP[e.work_category] ?? WORK_CATEGORIES[0],
-                projectNm: projNm,
-                totalHours: 0,
-                subGroups: new Map(),
-              })
-            }
-            const pg = projMap.get(projKey)!
+            if (!cs.projMap.has(projKey)) cs.projMap.set(projKey, { projNm, totalHours: 0, taskMap: new Map() })
+            const pg = cs.projMap.get(projKey)!
             pg.totalHours += e.hours
 
-            if (!pg.subGroups.has(subKey)) {
-              pg.subGroups.set(subKey, { key: subKey, label: subLabel, entries: [], totalHours: 0 })
-            }
-            const sg = pg.subGroups.get(subKey)!
-            sg.entries.push({ ...e, log_date: log.log_date, log_status: log.status })
-            sg.totalHours += e.hours
+            if (!pg.taskMap.has(taskKey)) pg.taskMap.set(taskKey, { taskKey, taskNm, group1: e.group1, group2: e.group2, expectedStartDate: e.expected_start_date, expectedEndDate: e.expected_end_date, totalHours: 0, entries: [] })
+            const tg = pg.taskMap.get(taskKey)!
+            tg.totalHours += e.hours
+            tg.entries.push({ ...e, log_date: log.log_date, log_status: log.status })
           }
         }
 
-        // Sort project groups by category order, then project name
-        const projectGroups = [...projMap.values()].sort((a, b) => {
-          const ci = catOrder.indexOf(a.cat.value) - catOrder.indexOf(b.cat.value)
-          return ci !== 0 ? ci : a.projectNm.localeCompare(b.projectNm)
-        })
-
-        // Sort sub-groups and their entries chronologically
-        for (const pg of projectGroups) {
-          for (const sg of pg.subGroups.values()) {
-            sg.entries.sort((a, b) => a.log_date.localeCompare(b.log_date))
-          }
-        }
+        // Sort and build final structure
+        const sections: RichCatSection[] = WORK_CATEGORIES
+          .filter((c) => catMap.has(c.value))
+          .map((c) => {
+            const cs = catMap.get(c.value)!
+            const projGroups: RichProjGroup[] = [...cs.projMap.entries()]
+              .sort(([, a], [, b]) => a.projNm.localeCompare(b.projNm))
+              .map(([projKey, pg]) => {
+                const tasks: RichTaskGroup[] = [...pg.taskMap.values()]
+                // Two-phase task sort (same as day view)
+                const gKey = (t: RichTaskGroup) => `${t.group1 ?? ''}\x00${t.group2 ?? ''}`
+                const groupEarliest = new Map<string, string>()
+                for (const t of tasks) { const k = gKey(t); const cur = groupEarliest.get(k) ?? '9999-99-99'; const ts = t.expectedStartDate ?? '9999-99-99'; if (ts < cur) groupEarliest.set(k, ts) }
+                tasks.sort((a, b) => { const ga = groupEarliest.get(gKey(a)) ?? '9999-99-99'; const gb = groupEarliest.get(gKey(b)) ?? '9999-99-99'; if (ga !== gb) return ga.localeCompare(gb); const sa = a.expectedStartDate ?? '9999-99-99'; const sb = b.expectedStartDate ?? '9999-99-99'; if (sa !== sb) return sa.localeCompare(sb); return (a.expectedEndDate ?? '9999-99-99').localeCompare(b.expectedEndDate ?? '9999-99-99') })
+                // Sort entries chronologically within each task
+                for (const t of tasks) t.entries.sort((a, b) => a.log_date.localeCompare(b.log_date))
+                return { projKey, projNm: pg.projNm, totalHours: pg.totalHours, tasks }
+              })
+            return { catKey: c.value as WorkCategory, cat: cs.cat, totalHours: cs.totalHours, projGroups }
+          })
 
         const DOW = ['日', '一', '二', '三', '四', '五', '六']
-        const totalGroups = projectGroups.reduce((s, pg) => s + pg.subGroups.size, 0)
+        const totalTasks = sections.reduce((s, cs) => s + cs.projGroups.reduce((ps, pg) => ps + pg.tasks.filter(t => t.taskKey !== '__flat__').length, 0), 0)
 
         return (
-          <div className="space-y-4">
+          <div className="space-y-3">
             {/* Section title */}
             <div className="flex items-center gap-2 px-1">
               <DocumentTextIcon className="w-4 h-4 text-slate-400" />
               <span className="text-sm font-semibold text-slate-700">進度更新</span>
-              <span className="text-xs text-slate-400 font-normal">
-                {allEntries.length} 條記錄 · {totalGroups} 個任務
-              </span>
+              <span className="text-xs text-slate-400 font-normal">{allEntries.length} 條記錄 · {totalTasks} 個任務</span>
             </div>
 
-            {projectGroups.map((pg) => {
-              const subList = [...pg.subGroups.values()]
-              const onlySub = subList.length === 1 && subList[0].key === '__only__'
+            {sections.map((section) => {
+              const collapsed = collapsedGroups.has(section.catKey)
+              const taskCount = section.projGroups.reduce((s, pg) => s + pg.tasks.filter(t => t.taskKey !== '__flat__').length, 0)
               return (
-                <div key={pg.key} className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
-                  {/* ── Level-1: Project / category header ── */}
-                  <div
-                    className="flex items-center gap-2.5 px-4 py-3 flex-wrap"
-                    style={{ background: pg.cat.color + '0e', borderBottom: `2px solid ${pg.cat.color}30` }}
-                  >
-                    <Tag
-                      style={{ fontSize: 10, padding: '0 7px', margin: 0, lineHeight: '22px', background: pg.cat.color + '22', color: pg.cat.color, border: `1px solid ${pg.cat.color}55`, fontWeight: 700 }}
-                    >
-                      {pg.cat.label}
+                <div key={section.catKey} className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
+                  {/* ── Category header ── */}
+                  <button onClick={() => toggleGroup(section.catKey)}
+                    className="w-full flex items-center gap-2 px-4 py-3 text-left border-0 outline-none cursor-pointer"
+                    style={{ background: section.cat.color + '12', borderBottom: collapsed ? 'none' : `2px solid ${section.cat.color}30` }}>
+                    <Tag style={{ fontSize: 10, padding: '0 7px', margin: 0, lineHeight: '22px', background: section.cat.color + '22', color: section.cat.color, border: `1px solid ${section.cat.color}55`, fontWeight: 700 }}>
+                      {section.cat.label}
                     </Tag>
-                    {pg.projectNm && (
-                      <span className="text-sm font-bold text-slate-800">{pg.projectNm}</span>
-                    )}
-                    <div className="ml-auto flex items-center gap-1 text-xs font-bold" style={{ color: pg.cat.color }}>
-                      <ClockIcon className="w-3.5 h-3.5" />
-                      {pg.totalHours}h
+                    {taskCount > 0 && <span className="text-xs text-slate-400">{taskCount} 個任務</span>}
+                    <div className="ml-auto flex items-center gap-1.5">
+                      <span className="text-sm font-bold tabular-nums" style={{ color: section.cat.color }}>
+                        <ClockIcon className="w-3.5 h-3.5 inline mr-0.5" />{fmtH(section.totalHours)}h
+                      </span>
+                      <ChevronDownIcon className="w-3.5 h-3.5 transition-transform duration-150" style={{ color: section.cat.color, transform: collapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }} />
                     </div>
-                  </div>
+                  </button>
 
-                  {/* ── Level-2: Function sub-groups ── */}
-                  <div className={onlySub ? '' : 'divide-y divide-slate-100'}>
-                    {subList.map((sg) => (
-                      <div key={sg.key}>
-                        {/* Function sub-header (only shown when project has named sub-tasks) */}
-                        {!onlySub && sg.label && (
-                          <div className="flex items-center gap-2 px-4 py-2 bg-slate-50/70 border-b border-slate-100">
-                            <div className="w-1 h-3.5 rounded-full flex-shrink-0" style={{ background: pg.cat.color }} />
-                            <span className="text-xs font-semibold text-slate-600">{sg.label}</span>
-                            <span className="ml-auto text-[11px] font-semibold text-slate-400">{sg.totalHours}h</span>
-                          </div>
-                        )}
-
-                        {/* Entries sorted by date */}
-                        <div className="divide-y divide-slate-50">
-                          {sg.entries.map((entry) => {
-                            const d = dayjs(entry.log_date)
-                            const dow = DOW[d.day()]
-                            return (
-                              <div key={entry.entry_id} className="px-4 py-3">
-                                <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                                  <span className="text-[11px] font-semibold text-slate-500 tabular-nums">
-                                    {d.format('MM/DD')} 週{dow}
-                                  </span>
-                                  <Tag
-                                    color={entry.log_status === 'confirmed' ? 'success' : entry.log_status === 'submitted' ? 'processing' : 'default'}
-                                    style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px' }}
-                                  >
-                                    {entry.log_status === 'confirmed' ? '已確認' : entry.log_status === 'submitted' ? '已提交' : '草稿'}
-                                  </Tag>
-                                  <div className="ml-auto flex items-center gap-1 text-xs font-semibold" style={{ color: entry.is_overtime ? '#d97706' : '#2563eb' }}>
-                                    <ClockIcon className="w-3 h-3" />
-                                    {entry.hours}h
-                                    {entry.is_overtime && (
-                                      <Tag color="orange" style={{ fontSize: 9, padding: '0 3px', margin: 0, lineHeight: '14px' }}>加班</Tag>
-                                    )}
-                                  </div>
-                                </div>
-                                <p className="text-sm text-slate-700 leading-relaxed">{entry.description}</p>
+                  {!collapsed && (
+                    <div>
+                      {section.projGroups.map((pg) => {
+                        const showProjRow = pg.projNm !== ''
+                        return (
+                          <div key={pg.projKey}>
+                            {/* ── Project row ── */}
+                            {showProjRow && (
+                              <div className="flex items-center gap-2 px-4 py-2.5 border-b border-slate-100">
+                                <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: section.cat.color }} />
+                                <span className="text-sm font-semibold text-slate-700">{pg.projNm}</span>
+                                <span className="ml-auto text-xs font-semibold tabular-nums" style={{ color: section.cat.color }}>{fmtH(pg.totalHours)}h</span>
                               </div>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                            )}
+                            {/* ── Tasks ── */}
+                            <div className={showProjRow ? 'pl-3' : ''}>
+                              {pg.tasks.map((task) => {
+                                const showTaskRow = task.taskNm !== ''
+                                return (
+                                  <div key={task.taskKey} className="border-b border-slate-100 last:border-0">
+                                    {/* Task header */}
+                                    {showTaskRow && (
+                                      <div className="flex items-center gap-2 px-4 py-2 bg-slate-50/60">
+                                        <div className="w-1 h-4 rounded-full flex-shrink-0" style={{ background: section.cat.color }} />
+                                        {task.group1 && <span className="text-[10px] bg-slate-100 text-slate-500 rounded px-1.5 py-0.5 font-medium">{task.group1}</span>}
+                                        {task.group2 && <span className="text-[10px] bg-slate-100 text-slate-500 rounded px-1.5 py-0.5 font-medium">{task.group2}</span>}
+                                        <span className="text-xs font-semibold text-slate-700">{task.taskNm}</span>
+                                        {(task.expectedStartDate || task.expectedEndDate) && (
+                                          <span className="text-[10px] text-slate-400 tabular-nums">{task.expectedStartDate ?? '—'} ~ {task.expectedEndDate ?? '—'}</span>
+                                        )}
+                                        <span className="ml-auto text-[11px] font-semibold text-slate-400 tabular-nums">{fmtH(task.totalHours)}h</span>
+                                      </div>
+                                    )}
+                                    {/* Entries */}
+                                    <div>
+                                      {task.entries.map((entry, eIdx) => {
+                                        const d = dayjs(entry.log_date)
+                                        return (
+                                          <div key={entry.entry_id}>
+                                            {eIdx > 0 && <div style={{ height: '1px', background: '#e2e8f0', margin: '0 16px' }} />}
+                                            <div className="flex items-center gap-3 px-4 py-2.5">
+                                              <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                  <p className="text-sm text-slate-700 leading-relaxed">{entry.description || <span className="text-slate-300 italic">（無說明）</span>}</p>
+                                                  {entry.source && (
+                                                    <Tag style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px' }}>
+                                                      {entry.source === 'progress' ? '進度提交' : entry.source === 'updated' ? '日誌更新' : '日誌添加'}
+                                                    </Tag>
+                                                  )}
+                                                </div>
+                                                {entry.files && entry.files.length > 0 && (
+                                                  <div className="flex flex-wrap gap-1.5 mt-1.5">
+                                                    {entry.files.map((f, fi) => {
+                                                      const previewUrl = authToken ? `${f.url}?token=${authToken}` : f.url
+                                                      return (
+                                                        <button key={fi} onClick={() => onPreviewFile(previewUrl, f.name)}
+                                                          className="inline-flex items-center gap-1 text-[11px] text-blue-500 bg-blue-50 border border-blue-100 rounded px-2 py-0.5 hover:bg-blue-100 transition-colors max-w-[180px] cursor-pointer">
+                                                          <PaperClipIcon className="w-3 h-3 flex-shrink-0" />
+                                                          <span className="truncate">{f.name}</span>
+                                                        </button>
+                                                      )
+                                                    })}
+                                                  </div>
+                                                )}
+                                              </div>
+                                              <div className="flex-shrink-0 text-right">
+                                                <div className="flex items-center gap-0.5 text-xs font-semibold justify-end" style={{ color: entry.is_overtime ? '#d97706' : '#2563eb' }}>
+                                                  <ClockIcon className="w-3.5 h-3.5" />{fmtH(entry.hours)}h
+                                                  {entry.is_overtime && <Tag color="orange" style={{ fontSize: 9, padding: '0 3px', margin: 0, lineHeight: '14px' }}>加班</Tag>}
+                                                </div>
+                                                <div className="text-[10px] text-slate-400 tabular-nums mt-0.5">{d.format('MM/DD')} 週{DOW[d.day()]}</div>
+                                                <Tag
+                                                  color={entry.log_status === 'confirmed' ? 'success' : entry.log_status === 'submitted' ? 'processing' : 'default'}
+                                                  style={{ fontSize: 9, padding: '0 4px', margin: '2px 0 0', lineHeight: '14px' }}>
+                                                  {entry.log_status === 'confirmed' ? '已確認' : entry.log_status === 'submitted' ? '已提交' : '草稿'}
+                                                </Tag>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        )
+                                      })}
+                                    </div>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
               )
             })}
@@ -437,6 +514,8 @@ type ViewMode = 'day' | 'week' | 'month' | 'quarter' | 'year'
 
 // entriesToPayload delegates to the shared adapter in daily_log.api.ts
 const entriesToPayload = entriesToBackend
+// Format hours: show up to 2 decimal places, stripping trailing zeros (e.g. 1.50 → "1.5", 1.00 → "1")
+const fmtH = (h: number) => parseFloat(h.toFixed(2))
 
 // ─── Main Page ──────────────────────────────────────────────────────────────
 
@@ -450,6 +529,7 @@ const DailyLogPage: React.FC = () => {
   const [currentDate, setCurrentDate] = useState<Dayjs>(dayjs())
   const [viewMode, setViewMode] = useState<ViewMode>('day')
   const [modalOpen, setModalOpen] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [editingEntry, setEditingEntry] = useState<DailyLogEntry | null>(null)
   const [previewFile, setPreviewFile] = useState<{ url: string; name: string } | null>(null)
   const [logs, setLogs] = useState<Record<string, DailyLog>>({})
@@ -457,8 +537,19 @@ const DailyLogPage: React.FC = () => {
   // They are refreshed from /suggest on every day-view load.
   const [suggestMap, setSuggestMap] = useState<Record<string, DailyLogEntry[]>>({})
   const [logsLoading, setLogsLoading] = useState(false)
+  const [collapsedSections, setCollapsedSections] = useState<Set<WorkCategory>>(new Set())
+  const toggleSection = (cat: WorkCategory) =>
+    setCollapsedSections((prev) => {
+      const next = new Set(prev)
+      next.has(cat) ? next.delete(cat) : next.add(cat)
+      return next
+    })
+
   const [form] = Form.useForm()
+  const watchedCategory = Form.useWatch('work_category', form) as WorkCategory | undefined
   const [fileList, setFileList] = useState<UploadFile[]>([])
+  // Files already saved on the entry (non-progress source) — user can delete individual ones
+  const [existingFiles, setExistingFiles] = useState<{ name: string; url: string; size?: number }[]>([])
   const [selectedProject, setSelectedProject] = useState<string | null>(null)
 
   // Dropdown options loaded from real API
@@ -492,10 +583,16 @@ const DailyLogPage: React.FC = () => {
     if (functionsMap[selectedProject]) return  // already cached
     projectApi.functionList(selectedProject, { page: 1, size: 200 })
       .then((res) => {
-        const list = (res.content as { data_list?: { id: string; function_nm: string }[] })?.data_list ?? []
+        type RawFunc = { id: string; function_nm: string; group1?: string; group2?: string; expected_start_date?: string; expected_end_date?: string }
+        const list = (res.content as { data_list?: RawFunc[] })?.data_list ?? []
         setFunctionsMap((prev) => ({
           ...prev,
-          [selectedProject]: list.map((f) => ({ id: f.id, name: f.function_nm })),
+          [selectedProject]: list.map((f) => ({
+            id: f.id, name: f.function_nm,
+            group1: f.group1, group2: f.group2,
+            expected_start_date: f.expected_start_date,
+            expected_end_date: f.expected_end_date,
+          })),
         }))
       })
       .catch(() => {})
@@ -553,12 +650,15 @@ const DailyLogPage: React.FC = () => {
                 duty_id:       item.task_type === 'duty' ? item.task_id : undefined,
                 duty_nm:       item.task_type === 'duty' ? item.task_nm : undefined,
                 project_nm:    item.project_nm ?? undefined,
-                group1:        item.group1 || undefined,
-                group2:        item.group2 || undefined,
-                description:   item.description,
+                group1:               item.group1 || undefined,
+                group2:               item.group2 || undefined,
+                expected_start_date:  item.expected_start_date || undefined,
+                expected_end_date:    item.expected_end_date || undefined,
+                description:          item.description,
                 hours:         item.work_hours || 0,
                 is_overtime:   false,
                 overtime_hours: 0,
+                source:        'progress' as const,
                 files:         item.files?.length ? item.files : undefined,
                 suggest_id:    item.suggest_id,
                 record_time:   item.record_time ?? undefined,
@@ -572,24 +672,68 @@ const DailyLogPage: React.FC = () => {
       .finally(() => setLogsLoading(false))
   }, [currentDate, viewMode]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Dismissed suggest IDs (persisted in localStorage) ──────────────────────
+  // When a user explicitly deletes an entry that originated from a suggest record,
+  // we store its suggest_id so it won't resurface after a page refresh.
+  const dismissedKey = (date: string) => `daily_log_dismissed_${date}`
+  const getDismissedIds = (date: string): Set<string> => {
+    try {
+      const raw = localStorage.getItem(dismissedKey(date))
+      return new Set(raw ? JSON.parse(raw) : [])
+    } catch { return new Set() }
+  }
+  const addDismissedId = (date: string, suggestId: string) => {
+    const ids = getDismissedIds(date)
+    ids.add(suggestId)
+    localStorage.setItem(dismissedKey(date), JSON.stringify([...ids]))
+  }
+  const clearDismissedIds = (date: string) => {
+    localStorage.removeItem(dismissedKey(date))
+  }
+  const removeDismissedId = (date: string, suggestId: string) => {
+    const ids = getDismissedIds(date)
+    ids.delete(suggestId)
+    if (ids.size === 0) localStorage.removeItem(dismissedKey(date))
+    else localStorage.setItem(dismissedKey(date), JSON.stringify([...ids]))
+  }
+
   // Display = manual entries (from DB) + suggest entries (from API, fresh each load).
-  // On page refresh, suggest entries whose suggest_id already appear in a manual entry
-  // are filtered out — those progress records have already been promoted and saved.
+  // Suggest entries are excluded when: already promoted to manual, or explicitly deleted.
   const suggestEntries = suggestMap[dateStr] ?? []
-  const displayEntries = useMemo(() => {
+  const [dismissedVersion, setDismissedVersion] = useState(0)
+  // Dismissed suggest entries (hidden) for the current date — used for the restore popover
+  const dismissedSuggestEntries = useMemo(() => {
+    const dismissedIds = getDismissedIds(dateStr)
+    if (dismissedIds.size === 0) return []
     const promotedSuggestIds = new Set(
       (currentLog?.entries ?? []).map((e) => e.suggest_id).filter(Boolean) as string[],
     )
-    const dedupedSuggest = promotedSuggestIds.size > 0
-      ? suggestEntries.filter((e) => !e.suggest_id || !promotedSuggestIds.has(e.suggest_id))
-      : suggestEntries
+    // Entries that are dismissed AND not yet promoted to a manual entry
+    return suggestEntries.filter(
+      (e) => e.suggest_id && dismissedIds.has(e.suggest_id) && !promotedSuggestIds.has(e.suggest_id),
+    )
+  }, [currentLog, suggestEntries, dateStr, dismissedVersion]) // eslint-disable-line react-hooks/exhaustive-deps
+  const dismissedSuggestCount = dismissedSuggestEntries.length
+  const displayEntries = useMemo(() => {
+    const logStatus = currentLog?.status
+    // Only show suggest entries for draft logs; submitted/confirmed logs show DB entries only
+    if (logStatus === 'submitted' || logStatus === 'confirmed') {
+      return currentLog?.entries ?? []
+    }
+    const promotedSuggestIds = new Set(
+      (currentLog?.entries ?? []).map((e) => e.suggest_id).filter(Boolean) as string[],
+    )
+    const dismissedIds = getDismissedIds(dateStr)
+    const dedupedSuggest = suggestEntries.filter(
+      (e) => !e.suggest_id || (!promotedSuggestIds.has(e.suggest_id) && !dismissedIds.has(e.suggest_id))
+    )
     return [...(currentLog?.entries ?? []), ...dedupedSuggest]
-  }, [currentLog, suggestEntries])
+  }, [currentLog, suggestEntries, dateStr, dismissedVersion]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const totalHours = displayEntries.reduce((s, e) => s + e.hours, 0)
   const overtimeHours = displayEntries.filter((e) => e.is_overtime).reduce((s, e) => s + (e.overtime_hours ?? e.hours), 0)
-  const normalHours = totalHours - overtimeHours
-  const sufficiencyPct = Math.min(100, Math.round((normalHours / STANDARD_DAILY_HOURS) * 100))
+
+  const sufficiencyPct = Math.round((totalHours / STANDARD_DAILY_HOURS) * 100)
   const isReadOnly = currentLog?.status === 'submitted' || currentLog?.status === 'confirmed'
 
   // Navigation
@@ -644,8 +788,17 @@ const DailyLogPage: React.FC = () => {
       if (projId && !functionsMap[projId]) {
         projectApi.functionList(projId, { page: 1, size: 200 })
           .then((res) => {
-            const list = (res.content as { data_list?: { id: string; function_nm: string }[] })?.data_list ?? []
-            setFunctionsMap((prev) => ({ ...prev, [projId]: list.map((f) => ({ id: f.id, name: f.function_nm })) }))
+            type RawFunc = { id: string; function_nm: string; group1?: string; group2?: string; expected_start_date?: string; expected_end_date?: string }
+            const list = (res.content as { data_list?: RawFunc[] })?.data_list ?? []
+            setFunctionsMap((prev) => ({
+              ...prev,
+              [projId]: list.map((f) => ({
+                id: f.id, name: f.function_nm,
+                group1: f.group1, group2: f.group2,
+                expected_start_date: f.expected_start_date,
+                expected_end_date: f.expected_end_date,
+              })),
+            }))
           })
           .catch(() => {})
       }
@@ -665,46 +818,26 @@ const DailyLogPage: React.FC = () => {
       form.resetFields()
     }
     setFileList([])
+    // For non-progress entries, load existing files into editable state
+    const entryFiles = (entry?.files ?? [])
+    setExistingFiles(entry?.source !== 'progress' ? entryFiles : [])
     setModalOpen(true)
   }
 
   // Save entry
-  const handleSaveEntry = (values: Record<string, unknown>) => {
+  const handleSaveEntry = async (values: Record<string, unknown>) => {
     const cat = values.work_category as WorkCategory
     const projId = values.project_id as string | undefined
     const funcId = values.function_id as string | undefined
     const dutyId = values.duty_id as string | undefined
 
-    const newEntry: DailyLogEntry = {
-      // If editing a suggest-originated entry, promote it to a manual entry
-      // so it won't be overwritten by auto-suggest on next page load.
-      entry_id: editingEntry
-        ? (editingEntry.entry_id.startsWith('suggest-') ? `e-${Date.now()}` : editingEntry.entry_id)
-        : `e-${Date.now()}`,
-      work_category: cat,
-      project_id: projId,
-      project_nm: projectOpts.find((p) => p.id === projId)?.name,
-      function_id: funcId,
-      function_nm: functionsMap[projId ?? '']?.find((f) => f.id === funcId)?.name,
-      duty_id: dutyId,
-      duty_nm: dutyOpts.find((d) => d.id === dutyId)?.name,
-      bu_unit: values.bu_unit as string | undefined,
-      description: values.description as string,
-      hours: values.hours as number,
-      is_overtime: (values.is_overtime as boolean) ?? false,
-      overtime_hours: (values.is_overtime as boolean) ? (values.hours as number) : 0,
-      // Carry over the source progress-record ID so refreshes can deduplicate precisely
-      suggest_id: editingEntry?.suggest_id,
-      // Preserve attachments from the original progress record
-      files: editingEntry?.files?.length ? editingEntry.files : undefined,
-      // Preserve submission time; for brand-new entries record current time
-      record_time: editingEntry?.record_time ?? dayjs().format('HH:mm'),
-    }
-
+    const selectedFunc = functionsMap[projId ?? '']?.find((f) => f.id === funcId)
     const isSuggestEdit = editingEntry?.entry_id.startsWith('suggest-') ?? false
 
+    setSaving(true)
+    try {
+
     // If the user edited a suggest entry, remove it from suggestMap
-    // (it will live in manual entries from now on)
     if (isSuggestEdit && editingEntry) {
       setSuggestMap((prev) => ({
         ...prev,
@@ -712,58 +845,132 @@ const DailyLogPage: React.FC = () => {
       }))
     }
 
-    // Compute new entries and updated log outside the state updater to avoid
-    // running side effects (API calls) inside the updater, which React may invoke
-    // more than once (e.g. in StrictMode).
     const prevLog = logs[dateStr] ?? {
       log_id: `log-${dateStr}`, work_no: workNo, log_date: dateStr,
       entries: [], total_hours: 0, overtime_hours: 0, status: 'draft' as const,
     }
+    const hasRealId = !!(prevLog.log_id && !prevLog.log_id.startsWith('log-'))
+
+    // Step 1 — get (or create) the log_id so we can upload files against it
+    let logId = hasRealId ? prevLog.log_id! : ''
+    if (!hasRealId) {
+      // Need to create the log first (without new files) to obtain a log_id
+      const placeholderEntry: DailyLogEntry = {
+        entry_id: editingEntry
+          ? (isSuggestEdit ? `e-${Date.now()}` : editingEntry.entry_id)
+          : `e-${Date.now()}`,
+        work_category: cat,
+        project_id: projId,
+        project_nm: projectOpts.find((p) => p.id === projId)?.name,
+        function_id: funcId, function_nm: selectedFunc?.name,
+        group1: selectedFunc?.group1 ?? editingEntry?.group1,
+        group2: selectedFunc?.group2 ?? editingEntry?.group2,
+        duty_id: dutyId, duty_nm: dutyOpts.find((d) => d.id === dutyId)?.name,
+        bu_unit: values.bu_unit as string | undefined,
+        description: values.description as string,
+        hours: values.hours as number,
+        is_overtime: (values.is_overtime as boolean) ?? false,
+        overtime_hours: (values.is_overtime as boolean) ? (values.hours as number) : 0,
+        source: editingEntry ? 'updated' : 'manual',
+        suggest_id: editingEntry?.suggest_id,
+        expected_start_date: selectedFunc?.expected_start_date ?? editingEntry?.expected_start_date,
+        expected_end_date: selectedFunc?.expected_end_date ?? editingEntry?.expected_end_date,
+        files: editingEntry?.source === 'progress'
+          ? (editingEntry.files?.length ? editingEntry.files : undefined)
+          : (existingFiles.length ? existingFiles : undefined),
+        record_time: editingEntry?.record_time ?? dayjs().format('HH:mm'),
+      }
+      const tmpEntries = [...prevLog.entries, placeholderEntry]
+      try {
+        const res = await dailyLogApi.create(entriesToPayload(tmpEntries, dateStr))
+        logId = res.content?.log_id ?? ''
+        if (logId) {
+          setLogs((p) => ({ ...p, [dateStr]: { ...p[dateStr], log_id: logId } }))
+        }
+      } catch { /* continue without log_id */ }
+    }
+
+    // Step 2 — upload new files to server and get real URLs
+    const newFileObjs = fileList.filter((f) => f.originFileObj).map((f) => f.originFileObj!)
+    let uploadedFiles: { name: string; url: string; size?: number }[] = []
+    if (newFileObjs.length > 0 && logId) {
+      try {
+        const res = await dailyLogApi.uploadAttachments(logId, newFileObjs)
+        uploadedFiles = (res.content ?? []).map((u) => ({ name: u.file_name, url: u.url, size: u.file_size }))
+      } catch { /* if upload fails, skip attachments */ }
+    }
+
+    // Step 3 — build final entry with server URLs
+    // For progress entries keep original files; for manual/updated entries use the editable existingFiles list
+    const baseFiles = editingEntry?.source === 'progress' ? (editingEntry?.files ?? []) : existingFiles
+    const mergedFiles = [...baseFiles, ...uploadedFiles]
+    const newEntry: DailyLogEntry = {
+      entry_id: editingEntry
+        ? (isSuggestEdit ? `e-${Date.now()}` : editingEntry.entry_id)
+        : `e-${Date.now()}`,
+      work_category: cat,
+      project_id: projId,
+      project_nm: projectOpts.find((p) => p.id === projId)?.name,
+      function_id: funcId, function_nm: selectedFunc?.name,
+      group1: selectedFunc?.group1 ?? editingEntry?.group1,
+      group2: selectedFunc?.group2 ?? editingEntry?.group2,
+      duty_id: dutyId, duty_nm: dutyOpts.find((d) => d.id === dutyId)?.name,
+      bu_unit: values.bu_unit as string | undefined,
+      description: values.description as string,
+      hours: values.hours as number,
+      is_overtime: (values.is_overtime as boolean) ?? false,
+      overtime_hours: (values.is_overtime as boolean) ? (values.hours as number) : 0,
+      source: editingEntry ? 'updated' : 'manual',
+      suggest_id: editingEntry?.suggest_id,
+      expected_start_date: selectedFunc?.expected_start_date ?? editingEntry?.expected_start_date,
+      expected_end_date: selectedFunc?.expected_end_date ?? editingEntry?.expected_end_date,
+      files: mergedFiles.length > 0 ? mergedFiles : undefined,
+      record_time: editingEntry?.record_time ?? dayjs().format('HH:mm'),
+    }
+
+    // Step 4 — update local state and persist to backend
+    const currentLog = logs[dateStr] ?? prevLog
     const newEntries = editingEntry && !isSuggestEdit
-      ? prevLog.entries.map((e) => e.entry_id === editingEntry.entry_id ? newEntry : e)
-      : [...prevLog.entries, newEntry]
+      ? currentLog.entries.map((e) => e.entry_id === editingEntry.entry_id ? newEntry : e)
+      : [...currentLog.entries.filter((e) => e.entry_id !== newEntry.entry_id), newEntry]
     const newTotal = newEntries.reduce((s, e) => s + e.hours, 0)
     const newOt = newEntries.filter((e) => e.is_overtime).reduce((s, e) => s + (e.overtime_hours ?? e.hours), 0)
-    const updatedLog = { ...prevLog, entries: newEntries, total_hours: newTotal, overtime_hours: newOt }
+    setLogs((prev) => ({
+      ...prev,
+      [dateStr]: { ...currentLog, log_id: logId || currentLog.log_id, entries: newEntries, total_hours: newTotal, overtime_hours: newOt },
+    }))
 
-    setLogs((prev) => ({ ...prev, [dateStr]: updatedLog }))
-
-    // Persist to backend — called once, outside the state updater
-    const backendPayload = entriesToPayload(newEntries, dateStr)
-    const hasRealId = prevLog.log_id && !prevLog.log_id.startsWith('log-')
-    if (hasRealId) {
-      dailyLogApi.update(prevLog.log_id!, {
-        task_items: backendPayload.task_items,
-        free_items: backendPayload.free_items,
-      }).catch(() => {})
-    } else {
-      dailyLogApi.create(backendPayload)
-        .then((res) => {
-          if (res.content?.log_id) {
-            setLogs((p) => ({
-              ...p,
-              [dateStr]: { ...p[dateStr], log_id: res.content.log_id },
-            }))
-          }
+    if (logId) {
+      const backendPayload = entriesToPayload(newEntries, dateStr)
+      try {
+        await dailyLogApi.update(logId, {
+          task_items: backendPayload.task_items,
+          free_items: backendPayload.free_items,
         })
-        .catch(() => {})
+      } catch { /* best-effort */ }
     }
-    setModalOpen(false)
-    form.resetFields()
+
+    } finally {
+      setSaving(false)
+      setModalOpen(false)
+      form.resetFields()
+    }
   }
 
   // Delete entry
   const handleDeleteEntry = (entryId: string) => {
     if (entryId.startsWith('suggest-')) {
-      // Suggest entries are local-only — just remove from suggestMap
-      setSuggestMap((prev) => ({
-        ...prev,
-        [dateStr]: (prev[dateStr] ?? []).filter((e) => e.entry_id !== entryId),
-      }))
+      // Suggest-only entry — persist dismissal; keep in suggestMap so the restore popover can list it
+      const target = (suggestMap[dateStr] ?? []).find((e) => e.entry_id === entryId)
+      if (target?.suggest_id) { addDismissedId(dateStr, target.suggest_id); setDismissedVersion((v) => v + 1) }
       return
     }
     const log = logs[dateStr]
     if (!log) return
+    const target = log.entries.find((e) => e.entry_id === entryId)
+    // If the entry originated from a suggest record, mark it dismissed so it
+    // won't resurface from the suggest API after a page refresh.
+    if (target?.suggest_id) { addDismissedId(dateStr, target.suggest_id); setDismissedVersion((v) => v + 1) }
     const entries = log.entries.filter((e) => e.entry_id !== entryId)
     const total = entries.reduce((s, e) => s + e.hours, 0)
     const ot = entries.filter((e) => e.is_overtime).reduce((s, e) => s + (e.overtime_hours ?? e.hours), 0)
@@ -799,8 +1006,10 @@ const DailyLogPage: React.FC = () => {
         })
         .catch(() => {})
     }
-    // Clear suggest entries for this date (they're now persisted in the submitted log)
+    // Clear suggest entries and dismissed list for this date (log is now submitted)
     setSuggestMap((prev) => ({ ...prev, [dateStr]: [] }))
+    clearDismissedIds(dateStr)
+    setDismissedVersion((v) => v + 1)
     setLogs((prev) => ({
       ...prev,
       [dateStr]: {
@@ -917,8 +1126,8 @@ const DailyLogPage: React.FC = () => {
                   <SunIcon className="w-5 h-5 text-blue-500" />
                 </div>
                 <div>
-                  <div className="text-[10px] text-slate-400 font-medium">正常工時</div>
-                  <div className="text-xl font-bold text-blue-600">{normalHours}<span className="text-xs font-normal text-slate-400 ml-0.5">/ {STANDARD_DAILY_HOURS}h</span></div>
+                  <div className="text-[10px] text-slate-400 font-medium">總工時</div>
+                  <div className="text-xl font-bold text-blue-600">{fmtH(totalHours)}<span className="text-xs font-normal text-slate-400 ml-0.5">/ {STANDARD_DAILY_HOURS}h</span></div>
                 </div>
               </div>
             </Card>
@@ -929,7 +1138,7 @@ const DailyLogPage: React.FC = () => {
                 </div>
                 <div>
                   <div className="text-[10px] text-slate-400 font-medium">加班工時</div>
-                  <div className="text-xl font-bold text-orange-500">{overtimeHours}<span className="text-xs font-normal text-slate-400 ml-0.5">h</span></div>
+                  <div className="text-xl font-bold text-orange-500">{fmtH(overtimeHours)}<span className="text-xs font-normal text-slate-400 ml-0.5">h</span></div>
                 </div>
               </div>
             </Card>
@@ -940,17 +1149,17 @@ const DailyLogPage: React.FC = () => {
                 </div>
                 <div>
                   <div className="text-[10px] text-slate-400 font-medium">總工時</div>
-                  <div className="text-xl font-bold text-slate-700">{totalHours}<span className="text-xs font-normal text-slate-400 ml-0.5">h</span></div>
+                  <div className="text-xl font-bold text-slate-700">{fmtH(totalHours)}<span className="text-xs font-normal text-slate-400 ml-0.5">h</span></div>
                 </div>
               </div>
             </Card>
             <Card bordered={false} className="shadow-sm" bodyStyle={{ padding: '14px 18px' }}>
               <div className="text-[10px] text-slate-400 font-medium mb-1">工時充足率</div>
               <Progress
-                percent={sufficiencyPct}
+                percent={Math.min(100, sufficiencyPct)}
                 size="small"
                 strokeColor={sufficiencyPct >= 100 ? '#16a34a' : sufficiencyPct >= 75 ? '#d97706' : '#dc2626'}
-                format={(p) => <span className={`text-xs font-bold ${(p ?? 0) >= 100 ? 'text-green-600' : (p ?? 0) >= 75 ? 'text-orange-500' : 'text-red-500'}`}>{p}%</span>}
+                format={() => <span className={`text-xs font-bold ${sufficiencyPct >= 100 ? 'text-green-600' : sufficiencyPct >= 75 ? 'text-orange-500' : 'text-red-500'}`}>{sufficiencyPct}%</span>}
               />
               <div className="text-[10px] text-slate-300 mt-0.5">
                 {displayEntries.length} 條記錄
@@ -963,6 +1172,48 @@ const DailyLogPage: React.FC = () => {
             <PencilSquareIcon className="w-4 h-4 text-slate-400" />
             <span className="text-sm font-semibold text-slate-700">日誌條目</span>
             <Badge count={displayEntries.length} color="#2563eb" />
+            {dismissedSuggestCount > 0 && !isReadOnly && (
+              <Popover
+                trigger="click"
+                placement="bottomLeft"
+                title={<span className="text-xs font-semibold text-slate-600">已隱藏的任務進度（{dismissedSuggestCount} 條）</span>}
+                content={
+                  <div className="w-72 max-h-64 overflow-y-auto">
+                    {dismissedSuggestEntries.map((e) => (
+                      <div key={e.suggest_id} className="flex items-start gap-2 py-2 border-b border-slate-100 last:border-0">
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-medium text-slate-700 truncate">
+                            {e.function_nm ?? e.duty_nm ?? '未知任務'}
+                          </div>
+                          {e.description && (
+                            <div className="text-[11px] text-slate-400 truncate mt-0.5">{e.description}</div>
+                          )}
+                          <div className="text-[10px] text-slate-300 mt-0.5 tabular-nums">{fmtH(e.hours)}h · {e.record_time ?? ''}</div>
+                        </div>
+                        <button
+                          className="text-[11px] text-blue-500 hover:text-blue-700 border-0 outline-none bg-transparent p-0 flex-shrink-0 cursor-pointer whitespace-nowrap"
+                          onClick={() => { removeDismissedId(dateStr, e.suggest_id!); setDismissedVersion((v) => v + 1) }}
+                        >
+                          恢復
+                        </button>
+                      </div>
+                    ))}
+                    {dismissedSuggestEntries.length > 1 && (
+                      <button
+                        className="w-full text-[11px] text-slate-400 hover:text-blue-600 border-0 outline-none bg-transparent p-0 pt-2 cursor-pointer text-center"
+                        onClick={() => { clearDismissedIds(dateStr); setDismissedVersion((v) => v + 1) }}
+                      >
+                        全部恢復
+                      </button>
+                    )}
+                  </div>
+                }
+              >
+                <button className="text-[11px] text-slate-400 hover:text-blue-600 underline underline-offset-2 cursor-pointer border-0 outline-none bg-transparent p-0">
+                  {dismissedSuggestCount} 條進度已隱藏
+                </button>
+              </Popover>
+            )}
             {!isReadOnly && (
               <Button type="primary" size="small" icon={<PlusIcon className="w-4 h-4" />}
                 style={{ background: '#2563eb' }} className="ml-auto" onClick={() => openEntryModal()}>
@@ -984,152 +1235,185 @@ const DailyLogPage: React.FC = () => {
                 )}
               </div>
             ) : (
-              <div className="space-y-4">
-                {groupDailyEntries(displayEntries).map((section) => (
-                  <div key={section.sectionKey} className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
+              <div className="space-y-3">
+                {groupDailyEntries(displayEntries).map((section) => {
+                  const collapsed = collapsedSections.has(section.category)
+                  return (
+                    <div key={section.category} className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
 
-                    {/* ── Level-1: Category / project section header ── */}
-                    <div
-                      className="flex items-center gap-2.5 px-4 py-3 flex-wrap"
-                      style={{ background: section.color + '0e', borderBottom: `2px solid ${section.color}30` }}
-                    >
-                      {(() => {
-                        const catKey = section.sectionKey.startsWith('proj-') ? 'project' : section.sectionKey
-                        const catLabel = CATEGORY_MAP[catKey as WorkCategory]?.label ?? section.sectionLabel
-                        return (
-                          <Tag style={{
-                            fontSize: 10, padding: '0 7px', margin: 0, lineHeight: '22px',
-                            background: section.color + '22', color: section.color,
-                            border: `1px solid ${section.color}55`, fontWeight: 700,
-                          }}>
-                            {catLabel}
-                          </Tag>
-                        )
-                      })()}
-                      {/* For project sections, show project name as a separate title */}
-                      {section.sectionKey.startsWith('proj-') && (
-                        <span className="text-sm font-bold text-slate-800">{section.sectionLabel}</span>
-                      )}
-                      <div className="ml-auto flex items-center gap-1 text-xs font-bold" style={{ color: section.color }}>
-                        <ClockIcon className="w-3.5 h-3.5" />
-                        {section.totalHours}h
-                      </div>
-                    </div>
-
-                    {/* ── Level-2: Task groups ── */}
-                    <div className="divide-y divide-slate-100">
-                      {section.tasks.map((task) => (
-                        <div key={task.taskKey}>
-
-                          {/* Function / duty sub-header */}
-                          {task.taskNm && (
-                            <div className="flex items-center gap-2 px-4 py-2.5 bg-slate-50/70">
-                              <div className="w-1 h-4 rounded-full flex-shrink-0" style={{ background: section.color }} />
-                              {(task.group1 || task.group2) && (
-                                <div className="flex items-center gap-1 flex-shrink-0">
-                                  {task.group1 && (
-                                    <span className="text-[10px] bg-white border border-slate-200 text-slate-500 rounded px-1.5 py-px leading-none">{task.group1}</span>
-                                  )}
-                                  {task.group2 && (
-                                    <>
-                                      <span className="text-slate-300 text-[10px]">/</span>
-                                      <span className="text-[10px] bg-white border border-slate-200 text-slate-400 rounded px-1.5 py-px leading-none">{task.group2}</span>
-                                    </>
-                                  )}
-                                </div>
-                              )}
-                              <span className="text-xs font-semibold text-slate-700 flex-1 min-w-0">{task.taskNm}</span>
-                              <span className="text-[11px] font-semibold text-slate-400 flex-shrink-0">{task.totalHours}h</span>
-                              {!isReadOnly && (
-                                <div className="flex gap-0.5 flex-shrink-0 ml-1">
-                                  <Button size="small" type="text"
-                                    icon={<PencilSquareIcon className="w-3.5 h-3.5" />}
-                                    className="text-slate-400 hover:!text-blue-500"
-                                    onClick={() => openEntryModal(task.entries[0])} />
-                                  <Popconfirm title="確定刪除此任務所有記錄？"
-                                    onConfirm={() => task.entries.forEach((e) => handleDeleteEntry(e.entry_id))}
-                                    okText="刪除" cancelText="取消" placement="topRight">
-                                    <Button size="small" type="text" danger
-                                      icon={<TrashIcon className="w-3.5 h-3.5" />}
-                                      className="text-slate-400 hover:!text-red-500" />
-                                  </Popconfirm>
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          {/* Entries */}
-                          <div>
-                            {task.entries.map((entry, idx) => (
-                              <div key={entry.entry_id}>
-                                <div className="px-4 py-2 group flex items-start gap-3">
-                                  {/* Left: description + attachments */}
-                                  <div className="flex-1 min-w-0">
-                                    <p className="text-sm text-slate-700 leading-relaxed">
-                                      {entry.description || <span className="text-slate-300 italic">（無說明）</span>}
-                                    </p>
-                                    {entry.files && entry.files.length > 0 && (
-                                      <div className="flex flex-wrap gap-1.5 mt-1.5">
-                                        {entry.files.map((f, fi) => {
-                                          const token = tokenStorage.get()
-                                          const previewUrl = token ? `${f.url}?token=${token}` : f.url
-                                          return (
-                                            <button key={fi}
-                                              onClick={() => setPreviewFile({ url: previewUrl, name: f.name })}
-                                              className="inline-flex items-center gap-1 text-[11px] text-blue-500 bg-blue-50 border border-blue-100 rounded px-2 py-0.5 hover:bg-blue-100 hover:border-blue-200 transition-colors max-w-[180px] cursor-pointer">
-                                              <PaperClipIcon className="w-3 h-3 flex-shrink-0" />
-                                              <span className="truncate">{f.name}</span>
-                                            </button>
-                                          )
-                                        })}
-                                      </div>
-                                    )}
-                                  </div>
-
-                                  {/* Right: hours on top, time below, actions */}
-                                  <div className="flex items-start gap-1 flex-shrink-0">
-                                    <div className="flex flex-col items-end gap-0.5">
-                                      <span className="flex items-center gap-0.5 text-xs font-semibold"
-                                        style={{ color: entry.is_overtime ? '#d97706' : section.color }}>
-                                        <ClockIcon className="w-3 h-3" />{entry.hours}h
-                                      </span>
-                                      {entry.is_overtime && (
-                                        <Tag color="orange" style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '14px' }}>加班</Tag>
-                                      )}
-                                      <span className="text-[10px] text-slate-400 tabular-nums">
-                                        {entry.record_time ?? '—'}
-                                      </span>
-                                    </div>
-                                    {!isReadOnly && (
-                                      <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <Button size="small" type="text"
-                                          icon={<PencilSquareIcon className="w-3.5 h-3.5" />}
-                                          className="text-slate-400 hover:!text-blue-500 !h-6 !w-6 !p-0 !min-w-0"
-                                          onClick={() => openEntryModal(entry)} />
-                                        <Popconfirm title="確定刪除此條目？" onConfirm={() => handleDeleteEntry(entry.entry_id)}
-                                          okText="刪除" cancelText="取消" placement="topRight">
-                                          <Button size="small" type="text" danger
-                                            icon={<TrashIcon className="w-3.5 h-3.5" />}
-                                            className="text-slate-400 hover:!text-red-500 !h-6 !w-6 !p-0 !min-w-0" />
-                                        </Popconfirm>
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-
-                                {/* Divider between entries */}
-                                {idx < task.entries.length - 1 && (
-                                  <div style={{ height: '1px', background: '#e2e8f0', margin: '0 16px' }} />
-                                )}
-                              </div>
-                            ))}
-                          </div>
-
+                      {/* ── Category header (clickable to collapse) ── */}
+                      <button
+                        type="button"
+                        className="w-full flex items-center gap-2.5 px-4 py-3 text-left hover:brightness-95 transition-all outline-none border-0"
+                        style={{ background: section.color + '0e', borderBottom: collapsed ? 'none' : `2px solid ${section.color}30` }}
+                        onClick={() => toggleSection(section.category)}
+                      >
+                        <Tag style={{
+                          fontSize: 11, padding: '0 8px', margin: 0, lineHeight: '24px',
+                          background: section.color + '22', color: section.color,
+                          border: `1px solid ${section.color}55`, fontWeight: 700,
+                        }}>
+                          {section.label}
+                        </Tag>
+                        <span className="text-xs text-slate-400">{section.projectGroups.reduce((s, g) => s + g.tasks.length, 0)} 個任務</span>
+                        <div className="ml-auto flex items-center gap-2">
+                          <span className="flex items-center gap-1 text-xs font-bold" style={{ color: section.color }}>
+                            <ClockIcon className="w-3.5 h-3.5" />{fmtH(section.totalHours)}h
+                          </span>
+                          <ChevronDownIcon
+                            className="w-4 h-4 text-slate-400 transition-transform duration-200"
+                            style={{ transform: collapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }}
+                          />
                         </div>
-                      ))}
+                      </button>
+
+                      {/* ── Collapsible body ── */}
+                      {!collapsed && (
+                        <div>
+                          {section.projectGroups.map((pg, pgIdx) => (
+                            <div key={pg.projKey}>
+                              {/* Project sub-header (only for project / cr_ar with a named project) */}
+                              {pg.projNm && (
+                                <div
+                                  className="flex items-center gap-2 px-4 py-2"
+                                  style={{
+                                    background: section.color + '08',
+                                    borderTop: pgIdx > 0 ? `1px solid ${section.color}20` : undefined,
+                                    borderBottom: `1px solid ${section.color}20`,
+                                  }}
+                                >
+                                  <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: section.color }} />
+                                  <span className="text-sm font-bold text-slate-800 flex-1 min-w-0">{pg.projNm}</span>
+                                  <span className="text-[11px] font-semibold flex-shrink-0" style={{ color: section.color }}>{fmtH(pg.totalHours)}h</span>
+                                </div>
+                              )}
+
+                              {/* Tasks within this project group */}
+                              <div className={pg.projNm ? 'pl-3' : ''}>
+                                {pg.tasks.map((task, tIdx) => (
+                                  <div key={task.taskKey} style={{ borderTop: tIdx > 0 ? '1px solid #f1f5f9' : undefined }}>
+
+                                    {/* Task sub-header */}
+                                    {task.taskNm && (
+                                      <div className="flex items-center gap-2 px-4 py-2 bg-slate-50/60 group/task">
+                                        <div className="w-1 h-4 rounded-full flex-shrink-0" style={{ background: section.color }} />
+                                        {(task.group1 || task.group2) && (
+                                          <div className="flex items-center gap-1 flex-shrink-0">
+                                            {task.group1 && (
+                                              <span className="text-[10px] bg-white border border-slate-200 text-slate-500 rounded px-1.5 py-px leading-none">{task.group1}</span>
+                                            )}
+                                            {task.group2 && (
+                                              <>
+                                                <span className="text-slate-300 text-[10px]">/</span>
+                                                <span className="text-[10px] bg-white border border-slate-200 text-slate-400 rounded px-1.5 py-px leading-none">{task.group2}</span>
+                                              </>
+                                            )}
+                                          </div>
+                                        )}
+                                        <div className="flex-1 min-w-0">
+                                          <span className="text-sm font-semibold text-slate-700">{task.taskNm}</span>
+                                          {(task.expectedStartDate || task.expectedEndDate) && (
+                                            <span className="ml-2 text-[11px] text-slate-400 tabular-nums">
+                                              {task.expectedStartDate ?? '—'} ~ {task.expectedEndDate ?? '—'}
+                                            </span>
+                                          )}
+                                        </div>
+                                        <span className="text-[11px] font-semibold text-slate-400 flex-shrink-0">{fmtH(task.totalHours)}h</span>
+                                        {!isReadOnly && (
+                                          <Popconfirm
+                                            title={task.entries.length > 1
+                                              ? `確定刪除此任務下全部 ${task.entries.length} 條進度記錄？`
+                                              : '確定刪除此條目？'}
+                                            onConfirm={() => task.entries.forEach((e) => handleDeleteEntry(e.entry_id))}
+                                            okText="刪除" cancelText="取消" placement="topRight">
+                                            <Button size="small" type="text" danger
+                                              icon={<TrashIcon className="w-3.5 h-3.5" />}
+                                              className="text-slate-400 hover:!text-red-500 flex-shrink-0 ml-1 opacity-0 group-hover/task:opacity-100 transition-opacity" />
+                                          </Popconfirm>
+                                        )}
+                                      </div>
+                                    )}
+
+                                    {/* Entries */}
+                                    <div>
+                                      {task.entries.map((entry, idx) => (
+                                        <div key={entry.entry_id}>
+                                          <div className="px-4 py-2 group flex items-center gap-3">
+                                            <div className="flex-1 min-w-0">
+                                              <div className="flex items-center gap-1.5 flex-wrap">
+                                                <p className="text-sm text-slate-700 leading-relaxed">
+                                                  {entry.description || <span className="text-slate-300 italic">（無說明）</span>}
+                                                </p>
+                                                {entry.source && (
+                                                  <Tag style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px' }}>
+                                                    {entry.source === 'progress' ? '進度提交' : entry.source === 'updated' ? '日誌更新' : '日誌添加'}
+                                                  </Tag>
+                                                )}
+                                              </div>
+                                              {entry.files && entry.files.length > 0 && (
+                                                <div className="flex flex-wrap gap-1.5 mt-1.5">
+                                                  {entry.files.map((f, fi) => {
+                                                    const token = tokenStorage.get()
+                                                    const previewUrl = token ? `${f.url}?token=${token}` : f.url
+                                                    return (
+                                                      <button key={fi}
+                                                        onClick={() => setPreviewFile({ url: previewUrl, name: f.name })}
+                                                        className="inline-flex items-center gap-1 text-[11px] text-blue-500 bg-blue-50 border border-blue-100 rounded px-2 py-0.5 hover:bg-blue-100 hover:border-blue-200 transition-colors max-w-[180px] cursor-pointer">
+                                                        <PaperClipIcon className="w-3 h-3 flex-shrink-0" />
+                                                        <span className="truncate">{f.name}</span>
+                                                      </button>
+                                                    )
+                                                  })}
+                                                </div>
+                                              )}
+                                            </div>
+                                            <div className="flex items-center gap-1 flex-shrink-0">
+                                              <div className="flex flex-col items-center gap-0.5">
+                                                <span className="flex items-center gap-0.5 text-sm font-semibold"
+                                                  style={{ color: entry.is_overtime ? '#d97706' : section.color }}>
+                                                  <ClockIcon className="w-4 h-4" />{fmtH(entry.hours)}h
+                                                </span>
+                                                {entry.is_overtime && (
+                                                  <Tag color="orange" style={{ fontSize: 10, padding: '0 4px', margin: 0, lineHeight: '16px' }}>加班</Tag>
+                                                )}
+                                                <span className="text-xs text-slate-400 tabular-nums">
+                                                  {entry.record_time ?? '—'}
+                                                </span>
+                                              </div>
+                                              {!isReadOnly && (
+                                                <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                  <Button size="small" type="text"
+                                                    icon={<PencilSquareIcon className="w-3.5 h-3.5" />}
+                                                    className="text-slate-400 hover:!text-blue-500 !h-6 !w-6 !p-0 !min-w-0"
+                                                    onClick={() => openEntryModal(entry)} />
+                                                  <Popconfirm title="確定刪除此條目？" onConfirm={() => handleDeleteEntry(entry.entry_id)}
+                                                    okText="刪除" cancelText="取消" placement="topRight">
+                                                    <Button size="small" type="text" danger
+                                                      icon={<TrashIcon className="w-3.5 h-3.5" />}
+                                                      className="text-slate-400 hover:!text-red-500 !h-6 !w-6 !p-0 !min-w-0" />
+                                                  </Popconfirm>
+                                                </div>
+                                              )}
+                                            </div>
+                                          </div>
+                                          {idx < task.entries.length - 1 && (
+                                            <div style={{ height: '1px', background: '#e2e8f0', margin: '0 16px' }} />
+                                          )}
+                                        </div>
+                                      ))}
+                                    </div>
+
+                                  </div>
+                                ))}
+                              </div>
+
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>
@@ -1154,6 +1438,8 @@ const DailyLogPage: React.FC = () => {
           startDate={currentDate.startOf('isoWeek')}
           endDate={currentDate.startOf('isoWeek').add(6, 'day')}
           logs={logs}
+          onPreviewFile={(url, name) => setPreviewFile({ url, name })}
+          authToken={tokenStorage.get()}
         />
       )}
 
@@ -1165,6 +1451,8 @@ const DailyLogPage: React.FC = () => {
             startDate={start}
             endDate={end}
             logs={logs}
+            onPreviewFile={(url, name) => setPreviewFile({ url, name })}
+            authToken={tokenStorage.get()}
           />
         )
       })()}
@@ -1208,51 +1496,61 @@ const DailyLogPage: React.FC = () => {
               </Select>
             </Form.Item>
             <Form.Item name="hours" label="耗時 (h)" rules={[{ required: true, message: '請輸入耗時' }]}>
-              <InputNumber min={0.5} max={16} step={0.5} style={{ width: '100%' }} addonAfter="h" />
+              <InputNumber min={0.01} max={24} step={0.01} precision={2} style={{ width: '100%' }} addonAfter="h" />
             </Form.Item>
           </div>
 
-          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.work_category !== cur.work_category}>
-            {({ getFieldValue }) => {
-              const cat = getFieldValue('work_category') as WorkCategory
-              const showProject = cat === 'project' || cat === 'cr_ar'
-              const showDuty = cat === 'duty'
-              return (
-                <>
-                  {showProject && (
-                    <div className="grid grid-cols-2 gap-x-3">
-                      <Form.Item name="project_id" label="關聯專案" rules={[{ required: true, message: '請選擇專案' }]}>
-                        <Select placeholder="選擇專案" allowClear onChange={(v: string) => {
-                          setSelectedProject(v)
-                          form.setFieldsValue({ function_id: undefined })
-                        }}>
-                          {projectOpts.map((p) => (
-                            <Select.Option key={p.id} value={p.id}>{p.name}</Select.Option>
-                          ))}
-                        </Select>
-                      </Form.Item>
-                      <Form.Item name="function_id" label="關聯任務">
-                        <Select placeholder="選擇功能任務" allowClear disabled={!selectedProject}>
-                          {(functionsMap[selectedProject ?? ''] ?? []).map((f) => (
-                            <Select.Option key={f.id} value={f.id}>{f.name}</Select.Option>
-                          ))}
-                        </Select>
-                      </Form.Item>
-                    </div>
-                  )}
-                  {showDuty && (
-                    <Form.Item name="duty_id" label="關聯臨時任務" rules={[{ required: true, message: '請選擇任務' }]}>
-                      <Select placeholder="選擇臨時任務" allowClear>
-                        {dutyOpts.map((d) => (
-                          <Select.Option key={d.id} value={d.id}>{d.name}</Select.Option>
-                        ))}
-                      </Select>
-                    </Form.Item>
-                  )}
-                </>
-              )
-            }}
-          </Form.Item>
+          {(watchedCategory === 'project' || watchedCategory === 'cr_ar') && (
+            <div className="grid grid-cols-2 gap-x-3">
+              <Form.Item name="project_id" label="關聯專案" rules={[{ required: true, message: '請選擇專案' }]}>
+                <Select placeholder="選擇專案" allowClear onChange={(v: string) => {
+                  setSelectedProject(v)
+                  form.setFieldsValue({ function_id: undefined })
+                }}>
+                  {projectOpts.map((p) => (
+                    <Select.Option key={p.id} value={p.id}>{p.name}</Select.Option>
+                  ))}
+                </Select>
+              </Form.Item>
+              <Form.Item name="function_id" label="關聯任務">
+                <Select
+                  placeholder="選擇功能任務" allowClear disabled={!selectedProject}
+                  optionLabelProp="label"
+                  dropdownStyle={{ minWidth: 320 }}
+                >
+                  {(functionsMap[selectedProject ?? ''] ?? []).map((f) => (
+                    <Select.Option key={f.id} value={f.id} label={f.name}>
+                      <div className="py-0.5">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {f.group1 && (
+                            <span className="text-[10px] bg-slate-100 text-slate-500 rounded px-1.5 py-px leading-none flex-shrink-0">{f.group1}</span>
+                          )}
+                          {f.group2 && (
+                            <span className="text-[10px] bg-slate-100 text-slate-400 rounded px-1.5 py-px leading-none flex-shrink-0">{f.group2}</span>
+                          )}
+                          <span className="text-sm text-slate-800 font-medium">{f.name}</span>
+                        </div>
+                        {(f.expected_start_date || f.expected_end_date) && (
+                          <div className="text-[11px] text-slate-400 tabular-nums mt-0.5">
+                            {f.expected_start_date ?? '—'} ~ {f.expected_end_date ?? '—'}
+                          </div>
+                        )}
+                      </div>
+                    </Select.Option>
+                  ))}
+                </Select>
+              </Form.Item>
+            </div>
+          )}
+          {watchedCategory === 'duty' && (
+            <Form.Item name="duty_id" label="關聯臨時任務" rules={[{ required: true, message: '請選擇任務' }]}>
+              <Select placeholder="選擇臨時任務" allowClear>
+                {dutyOpts.map((d) => (
+                  <Select.Option key={d.id} value={d.id}>{d.name}</Select.Option>
+                ))}
+              </Select>
+            </Form.Item>
+          )}
 
           <Form.Item name="bu_unit" label="BU / 單位（需求方）">
             <AutoComplete
@@ -1273,8 +1571,8 @@ const DailyLogPage: React.FC = () => {
             <Switch checkedChildren="加班" unCheckedChildren="正常" />
           </Form.Item>
 
-          {/* Existing attachments from the progress record (read-only) */}
-          {editingEntry?.files && editingEntry.files.length > 0 && (
+          {/* Attachments from progress record (read-only) */}
+          {editingEntry?.source === 'progress' && editingEntry.files && editingEntry.files.length > 0 && (
             <Form.Item label="進度附件（來自任務進度記錄）">
               <div className="flex flex-wrap gap-1.5">
                 {editingEntry.files.map((f, fi) => {
@@ -1293,6 +1591,32 @@ const DailyLogPage: React.FC = () => {
             </Form.Item>
           )}
 
+          {/* Existing saved attachments (editable — can delete) */}
+          {editingEntry?.source !== 'progress' && existingFiles.length > 0 && (
+            <Form.Item label="已上傳附件">
+              <div className="flex flex-wrap gap-1.5">
+                {existingFiles.map((f, fi) => {
+                  const token = tokenStorage.get()
+                  const previewUrl = token ? `${f.url}?token=${token}` : f.url
+                  return (
+                    <div key={fi} className="inline-flex items-center gap-1 text-[11px] text-blue-500 bg-blue-50 border border-blue-100 rounded px-2 py-1 max-w-[200px]">
+                      <button type="button" onClick={() => setPreviewFile({ url: previewUrl, name: f.name })}
+                        className="inline-flex items-center gap-1 border-0 outline-none bg-transparent p-0 cursor-pointer text-blue-500 min-w-0">
+                        <PaperClipIcon className="w-3 h-3 flex-shrink-0" />
+                        <span className="truncate">{f.name}</span>
+                      </button>
+                      <button type="button"
+                        onClick={() => setExistingFiles((prev) => prev.filter((_, i) => i !== fi))}
+                        className="border-0 outline-none bg-transparent p-0 cursor-pointer text-slate-300 hover:text-red-400 flex-shrink-0 ml-0.5">
+                        ×
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            </Form.Item>
+          )}
+
           <Form.Item label="新增附件">
             <Upload fileList={fileList} onChange={({ fileList: fl }) => setFileList(fl)} beforeUpload={() => false} multiple>
               <Button icon={<PaperClipIcon className="w-4 h-4" />} size="small">選擇附件</Button>
@@ -1300,8 +1624,8 @@ const DailyLogPage: React.FC = () => {
           </Form.Item>
 
           <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-            <Button onClick={() => { setModalOpen(false); form.resetFields() }}>取消</Button>
-            <Button type="primary" htmlType="submit" style={{ background: '#2563eb' }}>
+            <Button disabled={saving} onClick={() => { setModalOpen(false); form.resetFields() }}>取消</Button>
+            <Button type="primary" htmlType="submit" loading={saving} disabled={saving} style={{ background: '#2563eb' }}>
               {editingEntry ? '更新' : '新增'}
             </Button>
           </div>

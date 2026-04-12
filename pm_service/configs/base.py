@@ -169,6 +169,7 @@ class BaseConfig:
     MONGO_MIN_POOL_SIZE = _get_int("MONGO_MIN_POOL_SIZE", 10)
     MONGO_CONNECT_TIMEOUT = _get_int("MONGO_CONNECT_TIMEOUT", 5000)
     MONGO_SERVER_SELECTION_TIMEOUT = _get_int("MONGO_SERVER_SELECTION_TIMEOUT", 5000)
+    MONGO_REQUIRED = os.environ.get("MONGO_REQUIRED", "true").lower() != "false"
 
     # ==================== 限流配置 ====================
     RATELIMIT_ENABLED = _get_bool("RATELIMIT_ENABLED", "true")

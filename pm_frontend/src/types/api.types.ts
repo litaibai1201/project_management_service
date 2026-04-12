@@ -398,6 +398,8 @@ export type WorkCategory = 'project' | 'cr_ar' | 'training' | 'meeting' | 'duty'
 export interface DailyLogEntry {
   entry_id:        string
   work_category:   WorkCategory
+  /** 條目數據來源：progress=任務進度提交, manual=日誌手動添加, updated=日誌中修改 */
+  source?:         'progress' | 'manual' | 'updated'
   description:     string
   hours:           number
   is_overtime:     boolean
@@ -413,9 +415,13 @@ export interface DailyLogEntry {
   group2?:         string
   files?:          { name: string; url: string; size?: number }[]
   /** 來源進度記錄 ID（由 suggest 條目 promote 而來時保留，用於刷新後去重） */
-  suggest_id?:     string
+  suggest_id?:          string
   /** 提交時間 HH:mm（來自進度記錄 created_at，用於日視圖顯示） */
-  record_time?:    string
+  record_time?:         string
+  /** 任務預計開始日期 YYYY-MM-DD */
+  expected_start_date?: string
+  /** 任務預計結束日期 YYYY-MM-DD */
+  expected_end_date?:   string
 }
 
 export interface DailyLog {

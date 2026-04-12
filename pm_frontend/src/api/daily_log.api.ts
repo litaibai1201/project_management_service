@@ -10,18 +10,34 @@ export interface BackendTaskItem {
   task_nm: string                  // function_nm | duty_nm
   work_hours: number               // backend uses work_hours, not hours
   description: string
+  is_overtime?: boolean            // 是否加班
+  overtime_hours?: number          // 加班工時
+  source?: 'progress' | 'manual' | 'updated'  // 數據來源
   project_id?: string              // 所屬專案 ID（project 類型時使用）
   project_nm?: string              // 所屬專案名稱（project 類型時使用）
   suggest_id?: string              // 來源進度記錄 ID，用於刷新後去重
   files?: { name: string; url: string; size?: number }[]  // 來自進度記錄的附件
   record_time?: string             // 提交時間 HH:mm（來自進度記錄 created_at）
+  expected_start_date?: string     // 任務預計開始日期 YYYY-MM-DD
+  expected_end_date?: string       // 任務預計結束日期 YYYY-MM-DD
+  group1?: string                  // 任務分組 level-1
+  group2?: string                  // 任務分組 level-2
 }
 
-/** Backend: free_items 條目（會議 / 培訓 / 其他） */
+/** Backend: free_items 條目（會議 / 培訓 / CR/AR / 其他） */
 export interface BackendFreeItem {
   category: string
   description: string
   work_hours: number               // backend uses work_hours, not hours
+  is_overtime?: boolean            // 是否加班
+  overtime_hours?: number          // 加班工時
+  source?: 'progress' | 'manual' | 'updated'  // 數據來源
+  record_time?: string             // 提交時間 HH:mm
+  project_id?: string              // CR/AR 關聯專案 ID
+  project_nm?: string              // CR/AR 關聯專案名稱
+  function_id?: string             // CR/AR 關聯任務 ID
+  function_nm?: string             // CR/AR 關聯任務名稱
+  files?: { name: string; url: string; size?: number }[]  // 附件列表
 }
 
 /** Backend: create / update request payload */
@@ -98,24 +114,40 @@ export function entriesToBackend(
   const task_items: BackendTaskItem[] = entries
     .filter((e) => e.work_category === 'project' || e.work_category === 'duty')
     .map((e) => ({
-      task_type:   e.work_category as 'project' | 'duty',
-      task_id:     e.work_category === 'project' ? (e.function_id ?? '') : (e.duty_id ?? ''),
-      task_nm:     e.work_category === 'project' ? (e.function_nm ?? '') : (e.duty_nm ?? ''),
-      work_hours:  e.hours,
-      description: e.description,
-      project_id:  e.work_category === 'project' ? e.project_id : undefined,
-      project_nm:  e.work_category === 'project' ? e.project_nm : undefined,
-      suggest_id:  e.suggest_id,
-      files:       e.files?.length ? e.files : undefined,
-      record_time: e.record_time,
+      task_type:      e.work_category as 'project' | 'duty',
+      task_id:        e.work_category === 'project' ? (e.function_id ?? '') : (e.duty_id ?? ''),
+      task_nm:        e.work_category === 'project' ? (e.function_nm ?? '') : (e.duty_nm ?? ''),
+      work_hours:     e.hours,
+      description:    e.description,
+      is_overtime:    e.is_overtime || undefined,
+      overtime_hours: e.is_overtime ? (e.overtime_hours ?? e.hours) : undefined,
+      source:         e.source,
+      project_id:     e.work_category === 'project' ? e.project_id : undefined,
+      project_nm:     e.work_category === 'project' ? e.project_nm : undefined,
+      suggest_id:           e.suggest_id,
+      files:                e.files?.length ? e.files : undefined,
+      record_time:          e.record_time,
+      expected_start_date:  e.expected_start_date,
+      expected_end_date:    e.expected_end_date,
+      group1:               e.group1,
+      group2:               e.group2,
     }))
 
   const free_items: BackendFreeItem[] = entries
     .filter((e) => e.work_category !== 'project' && e.work_category !== 'duty')
     .map((e) => ({
-      category:    e.work_category,
-      description: e.description,
-      work_hours:  e.hours,
+      category:       e.work_category,
+      description:    e.description,
+      work_hours:     e.hours,
+      is_overtime:    e.is_overtime || undefined,
+      overtime_hours: e.is_overtime ? (e.overtime_hours ?? e.hours) : undefined,
+      source:         e.source,
+      record_time:    e.record_time,
+      project_id:     e.project_id,
+      project_nm:     e.project_nm,
+      function_id:    e.function_id,
+      function_nm:    e.function_nm,
+      files:          e.files?.length ? e.files : undefined,
     }))
 
   return { log_date: logDate, task_items, free_items }
@@ -135,33 +167,50 @@ export function backendDetailToLog(raw: BackendDailyLogDetail): DailyLog {
     function_nm:   t.task_type === 'project' ? t.task_nm : undefined,
     duty_id:       t.task_type === 'duty' ? t.task_id : undefined,
     duty_nm:       t.task_type === 'duty' ? t.task_nm : undefined,
-    description:   t.description,
-    hours:         Number(t.work_hours),
-    is_overtime:   false,
-    overtime_hours: 0,
-    suggest_id:    t.suggest_id,
-    files:         t.files?.length ? t.files : undefined,
-    record_time:   t.record_time,
+    description:         t.description,
+    hours:               Number(t.work_hours),
+    is_overtime:         t.is_overtime ?? false,
+    overtime_hours:      Number(t.overtime_hours ?? 0),
+    source:              t.source,
+    suggest_id:          t.suggest_id,
+    files:               t.files?.length ? t.files : undefined,
+    record_time:         t.record_time,
+    expected_start_date: t.expected_start_date,
+    expected_end_date:   t.expected_end_date,
+    group1:              t.group1,
+    group2:              t.group2,
   }))
 
   const freeEntries: DailyLogEntry[] = (raw.free_items ?? []).map((f, i) => ({
     entry_id:      `f-${i}-${f.category}`,
     work_category: f.category as DailyLogEntry['work_category'],
     description:   f.description,
-    hours:         Number(f.work_hours),
-    is_overtime:   false,
-    overtime_hours: 0,
+    hours:          Number(f.work_hours),
+    is_overtime:    f.is_overtime ?? false,
+    overtime_hours: Number(f.overtime_hours ?? 0),
+    source:         f.source,
+    record_time:   f.record_time,
+    project_id:    f.project_id,
+    project_nm:    f.project_nm,
+    function_id:   f.function_id,
+    function_nm:   f.function_nm,
+    files:         f.files?.length ? f.files : undefined,
   }))
 
   const statusMap: Record<number, DailyLog['status']> = { 1: 'draft', 2: 'submitted' }
+
+  const allEntries = [...taskEntries, ...freeEntries]
+  const overtime_hours = allEntries
+    .filter((e) => e.is_overtime)
+    .reduce((s, e) => s + (e.overtime_hours ?? e.hours), 0)
 
   return {
     log_id:        raw.log_id,
     work_no:       raw.work_no,
     log_date:      raw.log_date,
-    entries:       [...taskEntries, ...freeEntries],
+    entries:       allEntries,
     total_hours:   Number(raw.total_hours),
-    overtime_hours: 0,
+    overtime_hours,
     status:        statusMap[raw.status] ?? 'draft',
   }
 }
@@ -198,6 +247,27 @@ export const dailyLogApi = {
   /** GET /api/daily_log/suggest?date=YYYY-MM-DD  — 從任務進度記錄生成建議條目 */
   suggest: (date?: string): Promise<ApiResponse<SuggestItem[]>> =>
     get('/daily_log/suggest', { params: date ? { date } : {} }),
+
+  /** GET /api/daily_log/task_entries?task_type=project&task_id=xxx  — 任務關聯的日誌條目 */
+  taskEntries: (taskType: 'project' | 'duty', taskId: string): Promise<ApiResponse<TaskLogEntry[]>> =>
+    get('/daily_log/task_entries', { params: { task_type: taskType, task_id: taskId } }),
+}
+
+/** 任務進度頁面使用：日誌中手動新增或更新的任務條目 */
+export interface TaskLogEntry {
+  task_type:      'project' | 'duty'
+  task_id:        string
+  task_nm:        string
+  work_hours:     number
+  description:    string
+  source:         'manual' | 'updated'
+  suggest_id?:    string   // 對應的原始進度記錄 ID（updated 時有值）
+  is_overtime?:   boolean
+  overtime_hours?: number
+  files?:         { name: string; url: string; size?: number }[]
+  log_date:       string   // YYYY-MM-DD
+  log_status:     1 | 2    // 1=草稿 2=已提交
+  work_no:        string
 }
 
 /** Backend suggest item shape */
@@ -215,4 +285,6 @@ export interface SuggestItem {
   /** 進度記錄 ID（ProgressRecordDataModel.progress_id / DutyProgressRecordModel.id） */
   suggest_id?: string
   record_time?: string
+  expected_start_date?: string
+  expected_end_date?:   string
 }

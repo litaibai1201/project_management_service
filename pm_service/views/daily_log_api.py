@@ -50,6 +50,19 @@ class DailyLogSuggestApi(MethodView):
         return response_result(content=ctrl.get_suggest(work_no, date=date))
 
 
+@blp.route("/task_entries")
+class DailyLogTaskEntriesApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgRawSchema)
+    def get(self):
+        """查询某任务在所有日志中手动新增或更新的条目（供任务进度页面展示）"""
+        task_type = request.args.get("task_type", "project")
+        task_id   = request.args.get("task_id", "")
+        if not task_id:
+            return response_result(content=[])
+        return response_result(content=ctrl.get_task_entries(task_type, task_id))
+
+
 @blp.route("/<string:log_id>")
 class DailyLogDetailApi(MethodView):
     @jwt_required()
@@ -67,11 +80,18 @@ class DailyLogDetailApi(MethodView):
         return response_result()
 
 
+@blp.route("/<string:log_id>/files/<string:file_id>/preview")
+class DailyLogFilePreviewApi(MethodView):
+    @jwt_required()
+    def get(self, log_id, file_id):
+        """预览/下载日报附件"""
+        return ctrl.get_file(log_id, file_id)
+
+
 @blp.route("/<string:log_id>/upload")
 class DailyLogUploadApi(MethodView):
     @jwt_required()
-    @blp.response(200, RspMsgDictSchema)
+    @blp.response(200, RspMsgRawSchema)
     def post(self, log_id):
         """上传日报附件"""
-        # 文件上传功能预留接口
-        return response_result(content=[])
+        return response_result(content=ctrl.upload_attachments(log_id, request.files))

@@ -8,6 +8,8 @@ import AttachmentPreview from '@/components/ui/AttachmentPreview'
 import FilePreviewModal from './FilePreviewModal'
 import type { UploadFile } from 'antd'
 import { projectApi } from '@/api/project.api'
+import { dailyLogApi } from '@/api/daily_log.api'
+import type { TaskLogEntry } from '@/api/daily_log.api'
 import { tokenStorage } from '@/api/httpClient'
 import { ProjectFunction, ProgressRecord, FileInfo } from '@/types/api.types'
 import { FUNCTION_STATUS_MAP, PRIORITY_MAP } from '@/utils/status'
@@ -51,8 +53,9 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
   const toName = useWorkNoToName()
   const [previewFile, setPreviewFile] = useState<FileInfo | null>(null)
   const [funcData,   setFuncData]   = useState<ProjectFunction | null>(null)
-  const [records,    setRecords]    = useState<ProgressRecord[]>([])
-  const [isLoading,  setIsLoading]  = useState(false)
+  const [records,     setRecords]     = useState<ProgressRecord[]>([])
+  const [logEntries,  setLogEntries]  = useState<TaskLogEntry[]>([])
+  const [isLoading,   setIsLoading]   = useState(false)
   const [isSaving,   setIsSaving]   = useState(false)
   const [showForm,   setShowForm]   = useState(false)
   const [showEdit,   setShowEdit]   = useState(false)
@@ -72,14 +75,16 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
   const loadData = async () => {
     setIsLoading(true)
     try {
-      const [funcRes, progressRes] = await Promise.all([
+      const [funcRes, progressRes, logRes] = await Promise.all([
         projectApi.getFunction(projectId, functionId),
         projectApi.getProgress(projectId, functionId, { page: 1, size: 30 }),
+        dailyLogApi.taskEntries('project', functionId),
       ])
       setFuncData(funcRes.content)
       const c = progressRes.content as { data_list?: ProgressRecord[] }
       const list = (c.data_list ?? []) as ProgressRecord[]
       setRecords(list.map((r) => ({ ...r, files: addTokenToFiles(r.files) })))
+      setLogEntries(logRes.content ?? [])
     } catch { /* global */ }
     finally { setIsLoading(false) }
   }
@@ -309,37 +314,196 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
             </div>
           )}
 
-          <Divider style={{ fontSize: 12, color: '#94a3b8' }}>進度記錄 ({records.length})</Divider>
+          <Divider style={{ fontSize: 12, color: '#94a3b8' }}>
+            進度記錄 ({records.length})
+            {logEntries.length > 0 && (
+              <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400, marginLeft: 6 }}>
+                · 含 {logEntries.length} 條日誌記錄
+              </span>
+            )}
+          </Divider>
 
-          {records.length === 0 ? (
+          {records.length === 0 && logEntries.length === 0 ? (
             <Text type="secondary" className="block text-center py-8 text-sm">暫無進度記錄</Text>
-          ) : (
-            <Timeline
-              items={records.map((item) => ({
-                dot: (
-                  <Avatar size={26} style={{ background: '#2563eb', fontSize: 11, fontWeight: 700 }}>
-                    {toName(item.submitter)?.[0]?.toUpperCase()}
-                  </Avatar>
-                ),
-                children: (
-                  <div className="pb-3">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold text-slate-700 text-sm">{toName(item.submitter)}</span>
-                      <Tag color="blue" style={{ fontSize: 11, padding: '0 6px' }}>{item.progress}%</Tag>
-                      {Number(item.time_consum) > 0 && (
-                        <Tag style={{ fontSize: 11, padding: '0 6px' }}>{item.time_consum}h</Tag>
-                      )}
-                    </div>
-                    {item.progress_record && (
-                      <p className="text-sm text-slate-600 mt-1 mb-1 leading-relaxed">{item.progress_record}</p>
-                    )}
-                    <span className="text-xs text-slate-300">{item.created_at}</span>
-                    <AttachmentPreview files={item.files} images={item.images} onPreview={setPreviewFile} />
-                  </div>
-                ),
-              }))}
-            />
-          )}
+          ) : (() => {
+            // ── 構建合併時間軸 ──────────────────────────────────────────
+            // updated 條目按 suggest_id 分組，key=suggest_id，value=按 log_date 排序的條目列表
+            const updatedMap = new Map<string, TaskLogEntry[]>()
+            const manualEntries: TaskLogEntry[] = []
+            for (const e of logEntries) {
+              if (e.source === 'updated' && e.suggest_id) {
+                if (!updatedMap.has(e.suggest_id)) updatedMap.set(e.suggest_id, [])
+                updatedMap.get(e.suggest_id)!.push(e)
+              } else if (e.source === 'manual') {
+                manualEntries.push(e)
+              }
+            }
+            // 每組 updated 按 log_date 升序
+            for (const list of updatedMap.values()) list.sort((a, b) => a.log_date.localeCompare(b.log_date))
+
+            // 進度記錄 + manual 條目合併後按時間排序
+            type MixedItem =
+              | { kind: 'progress'; data: ProgressRecord }
+              | { kind: 'manual';   data: TaskLogEntry }
+            const mixed: MixedItem[] = [
+              ...records.map((r) => ({ kind: 'progress' as const, data: r, _sort: r.created_at ?? '' })),
+              ...manualEntries.map((e) => ({ kind: 'manual' as const, data: e, _sort: e.log_date })),
+            ].sort((a, b) => (a._sort > b._sort ? -1 : 1))  // 倒序：最新在上
+
+            const token = tokenStorage.get()
+            const withToken = (url: string) => token ? `${url}?token=${token}` : url
+
+            const IMG_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp'])
+            const splitFiles = (files: { name: string; url: string; size?: number }[] | undefined) => {
+              const all = (files ?? []).map((f) => ({ ...f, url: withToken(f.url) }))
+              return {
+                images: all.filter((f) => IMG_EXTS.has(f.name.split('.').pop()?.toLowerCase() ?? '')),
+                files:  all.filter((f) => !IMG_EXTS.has(f.name.split('.').pop()?.toLowerCase() ?? '')),
+              }
+            }
+
+            return (
+              <Timeline
+                items={mixed.map(({ kind, data }) => {
+                  if (kind === 'progress') {
+                    const item = data as ProgressRecord
+                    const updates = updatedMap.get(item.progress_id) ?? []
+                    return {
+                      dot: (
+                        <Avatar size={26} style={{ background: '#2563eb', fontSize: 11, fontWeight: 700 }}>
+                          {toName(item.submitter)?.[0]?.toUpperCase()}
+                        </Avatar>
+                      ),
+                      children: (
+                        <div className="pb-3">
+                          {(() => {
+                            // 計算最新耗時：如有更新則取最後一條 updated 的 work_hours
+                            const latestUpd = updates.length > 0 ? updates[updates.length - 1] : null
+                            const origHours = Number(item.time_consum ?? 0)
+                            const latestHours = latestUpd ? Number(latestUpd.work_hours ?? 0) : origHours
+                            const hoursChanged = latestUpd && latestHours !== origHours
+                            return (
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-semibold text-slate-700 text-sm">{toName(item.submitter)}</span>
+                                <Tag color="blue" style={{ fontSize: 11, padding: '0 6px' }}>{item.progress}%</Tag>
+                                {hoursChanged ? (
+                                  <span className="flex items-center gap-1">
+                                    {origHours > 0 && <span className="text-xs text-slate-400 line-through">{origHours}h</span>}
+                                    <Tag style={{ fontSize: 11, padding: '0 6px' }}>{latestHours}h</Tag>
+                                  </span>
+                                ) : (
+                                  origHours > 0 && <Tag style={{ fontSize: 11, padding: '0 6px' }}>{origHours}h</Tag>
+                                )}
+                              </div>
+                            )
+                          })()}
+                          {/* 原始進度說明：如有更新則加劃線 */}
+                          {item.progress_record && (
+                            <p className="text-sm mt-1 mb-1 leading-snug"
+                              style={{ color: updates.length > 0 ? '#94a3b8' : '#475569', textDecoration: updates.length > 0 ? 'line-through' : 'none' }}>
+                              {item.progress_record}
+                            </p>
+                          )}
+
+                          {/* 日誌更新鏈：緊接在劃線文字下方，時間戳之前 */}
+                          {updates.map((upd, idx) => {
+                            const isLatest = idx === updates.length - 1
+                            const prevText = idx === 0 ? null : updates[idx - 1].description
+
+                            // 附件差異
+                            const prevRawFiles = idx === 0
+                              ? (item.files ?? [])
+                              : (updates[idx - 1].files ?? []).map((f) => ({ ...f, url: withToken(f.url) }))
+                            const currRawFiles = (upd.files ?? []).map((f) => ({ ...f, url: withToken(f.url) }))
+                            const prevNameSet = new Set(prevRawFiles.map((f) => f.name))
+                            const currNameSet = new Set(currRawFiles.map((f) => f.name))
+                            const addedFiles   = currRawFiles.filter((f) => !prevNameSet.has(f.name))
+                            const removedFiles = prevRawFiles.filter((f) => !currNameSet.has(f.name))
+                            const hasFileDiff  = addedFiles.length > 0 || removedFiles.length > 0
+
+                            return (
+                              <div key={upd.log_date}>
+                                {/* 非第一條：上一版本劃線 */}
+                                {prevText && (
+                                  <p className="text-sm leading-tight"
+                                    style={{ color: '#94a3b8', textDecoration: 'line-through' }}>
+                                    {prevText}
+                                  </p>
+                                )}
+                                {/* 新內容 */}
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="text-sm leading-tight"
+                                    style={{ color: isLatest ? '#334155' : '#94a3b8', textDecoration: isLatest ? 'none' : 'line-through' }}>
+                                    {upd.description}
+                                  </p>
+                                  <div className="flex items-center gap-1 flex-shrink-0">
+                                    {isLatest && (
+                                      <Tag style={{ fontSize: 10, padding: '0 4px', lineHeight: '16px', margin: 0 }}>
+                                        {upd.log_status === 2 ? '已提交' : '草稿'}
+                                      </Tag>
+                                    )}
+                                    <Tag color="orange" style={{ fontSize: 10, padding: '0 5px', lineHeight: '16px', margin: 0 }}>日誌更新</Tag>
+                                  </div>
+                                </div>
+                                {/* 附件差異 */}
+                                {hasFileDiff && (
+                                  <div className="mt-1 space-y-1">
+                                    {removedFiles.map((f, fi) => (
+                                      <div key={fi} className="flex items-center gap-1.5">
+                                        <Tag color="red" style={{ fontSize: 9, padding: '0 4px', lineHeight: '14px', flexShrink: 0 }}>已刪除</Tag>
+                                        <span className="text-xs text-slate-400" style={{ textDecoration: 'line-through' }}>{f.name}</span>
+                                      </div>
+                                    ))}
+                                    {addedFiles.length > 0 && (() => { const sf = splitFiles(addedFiles); return <AttachmentPreview files={sf.files} images={sf.images} onPreview={setPreviewFile} /> })()}
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })}
+                          {/* 時間戳 + 原始附件（在更新鏈之後） */}
+                          <span className="text-xs text-slate-300 mt-1 block">{item.created_at}</span>
+                          <AttachmentPreview files={item.files} images={item.images} onPreview={setPreviewFile} />
+                        </div>
+                      ),
+                    }
+                  } else {
+                    // manual 日誌新增
+                    const entry = data as TaskLogEntry
+                    return {
+                      dot: (
+                        <Avatar size={26} style={{ background: '#16a34a', fontSize: 11, fontWeight: 700 }}>
+                          {toName(entry.work_no)?.[0]?.toUpperCase()}
+                        </Avatar>
+                      ),
+                      children: (
+                        <div className="pb-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-slate-700 text-sm">{toName(entry.work_no)}</span>
+                              {Number(entry.work_hours) > 0 && (
+                                <Tag style={{ fontSize: 11, padding: '0 6px' }}>{entry.work_hours}h</Tag>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1 flex-shrink-0">
+                              <Tag style={{ fontSize: 10, padding: '0 4px', lineHeight: '16px', margin: 0 }}>
+                                {entry.log_status === 2 ? '已提交' : '草稿'}
+                              </Tag>
+                              <Tag color="green" style={{ fontSize: 10, padding: '0 5px', lineHeight: '16px', margin: 0 }}>日誌新增</Tag>
+                            </div>
+                          </div>
+                          {entry.description && (
+                            <p className="text-sm text-slate-600 mt-1 mb-1 leading-tight">{entry.description}</p>
+                          )}
+                          <span className="text-xs text-slate-300">{entry.log_date}</span>
+                          {(() => { const sf = splitFiles(entry.files); return <AttachmentPreview files={sf.files} images={sf.images} onPreview={setPreviewFile} /> })()}
+                        </div>
+                      ),
+                    }
+                  }
+                })}
+              />
+            )
+          })()}
         </>
       ) : (
         <Text type="secondary" className="block text-center py-10">功能資料不存在</Text>
