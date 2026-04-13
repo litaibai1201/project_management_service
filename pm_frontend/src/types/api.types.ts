@@ -422,6 +422,8 @@ export interface DailyLogEntry {
   expected_start_date?: string
   /** 任務預計結束日期 YYYY-MM-DD */
   expected_end_date?:   string
+  /** 任務完成百分比（來自進度記錄或日誌更新時攜帶） */
+  progress?:            number
 }
 
 export interface DailyLog {

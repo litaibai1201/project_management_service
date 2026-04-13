@@ -249,8 +249,8 @@ const SelfReportView: React.FC<{
   }
 
   const allEntries = rangeLogs.flatMap((l) => l.entries.map((e) => ({ ...e, log_date: l.log_date, log_status: l.status })))
-  const totalHours  = rangeLogs.reduce((s, l) => s + l.total_hours, 0)
-  const totalOT     = rangeLogs.reduce((s, l) => s + l.overtime_hours, 0)
+  const totalHours  = allEntries.reduce((s, e) => s + e.hours, 0)
+  const totalOT     = allEntries.filter((e) => e.is_overtime).reduce((s, e) => s + (e.overtime_hours ?? e.hours), 0)
   const totalNormal = totalHours - totalOT
   const workedDays  = rangeLogs.length
 
@@ -366,7 +366,7 @@ const SelfReportView: React.FC<{
                 for (const t of tasks) { const k = gKey(t); const cur = groupEarliest.get(k) ?? '9999-99-99'; const ts = t.expectedStartDate ?? '9999-99-99'; if (ts < cur) groupEarliest.set(k, ts) }
                 tasks.sort((a, b) => { const ga = groupEarliest.get(gKey(a)) ?? '9999-99-99'; const gb = groupEarliest.get(gKey(b)) ?? '9999-99-99'; if (ga !== gb) return ga.localeCompare(gb); const sa = a.expectedStartDate ?? '9999-99-99'; const sb = b.expectedStartDate ?? '9999-99-99'; if (sa !== sb) return sa.localeCompare(sb); return (a.expectedEndDate ?? '9999-99-99').localeCompare(b.expectedEndDate ?? '9999-99-99') })
                 // Sort entries chronologically within each task
-                for (const t of tasks) t.entries.sort((a, b) => a.log_date.localeCompare(b.log_date))
+                for (const t of tasks) t.entries.sort((a, b) => (a.log_date ?? '').localeCompare(b.log_date ?? ''))
                 return { projKey, projNm: pg.projNm, totalHours: pg.totalHours, tasks }
               })
             return { catKey: c.value as WorkCategory, cat: cs.cat, totalHours: cs.totalHours, projGroups }
@@ -409,50 +409,76 @@ const SelfReportView: React.FC<{
                     <div>
                       {section.projGroups.map((pg) => {
                         const showProjRow = pg.projNm !== ''
+                        const projCollapseKey = `${section.catKey}::proj::${pg.projKey}`
+                        const projCollapsed = collapsedGroups.has(projCollapseKey)
                         return (
                           <div key={pg.projKey}>
                             {/* ── Project row ── */}
                             {showProjRow && (
-                              <div className="flex items-center gap-2 px-4 py-2.5 border-b border-slate-100">
+                              <button onClick={() => toggleGroup(projCollapseKey)}
+                                className="w-full flex items-center gap-2 px-4 py-2.5 border-0 border-b border-slate-100 outline-none text-left cursor-pointer hover:bg-slate-50 transition-colors"
+                                style={{ background: 'transparent' }}>
                                 <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: section.cat.color }} />
                                 <span className="text-sm font-semibold text-slate-700">{pg.projNm}</span>
-                                <span className="ml-auto text-xs font-semibold tabular-nums" style={{ color: section.cat.color }}>{fmtH(pg.totalHours)}h</span>
-                              </div>
+                                <span className="text-xs text-slate-400">{pg.tasks.length} 個任務</span>
+                                <div className="ml-auto flex items-center gap-1.5">
+                                  <span className="text-xs font-semibold tabular-nums" style={{ color: section.cat.color }}>{fmtH(pg.totalHours)}h</span>
+                                  <ChevronDownIcon className="w-3.5 h-3.5 transition-transform duration-150" style={{ color: section.cat.color, transform: projCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }} />
+                                </div>
+                              </button>
                             )}
                             {/* ── Tasks ── */}
+                            {(!showProjRow || !projCollapsed) && (
                             <div className={showProjRow ? 'pl-3' : ''}>
                               {pg.tasks.map((task) => {
                                 const showTaskRow = task.taskNm !== ''
+                                const taskCollapseKey = `${section.catKey}::proj::${pg.projKey}::task::${task.taskKey}`
+                                const taskCollapsed = collapsedGroups.has(taskCollapseKey)
                                 return (
                                   <div key={task.taskKey} className="border-b border-slate-100 last:border-0">
                                     {/* Task header */}
                                     {showTaskRow && (
-                                      <div className="flex items-center gap-2 px-4 py-2 bg-slate-50/60">
+                                      <button onClick={() => toggleGroup(taskCollapseKey)}
+                                        className="w-full flex items-center gap-2 px-4 py-2 border-0 outline-none bg-slate-50/60 hover:bg-slate-100/70 transition-colors text-left cursor-pointer">
                                         <div className="w-1 h-4 rounded-full flex-shrink-0" style={{ background: section.cat.color }} />
                                         {task.group1 && <span className="text-[10px] bg-slate-100 text-slate-500 rounded px-1.5 py-0.5 font-medium">{task.group1}</span>}
                                         {task.group2 && <span className="text-[10px] bg-slate-100 text-slate-500 rounded px-1.5 py-0.5 font-medium">{task.group2}</span>}
                                         <span className="text-xs font-semibold text-slate-700">{task.taskNm}</span>
+                                        {(section.catKey === 'project' || section.catKey === 'duty') && (() => {
+                                          const entries = task.entries
+                                          const latestProgress =
+                                            [...entries].reverse().find((e) => e.progress != null && e.source === 'updated')?.progress
+                                            ?? [...entries].reverse().find((e) => e.progress != null && e.source === 'manual')?.progress
+                                            ?? [...entries].find((e) => e.source === 'progress' && e.progress != null)?.progress
+                                          return latestProgress != null
+                                            ? <Tag color="blue" style={{ fontSize: 10, padding: '0 5px', lineHeight: '18px', margin: 0 }}>{latestProgress}%</Tag>
+                                            : null
+                                        })()}
                                         {(task.expectedStartDate || task.expectedEndDate) && (
                                           <span className="text-[10px] text-slate-400 tabular-nums">{task.expectedStartDate ?? '—'} ~ {task.expectedEndDate ?? '—'}</span>
                                         )}
-                                        <span className="ml-auto text-[11px] font-semibold text-slate-400 tabular-nums">{fmtH(task.totalHours)}h</span>
-                                      </div>
+                                        <div className="ml-auto flex items-center gap-1.5">
+                                          <span className="text-[11px] font-semibold text-slate-400 tabular-nums">{fmtH(task.totalHours)}h</span>
+                                          <ChevronDownIcon className="w-3 h-3 transition-transform duration-150 text-slate-400" style={{ transform: taskCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }} />
+                                        </div>
+                                      </button>
                                     )}
                                     {/* Entries */}
-                                    <div>
+                                    {(!showTaskRow || !taskCollapsed) && <div>
                                       {task.entries.map((entry, eIdx) => {
                                         const d = dayjs(entry.log_date)
                                         return (
-                                          <div key={entry.entry_id}>
+                                          <div key={`${entry.log_date ?? ''}-${entry.entry_id}`}>
                                             {eIdx > 0 && <div style={{ height: '1px', background: '#e2e8f0', margin: '0 16px' }} />}
                                             <div className="flex items-center gap-3 px-4 py-2.5">
                                               <div className="flex-1 min-w-0">
                                                 <div className="flex items-center gap-1.5 flex-wrap">
                                                   <p className="text-sm text-slate-700 leading-relaxed">{entry.description || <span className="text-slate-300 italic">（無說明）</span>}</p>
-                                                  {entry.source && (
-                                                    <Tag style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px' }}>
-                                                      {entry.source === 'progress' ? '進度提交' : entry.source === 'updated' ? '日誌更新' : '日誌添加'}
-                                                    </Tag>
+                                                  {entry.source === 'updated' && (
+                                                    <Tag color="orange" style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px' }}>日誌更新</Tag>
+                                                  )}
+                                                  {entry.source === 'manual' && (
+                                                    <Tag color="green" style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px' }}>日誌新增</Tag>
                                                   )}
                                                 </div>
                                                 {entry.files && entry.files.length > 0 && (
@@ -486,11 +512,12 @@ const SelfReportView: React.FC<{
                                           </div>
                                         )
                                       })}
-                                    </div>
+                                    </div>}
                                   </div>
                                 )
                               })}
                             </div>
+                            )}
                           </div>
                         )
                       })}
@@ -536,6 +563,9 @@ const DailyLogPage: React.FC = () => {
   // Suggest entries are kept separate and NEVER saved to DB.
   // They are refreshed from /suggest on every day-view load.
   const [suggestMap, setSuggestMap] = useState<Record<string, DailyLogEntry[]>>({})
+  // Explicit task-progress overrides: updated whenever user saves a progress value.
+  // Key = task_id (function_id or duty_id), Value = latest user-entered progress %.
+  const [taskProgressState, setTaskProgressState] = useState<Record<string, number>>({})
   const [logsLoading, setLogsLoading] = useState(false)
   const [collapsedSections, setCollapsedSections] = useState<Set<WorkCategory>>(new Set())
   const toggleSection = (cat: WorkCategory) =>
@@ -544,9 +574,16 @@ const DailyLogPage: React.FC = () => {
       next.has(cat) ? next.delete(cat) : next.add(cat)
       return next
     })
+  const [collapsedDayGroups, setCollapsedDayGroups] = useState<Set<string>>(new Set())
+  const toggleDayGroup = (key: string) =>
+    setCollapsedDayGroups((prev) => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s })
 
   const [form] = Form.useForm()
-  const watchedCategory = Form.useWatch('work_category', form) as WorkCategory | undefined
+  const watchedCategory   = Form.useWatch('work_category', form) as WorkCategory | undefined
+  const watchedFunctionId = Form.useWatch('function_id',   form) as string | undefined
+  const watchedDutyId     = Form.useWatch('duty_id',       form) as string | undefined
+  const watchedProgress   = Form.useWatch('progress',      form) as number | null | undefined
+  const [syncProgress, setSyncProgress] = useState(true)
   const [fileList, setFileList] = useState<UploadFile[]>([])
   // Files already saved on the entry (non-progress source) — user can delete individual ones
   const [existingFiles, setExistingFiles] = useState<{ name: string; url: string; size?: number }[]>([])
@@ -656,6 +693,7 @@ const DailyLogPage: React.FC = () => {
                 expected_end_date:    item.expected_end_date || undefined,
                 description:          item.description,
                 hours:         item.work_hours || 0,
+                progress:      item.progress,
                 is_overtime:   false,
                 overtime_hours: 0,
                 source:        'progress' as const,
@@ -811,6 +849,7 @@ const DailyLogPage: React.FC = () => {
         description: entry.description,
         hours: entry.hours,
         is_overtime: entry.is_overtime,
+        progress: entry.progress,
       })
     } else {
       setEditingEntry(null)
@@ -818,6 +857,7 @@ const DailyLogPage: React.FC = () => {
       form.resetFields()
     }
     setFileList([])
+    setSyncProgress(true)
     // For non-progress entries, load existing files into editable state
     const entryFiles = (entry?.files ?? [])
     setExistingFiles(entry?.source !== 'progress' ? entryFiles : [])
@@ -871,8 +911,9 @@ const DailyLogPage: React.FC = () => {
         hours: values.hours as number,
         is_overtime: (values.is_overtime as boolean) ?? false,
         overtime_hours: (values.is_overtime as boolean) ? (values.hours as number) : 0,
-        source: editingEntry ? 'updated' : 'manual',
+        source: (!editingEntry || editingEntry.source === 'manual') ? 'manual' : 'updated',
         suggest_id: editingEntry?.suggest_id,
+        progress: values.progress as number | undefined,
         expected_start_date: selectedFunc?.expected_start_date ?? editingEntry?.expected_start_date,
         expected_end_date: selectedFunc?.expected_end_date ?? editingEntry?.expected_end_date,
         files: editingEntry?.source === 'progress'
@@ -920,8 +961,9 @@ const DailyLogPage: React.FC = () => {
       hours: values.hours as number,
       is_overtime: (values.is_overtime as boolean) ?? false,
       overtime_hours: (values.is_overtime as boolean) ? (values.hours as number) : 0,
-      source: editingEntry ? 'updated' : 'manual',
+      source: (!editingEntry || editingEntry.source === 'manual') ? 'manual' : 'updated',
       suggest_id: editingEntry?.suggest_id,
+      progress: values.progress as number | undefined,
       expected_start_date: selectedFunc?.expected_start_date ?? editingEntry?.expected_start_date,
       expected_end_date: selectedFunc?.expected_end_date ?? editingEntry?.expected_end_date,
       files: mergedFiles.length > 0 ? mergedFiles : undefined,
@@ -940,6 +982,17 @@ const DailyLogPage: React.FC = () => {
       [dateStr]: { ...currentLog, log_id: logId || currentLog.log_id, entries: newEntries, total_hours: newTotal, overtime_hours: newOt },
     }))
 
+    // Immediately update taskProgressState so the % tag reflects the new value without
+    // relying on entry-level priority scanning (which can be confused by null values).
+    // Key by "date-taskId" to prevent cross-date contamination when navigating.
+    const savedTaskId = funcId ?? dutyId
+    if (savedTaskId != null) {
+      const savedProgress = newEntry.progress
+      if (typeof savedProgress === 'number') {
+        setTaskProgressState((prev) => ({ ...prev, [`${dateStr}-${savedTaskId}`]: savedProgress }))
+      }
+    }
+
     if (logId) {
       const backendPayload = entriesToPayload(newEntries, dateStr)
       try {
@@ -948,6 +1001,17 @@ const DailyLogPage: React.FC = () => {
           free_items: backendPayload.free_items,
         })
       } catch { /* best-effort */ }
+    }
+
+    // 同步任務進度：僅當用戶勾選且進度值確實改變時才調用
+    if (syncProgress && typeof newEntry.progress === 'number') {
+      const syncTaskId = funcId ?? dutyId
+      const syncTaskType = funcId ? 'project' : 'duty'
+      if (syncTaskId) {
+        try {
+          await dailyLogApi.syncTaskProgress(syncTaskType, syncTaskId, newEntry.progress)
+        } catch { /* best-effort, 同步失敗不影響日誌保存 */ }
+      }
     }
 
     } finally {
@@ -1024,7 +1088,7 @@ const DailyLogPage: React.FC = () => {
 
   // Export
   const handleExport = () => {
-    const allLogs = Object.values(logs).sort((a, b) => a.log_date.localeCompare(b.log_date))
+    const allLogs = Object.values(logs).sort((a, b) => (a.log_date ?? '').localeCompare(b.log_date ?? ''))
     exportDailyLogCSV(allLogs, dateLabel.replace(/\s/g, '_'))
   }
 
@@ -1119,52 +1183,23 @@ const DailyLogPage: React.FC = () => {
       {viewMode === 'day' && (
         <>
           {/* Daily hours summary */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-5">
-            <Card bordered={false} className="shadow-sm" bodyStyle={{ padding: '14px 18px' }}>
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0">
-                  <SunIcon className="w-5 h-5 text-blue-500" />
-                </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+            {[
+              { label: '今日總工時', value: `${fmtH(totalHours)}`, unit: `/ ${STANDARD_DAILY_HOURS}h`, color: '#2563eb', bg: '#eff6ff', icon: <ClockIcon className="w-4 h-4 text-blue-500" /> },
+              { label: '正常工時',   value: `${fmtH(totalHours - overtimeHours)}`, unit: 'h', color: '#16a34a', bg: '#f0fdf4', icon: <SunIcon className="w-4 h-4 text-green-500" /> },
+              { label: '加班工時',   value: `${fmtH(overtimeHours)}`, unit: 'h', color: '#d97706', bg: '#fff7ed', icon: <MoonIcon className="w-4 h-4 text-orange-500" /> },
+              { label: '工時充足率', value: `${sufficiencyPct}`, unit: '%', color: sufficiencyPct >= 100 ? '#16a34a' : sufficiencyPct >= 75 ? '#d97706' : '#dc2626', bg: '#f8fafc', icon: <CalendarDaysIcon className="w-4 h-4 text-slate-500" /> },
+            ].map((s) => (
+              <div key={s.label} className="bg-white rounded-xl border border-slate-100 shadow-sm px-4 py-3 flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: s.bg }}>{s.icon}</div>
                 <div>
-                  <div className="text-[10px] text-slate-400 font-medium">總工時</div>
-                  <div className="text-xl font-bold text-blue-600">{fmtH(totalHours)}<span className="text-xs font-normal text-slate-400 ml-0.5">/ {STANDARD_DAILY_HOURS}h</span></div>
+                  <div className="text-[10px] text-slate-400">{s.label}</div>
+                  <div className="font-bold text-lg leading-tight" style={{ color: s.color }}>
+                    {s.value}<span className="text-xs font-normal text-slate-400 ml-0.5">{s.unit}</span>
+                  </div>
                 </div>
               </div>
-            </Card>
-            <Card bordered={false} className="shadow-sm" bodyStyle={{ padding: '14px 18px' }}>
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-orange-50 flex items-center justify-center flex-shrink-0">
-                  <MoonIcon className="w-5 h-5 text-orange-500" />
-                </div>
-                <div>
-                  <div className="text-[10px] text-slate-400 font-medium">加班工時</div>
-                  <div className="text-xl font-bold text-orange-500">{fmtH(overtimeHours)}<span className="text-xs font-normal text-slate-400 ml-0.5">h</span></div>
-                </div>
-              </div>
-            </Card>
-            <Card bordered={false} className="shadow-sm" bodyStyle={{ padding: '14px 18px' }}>
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-slate-50 flex items-center justify-center flex-shrink-0">
-                  <ClockIcon className="w-5 h-5 text-slate-500" />
-                </div>
-                <div>
-                  <div className="text-[10px] text-slate-400 font-medium">總工時</div>
-                  <div className="text-xl font-bold text-slate-700">{fmtH(totalHours)}<span className="text-xs font-normal text-slate-400 ml-0.5">h</span></div>
-                </div>
-              </div>
-            </Card>
-            <Card bordered={false} className="shadow-sm" bodyStyle={{ padding: '14px 18px' }}>
-              <div className="text-[10px] text-slate-400 font-medium mb-1">工時充足率</div>
-              <Progress
-                percent={Math.min(100, sufficiencyPct)}
-                size="small"
-                strokeColor={sufficiencyPct >= 100 ? '#16a34a' : sufficiencyPct >= 75 ? '#d97706' : '#dc2626'}
-                format={() => <span className={`text-xs font-bold ${sufficiencyPct >= 100 ? 'text-green-600' : sufficiencyPct >= 75 ? 'text-orange-500' : 'text-red-500'}`}>{sufficiencyPct}%</span>}
-              />
-              <div className="text-[10px] text-slate-300 mt-0.5">
-                {displayEntries.length} 條記錄
-              </div>
-            </Card>
+            ))}
           </div>
 
           {/* Entries header */}
@@ -1270,55 +1305,87 @@ const DailyLogPage: React.FC = () => {
                       {/* ── Collapsible body ── */}
                       {!collapsed && (
                         <div>
-                          {section.projectGroups.map((pg, pgIdx) => (
+                          {section.projectGroups.map((pg, pgIdx) => {
+                            const projCollapseKey = `day::${section.category}::proj::${pg.projKey}`
+                            const projCollapsed = collapsedDayGroups.has(projCollapseKey)
+                            return (
                             <div key={pg.projKey}>
                               {/* Project sub-header (only for project / cr_ar with a named project) */}
                               {pg.projNm && (
-                                <div
-                                  className="flex items-center gap-2 px-4 py-2"
+                                <button
+                                  type="button"
+                                  className="w-full flex items-center gap-2 px-4 py-2 border-0 outline-none text-left cursor-pointer hover:brightness-95 transition-all"
                                   style={{
                                     background: section.color + '08',
                                     borderTop: pgIdx > 0 ? `1px solid ${section.color}20` : undefined,
                                     borderBottom: `1px solid ${section.color}20`,
                                   }}
+                                  onClick={() => toggleDayGroup(projCollapseKey)}
                                 >
                                   <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: section.color }} />
                                   <span className="text-sm font-bold text-slate-800 flex-1 min-w-0">{pg.projNm}</span>
+                                  <span className="text-xs text-slate-400 mr-1">{pg.tasks.length} 個任務</span>
                                   <span className="text-[11px] font-semibold flex-shrink-0" style={{ color: section.color }}>{fmtH(pg.totalHours)}h</span>
-                                </div>
+                                  <ChevronDownIcon className="w-3.5 h-3.5 ml-1 transition-transform duration-150 flex-shrink-0" style={{ color: section.color, transform: projCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }} />
+                                </button>
                               )}
 
                               {/* Tasks within this project group */}
+                              {(!pg.projNm || !projCollapsed) && (
                               <div className={pg.projNm ? 'pl-3' : ''}>
-                                {pg.tasks.map((task, tIdx) => (
+                                {pg.tasks.map((task, tIdx) => {
+                                  const taskCollapseKey = `day::${section.category}::proj::${pg.projKey}::task::${task.taskKey}`
+                                  const taskCollapsed = collapsedDayGroups.has(taskCollapseKey)
+                                  return (
                                   <div key={task.taskKey} style={{ borderTop: tIdx > 0 ? '1px solid #f1f5f9' : undefined }}>
 
                                     {/* Task sub-header */}
                                     {task.taskNm && (
                                       <div className="flex items-center gap-2 px-4 py-2 bg-slate-50/60 group/task">
-                                        <div className="w-1 h-4 rounded-full flex-shrink-0" style={{ background: section.color }} />
-                                        {(task.group1 || task.group2) && (
-                                          <div className="flex items-center gap-1 flex-shrink-0">
-                                            {task.group1 && (
-                                              <span className="text-[10px] bg-white border border-slate-200 text-slate-500 rounded px-1.5 py-px leading-none">{task.group1}</span>
-                                            )}
-                                            {task.group2 && (
-                                              <>
-                                                <span className="text-slate-300 text-[10px]">/</span>
-                                                <span className="text-[10px] bg-white border border-slate-200 text-slate-400 rounded px-1.5 py-px leading-none">{task.group2}</span>
-                                              </>
+                                        <button
+                                          type="button"
+                                          className="flex-1 min-w-0 flex items-center gap-2 border-0 outline-none bg-transparent cursor-pointer text-left p-0"
+                                          onClick={() => toggleDayGroup(taskCollapseKey)}
+                                        >
+                                          <div className="w-1 h-4 rounded-full flex-shrink-0" style={{ background: section.color }} />
+                                          {(task.group1 || task.group2) && (
+                                            <div className="flex items-center gap-1 flex-shrink-0">
+                                              {task.group1 && (
+                                                <span className="text-[10px] bg-white border border-slate-200 text-slate-500 rounded px-1.5 py-px leading-none">{task.group1}</span>
+                                              )}
+                                              {task.group2 && (
+                                                <>
+                                                  <span className="text-slate-300 text-[10px]">/</span>
+                                                  <span className="text-[10px] bg-white border border-slate-200 text-slate-400 rounded px-1.5 py-px leading-none">{task.group2}</span>
+                                                </>
+                                              )}
+                                            </div>
+                                          )}
+                                          <div className="flex items-center gap-1.5 flex-wrap flex-1 min-w-0">
+                                            <span className="text-sm font-semibold text-slate-700">{task.taskNm}</span>
+                                            {(section.category === 'project' || section.category === 'duty') && (() => {
+                                              const stateProgress = taskProgressState[`${dateStr}-${task.taskKey}`]
+                                              if (typeof stateProgress === 'number') {
+                                                return <Tag color="blue" style={{ fontSize: 10, padding: '0 5px', lineHeight: '18px', margin: 0 }}>{stateProgress}%</Tag>
+                                              }
+                                              const entries = task.entries
+                                              const latestProgress =
+                                                [...entries].reverse().find((e) => e.progress != null && e.source === 'updated')?.progress
+                                                ?? [...entries].reverse().find((e) => e.progress != null && e.source === 'manual')?.progress
+                                                ?? [...entries].find((e) => e.source === 'progress' && e.progress != null)?.progress
+                                              return latestProgress != null
+                                                ? <Tag color="blue" style={{ fontSize: 10, padding: '0 5px', lineHeight: '18px', margin: 0 }}>{latestProgress}%</Tag>
+                                                : null
+                                            })()}
+                                            {(task.expectedStartDate || task.expectedEndDate) && (
+                                              <span className="text-[11px] text-slate-400 tabular-nums">
+                                                {task.expectedStartDate ?? '—'} ~ {task.expectedEndDate ?? '—'}
+                                              </span>
                                             )}
                                           </div>
-                                        )}
-                                        <div className="flex-1 min-w-0">
-                                          <span className="text-sm font-semibold text-slate-700">{task.taskNm}</span>
-                                          {(task.expectedStartDate || task.expectedEndDate) && (
-                                            <span className="ml-2 text-[11px] text-slate-400 tabular-nums">
-                                              {task.expectedStartDate ?? '—'} ~ {task.expectedEndDate ?? '—'}
-                                            </span>
-                                          )}
-                                        </div>
-                                        <span className="text-[11px] font-semibold text-slate-400 flex-shrink-0">{fmtH(task.totalHours)}h</span>
+                                          <span className="text-[11px] font-semibold text-slate-400 flex-shrink-0">{fmtH(task.totalHours)}h</span>
+                                          <ChevronDownIcon className="w-3 h-3 text-slate-400 transition-transform duration-150 flex-shrink-0" style={{ transform: taskCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }} />
+                                        </button>
                                         {!isReadOnly && (
                                           <Popconfirm
                                             title={task.entries.length > 1
@@ -1335,19 +1402,20 @@ const DailyLogPage: React.FC = () => {
                                     )}
 
                                     {/* Entries */}
-                                    <div>
+                                    {(!task.taskNm || !taskCollapsed) && <div>
                                       {task.entries.map((entry, idx) => (
-                                        <div key={entry.entry_id}>
+                                        <div key={`${entry.log_date ?? ''}-${entry.entry_id}`}>
                                           <div className="px-4 py-2 group flex items-center gap-3">
                                             <div className="flex-1 min-w-0">
                                               <div className="flex items-center gap-1.5 flex-wrap">
                                                 <p className="text-sm text-slate-700 leading-relaxed">
                                                   {entry.description || <span className="text-slate-300 italic">（無說明）</span>}
                                                 </p>
-                                                {entry.source && (
-                                                  <Tag style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px' }}>
-                                                    {entry.source === 'progress' ? '進度提交' : entry.source === 'updated' ? '日誌更新' : '日誌添加'}
-                                                  </Tag>
+                                                {entry.source === 'updated' && (
+                                                  <Tag color="orange" style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px' }}>日誌更新</Tag>
+                                                )}
+                                                {entry.source === 'manual' && (
+                                                  <Tag color="green" style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px' }}>日誌新增</Tag>
                                                 )}
                                               </div>
                                               {entry.files && entry.files.length > 0 && (
@@ -1401,14 +1469,16 @@ const DailyLogPage: React.FC = () => {
                                           )}
                                         </div>
                                       ))}
-                                    </div>
+                                    </div>}
 
                                   </div>
-                                ))}
+                                )})}
                               </div>
+                              )}
 
                             </div>
-                          ))}
+                          )})}
+
                         </div>
                       )}
                     </div>
@@ -1476,29 +1546,62 @@ const DailyLogPage: React.FC = () => {
         destroyOnClose
       >
         <Form form={form} layout="vertical" onFinish={handleSaveEntry} className="mt-4">
-          <div className="grid grid-cols-2 gap-x-3">
-            <Form.Item name="work_category" label="工作分類" rules={[{ required: true, message: '請選擇分類' }]}>
-              <Select placeholder="選擇分類" onChange={(v: WorkCategory) => {
-                if (v !== 'project' && v !== 'cr_ar') {
-                  form.setFieldsValue({ project_id: undefined, function_id: undefined })
-                  setSelectedProject(null)
-                }
-                if (v !== 'duty') form.setFieldsValue({ duty_id: undefined })
-              }}>
-                {WORK_CATEGORIES.map((c) => (
-                  <Select.Option key={c.value} value={c.value}>
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-sm" style={{ background: c.color }} />
-                      {c.label}
-                    </div>
-                  </Select.Option>
-                ))}
-              </Select>
-            </Form.Item>
-            <Form.Item name="hours" label="耗時 (h)" rules={[{ required: true, message: '請輸入耗時' }]}>
-              <InputNumber min={0.01} max={24} step={0.01} precision={2} style={{ width: '100%' }} addonAfter="h" />
-            </Form.Item>
-          </div>
+          {(() => {
+            const hasTaskLink = (watchedCategory === 'project' && !!watchedFunctionId) || (watchedCategory === 'duty' && !!watchedDutyId)
+            return (
+              <div className={`grid gap-x-3 ${hasTaskLink ? 'grid-cols-3' : 'grid-cols-2'}`}>
+                <Form.Item name="work_category" label="工作分類" rules={[{ required: true, message: '請選擇分類' }]}>
+                  <Select placeholder="選擇分類" onChange={(v: WorkCategory) => {
+                    if (v !== 'project' && v !== 'cr_ar') {
+                      form.setFieldsValue({ project_id: undefined, function_id: undefined })
+                      setSelectedProject(null)
+                    }
+                    if (v !== 'duty') form.setFieldsValue({ duty_id: undefined })
+                  }}>
+                    {WORK_CATEGORIES.map((c) => (
+                      <Select.Option key={c.value} value={c.value}>
+                        <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-sm" style={{ background: c.color }} />
+                          {c.label}
+                        </div>
+                      </Select.Option>
+                    ))}
+                  </Select>
+                </Form.Item>
+                <Form.Item name="hours" label="耗時 (h)" rules={[{ required: true, message: '請輸入耗時' }]}>
+                  <InputNumber min={0.01} max={24} step={0.01} precision={2} style={{ width: '100%' }} addonAfter="h" />
+                </Form.Item>
+                {hasTaskLink && (
+                  <Form.Item name="progress" label="進度 (%)"
+                    rules={[{ type: 'number', min: 0, max: 100, message: '0-100' }]}>
+                    <InputNumber min={0} max={100} step={1} precision={0} style={{ width: '100%' }} addonAfter="%" />
+                  </Form.Item>
+                )}
+              </div>
+            )
+          })()}
+
+          {/* 同步任務進度選項：僅在關聯任務且進度值有變更時顯示 */}
+          {(() => {
+            const hasTaskLink = (watchedCategory === 'project' && !!watchedFunctionId) || (watchedCategory === 'duty' && !!watchedDutyId)
+            const originalProgress = editingEntry?.progress
+            const progressChanged = typeof watchedProgress === 'number' && watchedProgress !== originalProgress
+            if (!hasTaskLink || !progressChanged) return null
+            return (
+              <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg bg-blue-50 border border-blue-100">
+                <input
+                  type="checkbox"
+                  id="sync-progress-check"
+                  checked={syncProgress}
+                  onChange={(e) => setSyncProgress(e.target.checked)}
+                  className="w-3.5 h-3.5 accent-blue-600 cursor-pointer flex-shrink-0"
+                />
+                <label htmlFor="sync-progress-check" className="text-xs text-blue-700 cursor-pointer select-none">
+                  同步更新任務進度至 <span className="font-semibold">{watchedProgress}%</span>
+                </label>
+              </div>
+            )
+          })()}
 
           {(watchedCategory === 'project' || watchedCategory === 'cr_ar') && (
             <div className="grid grid-cols-2 gap-x-3">

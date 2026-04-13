@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useRef, useCallback } from 'react'
 import {
   Drawer, Descriptions, Progress, Button, Form, Input, InputNumber,
   Timeline, Avatar, Typography, Tag, Upload, Spin, Divider, Steps, Select, Modal,
@@ -46,23 +46,29 @@ const PRIORITY_OPTIONS = [
   { value: 3, label: '高' }, { value: 4, label: '緊急' },
 ]
 
+const PAGE_SIZE = 10
+
 const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
   projectId, functionId, open, onClose, onRefresh, isProjectPm = false, projectStatus, projectPm,
 }) => {
   const workNo = useAppSelector((s) => s.auth.workNo) ?? ''
   const toName = useWorkNoToName()
   const [previewFile, setPreviewFile] = useState<FileInfo | null>(null)
-  const [funcData,   setFuncData]   = useState<ProjectFunction | null>(null)
-  const [records,     setRecords]     = useState<ProgressRecord[]>([])
-  const [logEntries,  setLogEntries]  = useState<TaskLogEntry[]>([])
-  const [isLoading,   setIsLoading]   = useState(false)
-  const [isSaving,   setIsSaving]   = useState(false)
-  const [showForm,   setShowForm]   = useState(false)
-  const [showEdit,   setShowEdit]   = useState(false)
-  const [editSaving, setEditSaving] = useState(false)
-  const [fileList,   setFileList]   = useState<UploadFile[]>([])
-  const [form]                      = Form.useForm()
-  const [editForm]                  = Form.useForm()
+  const [funcData,        setFuncData]        = useState<ProjectFunction | null>(null)
+  const [records,         setRecords]         = useState<ProgressRecord[]>([])
+  const [progressPage,    setProgressPage]    = useState(1)
+  const [progressTotal,   setProgressTotal]   = useState(0)
+  const [progressLoading, setProgressLoading] = useState(false)
+  const [logEntries,      setLogEntries]      = useState<TaskLogEntry[]>([])
+  const [isLoading,       setIsLoading]       = useState(false)
+  const [isSaving,        setIsSaving]        = useState(false)
+  const [showForm,        setShowForm]        = useState(false)
+  const [showEdit,        setShowEdit]        = useState(false)
+  const [editSaving,      setEditSaving]      = useState(false)
+  const [fileList,        setFileList]        = useState<UploadFile[]>([])
+  const [form]       = Form.useForm()
+  const [editForm]   = Form.useForm()
+  const sentinelRef  = useRef<HTMLDivElement>(null)
 
   useEffect(() => { if (open) loadData() }, [open, functionId])
 
@@ -74,20 +80,51 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
 
   const loadData = async () => {
     setIsLoading(true)
+    setRecords([])
+    setProgressPage(1)
+    setProgressTotal(0)
     try {
       const [funcRes, progressRes, logRes] = await Promise.all([
         projectApi.getFunction(projectId, functionId),
-        projectApi.getProgress(projectId, functionId, { page: 1, size: 30 }),
+        projectApi.getProgress(projectId, functionId, { page: 1, size: PAGE_SIZE }),
         dailyLogApi.taskEntries('project', functionId),
       ])
       setFuncData(funcRes.content)
-      const c = progressRes.content as { data_list?: ProgressRecord[] }
+      const c = progressRes.content as { data_list?: ProgressRecord[]; total_count?: number }
       const list = (c.data_list ?? []) as ProgressRecord[]
       setRecords(list.map((r) => ({ ...r, files: addTokenToFiles(r.files) })))
+      setProgressTotal(c.total_count ?? list.length)
       setLogEntries(logRes.content ?? [])
     } catch { /* global */ }
     finally { setIsLoading(false) }
   }
+
+  const loadMoreProgress = useCallback(async () => {
+    if (progressLoading || records.length >= progressTotal) return
+    const nextPage = progressPage + 1
+    setProgressLoading(true)
+    try {
+      const res = await projectApi.getProgress(projectId, functionId, { page: nextPage, size: PAGE_SIZE })
+      const c = res.content as { data_list?: ProgressRecord[]; total_count?: number }
+      const list = (c.data_list ?? []) as ProgressRecord[]
+      setRecords((prev) => [...prev, ...list.map((r) => ({ ...r, files: addTokenToFiles(r.files) }))])
+      setProgressPage(nextPage)
+      if (c.total_count !== undefined) setProgressTotal(c.total_count)
+    } catch { /* global */ }
+    finally { setProgressLoading(false) }
+  }, [progressLoading, records.length, progressTotal, progressPage, projectId, functionId])
+
+  // Infinite scroll sentinel
+  useEffect(() => {
+    const el = sentinelRef.current
+    if (!el) return
+    const observer = new IntersectionObserver(
+      (entries) => { if (entries[0].isIntersecting) loadMoreProgress() },
+      { threshold: 0.1 },
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [loadMoreProgress])
 
   const handleSubmit = async (values: Record<string, unknown>) => {
     setIsSaving(true)
@@ -159,6 +196,17 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
   const isResponsible     = (funcData?.responsible ?? []).map((r) => r.toLowerCase()).includes(workNo.toLowerCase())
   const canUpdateProgress = projectStatus === 5 && !isCompleted && !isReviewing && isResponsible
   const canEdit           = isProjectPm && !isCompleted
+
+  const token = tokenStorage.get()
+  const withToken = (url: string) => token ? `${url}?token=${token}` : url
+  const IMG_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp'])
+  const splitFiles = (files: { name: string; url: string; size?: number }[] | undefined) => {
+    const all = (files ?? []).map((f) => ({ ...f, url: withToken(f.url) }))
+    return {
+      images: all.filter((f) => IMG_EXTS.has(f.name.split('.').pop()?.toLowerCase() ?? '')),
+      files:  all.filter((f) => !IMG_EXTS.has(f.name.split('.').pop()?.toLowerCase() ?? '')),
+    }
+  }
 
   return (
     <>
@@ -315,7 +363,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
           )}
 
           <Divider style={{ fontSize: 12, color: '#94a3b8' }}>
-            進度記錄 ({records.length})
+            進度記錄（共 {progressTotal} 條）
             {logEntries.length > 0 && (
               <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400, marginLeft: 6 }}>
                 · 含 {logEntries.length} 條日誌記錄
@@ -327,7 +375,6 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
             <Text type="secondary" className="block text-center py-8 text-sm">暫無進度記錄</Text>
           ) : (() => {
             // ── 構建合併時間軸 ──────────────────────────────────────────
-            // updated 條目按 suggest_id 分組，key=suggest_id，value=按 log_date 排序的條目列表
             const updatedMap = new Map<string, TaskLogEntry[]>()
             const manualEntries: TaskLogEntry[] = []
             for (const e of logEntries) {
@@ -338,170 +385,196 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
                 manualEntries.push(e)
               }
             }
-            // 每組 updated 按 log_date 升序
             for (const list of updatedMap.values()) list.sort((a, b) => a.log_date.localeCompare(b.log_date))
 
-            // 進度記錄 + manual 條目合併後按時間排序
             type MixedItem =
-              | { kind: 'progress'; data: ProgressRecord }
-              | { kind: 'manual';   data: TaskLogEntry }
+              | { kind: 'progress'; data: ProgressRecord; _sort: string }
+              | { kind: 'manual';   data: TaskLogEntry;   _sort: string }
+
             const mixed: MixedItem[] = [
               ...records.map((r) => ({ kind: 'progress' as const, data: r, _sort: r.created_at ?? '' })),
-              ...manualEntries.map((e) => ({ kind: 'manual' as const, data: e, _sort: e.log_date })),
+              ...manualEntries.map((e) => ({
+                kind: 'manual' as const,
+                data: e,
+                _sort: `${e.log_date} ${e.record_time ?? '00:00'}`,
+              })),
             ].sort((a, b) => (a._sort > b._sort ? -1 : 1))  // 倒序：最新在上
 
-            const token = tokenStorage.get()
-            const withToken = (url: string) => token ? `${url}?token=${token}` : url
-
-            const IMG_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp'])
-            const splitFiles = (files: { name: string; url: string; size?: number }[] | undefined) => {
-              const all = (files ?? []).map((f) => ({ ...f, url: withToken(f.url) }))
-              return {
-                images: all.filter((f) => IMG_EXTS.has(f.name.split('.').pop()?.toLowerCase() ?? '')),
-                files:  all.filter((f) => !IMG_EXTS.has(f.name.split('.').pop()?.toLowerCase() ?? '')),
-              }
-            }
-
             return (
-              <Timeline
-                items={mixed.map(({ kind, data }) => {
-                  if (kind === 'progress') {
-                    const item = data as ProgressRecord
-                    const updates = updatedMap.get(item.progress_id) ?? []
-                    return {
-                      dot: (
-                        <Avatar size={26} style={{ background: '#2563eb', fontSize: 11, fontWeight: 700 }}>
-                          {toName(item.submitter)?.[0]?.toUpperCase()}
-                        </Avatar>
-                      ),
-                      children: (
-                        <div className="pb-3">
-                          {(() => {
-                            // 計算最新耗時：如有更新則取最後一條 updated 的 work_hours
-                            const latestUpd = updates.length > 0 ? updates[updates.length - 1] : null
-                            const origHours = Number(item.time_consum ?? 0)
-                            const latestHours = latestUpd ? Number(latestUpd.work_hours ?? 0) : origHours
-                            const hoursChanged = latestUpd && latestHours !== origHours
-                            return (
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="font-semibold text-slate-700 text-sm">{toName(item.submitter)}</span>
-                                <Tag color="blue" style={{ fontSize: 11, padding: '0 6px' }}>{item.progress}%</Tag>
-                                {hoursChanged ? (
-                                  <span className="flex items-center gap-1">
-                                    {origHours > 0 && <span className="text-xs text-slate-400 line-through">{origHours}h</span>}
-                                    <Tag style={{ fontSize: 11, padding: '0 6px' }}>{latestHours}h</Tag>
-                                  </span>
-                                ) : (
-                                  origHours > 0 && <Tag style={{ fontSize: 11, padding: '0 6px' }}>{origHours}h</Tag>
-                                )}
-                              </div>
-                            )
-                          })()}
-                          {/* 原始進度說明：如有更新則加劃線 */}
-                          {item.progress_record && (
-                            <p className="text-sm mt-1 mb-1 leading-snug"
-                              style={{ color: updates.length > 0 ? '#94a3b8' : '#475569', textDecoration: updates.length > 0 ? 'line-through' : 'none' }}>
-                              {item.progress_record}
-                            </p>
-                          )}
-
-                          {/* 日誌更新鏈：緊接在劃線文字下方，時間戳之前 */}
-                          {updates.map((upd, idx) => {
-                            const isLatest = idx === updates.length - 1
-                            const prevText = idx === 0 ? null : updates[idx - 1].description
-
-                            // 附件差異
-                            const prevRawFiles = idx === 0
-                              ? (item.files ?? [])
-                              : (updates[idx - 1].files ?? []).map((f) => ({ ...f, url: withToken(f.url) }))
-                            const currRawFiles = (upd.files ?? []).map((f) => ({ ...f, url: withToken(f.url) }))
-                            const prevNameSet = new Set(prevRawFiles.map((f) => f.name))
-                            const currNameSet = new Set(currRawFiles.map((f) => f.name))
-                            const addedFiles   = currRawFiles.filter((f) => !prevNameSet.has(f.name))
-                            const removedFiles = prevRawFiles.filter((f) => !currNameSet.has(f.name))
-                            const hasFileDiff  = addedFiles.length > 0 || removedFiles.length > 0
-
-                            return (
-                              <div key={upd.log_date}>
-                                {/* 非第一條：上一版本劃線 */}
-                                {prevText && (
-                                  <p className="text-sm leading-tight"
-                                    style={{ color: '#94a3b8', textDecoration: 'line-through' }}>
-                                    {prevText}
-                                  </p>
-                                )}
-                                {/* 新內容 */}
+              <>
+                <Timeline
+                  items={mixed.map(({ kind, data }) => {
+                    if (kind === 'progress') {
+                      const item = data as ProgressRecord
+                      const updates = updatedMap.get(item.progress_id) ?? []
+                      return {
+                        dot: (
+                          <Avatar size={26} style={{ background: '#2563eb', fontSize: 11, fontWeight: 700 }}>
+                            {toName(item.submitter)?.[0]?.toUpperCase()}
+                          </Avatar>
+                        ),
+                        children: (
+                          <div className="pb-3">
+                            {(() => {
+                              const latestUpd = updates.length > 0 ? updates[updates.length - 1] : null
+                              const origHours = Number(item.time_consum ?? 0)
+                              const latestHours = latestUpd ? Number(latestUpd.work_hours ?? 0) : origHours
+                              const hoursChanged = latestUpd && latestHours !== origHours
+                              const origProgress = item.progress
+                              const latestProgress = latestUpd?.progress
+                              const progressChanged = latestUpd && latestProgress != null && latestProgress !== origProgress
+                              return (
                                 <div className="flex items-center justify-between gap-2">
-                                  <p className="text-sm leading-tight"
-                                    style={{ color: isLatest ? '#334155' : '#94a3b8', textDecoration: isLatest ? 'none' : 'line-through' }}>
-                                    {upd.description}
-                                  </p>
-                                  <div className="flex items-center gap-1 flex-shrink-0">
-                                    {isLatest && (
-                                      <Tag style={{ fontSize: 10, padding: '0 4px', lineHeight: '16px', margin: 0 }}>
-                                        {upd.log_status === 2 ? '已提交' : '草稿'}
-                                      </Tag>
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-semibold text-slate-700 text-sm">{toName(item.submitter)}</span>
+                                    {progressChanged ? (
+                                      <span className="flex items-center gap-1">
+                                        <span className="text-xs text-slate-400 line-through">{origProgress}%</span>
+                                        <Tag color="blue" style={{ fontSize: 11, padding: '0 6px' }}>{latestProgress}%</Tag>
+                                      </span>
+                                    ) : (
+                                      <Tag color="blue" style={{ fontSize: 11, padding: '0 6px' }}>{origProgress}%</Tag>
                                     )}
-                                    <Tag color="orange" style={{ fontSize: 10, padding: '0 5px', lineHeight: '16px', margin: 0 }}>日誌更新</Tag>
+                                    {hoursChanged ? (
+                                      <span className="flex items-center gap-1">
+                                        {origHours > 0 && <span className="text-xs text-slate-400 line-through">{origHours}h</span>}
+                                        <Tag style={{ fontSize: 11, padding: '0 6px' }}>{latestHours}h</Tag>
+                                      </span>
+                                    ) : (
+                                      origHours > 0 && <Tag style={{ fontSize: 11, padding: '0 6px' }}>{origHours}h</Tag>
+                                    )}
                                   </div>
+                                  {latestUpd && (
+                                    <div className="flex items-center gap-1 flex-shrink-0">
+                                      <Tag style={{ fontSize: 10, padding: '0 4px', lineHeight: '16px', margin: 0 }}>
+                                        {latestUpd.log_status === 2 ? '已提交' : '草稿'}
+                                      </Tag>
+                                      <Tag color="orange" style={{ fontSize: 10, padding: '0 5px', lineHeight: '16px', margin: 0 }}>日誌更新</Tag>
+                                    </div>
+                                  )}
                                 </div>
-                                {/* 附件差異 */}
-                                {hasFileDiff && (
-                                  <div className="mt-1 space-y-1">
-                                    {removedFiles.map((f, fi) => (
-                                      <div key={fi} className="flex items-center gap-1.5">
-                                        <Tag color="red" style={{ fontSize: 9, padding: '0 4px', lineHeight: '14px', flexShrink: 0 }}>已刪除</Tag>
-                                        <span className="text-xs text-slate-400" style={{ textDecoration: 'line-through' }}>{f.name}</span>
-                                      </div>
-                                    ))}
-                                    {addedFiles.length > 0 && (() => { const sf = splitFiles(addedFiles); return <AttachmentPreview files={sf.files} images={sf.images} onPreview={setPreviewFile} /> })()}
-                                  </div>
+                              )
+                            })()}
+                            {/* 原始進度說明：只有第一條更新確實改了文字才劃線 */}
+                            {item.progress_record && (() => {
+                              const firstUpdDesc = updates[0]?.description ?? ''
+                              const origChanged  = updates.length > 0 && firstUpdDesc !== item.progress_record
+                              return (
+                                <p className="text-sm mt-1 mb-0 leading-snug"
+                                  style={{ color: origChanged ? '#94a3b8' : '#475569', textDecoration: origChanged ? 'line-through' : 'none', margin: '4px 0 0 0' }}>
+                                  {item.progress_record}
+                                </p>
+                              )
+                            })()}
+                            {/* 日誌更新鏈 */}
+                            {updates.map((upd, idx) => {
+                              const isLatest    = idx === updates.length - 1
+                              const prevDesc    = idx === 0 ? (item.progress_record ?? '') : (updates[idx - 1].description ?? '')
+                              const descChanged = upd.description !== prevDesc
+                              // 僅用於文件名比對，不在此處加 token（splitFiles 統一處理）
+                              const prevRawFiles = idx === 0
+                                ? (item.files ?? [])
+                                : (updates[idx - 1].files ?? [])
+                              const currRawFiles = (upd.files ?? [])
+                              const prevNameSet = new Set(prevRawFiles.map((f) => f.name))
+                              const currNameSet = new Set(currRawFiles.map((f) => f.name))
+                              const addedFiles   = currRawFiles.filter((f) => !prevNameSet.has(f.name))
+                              const removedFiles = prevRawFiles.filter((f) => !currNameSet.has(f.name))
+                              const hasFileDiff  = addedFiles.length > 0 || removedFiles.length > 0
+                              if (!descChanged && !hasFileDiff) return null
+                              return (
+                                <div key={upd.log_date}>
+                                  {/* 上一版文字劃線：僅在 idx>0 且文字確實改了時才顯示 */}
+                                  {idx > 0 && descChanged && (
+                                    <p className="text-sm leading-tight"
+                                      style={{ color: '#94a3b8', textDecoration: 'line-through', margin: '2px 0 0 0' }}>
+                                      {updates[idx - 1].description}
+                                    </p>
+                                  )}
+                                  {/* 文字：只有確實改變才顯示 */}
+                                  {descChanged && (
+                                    <p className="text-sm leading-tight"
+                                      style={{ color: isLatest ? '#334155' : '#94a3b8', textDecoration: isLatest ? 'none' : 'line-through', margin: '2px 0 0 0' }}>
+                                      {upd.description}
+                                    </p>
+                                  )}
+                                  {hasFileDiff && (
+                                    <div className="mt-1 space-y-1">
+                                      {removedFiles.map((f, fi) => (
+                                        <div key={fi} className="flex items-center gap-1.5">
+                                          <Tag color="red" style={{ fontSize: 9, padding: '0 4px', lineHeight: '14px', flexShrink: 0 }}>已刪除</Tag>
+                                          <span className="text-xs text-slate-400" style={{ textDecoration: 'line-through' }}>{f.name}</span>
+                                        </div>
+                                      ))}
+                                      {addedFiles.length > 0 && (() => { const sf = splitFiles(addedFiles); return <AttachmentPreview files={sf.files} images={sf.images} onPreview={setPreviewFile} /> })()}
+                                    </div>
+                                  )}
+                                </div>
+                              )
+                            })}
+                            {/* 附件（原始） */}
+                            <AttachmentPreview files={item.files} images={item.images} onPreview={setPreviewFile} />
+                            {/* 時間戳放在附件下方 */}
+                            <span className="text-xs text-slate-300 mt-1 block">{item.created_at}</span>
+                          </div>
+                        ),
+                      }
+                    } else {
+                      // manual 日誌新增
+                      const entry = data as TaskLogEntry
+                      const displayTime = entry.record_time
+                        ? `${entry.log_date} ${entry.record_time}`
+                        : entry.log_date
+                      return {
+                        dot: (
+                          <Avatar size={26} style={{ background: '#16a34a', fontSize: 11, fontWeight: 700 }}>
+                            {toName(entry.work_no)?.[0]?.toUpperCase()}
+                          </Avatar>
+                        ),
+                        children: (
+                          <div className="pb-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-semibold text-slate-700 text-sm">{toName(entry.work_no)}</span>
+                                {entry.progress != null && (
+                                  <Tag color="blue" style={{ fontSize: 11, padding: '0 6px' }}>{entry.progress}%</Tag>
+                                )}
+                                {Number(entry.work_hours) > 0 && (
+                                  <Tag style={{ fontSize: 11, padding: '0 6px' }}>{entry.work_hours}h</Tag>
                                 )}
                               </div>
-                            )
-                          })}
-                          {/* 時間戳 + 原始附件（在更新鏈之後） */}
-                          <span className="text-xs text-slate-300 mt-1 block">{item.created_at}</span>
-                          <AttachmentPreview files={item.files} images={item.images} onPreview={setPreviewFile} />
-                        </div>
-                      ),
-                    }
-                  } else {
-                    // manual 日誌新增
-                    const entry = data as TaskLogEntry
-                    return {
-                      dot: (
-                        <Avatar size={26} style={{ background: '#16a34a', fontSize: 11, fontWeight: 700 }}>
-                          {toName(entry.work_no)?.[0]?.toUpperCase()}
-                        </Avatar>
-                      ),
-                      children: (
-                        <div className="pb-3">
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2">
-                              <span className="font-semibold text-slate-700 text-sm">{toName(entry.work_no)}</span>
-                              {Number(entry.work_hours) > 0 && (
-                                <Tag style={{ fontSize: 11, padding: '0 6px' }}>{entry.work_hours}h</Tag>
-                              )}
+                              <div className="flex items-center gap-1 flex-shrink-0">
+                                <Tag style={{ fontSize: 10, padding: '0 4px', lineHeight: '16px', margin: 0 }}>
+                                  {entry.log_status === 2 ? '已提交' : '草稿'}
+                                </Tag>
+                                <Tag color="green" style={{ fontSize: 10, padding: '0 5px', lineHeight: '16px', margin: 0 }}>日誌新增</Tag>
+                              </div>
                             </div>
-                            <div className="flex items-center gap-1 flex-shrink-0">
-                              <Tag style={{ fontSize: 10, padding: '0 4px', lineHeight: '16px', margin: 0 }}>
-                                {entry.log_status === 2 ? '已提交' : '草稿'}
-                              </Tag>
-                              <Tag color="green" style={{ fontSize: 10, padding: '0 5px', lineHeight: '16px', margin: 0 }}>日誌新增</Tag>
-                            </div>
+                            {entry.description && (
+                              <p className="text-sm text-slate-600 mt-1 mb-1 leading-tight">{entry.description}</p>
+                            )}
+                            {/* 附件 */}
+                            {(() => { const sf = splitFiles(entry.files); return <AttachmentPreview files={sf.files} images={sf.images} onPreview={setPreviewFile} /> })()}
+                            {/* 時間戳放在附件下方 */}
+                            <span className="text-xs text-slate-300 mt-1 block">{displayTime}</span>
                           </div>
-                          {entry.description && (
-                            <p className="text-sm text-slate-600 mt-1 mb-1 leading-tight">{entry.description}</p>
-                          )}
-                          <span className="text-xs text-slate-300">{entry.log_date}</span>
-                          {(() => { const sf = splitFiles(entry.files); return <AttachmentPreview files={sf.files} images={sf.images} onPreview={setPreviewFile} /> })()}
-                        </div>
-                      ),
+                        ),
+                      }
                     }
-                  }
-                })}
-              />
+                  })}
+                />
+
+                {/* 滾動哨兵：進入視口時觸發加載下一頁 */}
+                <div ref={sentinelRef} className="h-1" />
+                {progressLoading && (
+                  <div className="flex justify-center py-3">
+                    <Spin size="small" />
+                  </div>
+                )}
+                {!progressLoading && records.length >= progressTotal && progressTotal > 0 && (
+                  <p className="text-center text-xs text-slate-300 pb-2">已顯示全部 {progressTotal} 條記錄</p>
+                )}
+              </>
             )
           })()}
         </>

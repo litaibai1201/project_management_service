@@ -3,7 +3,7 @@
 import os
 import uuid
 from dbs.mysql_db import db
-from dbs.mysql_db.model_tables import generate_uuid
+from dbs.mysql_db.model_tables import generate_uuid, FunctionDataModel, TemporaryDutyModel
 from dbs.mongo_db.client import mongo_client
 from utils.exceptions import ResourceNotFoundException, BusinessException, ValidationException
 from utils.auth import get_identity
@@ -213,6 +213,7 @@ class DailyLogController:
                 "expected_end_date":   str(func.expected_end_date) if func and func.expected_end_date else None,
                 "work_hours":          float(r.time_consum or 0),
                 "description":         r.progress_record or "",
+                "progress":            int(r.progress or 0),
                 "files":               files,
                 "suggest_id":          r.progress_id,
                 "record_time":         str(r.created_at)[11:16] if r.created_at else None,
@@ -280,6 +281,28 @@ class DailyLogController:
                         "work_no":    doc["work_no"],
                     })
         return result
+
+    # ─── 同步任务进度字段 ─────────────────────────────────────────────────
+    def sync_task_progress(self, task_type: str, task_id: str, progress: int):
+        """
+        将日志中用户修改的进度值直接写入任务表的 progress 字段。
+        仅更新该字段，不创建进度记录，不触发审批流程。
+        """
+        progress = max(0, min(100, int(progress)))
+        if task_type == "project":
+            func = db.session.query(FunctionDataModel).filter_by(id=task_id).first()
+            if not func:
+                raise ResourceNotFoundException(msg="任务不存在")
+            func.progress = progress
+            db.session.commit()
+        elif task_type == "duty":
+            duty = db.session.query(TemporaryDutyModel).filter_by(id=task_id).first()
+            if not duty:
+                raise ResourceNotFoundException(msg="临时任务不存在")
+            duty.progress = progress
+            db.session.commit()
+        else:
+            raise ValidationException(msg="task_type 无效")
 
     # ─── 内部序列化 ───────────────────────────────────────────────────────
     def _to_summary(self, doc: dict):

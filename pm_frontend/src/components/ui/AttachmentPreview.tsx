@@ -5,11 +5,7 @@
  */
 import React from 'react'
 import { Image, Tooltip } from 'antd'
-import {
-  PaperClipIcon,
-  DocumentTextIcon,
-  PhotoIcon,
-} from '@heroicons/react/24/outline'
+import { DocumentTextIcon } from '@heroicons/react/24/outline'
 
 export interface FileItem {
   name: string
@@ -64,37 +60,32 @@ const AttachmentPreview: React.FC<AttachmentPreviewProps> = ({ files = [], image
     <div className="mt-2 space-y-2">
       {/* Image thumbnails with preview */}
       {imgItems.length > 0 && (
-        <div className="flex items-start gap-1.5">
-          <PhotoIcon className="w-3.5 h-3.5 text-slate-300 flex-shrink-0 mt-0.5" />
-          <Image.PreviewGroup>
-            <div className="flex flex-wrap gap-1.5">
-              {imgItems.map((img, i) => (
-                <Tooltip key={i} title={img.name}>
-                  <div className="relative rounded-lg overflow-hidden border border-slate-200 cursor-pointer hover:border-blue-300 transition-colors"
-                    style={{ width: 64, height: 64 }}>
-                    <Image
-                      src={img.url}
-                      alt={img.name}
-                      width={64}
-                      height={64}
-                      style={{ objectFit: 'cover' }}
-                      preview={{ mask: <span className="text-[10px]">預覽</span> }}
-                      fallback="https://placehold.co/64x64/f1f5f9/94a3b8?text=IMG"
-                    />
-                  </div>
-                </Tooltip>
-              ))}
-            </div>
-          </Image.PreviewGroup>
-        </div>
+        <Image.PreviewGroup>
+          <div className="flex flex-wrap gap-1.5">
+            {imgItems.map((img, i) => (
+              <Tooltip key={i} title={img.name}>
+                <div className="relative rounded-lg overflow-hidden border border-slate-200 cursor-pointer hover:border-blue-300 transition-colors"
+                  style={{ width: 64, height: 64 }}>
+                  <Image
+                    src={img.url}
+                    alt={img.name}
+                    width={64}
+                    height={64}
+                    style={{ objectFit: 'cover' }}
+                    preview={{ mask: <span className="text-[10px]">預覽</span> }}
+                    fallback="https://placehold.co/64x64/f1f5f9/94a3b8?text=IMG"
+                  />
+                </div>
+              </Tooltip>
+            ))}
+          </div>
+        </Image.PreviewGroup>
       )}
 
       {/* Document file cards */}
       {docItems.length > 0 && (
-        <div className="flex items-start gap-1.5">
-          <PaperClipIcon className="w-3.5 h-3.5 text-slate-300 flex-shrink-0 mt-0.5" />
-          <div className="flex flex-wrap gap-1.5">
-            {docItems.map((f, i) => (
+        <div className="flex flex-wrap gap-1.5">
+          {docItems.map((f, i) => (
               <button
                 key={i}
                 type="button"
@@ -113,8 +104,7 @@ const AttachmentPreview: React.FC<AttachmentPreviewProps> = ({ files = [], image
                   )}
                 </div>
               </button>
-            ))}
-          </div>
+          ))}
         </div>
       )}
     </div>

@@ -10,11 +10,13 @@ export interface BackendTaskItem {
   task_nm: string                  // function_nm | duty_nm
   work_hours: number               // backend uses work_hours, not hours
   description: string
+  progress?: number                // 任務完成百分比（來自進度記錄）
   is_overtime?: boolean            // 是否加班
   overtime_hours?: number          // 加班工時
   source?: 'progress' | 'manual' | 'updated'  // 數據來源
   project_id?: string              // 所屬專案 ID（project 類型時使用）
   project_nm?: string              // 所屬專案名稱（project 類型時使用）
+  progress?: number                // 攜帶的進度百分比（用於更新鏈追蹤 % 變化）
   suggest_id?: string              // 來源進度記錄 ID，用於刷新後去重
   files?: { name: string; url: string; size?: number }[]  // 來自進度記錄的附件
   record_time?: string             // 提交時間 HH:mm（來自進度記錄 created_at）
@@ -119,6 +121,7 @@ export function entriesToBackend(
       task_nm:        e.work_category === 'project' ? (e.function_nm ?? '') : (e.duty_nm ?? ''),
       work_hours:     e.hours,
       description:    e.description,
+      progress:       e.progress,
       is_overtime:    e.is_overtime || undefined,
       overtime_hours: e.is_overtime ? (e.overtime_hours ?? e.hours) : undefined,
       source:         e.source,
@@ -169,6 +172,7 @@ export function backendDetailToLog(raw: BackendDailyLogDetail): DailyLog {
     duty_nm:       t.task_type === 'duty' ? t.task_nm : undefined,
     description:         t.description,
     hours:               Number(t.work_hours),
+    progress:            t.progress,
     is_overtime:         t.is_overtime ?? false,
     overtime_hours:      Number(t.overtime_hours ?? 0),
     source:              t.source,
@@ -251,6 +255,10 @@ export const dailyLogApi = {
   /** GET /api/daily_log/task_entries?task_type=project&task_id=xxx  — 任務關聯的日誌條目 */
   taskEntries: (taskType: 'project' | 'duty', taskId: string): Promise<ApiResponse<TaskLogEntry[]>> =>
     get('/daily_log/task_entries', { params: { task_type: taskType, task_id: taskId } }),
+
+  /** POST /api/daily_log/sync_task_progress  — 將日誌中的進度值同步到任務表 */
+  syncTaskProgress: (taskType: 'project' | 'duty', taskId: string, progress: number): Promise<ApiResponse<null>> =>
+    post('/daily_log/sync_task_progress', { task_type: taskType, task_id: taskId, progress }),
 }
 
 /** 任務進度頁面使用：日誌中手動新增或更新的任務條目 */
@@ -260,12 +268,14 @@ export interface TaskLogEntry {
   task_nm:        string
   work_hours:     number
   description:    string
+  progress?:      number   // 任務完成百分比（updated 時存原進度記錄的 progress）
   source:         'manual' | 'updated'
   suggest_id?:    string   // 對應的原始進度記錄 ID（updated 時有值）
   is_overtime?:   boolean
   overtime_hours?: number
   files?:         { name: string; url: string; size?: number }[]
   log_date:       string   // YYYY-MM-DD
+  record_time?:   string   // HH:mm（記錄提交時間，用於排序及顯示）
   log_status:     1 | 2    // 1=草稿 2=已提交
   work_no:        string
 }
@@ -281,6 +291,7 @@ export interface SuggestItem {
   group2?:     string
   work_hours:  number
   description: string
+  progress?:   number              // 進度百分比（來自進度記錄）
   files?:      { name: string; url: string; size?: number }[]
   /** 進度記錄 ID（ProgressRecordDataModel.progress_id / DutyProgressRecordModel.id） */
   suggest_id?: string

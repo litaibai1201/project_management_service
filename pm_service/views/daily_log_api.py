@@ -63,6 +63,23 @@ class DailyLogTaskEntriesApi(MethodView):
         return response_result(content=ctrl.get_task_entries(task_type, task_id))
 
 
+@blp.route("/sync_task_progress")
+class DailyLogSyncTaskProgressApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def post(self):
+        """将日志中用户修改的进度值同步到任务表的 progress 字段"""
+        payload = request.get_json() or {}
+        task_type = payload.get("task_type")
+        task_id   = payload.get("task_id")
+        progress  = payload.get("progress")
+        if not task_type or not task_id or progress is None:
+            from utils.exceptions import ValidationException
+            raise ValidationException(msg="task_type / task_id / progress 不能为空")
+        ctrl.sync_task_progress(task_type, task_id, int(progress))
+        return response_result()
+
+
 @blp.route("/<string:log_id>")
 class DailyLogDetailApi(MethodView):
     @jwt_required()
