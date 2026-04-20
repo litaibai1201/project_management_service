@@ -194,6 +194,7 @@ class ProjectDataModel(BaseMixinModel):
     # 1=草稿 2=立案审核 3=规划中 4=规划审核 10=排程安排 11=排程审核 5=执行中 6=完结审核 7=完结 8=搁置 9=删除
     project_status = db.Column(db.Integer, default=1, comment="项目状态")
     priority = db.Column(db.Integer, default=2, comment="优先级(1低2中3高4紧急)")
+    expected_start_date = db.Column(db.String(10), comment="预计开始日期")
     expected_end_date = db.Column(db.String(10), comment="预计结束日期")
     end_time = db.Column(db.String(19), comment="实际结束时间")
     code_url = db.Column(db.String(255), comment="代码仓库地址")
@@ -207,6 +208,7 @@ class ProjectDataModel(BaseMixinModel):
             "department": self.department or "", "product_pm": self.product_pm or "",
             "project_pm": self.project_pm, "creator": self.creator or "",
             "status": self.project_status, "priority": self.priority,
+            "expected_start_date": self.expected_start_date or "",
             "expected_end_date": self.expected_end_date or "", "end_time": self.end_time or "",
             "code_url": self.code_url or "", "group_id": self.group_id or "",
             "expected_benefit": self.expected_benefit or "", "progress": self.progress,
@@ -218,7 +220,9 @@ class ProjectDataModel(BaseMixinModel):
             "id": self.id, "project_nm": self.project_nm, "department": self.department or "",
             "status": self.project_status, "priority": self.priority,
             "product_pm": self.product_pm or "", "project_pm": self.project_pm,
-            "progress": self.progress, "expected_end_date": self.expected_end_date or "",
+            "progress": self.progress,
+            "expected_start_date": self.expected_start_date or "",
+            "expected_end_date": self.expected_end_date or "",
         }
 
 
@@ -524,13 +528,14 @@ class DailyLogModel(BaseMixinModel):
 class UserDashboardConfigModel(db.Model):
     __tablename__ = "user_dashboard_config"
 
-    id         = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    work_no    = db.Column(db.String(50), nullable=False, index=True, comment="工号")
-    view_type  = db.Column(db.String(20), nullable=False, comment="视角: personal | manager")
-    widget_id  = db.Column(db.String(50), nullable=False, comment="Widget ID")
-    is_visible = db.Column(db.Boolean, nullable=False, default=True, comment="是否显示")
-    created_at = db.Column(db.String(19), default=CommonTools.get_now, comment="创建时间")
-    updated_at = db.Column(db.String(19), comment="更新时间")
+    id          = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    work_no     = db.Column(db.String(50), nullable=False, index=True, comment="工号")
+    view_type   = db.Column(db.String(20), nullable=False, comment="视角: personal | manager")
+    widget_id   = db.Column(db.String(50), nullable=False, comment="Widget ID")
+    is_visible  = db.Column(db.Boolean, nullable=False, default=True, comment="是否显示")
+    layout_json = db.Column(db.Text, nullable=True, comment="布局JSON: {x,y,w,h}")
+    created_at  = db.Column(db.String(19), default=CommonTools.get_now, comment="创建时间")
+    updated_at  = db.Column(db.String(19), comment="更新时间")
 
     __table_args__ = (
         db.UniqueConstraint("work_no", "view_type", "widget_id", name="uq_user_dashboard_config"),
@@ -540,4 +545,36 @@ class UserDashboardConfigModel(db.Model):
         return {
             "widget_id":  self.widget_id,
             "is_visible": self.is_visible,
+        }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 会议备注
+# ─────────────────────────────────────────────────────────────────────────────
+
+class MeetingNoteModel(db.Model):
+    __tablename__ = "meeting_note"
+
+    id         = db.Column(db.String(32), primary_key=True, default=generate_uuid)
+    project_id = db.Column(db.String(32), nullable=False, index=True, comment="所属专案ID")
+    task_id    = db.Column(db.String(32), nullable=True,  index=True, comment="关联功能任务ID（可选）")
+    task_name  = db.Column(db.String(128), nullable=True, comment="任务名称快照")
+    note_type  = db.Column(db.String(16), nullable=False, comment="備注類型: 決策/行動項/風險/待確認")
+    content    = db.Column(db.Text, nullable=False, comment="备注内容")
+    author     = db.Column(db.String(32), nullable=False, comment="记录人工号")
+    status     = db.Column(db.String(16), nullable=False, default="pending", comment="状态: pending/resolved")
+    created_at = db.Column(db.String(19), default=CommonTools.get_now, comment="创建时间")
+    updated_at = db.Column(db.String(19), nullable=True, comment="更新时间")
+
+    def to_dict(self, author_name: str = ""):
+        return {
+            "id":        self.id,
+            "projectId": self.project_id,
+            "taskId":    self.task_id,
+            "taskName":  self.task_name,
+            "type":      self.note_type,
+            "content":   self.content,
+            "author":    author_name or self.author,
+            "status":    self.status,
+            "createdAt": self.created_at,
         }

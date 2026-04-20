@@ -810,10 +810,30 @@ const MemberOverviewTab: React.FC = () => {
 const StatisticsPage: React.FC = () => {
   // Role: supervisors see all tabs; regular employees only see personal + member overview
   const isManager = useAppSelector((s) => s.auth.isSupervisor)
+  const myWorkNo  = useAppSelector((s) => s.auth.workNo) ?? ''
 
   const [stats,      setStats]      = useState<MemberWorkStat[]>([])
   const [isLoading,  setIsLoading]  = useState(false)
   const [selected,   setSelected]   = useState<string | null>(null)
+
+  // Personal detail cache: workNo -> data
+  type PersonalStat = {
+    project_dist:    { name: string; hours: number }[]
+    category_dist:   { name: string; hours: number }[]
+    weekly_overtime: { week: string; normal: number; overtime: number }[]
+  }
+  const [personalCache, setPersonalCache] = useState<Record<string, PersonalStat>>({})
+  const [personalLoading, setPersonalLoading] = useState<Record<string, boolean>>({})
+
+  const loadPersonalStats = async (workNo: string) => {
+    if (personalCache[workNo] || personalLoading[workNo]) return
+    setPersonalLoading((prev) => ({ ...prev, [workNo]: true }))
+    try {
+      const res = await projectApi.personalStats({ work_no: workNo })
+      setPersonalCache((prev) => ({ ...prev, [workNo]: res.content }))
+    } catch { /* global */ }
+    finally { setPersonalLoading((prev) => ({ ...prev, [workNo]: false })) }
+  }
 
   const loadStats = async () => {
     setIsLoading(true)
@@ -825,6 +845,8 @@ const StatisticsPage: React.FC = () => {
   }
 
   useEffect(() => { loadStats() }, [])
+  // 非管理员：进入页面即加载自己的个人工时详情
+  useEffect(() => { if (!isManager && myWorkNo) loadPersonalStats(myWorkNo) }, [isManager, myWorkNo])
 
   const totals = useMemo(() => ({
     hours:    stats.reduce((s, m) => s + m.total_hours, 0),
@@ -900,11 +922,14 @@ const StatisticsPage: React.FC = () => {
 
   // ── Individual member work-hours detail (used in both manager drill-down and engineer self-view) ──
   const renderPersonalDetail = (workNo: string, memberName: string) => {
-    const projectData = MOCK_PROJECT_HOURS[workNo] ?? EMPTY_DIST
+    const detail = personalCache[workNo]
+    const projectData    = detail?.project_dist    ?? []
+    const categoryData   = detail?.category_dist   ?? []
+    const overtimeData   = detail?.weekly_overtime  ?? []
     const totalProjHours = projectData.reduce((s: number, d: { hours: number }) => s + d.hours, 0)
-    const totalOvertime = EMPTY_OVERTIME.reduce((s, d) => s + d.overtime, 0)
-    const totalNormal   = EMPTY_OVERTIME.reduce((s, d) => s + d.normal, 0)
-    const totalHrs      = totalNormal + totalOvertime
+    const totalOvertime  = overtimeData.reduce((s, d) => s + d.overtime, 0)
+    const totalNormal    = overtimeData.reduce((s, d) => s + d.normal, 0)
+    const totalHrs       = totalNormal + totalOvertime
     return (
       <div className="space-y-4">
         {/* 4 personal stat cards */}
@@ -945,30 +970,10 @@ const StatisticsPage: React.FC = () => {
                     <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: PIE_PALETTE[i % PIE_PALETTE.length] }} />
                     <span className="text-slate-600 truncate flex-1">{d.name}</span>
                     <span className="text-slate-400 font-medium">{d.hours}h</span>
-                    <span className="text-slate-300 w-8 text-right">{Math.round((d.hours / totalProjHours) * 100)}%</span>
+                    <span className="text-slate-300 w-8 text-right">{totalProjHours > 0 ? Math.round((d.hours / totalProjHours) * 100) : 0}%</span>
                   </div>
                 ))}
-              </div>
-            </Card>
-          </Col>
-          <Col xs={24} md={8}>
-            <Card bordered={false} className="shadow-sm h-full" title={<span className="text-sm font-semibold text-slate-700">BU / 單位工時分佈</span>} bodyStyle={{ paddingTop: 4 }}>
-              <ResponsiveContainer width="100%" height={180}>
-                <PieChart>
-                  <Pie data={EMPTY_DIST} dataKey="hours" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={68} paddingAngle={2}>
-                    {EMPTY_DIST.map((d, i) => <Cell key={i} fill={d.color} />)}
-                  </Pie>
-                  <RTooltip formatter={(v: number) => [`${v}h`, '工時']} contentStyle={{ borderRadius: 8, fontSize: 11, border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }} />
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="flex flex-col gap-1">
-                {EMPTY_DIST.map((d) => (
-                  <div key={d.name} className="flex items-center gap-2 text-xs">
-                    <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: d.color }} />
-                    <span className="text-slate-600 truncate flex-1">{d.name}</span>
-                    <span className="text-slate-400 font-medium">{d.hours}h</span>
-                  </div>
-                ))}
+                {projectData.length === 0 && <span className="text-xs text-slate-300">暫無數據</span>}
               </div>
             </Card>
           </Col>
@@ -976,20 +981,21 @@ const StatisticsPage: React.FC = () => {
             <Card bordered={false} className="shadow-sm h-full" title={<span className="text-sm font-semibold text-slate-700">工作分類分佈</span>} bodyStyle={{ paddingTop: 4 }}>
               <ResponsiveContainer width="100%" height={180}>
                 <PieChart>
-                  <Pie data={EMPTY_DIST} dataKey="hours" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={68} paddingAngle={2}>
-                    {EMPTY_DIST.map((d, i) => <Cell key={i} fill={d.color} />)}
+                  <Pie data={categoryData} dataKey="hours" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={68} paddingAngle={2}>
+                    {categoryData.map((_: unknown, i: number) => <Cell key={i} fill={PIE_PALETTE[i % PIE_PALETTE.length]} />)}
                   </Pie>
                   <RTooltip formatter={(v: number) => [`${v}h`, '工時']} contentStyle={{ borderRadius: 8, fontSize: 11, border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }} />
                 </PieChart>
               </ResponsiveContainer>
               <div className="flex flex-col gap-1">
-                {EMPTY_DIST.map((d) => (
+                {categoryData.map((d: { name: string; hours: number }, i: number) => (
                   <div key={d.name} className="flex items-center gap-2 text-xs">
-                    <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: d.color }} />
+                    <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: PIE_PALETTE[i % PIE_PALETTE.length] }} />
                     <span className="text-slate-600 truncate flex-1">{d.name}</span>
                     <span className="text-slate-400 font-medium">{d.hours}h</span>
                   </div>
                 ))}
+                {categoryData.length === 0 && <span className="text-xs text-slate-300">暫無數據</span>}
               </div>
             </Card>
           </Col>
@@ -1000,7 +1006,7 @@ const StatisticsPage: React.FC = () => {
           title={<span className="text-sm font-semibold text-slate-700">正常 vs 加班工時（近5週）{memberName ? `— ${memberName}` : ''}</span>}
           bodyStyle={{ paddingTop: 8 }}>
           <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={EMPTY_OVERTIME} barCategoryGap="25%">
+            <BarChart data={overtimeData} barCategoryGap="25%">
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
               <XAxis dataKey="week" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} unit="h" />
@@ -1027,7 +1033,7 @@ const StatisticsPage: React.FC = () => {
             <span className="text-sm font-semibold text-slate-700">我的工時分析</span>
             <span className="text-xs text-slate-400 font-normal">近 5 週數據</span>
           </div>
-          {renderPersonalDetail('DEV001', '')}
+          {renderPersonalDetail(myWorkNo, '')}
         </div>
       )}
       {isManager && <>
@@ -1140,7 +1146,7 @@ const StatisticsPage: React.FC = () => {
               </div>
             ),
           }}
-          onRow={(r) => ({ onClick: () => setSelected(r.work_no === selected ? null : r.work_no), style: { cursor: 'pointer' } })}
+          onRow={(r) => ({ onClick: () => { const next = r.work_no === selected ? null : r.work_no; setSelected(next); if (next) loadPersonalStats(next) }, style: { cursor: 'pointer' } })}
         />
       </Card>
       </>}
@@ -1207,7 +1213,7 @@ const StatisticsPage: React.FC = () => {
 
       <Tabs
         type="card"
-        defaultActiveKey={isManager ? 'analysis' : 'members'}
+        defaultActiveKey="analysis"
         items={tabItems}
       />
     </div>

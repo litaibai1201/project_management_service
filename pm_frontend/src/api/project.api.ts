@@ -251,7 +251,19 @@ export const projectApi = {
 
   // ─── Statistics ──────────────────────────────────────────────────────────────
 
+  /** GET /api/project/wbs_overview — 專案進度總覽（WBS 結構） */
+  wbsOverview: (): Promise<ApiResponse<unknown[]>> =>
+    get('/project/wbs_overview'),
+
   /** GET /api/statistics/member_stats */
   memberStats: (params?: { start_date?: string; end_date?: string }): Promise<ApiResponse<MemberWorkStat[]>> =>
     get('/statistics/member_stats', { params }),
+
+  /** GET /api/statistics/personal_stats */
+  personalStats: (params: { work_no: string; start_date?: string; end_date?: string }): Promise<ApiResponse<{
+    project_dist:    { name: string; hours: number }[]
+    category_dist:   { name: string; hours: number }[]
+    weekly_overtime: { week: string; normal: number; overtime: number }[]
+  }>> =>
+    get('/statistics/personal_stats', { params }),
 }

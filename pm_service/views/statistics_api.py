@@ -22,3 +22,15 @@ class MemberStatsApi(MethodView):
         start_date = request.args.get("start_date")
         end_date   = request.args.get("end_date")
         return response_result(content=ctrl.get_member_stats(work_no=work_no, start_date=start_date, end_date=end_date))
+
+
+@blp.route("/personal_stats")
+class PersonalStatsApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def get(self):
+        """个人详细工时分析（专案分布/分类分布/周加班）"""
+        work_no    = request.args.get("work_no") or get_identity()
+        start_date = request.args.get("start_date")
+        end_date   = request.args.get("end_date")
+        return response_result(content=ctrl.get_personal_stats(work_no=work_no, start_date=start_date, end_date=end_date))

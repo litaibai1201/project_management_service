@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """首页 Widget 配置控制器"""
+import json
 from utils.tools import CommonTools
 from dbs.mysql_db import db
 from dbs.mysql_db.model_tables import UserDashboardConfigModel
@@ -45,28 +46,39 @@ class DashboardConfigController:
             .filter_by(work_no=work_no, view_type=view_type)
             .all()
         )
-        saved_map = {r.widget_id: r.is_visible for r in rows}
+        saved_map = {r.widget_id: r for r in rows}
 
-        return [
-            {
+        result = []
+        for w in catalog:
+            if w["widget_id"] not in all_ids:
+                continue
+            row = saved_map.get(w["widget_id"])
+            layout = None
+            if row and row.layout_json:
+                try:
+                    layout = json.loads(row.layout_json)
+                except (ValueError, TypeError):
+                    pass
+            result.append({
                 "widget_id":  w["widget_id"],
                 "label":      w["label"],
                 "removable":  w["removable"],
-                "is_visible": saved_map.get(w["widget_id"], True),
-            }
-            for w in catalog
-            if w["widget_id"] in all_ids
-        ]
+                "is_visible": row.is_visible if row else True,
+                "layout":     layout,
+            })
+        return result
 
     def save_config(self, work_no: str, view_type: str, widgets: list) -> None:
         """
-        批量 upsert widget 可见性配置。
-        widgets: [{"widget_id": str, "is_visible": bool}, ...]
+        批量 upsert widget 配置（可见性 + 布局）。
+        widgets: [{"widget_id": str, "is_visible": bool, "layout": {x,y,w,h}|None}, ...]
         """
         now = CommonTools.get_now()
         for w in widgets:
-            widget_id  = w.get("widget_id")
-            is_visible = bool(w.get("is_visible", True))
+            widget_id   = w.get("widget_id")
+            is_visible  = bool(w.get("is_visible", True))
+            layout      = w.get("layout")
+            layout_json = json.dumps(layout) if layout else None
 
             existing = (
                 db.session.query(UserDashboardConfigModel)
@@ -74,13 +86,16 @@ class DashboardConfigController:
                 .first()
             )
             if existing:
-                existing.is_visible = is_visible
-                existing.updated_at = now
+                existing.is_visible  = is_visible
+                existing.updated_at  = now
+                if layout_json is not None:
+                    existing.layout_json = layout_json
             else:
                 db.session.add(UserDashboardConfigModel(
                     work_no=work_no,
                     view_type=view_type,
                     widget_id=widget_id,
                     is_visible=is_visible,
+                    layout_json=layout_json,
                 ))
         db.session.commit()

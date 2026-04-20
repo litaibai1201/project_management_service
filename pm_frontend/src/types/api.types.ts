@@ -334,6 +334,7 @@ export interface WidgetConfig {
   label:      string
   removable:  boolean
   is_visible: boolean
+  layout?:    { x: number; y: number; w: number; h: number } | null
 }
 
 // ─── Milestone ────────────────────────────────────────────────────────────────

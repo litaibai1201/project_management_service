@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { dashboardConfigApi } from '@/api/dashboard_config.api'
 import type { WidgetConfig, DashboardViewType } from '@/types/api.types'
 
@@ -34,16 +34,16 @@ export const DEFAULT_LAYOUTS: DefaultLayoutMap = {
   member_detail:         { x: 8, y: 3,  w: 4,  h: 12, minW: 3,  minH: 5 },
 }
 
-// ── localStorage ─────────────────────────────────────────────────────────────
+// ── localStorage（即时缓存，跨设备回退用数据库） ─────────────────────────────
 
 const LAYOUT_KEY = (vt: DashboardViewType) => `dashboard_grid_${vt}`
 
-function loadLayout(vt: DashboardViewType): GridLayout[] {
+function loadLocalLayout(vt: DashboardViewType): GridLayout[] {
   try { return JSON.parse(localStorage.getItem(LAYOUT_KEY(vt)) ?? '[]') }
   catch { return [] }
 }
 
-function saveLayout(vt: DashboardViewType, layouts: GridLayout[]) {
+function saveLocalLayout(vt: DashboardViewType, layouts: GridLayout[]) {
   localStorage.setItem(LAYOUT_KEY(vt), JSON.stringify(layouts))
 }
 
@@ -53,17 +53,24 @@ export interface WidgetEntry extends WidgetConfig {
   layout: GridLayout
 }
 
-function buildEntries(widgets: WidgetConfig[], saved: GridLayout[]): WidgetEntry[] {
-  const savedMap = Object.fromEntries(saved.map((l) => [l.i, l]))
+/**
+ * Build WidgetEntry list.
+ * Priority: DB layout (from API response) > localStorage > DEFAULT_LAYOUTS
+ */
+function buildEntries(widgets: WidgetConfig[], localSaved: GridLayout[]): WidgetEntry[] {
+  const localMap = Object.fromEntries(localSaved.map((l) => [l.i, l]))
   return widgets.map((w) => {
-    const def = DEFAULT_LAYOUTS[w.widget_id] ?? { x: 0, y: 99, w: 4, h: 2 }
-    const saved_ = savedMap[w.widget_id]
-    return {
-      ...w,
-      layout: saved_
-        ? { ...def, ...saved_, i: w.widget_id }
-        : { ...def, i: w.widget_id },
+    const def      = DEFAULT_LAYOUTS[w.widget_id] ?? { x: 0, y: 99, w: 4, h: 2 }
+    const dbLayout = w.layout  // {x,y,w,h} from API or null
+    const local    = localMap[w.widget_id]
+    if (dbLayout) {
+      // DB is authoritative — also sync back to localStorage
+      return { ...w, layout: { ...def, ...dbLayout, i: w.widget_id } }
     }
+    if (local) {
+      return { ...w, layout: { ...def, ...local, i: w.widget_id } }
+    }
+    return { ...w, layout: { ...def, i: w.widget_id } }
   })
 }
 
@@ -81,41 +88,96 @@ export interface UseDashboardConfigReturn {
   hideWidget:     (widgetId: string) => Promise<void>
 }
 
+// Debounce delay for persisting layout to the database (ms).
+// Keeps API calls minimal during drag operations.
+const DB_SAVE_DEBOUNCE = 800
+
 export function useDashboardConfig(viewType: DashboardViewType): UseDashboardConfigReturn {
   const [allWidgets, setAllWidgets] = useState<WidgetEntry[]>([])
   const [loading, setLoading]       = useState(true)
   const [isEditing, setIsEditing]   = useState(false)
 
+  // Prevent onLayoutChange from saving while the config is still loading.
+  // react-grid-layout fires onLayoutChange on every render change (including
+  // the initial empty-layout state), which would overwrite the persisted layout
+  // before the API response arrives.
+  const isInitialized  = useRef(false)
+  const dbSaveTimer    = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Keep a ref to the latest allWidgets so the debounced callback can read it
+  const allWidgetsRef  = useRef<WidgetEntry[]>([])
+  allWidgetsRef.current = allWidgets
+
   useEffect(() => {
+    isInitialized.current = false
     setLoading(true)
     dashboardConfigApi.getConfig(viewType)
       .then((res) => {
         const widgets = Array.isArray(res.content) ? res.content : []
-        setAllWidgets(buildEntries(widgets, loadLayout(viewType)))
+        const entries = buildEntries(widgets, loadLocalLayout(viewType))
+        setAllWidgets(entries)
+        // Sync DB layout back to localStorage so it's available on next load
+        saveLocalLayout(viewType, entries.map((e) => e.layout))
       })
       .catch(() => {})
-      .finally(() => setLoading(false))
+      .finally(() => {
+        setLoading(false)
+        isInitialized.current = true
+      })
+
+    // Cancel any pending DB save when switching view type
+    return () => {
+      if (dbSaveTimer.current) clearTimeout(dbSaveTimer.current)
+    }
+  }, [viewType])
+
+  const persistLayoutToDB = useCallback((layout: GridLayout[]) => {
+    // Build save payload: all visible widgets with their current layout
+    const widgets = allWidgetsRef.current
+      .filter((w) => w.is_visible)
+      .map((w) => {
+        const l = layout.find((li) => li.i === w.widget_id)
+        return {
+          widget_id:  w.widget_id,
+          is_visible: w.is_visible,
+          layout:     l ? { x: l.x, y: l.y, w: l.w, h: l.h } : null,
+        }
+      })
+    dashboardConfigApi.saveConfig(viewType, widgets).catch(() => {})
   }, [viewType])
 
   const onLayoutChange = useCallback((layout: GridLayout[]) => {
-    saveLayout(viewType, layout)
+    if (!isInitialized.current) return  // skip spurious calls during load
+
+    // 1. Update state immediately
     setAllWidgets((prev) =>
       prev.map((w) => {
         const u = layout.find((l) => l.i === w.widget_id)
         return u ? { ...w, layout: u } : w
       })
     )
-  }, [viewType])
+
+    // 2. Write to localStorage immediately (fast, no network)
+    saveLocalLayout(viewType, layout)
+
+    // 3. Debounce the database write
+    if (dbSaveTimer.current) clearTimeout(dbSaveTimer.current)
+    dbSaveTimer.current = setTimeout(() => persistLayoutToDB(layout), DB_SAVE_DEBOUNCE)
+  }, [viewType, persistLayoutToDB])
 
   const showWidget = useCallback(async (widgetId: string) => {
+    const def = DEFAULT_LAYOUTS[widgetId] ?? { x: 0, y: 99, w: 4, h: 2 }
+    const newLayout = { ...def, i: widgetId }
     setAllWidgets((prev) =>
       prev.map((w): WidgetEntry => {
         if (w.widget_id !== widgetId) return w
-        const def = DEFAULT_LAYOUTS[widgetId] ?? { x: 0, y: 99, w: 4, h: 2 }
-        return { ...w, is_visible: true, layout: { ...def, i: widgetId } }
+        return { ...w, is_visible: true, layout: newLayout }
       })
     )
-    await dashboardConfigApi.saveConfig(viewType, [{ widget_id: widgetId, is_visible: true }])
+    await dashboardConfigApi.saveConfig(viewType, [{
+      widget_id:  widgetId,
+      is_visible: true,
+      layout:     { x: def.x, y: def.y, w: def.w, h: def.h },
+    }])
   }, [viewType])
 
   const hideWidget = useCallback(async (widgetId: string) => {

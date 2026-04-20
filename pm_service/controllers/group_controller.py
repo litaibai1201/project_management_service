@@ -91,13 +91,96 @@ class GroupController:
         }
 
     def get_overview(self, work_no: str, start_date: str, end_date: str):
-        stat = self.get_statistical_data(work_no, start_date, end_date)
-        projects = self.get_member_projects(work_no, page=1, size=100)["data_list"]
-        duties = self.get_member_duties(work_no, page=1, size=100)["data_list"]
+        import json
+        from datetime import datetime, timedelta
+        from dbs.mongo_db.client import mongo_client
+
+        today = datetime.today().date()
+        urgent_threshold = today + timedelta(days=7)
+
+        # ── 工时（MongoDB） ───────────────────────────────────────────
+        col = mongo_client.db["daily_logs"]
+        log_query: dict = {"work_no": work_no}
+        if start_date or end_date:
+            log_query["log_date"] = {}
+            if start_date:
+                log_query["log_date"]["$gte"] = start_date
+            if end_date:
+                log_query["log_date"]["$lte"] = end_date
+        logs = list(col.find(log_query))
+        total_hours = round(sum(float(lg.get("total_hours") or 0) for lg in logs), 1)
+
+        # 按周聚合
+        weekly_map: dict = {}
+        for lg in logs:
+            log_date = lg.get("log_date")
+            if not log_date:
+                continue
+            try:
+                d = datetime.strptime(str(log_date), "%Y-%m-%d").date()
+            except ValueError:
+                continue
+            monday = d - timedelta(days=d.weekday())
+            sunday = monday + timedelta(days=6)
+            week_key = f"{monday.strftime('%m/%d')}~{sunday.strftime('%m/%d')}"
+            weekly_map[week_key] = round(
+                weekly_map.get(week_key, 0) + float(lg.get("total_hours") or 0), 1
+            )
+        weekly_hours = [{"week": k, "hours": v} for k, v in sorted(weekly_map.items())]
+
+        # ── 任务统计（MySQL） ──────────────────────────────────────────
+        completed_tasks = 0
+        in_progress_tasks = 0
+        overdue_tasks = 0
+
+        all_funcs = db.session.query(FunctionDataModel).filter(
+            FunctionDataModel.status == 1,
+            FunctionDataModel.responsible.like(f'%"{work_no}"%'),
+        ).all()
+        for f in all_funcs:
+            resp = json.loads(f.responsible) if f.responsible else []
+            if work_no not in resp:
+                continue
+            s = f.function_status or 0
+            if s == 4:
+                completed_tasks += 1
+            elif s in (1, 2, 3):
+                in_progress_tasks += 1
+                end = f.expected_end_date
+                if end:
+                    try:
+                        if datetime.strptime(end, "%Y-%m-%d").date() < today:
+                            overdue_tasks += 1
+                    except ValueError:
+                        pass
+
+        all_duties = db.session.query(TemporaryDutyModel).filter(
+            TemporaryDutyModel.status == 1,
+            TemporaryDutyModel.responsible.like(f"%{work_no}%"),
+        ).all()
+        for d in all_duties:
+            resp = json.loads(d.responsible) if d.responsible else []
+            if work_no not in resp:
+                continue
+            s = d.duty_status or 0
+            if s == 4:
+                completed_tasks += 1
+            elif s in (1, 2, 3):
+                in_progress_tasks += 1
+                end = d.latest_expected_end_date or d.expected_end_date
+                if end:
+                    try:
+                        if datetime.strptime(end, "%Y-%m-%d").date() < today:
+                            overdue_tasks += 1
+                    except ValueError:
+                        pass
+
         return {
-            "stat": stat,
-            "projects": projects,
-            "duties": duties,
+            "total_hours":       total_hours,
+            "completed_tasks":   completed_tasks,
+            "in_progress_tasks": in_progress_tasks,
+            "overdue_tasks":     overdue_tasks,
+            "weekly_hours":      weekly_hours,
         }
 
     def get_schedule(self, work_no: str, start_date: str = "", end_date: str = ""):

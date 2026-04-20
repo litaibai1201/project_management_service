@@ -214,9 +214,10 @@ class ProjectController:
             project_nm=payload["project_nm"],
             describe=payload.get("describe", ""),
             department=payload.get("department", ""),
-            product_pm=(payload.get("product_pm") or "").strip().lower(),
+            product_pm=(payload.get("product_pm") or creator or "").strip().lower(),
             project_pm=(payload.get("project_pm") or "").strip().lower(),
             creator=creator,
+            expected_start_date=payload.get("expected_start_date", ""),
             expected_end_date=payload.get("expected_end_date", ""),
             priority=payload.get("priority", 2),
             group_id=payload.get("group_id", ""),
@@ -248,7 +249,7 @@ class ProjectController:
                     raise PermissionException(msg="只有产品PM或其直属上级可以编辑专案")
         WN_FIELDS = {"product_pm", "project_pm"}
         fields = ("project_nm", "describe", "department", "product_pm", "project_pm",
-                  "expected_end_date", "priority", "group_id", "code_url", "expected_benefit")
+                  "expected_start_date", "expected_end_date", "priority", "group_id", "code_url", "expected_benefit")
         for f in fields:
             if f in payload and payload[f] is not None:
                 v = (payload[f] or "").strip().lower() if f in WN_FIELDS else payload[f]
@@ -904,6 +905,215 @@ class ProjectController:
         if not os.path.exists(abs_path):
             raise ResourceNotFoundException(resource_type="附件文件")
         return abs_path, record.file_nm
+
+    def get_wbs_overview(self, work_no: str) -> list:
+        """
+        专案进度总览（WBS 结构）
+        返回当前用户参与的所有活跃专案，按 project → function_group → function 三层结构
+        """
+        from datetime import datetime, timedelta
+        from dbs.mysql_db.model_tables import UserProfileModel
+
+        today = datetime.today().date()
+        this_week_start = today - timedelta(days=today.weekday())
+        this_week_end   = this_week_start + timedelta(days=6)
+        last_week_start = this_week_start - timedelta(days=7)
+        last_week_end   = this_week_start - timedelta(days=1)
+        next_week_start = this_week_end   + timedelta(days=1)
+        next_week_end   = next_week_start + timedelta(days=6)
+
+        # ── 拉取活跃专案（执行中、规划中、规划审核） ──────────────────────
+        active_statuses = (3, 4, 5, 10, 11)
+        projects = (
+            db.session.query(ProjectDataModel)
+            .filter(
+                ProjectDataModel.project_status.in_(active_statuses),
+                ProjectDataModel.status == 1,
+            )
+            .order_by(ProjectDataModel.priority.desc())
+            .all()
+        )
+
+        # ── 批量查询用户姓名 ──────────────────────────────────────────────
+        all_work_nos: set = set()
+        for p in projects:
+            if p.project_pm: all_work_nos.add(p.project_pm)
+            if p.product_pm: all_work_nos.add(p.product_pm)
+        funcs_all = (
+            db.session.query(FunctionDataModel)
+            .filter(
+                FunctionDataModel.project_id.in_([p.id for p in projects]),
+                FunctionDataModel.function_status != 9,
+                FunctionDataModel.status == 1,
+            )
+            .all()
+        )
+        for f in funcs_all:
+            resp = json.loads(f.responsible) if f.responsible else []
+            all_work_nos.update(resp)
+
+        users = (
+            db.session.query(UserProfileModel)
+            .filter(UserProfileModel.work_no.in_(list(all_work_nos)))
+            .all()
+        ) if all_work_nos else []
+        name_map: dict = {u.work_no: u.name for u in users}
+
+        # ── 查询每个 function 的最新进度记录 ─────────────────────────────
+        func_ids = [f.id for f in funcs_all]
+        progress_records = (
+            db.session.query(ProgressRecordDataModel)
+            .filter(ProgressRecordDataModel.function_id.in_(func_ids))
+            .order_by(ProgressRecordDataModel.created_at.desc())
+            .all()
+        ) if func_ids else []
+
+        # 按 function_id 分组进度记录（已按时间倒序）
+        prog_map: dict = {}
+        for pr in progress_records:
+            prog_map.setdefault(pr.function_id, []).append(pr)
+
+        # ── 构建函数：计算 status 和 is_overdue ───────────────────────────
+        # status 反映实际工作状态（not_started/in_progress/completed）
+        # is_overdue 独立表示是否已超过截止日期，两者互不干扰
+        def _compute_status(f: FunctionDataModel):
+            s = f.function_status or 1
+            if s == 4:
+                return "completed"
+            if s == 1:
+                return "not_started"
+            return "in_progress"
+
+        def _compute_is_overdue(f: FunctionDataModel, status: str) -> bool:
+            if status == "completed":
+                return False
+            end = f.expected_end_date
+            if not end:
+                return False
+            try:
+                return datetime.strptime(end, "%Y-%m-%d").date() < today
+            except ValueError:
+                return False
+
+        def _compute_week_tag(f: FunctionDataModel, status: str) -> list:
+            tags = []
+            end_str = f.expected_end_date
+            actual_end_str = (f.end_time or "")[:10] if f.end_time else ""
+
+            if end_str:
+                try:
+                    end_dt = datetime.strptime(end_str, "%Y-%m-%d").date()
+                    if last_week_start <= end_dt <= last_week_end:
+                        tags.append("last_week")
+                    elif this_week_start <= end_dt <= this_week_end:
+                        tags.append("this_week")
+                    elif next_week_start <= end_dt <= next_week_end:
+                        tags.append("next_week")
+                except ValueError:
+                    pass
+
+            if actual_end_str and status == "completed":
+                try:
+                    actual_dt = datetime.strptime(actual_end_str, "%Y-%m-%d").date()
+                    if last_week_start <= actual_dt <= last_week_end and "last_week" not in tags:
+                        tags.append("last_week")
+                except ValueError:
+                    pass
+
+            return tags
+
+        # ── 按项目 + group1 分组构建 WBS ──────────────────────────────────
+        func_by_proj: dict = {}
+        for f in funcs_all:
+            func_by_proj.setdefault(f.project_id, []).append(f)
+
+        result = []
+        for p in projects:
+            funcs = func_by_proj.get(p.id, [])
+            if not funcs:
+                continue
+
+            # 按 group1 分组（空 group1 归入 "其他"）
+            group_map: dict = {}
+            for f in funcs:
+                key = (f.group1 or "").strip() or "功能任務"
+                group_map.setdefault(key, []).append(f)
+
+            wbs_functions = []
+            for group_name, gfuncs in group_map.items():
+                tasks = []
+                for f in gfuncs:
+                    status = _compute_status(f)
+                    is_overdue = _compute_is_overdue(f, status)
+                    week_tag = _compute_week_tag(f, status)
+                    records = prog_map.get(f.id, [])
+                    latest = records[0] if records else None
+                    resp = json.loads(f.responsible) if f.responsible else []
+                    assignee_names = [name_map.get(w, w) for w in resp]
+
+                    end_str = f.expected_end_date or ""
+                    actual_end = (f.end_time or "")[:10] if f.end_time else None
+                    days_overdue = None
+                    if is_overdue and end_str:
+                        try:
+                            days_overdue = (today - datetime.strptime(end_str, "%Y-%m-%d").date()).days
+                        except ValueError:
+                            pass
+
+                    history = []
+                    for pr in records[:10]:  # 最近10条
+                        submitter_name = name_map.get(pr.submitter, pr.submitter)
+                        history.append({
+                            "date":     pr.start_time or (pr.created_at or "")[:10],
+                            "content":  pr.progress_record or "",
+                            "progress": pr.progress or 0,
+                            "author":   submitter_name,
+                        })
+
+                    tasks.append({
+                        "id":              f.id,
+                        "name":            f.function_nm,
+                        "assignee":        "、".join(assignee_names) if assignee_names else "未指派",
+                        "progress":        f.progress or 0,
+                        "status":          status,
+                        "is_overdue":      is_overdue,
+                        "expected_end":    end_str,
+                        "actual_end":      actual_end,
+                        "days_overdue":    days_overdue,
+                        "latest_update":   latest.progress_record if latest else None,
+                        "week_tag":        week_tag,
+                        "project_id":      p.id,
+                        "function_id":     f.id,
+                        "progress_history": history,
+                    })
+
+                group_progress = (
+                    round(sum(t["progress"] for t in tasks) / len(tasks))
+                    if tasks else 0
+                )
+                wbs_functions.append({
+                    "id":       f"{p.id}::{group_name}",
+                    "name":     group_name,
+                    "progress": group_progress,
+                    "tasks":    tasks,
+                })
+
+            pm_name = name_map.get(p.project_pm, p.project_pm)
+            product_pm_name = name_map.get(p.product_pm, p.product_pm) if p.product_pm else ""
+            result.append({
+                "id":           p.id,
+                "name":         p.project_nm,
+                "department":   p.department or "",
+                "pm":           pm_name,
+                "product_pm":   product_pm_name,
+                "progress":     p.progress or 0,
+                "priority":     p.priority or 2,
+                "start_date":   p.expected_start_date or (p.created_at or "")[:10],
+                "expected_end": p.expected_end_date or "",
+                "functions":    wbs_functions,
+            })
+
+        return result
 
 
 class FunctionController:

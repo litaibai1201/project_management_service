@@ -236,6 +236,16 @@ class ProjectGroupApi(MethodView):
         return response_result(content=proj_ctrl.get_project_groups())
 
 
+@blp.route("/wbs_overview")
+class WbsOverviewApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgRawSchema)
+    def get(self):
+        """专案进度总览（WBS 结构）"""
+        work_no = get_identity()
+        return response_result(content=proj_ctrl.get_wbs_overview(work_no))
+
+
 # ─── Function ────────────────────────────────────────────────────────────────
 
 @blp.route("/<string:project_id>/add_function")

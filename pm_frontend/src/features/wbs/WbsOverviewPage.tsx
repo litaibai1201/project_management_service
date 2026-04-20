@@ -27,6 +27,9 @@ import {
   PresentationChartBarIcon,
 } from '@heroicons/react/24/outline'
 import { useNavigate } from 'react-router-dom'
+import { projectApi } from '@/api/project.api'
+import { meetingNoteApi, type MeetingNote as ApiMeetingNote } from '@/api/meeting_note.api'
+import reportLogoUrl from '@/assets/report_logo.png'
 import dayjs from 'dayjs'
 import isoWeek from 'dayjs/plugin/isoWeek'
 
@@ -54,6 +57,7 @@ interface WbsTask {
   assignee: string
   progress: number
   status: TaskStatus
+  is_overdue?: boolean       // independent of status — a not_started task can also be overdue
   expected_end: string
   actual_end?: string
   days_overdue?: number
@@ -76,6 +80,7 @@ interface WbsProject {
   name: string
   department: string
   pm: string
+  product_pm?: string
   progress: number
   priority: number
   start_date?: string
@@ -142,81 +147,180 @@ function exportWbsCSV(projects: WbsProject[]) {
   URL.revokeObjectURL(url)
 }
 
-// ─── PPT Export ──────────────────────────────────────────────────────────────
+// ─── PPT Export (matching 专案周报.pptx template) ────────────────────────────
+//
+// Color scheme:
+//   已完成 → #00B050 (green, bold)    進行中 → #0070C0 (blue, bold)
+//   風險   → #FFC000 (yellow)         delay  → #FF0000 (red)
+//   Header bg → #002FA7               Title  → #0070C0
 
 type PptTextRun = {
   text: string
-  options?: { bold?: boolean; italic?: boolean; color?: string; fontSize?: number }
+  options?: { bold?: boolean; italic?: boolean; color?: string; fontSize?: number; breakType?: string }
+}
+
+const PPT_FONT_SIZE = 8
+const PPT_FONT_FACE = '標楷體'
+
+const _run = (text: string, extra: object = {}): PptTextRun => ({
+  text, options: { fontSize: PPT_FONT_SIZE, fontFace: PPT_FONT_FACE, ...extra },
+})
+
+function _statusRuns(task: WbsTask): PptTextRun[] {
+  if (task.status === 'completed') {
+    return [
+      _run('(', { color: '00B050' }),
+      _run('已完成', { bold: true, color: '00B050' }),
+      _run(')', { color: '00B050' }),
+    ]
+  }
+  if (task.is_overdue) {
+    return [
+      _run('(', { color: 'FF0000' }),
+      _run('delay', { bold: true, color: 'FF0000' }),
+      _run(')', { color: 'FF0000' }),
+    ]
+  }
+  if (task.status === 'in_progress') {
+    return [
+      _run('('),
+      _run('進行中', { bold: true, color: '0070C0' }),
+      _run(')'),
+    ]
+  }
+  return [_run('(未開始)', { color: '94A3B8' })]
+}
+
+const WEEK_TAG_PPT: Record<WeekTag, { label: string; color: string }> = {
+  last_week: { label: '上週', color: '7F7F7F' },
+  this_week: { label: '本週', color: '0070C0' },
+  next_week: { label: '下週', color: '7030A0' },
 }
 
 function buildProgressTextRuns(project: WbsProject): PptTextRun[] {
   const runs: PptTextRun[] = []
-  project.functions.forEach((func, fi) => {
-    if (fi > 0) runs.push({ text: '\n' })
-    runs.push({ text: `${fi + 1}. ${func.name}\n`, options: { bold: true, color: '1E293B', fontSize: 8 } })
+  let taskIdx = 0
+  project.functions.forEach((func) => {
     func.tasks.forEach((task) => {
-      const statusLabel =
-        task.status === 'completed'   ? '已完成' :
-        task.status === 'in_progress' ? '進行中' :
-        task.status === 'overdue'     ? '超時'   : '未開始'
-      const statusColor =
-        task.status === 'completed'   ? '16A34A' :
-        task.status === 'in_progress' ? '2563EB' :
-        task.status === 'overdue'     ? 'DC2626' : '94A3B8'
-      runs.push({ text: '  - ', options: { color: '94A3B8', fontSize: 8 } })
-      runs.push({ text: `(${statusLabel})`, options: { bold: true, color: statusColor, fontSize: 8 } })
-      runs.push({ text: ` ${task.name}`, options: { color: '1E293B', fontSize: 8 } })
+      taskIdx++
+      if (taskIdx > 1) runs.push({ text: '\n' })
+      const lineColor = task.status === 'completed' ? '00B050' : '000000'
+      runs.push(_run(`${taskIdx}. `, { color: lineColor }))
+      runs.push(..._statusRuns(task))
+      runs.push(_run(task.name, { color: lineColor }))
       const meta: string[] = []
-      if (task.assignee) meta.push(task.assignee)
-      if (task.status === 'overdue' && task.days_overdue) meta.push(`超時${task.days_overdue}天`)
-      else if (task.actual_end) meta.push(`✓${task.actual_end}`)
-      else if (task.expected_end) meta.push(task.expected_end)
-      if (meta.length > 0) runs.push({ text: ` (${meta.join(', ')})`, options: { color: '94A3B8', fontSize: 7, italic: true } })
-      runs.push({ text: '\n' })
+      if (task.expected_end) meta.push(task.expected_end)
+      if (task.assignee && task.assignee !== '未指派') meta.push(task.assignee)
+      if (meta.length > 0) runs.push(_run(`(${meta.join(', ')})`, { color: lineColor }))
+      if (task.week_tag.length > 0) {
+        task.week_tag.forEach((wt) => {
+          const cfg = WEEK_TAG_PPT[wt]
+          runs.push(_run(` [${cfg.label}]`, { bold: true, color: cfg.color }))
+        })
+      }
+      if (task.is_overdue && task.days_overdue && task.expected_end) {
+        runs.push(_run(` [超時${task.days_overdue}天]`, { color: 'FF0000' }))
+      }
+      if (task.latest_update && task.status !== 'completed') {
+        runs.push({ text: '\n' })
+        runs.push(_run(`       - ${task.latest_update}`, { color: '000000' }))
+      }
     })
   })
   return runs
 }
 
-async function exportWbsPptx(projects: WbsProject[]) {
+function _projectDotColor(project: WbsProject): string {
+  const hasOverdue = project.functions.some((f) => f.tasks.some((t) => !!t.is_overdue))
+  if (hasOverdue) return 'FF0000'
+  const allDone = project.functions.every((f) => f.tasks.every((t) => t.status === 'completed'))
+  if (allDone && project.functions.length > 0) return '00B050'
+  return '0070C0'
+}
+
+async function exportWbsPptx(projects: WbsProject[], department = '資訊部') {
   const PptxGenJS = (await import('pptxgenjs')).default
   const pptx = new PptxGenJS()
   pptx.layout = 'LAYOUT_WIDE' // 13.33 × 7.5 in
 
+  // ── Load logo image as base64 ──
+  let logoBase64 = ''
+  try {
+    const logoModule = await import('@/assets/report_logo.png')
+    const resp = await fetch(logoModule.default)
+    const blob = await resp.blob()
+    logoBase64 = await new Promise<string>((resolve) => {
+      const reader = new FileReader()
+      reader.onloadend = () => resolve(reader.result as string)
+      reader.readAsDataURL(blob)
+    })
+  } catch { /* logo optional */ }
+
   const slide = pptx.addSlide()
 
+  // ── Logo (top-left) ──
+  if (logoBase64) {
+    slide.addImage({ data: logoBase64, x: 0.15, y: 0.05, w: 2.0, h: 0.43 })
+  }
+
+  // ── Title (centered, same row as logo) ──
+  slide.addText(
+    [{ text: `${department} (系統) – Overview `, options: { color: '0070C0', fontSize: 16, bold: true, fontFace: PPT_FONT_FACE } }],
+    { x: 0, y: 0.05, w: 13.33, h: 0.43, align: 'center', valign: 'middle' },
+  )
+
+  // ── Legend (top-right, same row) ──
+  slide.addText(
+    [
+      { text: '●已完成', options: { color: '00B050', fontSize: 9, fontFace: PPT_FONT_FACE } },
+      { text: '  ', options: { fontSize: 9 } },
+      { text: '●進行中', options: { color: '0070C0', fontSize: 9, fontFace: PPT_FONT_FACE } },
+      { text: '  ', options: { fontSize: 9 } },
+      { text: '●風險', options: { color: 'FFC000', fontSize: 9, fontFace: PPT_FONT_FACE } },
+      { text: ' ', options: { fontSize: 9 } },
+      { text: '●delay', options: { color: 'FF0000', fontSize: 9, fontFace: PPT_FONT_FACE } },
+    ],
+    { x: 10.5, y: 0.08, w: 2.8, h: 0.3 },
+  )
+
+  // ── Table ──
+  const HDR_BG = '002FA7'
   const mkHdr = (text: string) => ({
     text,
-    options: { bold: true, color: 'FFFFFF', fill: { color: '1F3864' }, align: 'center' as const, valign: 'middle' as const, fontSize: 8 },
+    options: { bold: true, color: 'FFFFFF', fill: { color: HDR_BG }, align: 'center' as const, valign: 'middle' as const, fontSize: PPT_FONT_SIZE, fontFace: PPT_FONT_FACE },
   })
 
+  const F = PPT_FONT_FACE
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const tableRows: any[] = [
-    [mkHdr('進度'), mkHdr('序號'), mkHdr('重點項目\nTOP3'), mkHdr('需求使用者\n專案PM'), mkHdr('DRI'), mkHdr('專案啟動日'), mkHdr('預計結案日'), mkHdr('進度')],
+    [mkHdr('進\n度'), mkHdr('序\n號'), mkHdr('重點項目'), mkHdr('需求使用者\n專案PM'), mkHdr('DRI'), mkHdr('專案啟動日'), mkHdr('預計結案日'), mkHdr('進度')],
     ...projects.map((project, idx) => {
-      const hasOverdue = project.functions.some((f) => f.tasks.some((t) => t.status === 'overdue'))
-      const dotColor = hasOverdue ? 'DC2626' : project.progress >= 80 ? '16A34A' : '2563EB'
-      const rowBg = idx % 2 === 0 ? 'F8FAFC' : 'FFFFFF'
-      const cellBase = (extra: object = {}) => ({ valign: 'top' as const, fontSize: 8, fill: { color: rowBg }, ...extra })
+      const dotColor = _projectDotColor(project)
+      const cellMid = (extra: object = {}) => ({ valign: 'middle' as const, align: 'center' as const, fontSize: PPT_FONT_SIZE, fontFace: F, color: '000000', ...extra })
       return [
-        { text: '●', options: { color: dotColor, align: 'center' as const, valign: 'middle' as const, fontSize: 14, fill: { color: rowBg } } },
-        { text: String(idx + 1), options: cellBase({ align: 'center' as const, color: '1E293B' }) },
-        { text: project.name, options: { ...cellBase(), bold: true, color: '1E293B' } },
-        { text: `${project.department}\n${project.pm}`, options: cellBase({ color: '1E293B' }) },
-        { text: project.pm, options: cellBase({ color: '1E293B' }) },
-        { text: project.start_date ?? '-', options: cellBase({ align: 'center' as const, color: '475569' }) },
-        { text: project.expected_end, options: cellBase({ align: 'center' as const, color: '475569' }) },
-        { text: buildProgressTextRuns(project), options: cellBase() },
+        { text: '●', options: cellMid({ color: dotColor, fill: { color: 'FFFFFF' } }) },
+        { text: String(idx + 1), options: cellMid() },
+        { text: project.name, options: cellMid({ align: 'left' as const }) },
+        { text: project.product_pm || project.pm, options: cellMid({ align: 'left' as const }) },
+        { text: project.pm, options: cellMid({ align: 'left' as const }) },
+        { text: project.start_date ?? '-', options: cellMid() },
+        { text: project.expected_end || '-', options: cellMid() },
+        { text: buildProgressTextRuns(project), options: { valign: 'top' as const, fontSize: PPT_FONT_SIZE, fontFace: F, color: '000000' } },
       ]
     }),
   ]
 
   slide.addTable(tableRows, {
-    x: 0.15, y: 0.15, w: 13.0,
-    colW: [0.3, 0.3, 1.3, 1.5, 1.0, 0.85, 0.85, 6.9],
-    border: { type: 'solid', color: 'E2E8F0', pt: 0.5 },
-    rowH: 1.3,
+    x: 0.22, y: 0.55, w: 12.8,
+    colW: [0.3, 0.3, 1.0, 1.6, 0.6, 0.85, 0.85, 7.25],
+    border: { type: 'solid', color: 'B4C6E7', pt: 0.5 },
   })
+
+  // ── "ZDT Confidential" (bottom-left, matching master) ──
+  slide.addText(
+    [{ text: 'ZDT Confidential ', options: { fontSize: 9, bold: true, color: 'FF0000', fontFace: PPT_FONT_FACE } }],
+    { x: 0.03, y: 7.1, w: 3.0, h: 0.35 },
+  )
 
   await pptx.writeFile({ fileName: `專案進度週報_${dayjs().format('YYYY-MM-DD')}.pptx` })
 }
@@ -270,34 +374,38 @@ const TaskProgressDetail: React.FC<{ task: WbsTask }> = ({ task }) => {
   )
 }
 
-// ─── Note Add Popover ────────────────────────────────────────────────────────
+// ─── Note Popover (view existing + add new) ─────────────────────────────────
 
-const NoteAddPopover: React.FC<{
+const NotePopover: React.FC<{
   taskName?: string
+  notes?: MeetingNote[]
   onAdd: (type: NoteType, content: string) => void
+  onResolve?: (noteId: string) => void
+  onDelete?: (noteId: string) => void
   children: React.ReactNode
-}> = ({ taskName, onAdd, children }) => {
+}> = ({ taskName, notes = [], onAdd, onResolve, onDelete, children }) => {
   const [open, setOpen] = useState(false)
   const [noteType, setNoteType] = useState<NoteType>('行動項')
   const [noteContent, setNoteContent] = useState('')
+  const [showAddForm, setShowAddForm] = useState(false)
 
   const handleAdd = () => {
     if (!noteContent.trim()) return
     onAdd(noteType, noteContent.trim())
     setNoteContent('')
-    setOpen(false)
+    setShowAddForm(false)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-      handleAdd()
-    }
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleAdd()
   }
 
   const handleOpenChange = (v: boolean) => {
     setOpen(v)
-    if (!v) setNoteContent('')
+    if (!v) { setNoteContent(''); setShowAddForm(false) }
   }
+
+  const hasNotes = notes.length > 0
 
   return (
     <Popover
@@ -306,43 +414,112 @@ const NoteAddPopover: React.FC<{
       trigger="click"
       placement="bottomRight"
       title={
-        <div className="flex items-center gap-2">
-          <ChatBubbleOvalLeftEllipsisIcon className="w-4 h-4 text-blue-500" />
-          <span className="text-xs font-semibold text-slate-700">
-            {taskName ? `會議備注 · ${taskName}` : '新增專案備注'}
-          </span>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <ChatBubbleOvalLeftEllipsisIcon className="w-4 h-4 text-blue-500" />
+            <span className="text-xs font-semibold text-slate-700">
+              {taskName ? `備注 · ${taskName}` : '專案備注'}
+            </span>
+          </div>
+          {hasNotes && !showAddForm && (
+            <button
+              className="border-0 bg-transparent cursor-pointer flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-700 px-1.5 py-0.5 rounded hover:bg-blue-50 transition-colors"
+              onClick={() => setShowAddForm(true)}
+            >
+              <PlusIcon className="w-3 h-3" /> 新增
+            </button>
+          )}
         </div>
       }
       content={
-        <div className="w-64">
-          <div className="flex gap-1 mb-2 flex-wrap">
-            {(['決策', '行動項', '風險', '待確認'] as NoteType[]).map((t) => (
-              <Tag
-                key={t}
-                color={noteType === t ? NOTE_TYPE_CONFIG[t].antColor : 'default'}
-                style={{ fontSize: 10, lineHeight: '18px', margin: 0, padding: '0 6px', cursor: 'pointer' }}
-                onClick={() => setNoteType(t)}
-              >
-                {t}
-              </Tag>
-            ))}
-          </div>
-          <Input.TextArea
-            rows={3}
-            placeholder={`記錄${noteType === '決策' ? '決策結果與依據' : noteType === '行動項' ? '待辦事項與負責人' : noteType === '風險' ? '風險點與應對方案' : '待確認的問題'}... (⌘Enter 快速提交)`}
-            value={noteContent}
-            onChange={(e) => setNoteContent(e.target.value)}
-            onKeyDown={handleKeyDown}
-            size="small"
-            autoFocus
-          />
-          <div className="flex justify-end mt-2 gap-1.5">
-            <Button size="small" onClick={() => { setOpen(false); setNoteContent('') }}>取消</Button>
-            <Button size="small" type="primary" onClick={handleAdd} disabled={!noteContent.trim()}>
-              記錄
-            </Button>
-          </div>
-          <p className="text-[9px] text-slate-300 mt-1 text-right">⌘Enter 快速提交</p>
+        <div className="w-72" style={{ maxHeight: 360, overflowY: 'auto' }}>
+          {/* ── Existing notes list ── */}
+          {hasNotes && (
+            <div className="mb-2 divide-y divide-slate-100">
+              {notes.map((n) => (
+                <div key={n.id} className={`py-2 first:pt-0 group/ni ${n.status === 'resolved' ? 'opacity-50' : ''}`}>
+                  <div className="flex items-start gap-2">
+                    <Tag
+                      color={NOTE_TYPE_CONFIG[n.type]?.antColor ?? 'default'}
+                      style={{ fontSize: 10, lineHeight: '16px', margin: 0, padding: '0 4px', flexShrink: 0 }}
+                    >
+                      {n.type}
+                    </Tag>
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-xs leading-relaxed m-0 ${n.status === 'resolved' ? 'line-through text-slate-400' : 'text-slate-700'}`}>
+                        {n.content}
+                      </p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-[10px] text-slate-400">{n.author}</span>
+                        <span className="text-[10px] text-slate-300">{dayjs(n.createdAt).format('MM/DD HH:mm')}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover/ni:opacity-100 transition-opacity">
+                      {onResolve && (
+                        <Tooltip title={n.status === 'pending' ? '標記已處理' : '撤銷'}>
+                          <button
+                            className={`border-0 bg-transparent cursor-pointer p-0.5 rounded transition-colors ${n.status === 'resolved' ? 'text-green-500' : 'text-slate-300 hover:text-green-500 hover:bg-green-50'}`}
+                            onClick={() => onResolve(n.id)}
+                          >
+                            <CheckIcon className="w-3.5 h-3.5" />
+                          </button>
+                        </Tooltip>
+                      )}
+                      {onDelete && (
+                        <Tooltip title="刪除">
+                          <button
+                            className="border-0 bg-transparent cursor-pointer p-0.5 rounded text-slate-300 hover:text-red-400 hover:bg-red-50 transition-colors"
+                            onClick={() => onDelete(n.id)}
+                          >
+                            <XMarkIcon className="w-3.5 h-3.5" />
+                          </button>
+                        </Tooltip>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* ── Add form (always shown if no notes, toggled if has notes) ── */}
+          {(!hasNotes || showAddForm) && (
+            <div className={hasNotes ? 'border-t border-slate-100 pt-2' : ''}>
+              <div className="flex gap-1 mb-2 flex-wrap">
+                {(['決策', '行動項', '風險', '待確認'] as NoteType[]).map((t) => (
+                  <Tag
+                    key={t}
+                    color={noteType === t ? NOTE_TYPE_CONFIG[t].antColor : 'default'}
+                    style={{ fontSize: 10, lineHeight: '18px', margin: 0, padding: '0 6px', cursor: 'pointer' }}
+                    onClick={() => setNoteType(t)}
+                  >
+                    {t}
+                  </Tag>
+                ))}
+              </div>
+              <Input.TextArea
+                rows={2}
+                placeholder={`記錄${noteType === '決策' ? '決策結果與依據' : noteType === '行動項' ? '待辦事項與負責人' : noteType === '風險' ? '風險點與應對方案' : '待確認的問題'}...`}
+                value={noteContent}
+                onChange={(e) => setNoteContent(e.target.value)}
+                onKeyDown={handleKeyDown}
+                size="small"
+                autoFocus
+              />
+              <div className="flex items-center justify-between mt-2">
+                <span className="text-[9px] text-slate-300">⌘Enter 提交</span>
+                <div className="flex gap-1.5">
+                  {hasNotes && <Button size="small" onClick={() => { setShowAddForm(false); setNoteContent('') }}>取消</Button>}
+                  <Button size="small" type="primary" onClick={handleAdd} disabled={!noteContent.trim()}>記錄</Button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Empty state */}
+          {!hasNotes && !noteContent && (
+            <p className="text-[10px] text-slate-300 text-center mt-1 mb-0">暫無備注，上方可直接新增</p>
+          )}
         </div>
       }
     >
@@ -386,14 +563,14 @@ const MeetingNotesPanel: React.FC<{
             </button>
           )}
         </div>
-        <NoteAddPopover onAdd={onAddProjectNote}>
+        <NotePopover onAdd={onAddProjectNote}>
           <button
             className="border-0 bg-transparent cursor-pointer flex items-center gap-1 text-[11px] font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-100 rounded px-2 py-1 transition-colors"
           >
             <PlusIcon className="w-3 h-3" />
             新增備注
           </button>
-        </NoteAddPopover>
+        </NotePopover>
       </div>
 
       {/* Notes list */}
@@ -475,17 +652,21 @@ const TaskRow: React.FC<{
   onWeekTagClick?: (wt: WeekTag) => void
   expanded?: boolean
   onToggleExpand?: () => void
-  noteCount?: number
+  notes?: MeetingNote[]
   onAddNote?: (type: NoteType, content: string) => void
-}> = ({ task, onWeekTagClick, expanded = false, onToggleExpand, noteCount = 0, onAddNote }) => {
+  onResolveNote?: (noteId: string) => void
+  onDeleteNote?: (noteId: string) => void
+}> = ({ task, onWeekTagClick, expanded = false, onToggleExpand, notes = [], onAddNote, onResolveNote, onDeleteNote }) => {
   const sc = STATUS_CONFIG[task.status]
-  const isOverdue = task.status === 'overdue'
+  const isOverdue = !!task.is_overdue
   const isCompleted = task.status === 'completed'
   const hasHistory = (task.progress_history?.length ?? 0) > 0
+  const pendingCount = notes.filter((n) => n.status === 'pending').length
+  const hasPending = pendingCount > 0
 
   return (
     <>
-      <div className={`group flex items-start gap-3 px-4 py-2.5 border-b border-slate-50 last:border-b-0 hover:bg-slate-50/50 transition-colors ${isOverdue ? 'bg-red-50/30' : ''}`}>
+      <div className={`group flex items-start gap-3 px-4 py-2.5 border-b border-slate-50 last:border-b-0 hover:bg-slate-50/50 transition-colors ${isOverdue ? 'bg-red-50/30' : ''} ${hasPending ? 'border-l-[3px] border-l-blue-400' : ''}`}>
         {/* Status icon */}
         <div className="mt-0.5 flex-shrink-0">{sc.icon}</div>
 
@@ -520,7 +701,7 @@ const TaskRow: React.FC<{
             )}
           </div>
           {/* Latest update for overdue / in_progress */}
-          {task.latest_update && (task.status === 'overdue' || task.status === 'in_progress') && (
+          {task.latest_update && (task.is_overdue || task.status === 'in_progress') && (
             <p className={`text-[10px] mt-1 leading-relaxed ${isOverdue ? 'text-red-500' : 'text-slate-400'}`}>
               最新進度：{task.latest_update}
             </p>
@@ -561,23 +742,23 @@ const TaskRow: React.FC<{
           )}
         </div>
 
-        {/* Meeting note button */}
+        {/* Meeting note button — click to view notes + add new */}
         {onAddNote && (
           <div className="flex-shrink-0 w-[24px] flex items-center justify-center">
-            <NoteAddPopover taskName={task.name} onAdd={onAddNote}>
+            <NotePopover taskName={task.name} notes={notes} onAdd={onAddNote} onResolve={onResolveNote} onDelete={onDeleteNote}>
               <button
-                className={`border-0 bg-transparent cursor-pointer relative p-0.5 rounded transition-all ${noteCount > 0 ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} hover:bg-blue-50`}
+                className={`border-0 bg-transparent cursor-pointer relative p-0.5 rounded transition-all ${hasPending || notes.length > 0 ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} hover:bg-blue-50`}
                 onClick={(e) => e.stopPropagation()}
-                title="新增會議備注"
+                title={hasPending ? `${pendingCount} 條待處理備注` : '會議備注'}
               >
-                <ChatBubbleOvalLeftEllipsisIcon className={`w-3.5 h-3.5 transition-colors ${noteCount > 0 ? 'text-blue-500' : 'text-slate-400 hover:text-blue-500'}`} />
-                {noteCount > 0 && (
+                <ChatBubbleOvalLeftEllipsisIcon className={`w-3.5 h-3.5 transition-colors ${hasPending ? 'text-blue-500' : notes.length > 0 ? 'text-blue-300' : 'text-slate-400 hover:text-blue-500'}`} />
+                {pendingCount > 0 && (
                   <span className="absolute -top-1 -right-1 w-3.5 h-3.5 text-[8px] font-bold bg-blue-500 text-white rounded-full flex items-center justify-center leading-none">
-                    {noteCount > 9 ? '9+' : noteCount}
+                    {pendingCount > 9 ? '9+' : pendingCount}
                   </span>
                 )}
               </button>
-            </NoteAddPopover>
+            </NotePopover>
           </div>
         )}
 
@@ -596,11 +777,13 @@ const FunctionModule: React.FC<{
   onWeekTagClick?: (wt: WeekTag) => void
   expandedTaskId: string | null
   onToggleTaskExpand: (taskId: string) => void
-  noteCountByTaskId: Record<string, number>
+  notesByTaskId: Record<string, MeetingNote[]>
   onAddNote: (taskId: string, taskName: string, type: NoteType, content: string) => void
-}> = ({ func, defaultOpen = true, onWeekTagClick, expandedTaskId, onToggleTaskExpand, noteCountByTaskId, onAddNote }) => {
+  onResolveNote: (noteId: string) => void
+  onDeleteNote: (noteId: string) => void
+}> = ({ func, defaultOpen = true, onWeekTagClick, expandedTaskId, onToggleTaskExpand, notesByTaskId, onAddNote, onResolveNote, onDeleteNote }) => {
   const [expanded, setExpanded] = useState(defaultOpen)
-  const overdueCount = func.tasks.filter((t) => t.status === 'overdue').length
+  const overdueCount = func.tasks.filter((t) => !!t.is_overdue).length
   const completedCount = func.tasks.filter((t) => t.status === 'completed').length
   const thisWeekCount = func.tasks.filter((t) => t.week_tag.includes('this_week')).length
 
@@ -647,8 +830,10 @@ const FunctionModule: React.FC<{
               onWeekTagClick={onWeekTagClick}
               expanded={expandedTaskId === t.id}
               onToggleExpand={() => onToggleTaskExpand(t.id)}
-              noteCount={noteCountByTaskId[t.id] ?? 0}
+              notes={notesByTaskId[t.id] ?? []}
               onAddNote={(type, content) => onAddNote(t.id, t.name, type, content)}
+              onResolveNote={onResolveNote}
+              onDeleteNote={onDeleteNote}
             />
           ))}
         </div>
@@ -675,7 +860,7 @@ const ProjectCard: React.FC<{
   // Use ORIGINAL project data for summary stats to avoid filter distortion
   const totalTasks = originalProject.functions.reduce((s, f) => s + f.tasks.length, 0)
   const completedTasks = originalProject.functions.reduce((s, f) => s + f.tasks.filter((t) => t.status === 'completed').length, 0)
-  const overdueTasks = originalProject.functions.reduce((s, f) => s + f.tasks.filter((t) => t.status === 'overdue').length, 0)
+  const overdueTasks = originalProject.functions.reduce((s, f) => s + f.tasks.filter((t) => !!t.is_overdue).length, 0)
   const thisWeekTasks = originalProject.functions.reduce((s, f) => s + f.tasks.filter((t) => t.week_tag.includes('this_week')).length, 0)
   const nextWeekTasks = originalProject.functions.reduce((s, f) => s + f.tasks.filter((t) => t.week_tag.includes('next_week')).length, 0)
   const lastWeekCompleted = originalProject.functions.reduce((s, f) => s + f.tasks.filter((t) => t.week_tag.includes('last_week') && t.status === 'completed').length, 0)
@@ -688,12 +873,12 @@ const ProjectCard: React.FC<{
 
   const pendingNoteCount = notes.filter((n) => n.status === 'pending').length
 
-  // Build note count by taskId for highlighting task rows
-  const noteCountByTaskId = useMemo(() => {
-    const map: Record<string, number> = {}
+  // Group notes by taskId (task-level notes for inline display)
+  const notesByTaskId = useMemo(() => {
+    const map: Record<string, MeetingNote[]> = {}
     notes.forEach((n) => {
       if (n.taskId) {
-        map[n.taskId] = (map[n.taskId] ?? 0) + 1
+        ;(map[n.taskId] = map[n.taskId] ?? []).push(n)
       }
     })
     return map
@@ -797,16 +982,18 @@ const ProjectCard: React.FC<{
           <FunctionModule
             key={f.id}
             func={f}
-            defaultOpen={f.tasks.some((t) => t.status === 'overdue') || f.tasks.length <= 6}
+            defaultOpen={f.tasks.some((t) => !!t.is_overdue) || f.tasks.length <= 6}
             onWeekTagClick={onWeekTagClick}
             expandedTaskId={expandedTaskId}
             onToggleTaskExpand={onToggleTaskExpand}
-            noteCountByTaskId={noteCountByTaskId}
+            notesByTaskId={notesByTaskId}
             onAddNote={(taskId, taskName, type, content) => onAddNote(taskId, taskName, type, content)}
+            onResolveNote={onResolveNote}
+            onDeleteNote={onDeleteNote}
           />
         ))}
 
-        {/* Meeting Notes Section */}
+        {/* Meeting Notes Section — all notes (task-level + project-level) */}
         <div className="mt-3 px-1">
           <button
             className="border-0 bg-transparent cursor-pointer w-full flex items-center gap-2 py-1.5 text-left group/notes"
@@ -843,13 +1030,18 @@ const ProjectCard: React.FC<{
   )
 }
 
-// ─── Report Preview Modal ────────────────────────────────────────────────────
+// ─── Report Preview Modal (matching 专案周报.pptx template) ────────────────
 
-const STATUS_COLOR_MAP: Record<TaskStatus, string> = {
-  completed: '#16a34a', in_progress: '#2563eb', overdue: '#dc2626', not_started: '#94a3b8',
+// Status → color mapping matching template
+const RPT_STATUS_COLOR: Record<string, string> = {
+  completed: '#00B050', in_progress: '#0070C0', overdue: '#FF0000', not_started: '#94a3b8',
 }
-const STATUS_LABEL_MAP: Record<TaskStatus, string> = {
-  completed: '已完成', in_progress: '進行中', overdue: '超時', not_started: '未開始',
+
+function _taskStatusLabel(task: WbsTask): { label: string; color: string } {
+  if (task.status === 'completed') return { label: '已完成', color: RPT_STATUS_COLOR.completed }
+  if (task.is_overdue) return { label: 'delay', color: RPT_STATUS_COLOR.overdue }
+  if (task.status === 'in_progress') return { label: '進行中', color: RPT_STATUS_COLOR.in_progress }
+  return { label: '未開始', color: RPT_STATUS_COLOR.not_started }
 }
 
 const ReportPreviewModal: React.FC<{
@@ -870,13 +1062,10 @@ const ReportPreviewModal: React.FC<{
     const win = window.open('', '_blank', 'width=1200,height=800')
     if (!win) return
     win.document.write(`<html><head><title>專案進度週報</title><style>
-      *{box-sizing:border-box}body{font-family:Arial,sans-serif;margin:1cm;font-size:10px}
-      h2{text-align:center;color:#1F3864;margin-bottom:4px}
-      .sub{text-align:center;color:#64748b;font-size:9px;margin-bottom:10px}
+      *{box-sizing:border-box}body{font-family:'Microsoft YaHei',Arial,sans-serif;margin:1cm;font-size:14px}
       table{border-collapse:collapse;width:100%}
-      th{background:#1F3864;color:#fff;padding:5px 4px;font-size:9px;text-align:center;border:1px solid #1F3864}
-      td{border:1px solid #cbd5e1;padding:4px 5px;vertical-align:top;font-size:9px}
-      tr:nth-child(even) td{background:#f8fafc}
+      th{background:#002FA7;color:#fff;padding:8px 6px;font-size:14px;text-align:center;border:1px solid #002FA7}
+      td{border:1px solid #B4C6E7;padding:6px 8px;vertical-align:top;font-size:14px}
       @media print{@page{size:A3 landscape;margin:.8cm}}
     </style></head><body>${el.innerHTML}</body></html>`)
     win.document.close()
@@ -905,7 +1094,7 @@ const ReportPreviewModal: React.FC<{
             loading={exporting}
             onClick={handleExportPptx}
             icon={<PresentationChartBarIcon className="w-3.5 h-3.5" />}
-            style={{ background: '#2563eb' }}
+            style={{ background: '#002FA7' }}
           >
             導出 PPTX
           </Button>
@@ -916,17 +1105,42 @@ const ReportPreviewModal: React.FC<{
     >
       <div className="overflow-auto max-h-[75vh]">
         <div id="wbs-weekly-report">
-          <h2 style={{ textAlign: 'center', color: '#1F3864', marginBottom: 4, fontSize: 16, fontWeight: 700 }}>
-            資訊部門 專案進度週報
-          </h2>
-          <p className="sub" style={{ textAlign: 'center', color: '#64748b', fontSize: 11, marginBottom: 12 }}>
-            {dayjs().format('YYYY年MM月DD日')}
-          </p>
-          <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 11 }}>
+          {/* Header: logo + title + legend */}
+          {/* Logo top-left + Legend top-right */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 8px', marginBottom: 4 }}>
+            <img src={reportLogoUrl} alt="logo" style={{ height: 36 }} />
+            <div style={{ fontSize: 12 }}>
+              <span style={{ color: '#00B050' }}>●已完成</span>
+              <span>{'   '}</span>
+              <span style={{ color: '#0070C0' }}>●進行中</span>
+              <span>{'   '}</span>
+              <span style={{ color: '#FFC000' }}>●風險</span>
+              <span>{' '}</span>
+              <span style={{ color: '#FF0000' }}>●delay</span>
+            </div>
+          </div>
+          {/* Title centered */}
+          <div style={{ textAlign: 'center', marginBottom: 10 }}>
+            <span style={{ color: '#0070C0', fontSize: 20, fontWeight: 700 }}>
+              資訊部 (系統) – Overview
+            </span>
+          </div>
+
+          <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 14, fontFamily: "'Microsoft YaHei',Arial,sans-serif" }}>
+            <colgroup>
+              <col style={{ width: '3%' }} />
+              <col style={{ width: '3.5%' }} />
+              <col style={{ width: '8%' }} />
+              <col style={{ width: '16%' }} />
+              <col style={{ width: '5%' }} />
+              <col style={{ width: '7.5%' }} />
+              <col style={{ width: '8%' }} />
+              <col style={{ width: '49%' }} />
+            </colgroup>
             <thead>
               <tr>
-                {['進度', '序號', '重點項目 TOP3', '需求使用者/專案PM', 'DRI', '專案啟動日', '預計結案日', '進度'].map((h) => (
-                  <th key={h} style={{ background: '#1F3864', color: '#fff', padding: '6px 5px', fontSize: 10, textAlign: 'center', border: '1px solid #1F3864' }}>
+                {['進度', '序號', '重點項目', '需求使用者\n專案PM', 'DRI', '專案啟動日', '預計結案日', '進度'].map((h) => (
+                  <th key={h} style={{ background: '#002FA7', color: '#fff', padding: '8px 5px', fontSize: 14, textAlign: 'center', border: '1px solid #002FA7', whiteSpace: 'pre-line' }}>
                     {h}
                   </th>
                 ))}
@@ -934,57 +1148,77 @@ const ReportPreviewModal: React.FC<{
             </thead>
             <tbody>
               {projects.map((project, idx) => {
-                const hasOverdue = project.functions.some((f) => f.tasks.some((t) => t.status === 'overdue'))
-                const dotColor = hasOverdue ? '#dc2626' : project.progress >= 80 ? '#16a34a' : '#2563eb'
-                const rowBg = idx % 2 === 0 ? '#f8fafc' : '#ffffff'
-                const td = (extra?: React.CSSProperties): React.CSSProperties => ({
-                  background: rowBg, border: '1px solid #e2e8f0', padding: '5px 6px', verticalAlign: 'top', ...extra,
-                })
+                const dotClr = `#${_projectDotColor(project)}`
+                let taskIdx = 0
+
                 return (
                   <tr key={project.id}>
-                    <td style={td({ textAlign: 'center', fontSize: 18, lineHeight: 1 })}>
-                      <span style={{ color: dotColor }}>●</span>
+                    {/* ● dot */}
+                    <td style={{ textAlign: 'center', verticalAlign: 'middle', fontSize: 18, border: '1px solid #B4C6E7', background: '#fff' }}>
+                      <span style={{ color: dotClr }}>●</span>
                     </td>
-                    <td style={td({ textAlign: 'center' })}>{idx + 1}</td>
-                    <td style={td({ fontWeight: 600, color: '#1e293b', minWidth: 90 })}>{project.name}</td>
-                    <td style={td({ minWidth: 100 })}>
-                      {project.department}<br />
-                      <span style={{ color: '#2563eb' }}>{project.pm}</span>
+                    {/* 序號 */}
+                    <td style={{ textAlign: 'center', verticalAlign: 'middle', border: '1px solid #B4C6E7' }}>{idx + 1}</td>
+                    {/* 重點項目 */}
+                    <td style={{ verticalAlign: 'middle', border: '1px solid #B4C6E7', color: '#000' }}>{project.name}</td>
+                    {/* 需求使用者（產品PM） */}
+                    <td style={{ verticalAlign: 'middle', border: '1px solid #B4C6E7', color: '#000' }}>
+                      {project.product_pm || project.pm}
                     </td>
-                    <td style={td()}>{project.pm}</td>
-                    <td style={td({ textAlign: 'center', whiteSpace: 'nowrap', color: '#475569' })}>{project.start_date ?? '-'}</td>
-                    <td style={td({ textAlign: 'center', whiteSpace: 'nowrap', color: '#475569' })}>{project.expected_end}</td>
-                    <td style={td({ minWidth: 320 })}>
-                      {project.functions.map((func, fi) => (
-                        <div key={func.id} style={{ marginTop: fi > 0 ? 6 : 0 }}>
-                          <div style={{ fontWeight: 600, color: '#1e293b', fontSize: 11 }}>
-                            {fi + 1}. {func.name}
-                          </div>
-                          {func.tasks.map((task) => (
-                            <div key={task.id} style={{ marginLeft: 10, marginTop: 2, fontSize: 10 }}>
-                              <span style={{ color: '#94a3b8' }}>- </span>
-                              <span style={{ color: STATUS_COLOR_MAP[task.status], fontWeight: 600 }}>
-                                ({STATUS_LABEL_MAP[task.status]})
-                              </span>
-                              {' '}<span style={{ color: '#1e293b' }}>{task.name}</span>
-                              {' '}<span style={{ color: '#94a3b8', fontSize: 9 }}>
-                                [{task.assignee}
-                                {task.status === 'overdue' && task.days_overdue
-                                  ? `, 超時${task.days_overdue}天`
-                                  : task.actual_end
-                                    ? `, ✓${task.actual_end}`
-                                    : task.expected_end ? `, ${task.expected_end}` : ''}]
-                              </span>
+                    {/* DRI — 只顯示專案PM */}
+                    <td style={{ verticalAlign: 'middle', border: '1px solid #B4C6E7', color: '#000' }}>
+                      {project.pm}
+                    </td>
+                    {/* 專案啟動日 */}
+                    <td style={{ textAlign: 'center', verticalAlign: 'middle', border: '1px solid #B4C6E7', color: '#000', whiteSpace: 'nowrap' }}>
+                      {project.start_date ?? '-'}
+                    </td>
+                    {/* 預計結案日 */}
+                    <td style={{ textAlign: 'center', verticalAlign: 'middle', border: '1px solid #B4C6E7', color: '#000', whiteSpace: 'nowrap' }}>
+                      {project.expected_end || '-'}
+                    </td>
+                    {/* 進度 — rich-text matching template style */}
+                    <td style={{ verticalAlign: 'top', border: '1px solid #B4C6E7', lineHeight: 1.6 }}>
+                      {project.functions.flatMap((func) =>
+                        func.tasks.map((task) => {
+                          taskIdx++
+                          const { label, color } = _taskStatusLabel(task)
+                          const lineColor = task.status === 'completed' ? '#00B050' : '#000'
+                          const meta: string[] = []
+                          if (task.expected_end) meta.push(task.expected_end)
+                          if (task.assignee && task.assignee !== '未指派') meta.push(task.assignee)
+                          return (
+                            <div key={task.id} style={{ marginTop: taskIdx > 1 ? 2 : 0, color: lineColor }}>
+                              <span>{taskIdx}. </span>
+                              <span style={{ color, fontWeight: 700 }}>({label})</span>
+                              <span>{task.name}</span>
+                              {meta.length > 0 && <span>({meta.join(', ')})</span>}
+                              {task.week_tag.map((wt) => (
+                                <span key={wt} style={{ color: WEEK_TAG_CONFIG[wt].color, fontWeight: 700, marginLeft: 2 }}>
+                                  [{WEEK_TAG_CONFIG[wt].label}]
+                                </span>
+                              ))}
+                              {task.is_overdue && task.days_overdue && (
+                                <span style={{ color: '#FF0000' }}> [超時{task.days_overdue}天]</span>
+                              )}
+                              {task.latest_update && task.status !== 'completed' && (
+                                <div style={{ paddingLeft: 20, color: '#000' }}>- {task.latest_update}</div>
+                              )}
                             </div>
-                          ))}
-                        </div>
-                      ))}
+                          )
+                        })
+                      )}
                     </td>
                   </tr>
                 )
               })}
             </tbody>
           </table>
+
+          {/* Footer matching master */}
+          <div style={{ marginTop: 16, paddingLeft: 8, fontSize: 11, color: '#FF0000', fontWeight: 700 }}>
+            ZDT Confidential
+          </div>
         </div>
       </div>
     </Modal>
@@ -1004,11 +1238,40 @@ const WbsOverviewPage: React.FC = () => {
   const [meetingNotes, setMeetingNotes] = useState<Record<string, MeetingNote[]>>({})
   const [previewOpen, setPreviewOpen] = useState(false)
 
+  // Load WBS data
   useEffect(() => {
-    // TODO: call real API when endpoint is available, e.g.:
-    // projectApi.wbsOverview().then((res) => { if (res.content) setWbsData(res.content) }).catch(() => {})
-    setWbsData([])
+    projectApi.wbsOverview()
+      .then((res) => { if (Array.isArray(res.content)) setWbsData(res.content as WbsProject[]) })
+      .catch(() => {})
   }, [])
+
+  // Load all meeting notes for visible projects after WBS data arrives
+  useEffect(() => {
+    if (wbsData.length === 0) return
+    Promise.all(
+      wbsData.map((p) =>
+        meetingNoteApi.list(p.id)
+          .then((res) => ({ projectId: p.id, notes: Array.isArray(res.content) ? res.content : [] }))
+          .catch(() => ({ projectId: p.id, notes: [] }))
+      )
+    ).then((results) => {
+      const map: Record<string, MeetingNote[]> = {}
+      results.forEach(({ projectId, notes }) => {
+        map[projectId] = notes.map((n: ApiMeetingNote) => ({
+          id:        n.id,
+          projectId: n.projectId,
+          type:      n.type,
+          content:   n.content,
+          taskId:    n.taskId ?? undefined,
+          taskName:  n.taskName ?? undefined,
+          author:    n.author,
+          createdAt: n.createdAt,
+          status:    n.status,
+        }))
+      })
+      setMeetingNotes(map)
+    })
+  }, [wbsData])
 
   const handleToggleTaskExpand = (taskId: string) => {
     setExpandedTaskId((prev) => prev === taskId ? null : taskId)
@@ -1021,37 +1284,58 @@ const WbsOverviewPage: React.FC = () => {
     type: NoteType,
     content: string
   ) => {
-    const note: MeetingNote = {
-      id: `note-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      projectId,
-      type,
+    meetingNoteApi.create(projectId, {
+      note_type: type,
       content,
-      taskId: taskId ?? undefined,
-      taskName: taskName ?? undefined,
-      author: '王經理',
-      createdAt: new Date().toISOString(),
-      status: 'pending',
-    }
-    setMeetingNotes((prev) => ({
-      ...prev,
-      [projectId]: [note, ...(prev[projectId] ?? [])],
-    }))
+      task_id:   taskId,
+      task_name: taskName,
+    }).then((res) => {
+      if (!res.content) return
+      const n = res.content as ApiMeetingNote
+      const note: MeetingNote = {
+        id: n.id, projectId: n.projectId, type: n.type,
+        content: n.content, taskId: n.taskId ?? undefined,
+        taskName: n.taskName ?? undefined,
+        author: n.author, createdAt: n.createdAt, status: n.status,
+      }
+      setMeetingNotes((prev) => ({
+        ...prev,
+        [projectId]: [note, ...(prev[projectId] ?? [])],
+      }))
+    }).catch(() => {})
   }, [])
 
   const handleResolveNote = useCallback((projectId: string, noteId: string) => {
+    // Optimistic update
     setMeetingNotes((prev) => ({
       ...prev,
       [projectId]: (prev[projectId] ?? []).map((n) =>
         n.id === noteId ? { ...n, status: n.status === 'pending' ? 'resolved' : 'pending' } : n
       ),
     }))
-  }, [])
+    const currentNotes = meetingNotes[projectId] ?? []
+    const note = currentNotes.find((n) => n.id === noteId)
+    const newStatus = note?.status === 'pending' ? 'resolved' : 'pending'
+    meetingNoteApi.updateStatus(noteId, newStatus).catch(() => {
+      // Rollback on failure
+      setMeetingNotes((prev) => ({
+        ...prev,
+        [projectId]: (prev[projectId] ?? []).map((n) =>
+          n.id === noteId ? { ...n, status: note?.status ?? 'pending' } : n
+        ),
+      }))
+    })
+  }, [meetingNotes])
 
   const handleDeleteNote = useCallback((projectId: string, noteId: string) => {
+    // Optimistic update
     setMeetingNotes((prev) => ({
       ...prev,
       [projectId]: (prev[projectId] ?? []).filter((n) => n.id !== noteId),
     }))
+    meetingNoteApi.delete(noteId).catch(() => {
+      // Could reload on failure, but for simplicity just ignore
+    })
   }, [])
 
   // Summary stats (always from full data)
@@ -1062,7 +1346,7 @@ const WbsOverviewPage: React.FC = () => {
       totalTasks: allTasks.length,
       completed: allTasks.filter((t) => t.status === 'completed').length,
       inProgress: allTasks.filter((t) => t.status === 'in_progress').length,
-      overdue: allTasks.filter((t) => t.status === 'overdue').length,
+      overdue: allTasks.filter((t) => !!t.is_overdue).length,
       notStarted: allTasks.filter((t) => t.status === 'not_started').length,
       thisWeek: allTasks.filter((t) => t.week_tag.includes('this_week')).length,
       nextWeek: allTasks.filter((t) => t.week_tag.includes('next_week')).length,
@@ -1082,9 +1366,12 @@ const WbsOverviewPage: React.FC = () => {
         const filteredTasks = func.tasks.filter((task) => {
           const weekMatch =
             weekFilter === 'show_all' ? true :
-            weekFilter === 'all' ? (task.week_tag.length > 0 || task.status === 'in_progress' || task.status === 'overdue') :
+            weekFilter === 'all' ? (task.week_tag.length > 0 || task.status === 'in_progress' || task.is_overdue) :
             task.week_tag.includes(weekFilter)
-          const statusMatch = statusFilter === 'all' || task.status === statusFilter
+          const statusMatch =
+            statusFilter === 'all' ? true :
+            statusFilter === 'overdue' ? !!task.is_overdue :
+            task.status === statusFilter
           const searchMatch = !kw || task.name.toLowerCase().includes(kw) || task.assignee.toLowerCase().includes(kw)
           return weekMatch && statusMatch && searchMatch
         })
