@@ -70,11 +70,17 @@ const ProjectDetailPage: React.FC = () => {
   const isProjectLocked = current?.status === 6 && !isAdmin
   const canManageGroups = isAdmin || isSupervisor
 
-  const [functions,       setFunctions]       = useState<ProjectFunction[]>([])
-  const [funcView,        setFuncView]         = useState<'all' | 'mine'>('all')
-  const [funcGroupMode,   setFuncGroupMode]    = useState<'flat' | 'grouped'>('grouped')
-  const [funcLoading,     setFuncLoading]      = useState(false)
-  const [dynamics,        setDynamics]         = useState<Record<string, unknown>[]>([])
+  const [functions,          setFunctions]          = useState<ProjectFunction[]>([])
+  const [funcView,           setFuncView]           = useState<'all' | 'mine'>('all')
+  const [funcGroupMode,      setFuncGroupMode]      = useState<'flat' | 'grouped'>('grouped')
+  const [funcLoading,        setFuncLoading]        = useState(false)
+  const [funcPage,           setFuncPage]           = useState(1)
+  const [funcPageSize,       setFuncPageSize]       = useState(100)
+  const [funcTotal,          setFuncTotal]          = useState(0)
+  const [dynamics,           setDynamics]           = useState<Record<string, unknown>[]>([])
+  const [dynamicsPage,       setDynamicsPage]       = useState(1)
+  const [dynamicsHasMore,    setDynamicsHasMore]    = useState(false)
+  const [dynamicsLoadingMore,setDynamicsLoadingMore]= useState(false)
   const [milestones,      setMilestones]       = useState<Milestone[]>([])
   const [files,           setFiles]            = useState<ProjectFile[]>([])
   const [filesLoading,    setFilesLoading]     = useState(false)
@@ -145,13 +151,15 @@ const ProjectDetailPage: React.FC = () => {
     return () => { dispatch(clearCurrent()) }
   }, [id, dispatch])
 
-  const loadFunctions = async (pid: string) => {
+  const loadFunctions = async (pid: string, page = 1, size = 100) => {
     setFuncLoading(true)
     try {
-      const res = await projectApi.functionList(pid, { page: 1, size: 100 })
-      const c = res.content as { project_list?: ProjectFunction[]; data_list?: ProjectFunction[] }
+      const res = await projectApi.functionList(pid, { page, size })
+      const c = res.content as { project_list?: ProjectFunction[]; data_list?: ProjectFunction[]; total_count?: number }
       const list = (c.project_list ?? c.data_list ?? []) as ProjectFunction[]
       setFunctions(list)
+      setFuncTotal(c.total_count ?? list.length)
+      setFuncPage(page)
       // 若 URL 带有 ?fid=xxx，自动打开对应任务详情
       const fid = searchParams.get('fid')
       if (fid && list.some((f) => f.id === fid)) {
@@ -164,9 +172,28 @@ const ProjectDetailPage: React.FC = () => {
   const loadDynamics = async (pid: string) => {
     try {
       const res = await projectApi.memberDynamics(pid, { page: 1, size: 20 })
-      const c = res.content as { data_list?: Record<string, unknown>[] }
-      setDynamics((c.data_list ?? []) as Record<string, unknown>[])
+      const c = res.content as { data_list?: Record<string, unknown>[]; total_count?: number }
+      const list = (c.data_list ?? []) as Record<string, unknown>[]
+      setDynamics(list)
+      setDynamicsPage(1)
+      setDynamicsHasMore((c.total_count ?? list.length) > list.length)
     } catch { /* global */ }
+  }
+
+  const loadMoreDynamics = async () => {
+    if (!id || dynamicsLoadingMore) return
+    setDynamicsLoadingMore(true)
+    try {
+      const nextPage = dynamicsPage + 1
+      const res = await projectApi.memberDynamics(id, { page: nextPage, size: 20 })
+      const c = res.content as { data_list?: Record<string, unknown>[]; total_count?: number }
+      const list = (c.data_list ?? []) as Record<string, unknown>[]
+      setDynamics((prev) => [...prev, ...list])
+      setDynamicsPage(nextPage)
+      const total = c.total_count ?? 0
+      setDynamicsHasMore(dynamics.length + list.length < total)
+    } catch { /* global */ }
+    finally { setDynamicsLoadingMore(false) }
   }
 
   const loadMilestones = async (pid: string) => {
@@ -873,7 +900,20 @@ const ProjectDetailPage: React.FC = () => {
 
                 {funcGroupMode === 'flat' ? (
                   <Table rowKey="id" columns={funcColumns} dataSource={displayedFunctions}
-                    loading={funcLoading} pagination={{ pageSize: 10 }} size="middle" scroll={{ x: 800 }} />
+                    loading={funcLoading} size="middle" scroll={{ x: 800 }}
+                    pagination={{
+                      current: funcPage,
+                      pageSize: funcPageSize,
+                      total: funcTotal,
+                      showSizeChanger: true,
+                      pageSizeOptions: ['20', '50', '100', '200'],
+                      showTotal: (total) => `共 ${total} 筆`,
+                      onChange: (page, size) => {
+                        setFuncPageSize(size)
+                        if (id) loadFunctions(id, page, size)
+                      },
+                    }}
+                  />
                 ) : (
                   <div className="px-2 py-2">
                     {funcLoading ? (
@@ -926,29 +966,38 @@ const ProjectDetailPage: React.FC = () => {
                 {dynamics.length === 0 ? (
                   <Empty description="暫無動態記錄" />
                 ) : (
-                  <Timeline
-                    items={dynamics.map((d) => {
-                      const name = String(d.operator_name ?? d.operator ?? '')
-                      const fnm  = String(d.function_nm ?? '')
-                      const note = String(d.progress_record ?? '')
-                      return {
-                        dot: (
-                          <Avatar size={24} style={{ background: '#2563eb', fontSize: 11, fontWeight: 600 }}>
-                            {name[0]?.toUpperCase() ?? '?'}
-                          </Avatar>
-                        ),
-                        children: (
-                          <div>
-                            <span className="font-medium text-slate-700 text-sm">{name}</span>
-                            {fnm && <span className="text-slate-500 text-sm"> · {fnm}</span>}
-                            <span className="text-slate-400 text-sm"> {String(d.action ?? '')}</span>
-                            {note && <div className="text-xs text-slate-500 mt-0.5">{note}</div>}
-                            <div className="text-xs text-slate-300 mt-0.5">{String(d.created_at ?? '')}</div>
-                          </div>
-                        ),
-                      }
-                    })}
-                  />
+                  <>
+                    <Timeline
+                      items={dynamics.map((d) => {
+                        const name = String(d.operator_name ?? d.operator ?? '')
+                        const fnm  = String(d.function_nm ?? '')
+                        const note = String(d.progress_record ?? '')
+                        return {
+                          dot: (
+                            <Avatar size={24} style={{ background: '#2563eb', fontSize: 11, fontWeight: 600 }}>
+                              {name[0]?.toUpperCase() ?? '?'}
+                            </Avatar>
+                          ),
+                          children: (
+                            <div>
+                              <span className="font-medium text-slate-700 text-sm">{name}</span>
+                              {fnm && <span className="text-slate-500 text-sm"> · {fnm}</span>}
+                              <span className="text-slate-400 text-sm"> {String(d.action ?? '')}</span>
+                              {note && <div className="text-xs text-slate-500 mt-0.5">{note}</div>}
+                              <div className="text-xs text-slate-300 mt-0.5">{String(d.created_at ?? '')}</div>
+                            </div>
+                          ),
+                        }
+                      })}
+                    />
+                    {dynamicsHasMore && (
+                      <div className="flex justify-center mt-2">
+                        <Button size="small" loading={dynamicsLoadingMore} onClick={loadMoreDynamics}>
+                          載入更多
+                        </Button>
+                      </div>
+                    )}
+                  </>
                 )}
               </Card>
             ),

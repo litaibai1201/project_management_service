@@ -14,6 +14,7 @@ import {
   FunnelIcon,
 } from '@heroicons/react/24/outline'
 import dayjs from 'dayjs'
+import { projectApi } from '@/api/project.api'
 
 // ─── Anomaly Types ──────────────────────────────────────────────────────────
 
@@ -85,34 +86,80 @@ const AnomalyCard: React.FC<{ item: AnomalyItem }> = ({ item }) => {
       style={{ background: levelMeta.bg, borderColor: levelMeta.border }}
     >
       <div className="flex items-start gap-3">
-        <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5"
+        {/* Left: icon */}
+        <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5"
           style={{ background: typeMeta.color + '18', color: typeMeta.color }}>
           {typeMeta.icon}
         </div>
+
+        {/* Middle: structured info */}
         <div className="flex-1 min-w-0">
+          {/* Row 1: type tag + title */}
           <div className="flex items-center gap-2 flex-wrap mb-1">
-            <Tag style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px', color: typeMeta.color, background: typeMeta.color + '15', border: `1px solid ${typeMeta.color}30` }}>
+            <Tag style={{ fontSize: 10, padding: '0 5px', margin: 0, lineHeight: '18px', color: typeMeta.color, background: typeMeta.color + '15', border: `1px solid ${typeMeta.color}30`, fontWeight: 600 }}>
               {typeMeta.label}
             </Tag>
             <span className="text-sm font-semibold text-slate-700">{item.title}</span>
           </div>
-          <p className="text-xs text-slate-500 leading-relaxed mb-1.5">{item.description}</p>
-          <div className="flex items-center gap-3 flex-wrap">
+
+          {/* Row 2: structured detail fields */}
+          <div className="flex items-center gap-x-4 gap-y-1 flex-wrap text-xs mb-1.5">
             {item.member && (
-              <div className="flex items-center gap-1">
-                <Avatar size={16} style={{ background: '#2563eb', fontSize: 8, fontWeight: 700 }}>
+              <div className="flex items-center gap-1.5">
+                <Avatar size={18} style={{ background: levelMeta.color, fontSize: 9, fontWeight: 700 }}>
                   {item.member[0]}
                 </Avatar>
-                <span className="text-[10px] text-slate-500">{item.member}</span>
+                <span className="text-slate-600 font-medium">{item.member}</span>
               </div>
             )}
             {item.project && (
-              <span className="text-[10px] text-blue-500 bg-blue-50 border border-blue-100 rounded px-1.5 py-0.5">
-                {item.project}
-              </span>
+              <div className="flex items-center gap-1">
+                <span className="text-slate-400">專案</span>
+                <span className="text-blue-600 font-medium bg-blue-50 border border-blue-100 rounded px-1.5 py-0.5 text-[11px]">
+                  {item.project}
+                </span>
+              </div>
             )}
-            <span className="text-[10px] text-slate-300 ml-auto">{item.detected_at}</span>
+            {item.task && (
+              <div className="flex items-center gap-1">
+                <span className="text-slate-400">任務</span>
+                <span className="text-slate-700 font-medium">{item.task}</span>
+              </div>
+            )}
+            {item.value != null && item.type === 'task_overdue' && (
+              <div className="flex items-center gap-1">
+                <span className="text-slate-400">超期</span>
+                <span className="text-red-600 font-bold">{item.value} 天</span>
+              </div>
+            )}
+            {item.value != null && item.type === 'task_urgent' && (
+              <div className="flex items-center gap-1">
+                <span className="text-slate-400">剩餘</span>
+                <span className="text-orange-600 font-bold">{item.value} 天</span>
+              </div>
+            )}
+            {item.value != null && item.type === 'insufficient_hours' && (
+              <div className="flex items-center gap-1">
+                <span className="text-slate-400">本週已記錄</span>
+                <span className="text-orange-600 font-bold">{item.value}h</span>
+              </div>
+            )}
+            {item.value != null && item.type === 'project_delay' && (
+              <div className="flex items-center gap-1">
+                <span className="text-slate-400">Delay</span>
+                <span className="text-red-600 font-bold">{item.value} 天</span>
+              </div>
+            )}
           </div>
+
+          {/* Row 3: description */}
+          <p className="text-[11px] text-slate-500 leading-relaxed">{item.description}</p>
+        </div>
+
+        {/* Right: detected time */}
+        <div className="flex-shrink-0 text-right">
+          <div className="text-[10px] text-slate-300">{dayjs(item.detected_at).format('MM/DD')}</div>
+          <div className="text-[10px] text-slate-300">{dayjs(item.detected_at).format('HH:mm')}</div>
         </div>
       </div>
     </div>
@@ -122,52 +169,64 @@ const AnomalyCard: React.FC<{ item: AnomalyItem }> = ({ item }) => {
 // ─── Main ───────────────────────────────────────────────────────────────────
 
 type FilterLevel = 'all' | 'critical' | 'warning'
+type ViewMode = 'project' | 'member'
 
 const AnomalyPage: React.FC = () => {
   const [filterLevel, setFilterLevel] = useState<FilterLevel>('all')
   const [filterType, setFilterType] = useState<AnomalyType | 'all'>('all')
+  const [viewMode, setViewMode] = useState<ViewMode>('project')
   const [anomalies, setAnomalies] = useState<AnomalyItem[]>([])
 
   useEffect(() => {
-    // TODO: call real API when endpoint is available, e.g.:
-    // projectApi.anomalies().then((res) => { if (res.content) setAnomalies(res.content) }).catch(() => {})
-    setAnomalies([])
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(projectApi as any).anomalies()
+      .then((res: { content?: unknown }) => {
+        if (Array.isArray(res.content)) setAnomalies(res.content as AnomalyItem[])
+      })
+      .catch(() => {})
   }, [])
 
-  const criticalCount = anomalies.filter((a) => a.level === 'critical').length
-  const warningCount = anomalies.filter((a) => a.level === 'warning').length
-  const normalCount = 0 // TODO: load from API
+  // Helper: count unique tasks (deduplicated by task name + project)
+  const countUniqueTasks = (items: AnomalyItem[]) => {
+    const seen = new Set<string>()
+    items.forEach((a) => seen.add(`${a.project ?? ''}::${a.task ?? a.title}`))
+    return seen.size
+  }
 
-  // By type counts
+  // Filter by type first (for level card counts), then by level (for type tag counts)
+  const filteredByType = useMemo(() =>
+    filterType === 'all' ? anomalies : anomalies.filter((a) => a.type === filterType),
+    [anomalies, filterType])
+
+  const filteredByLevel = useMemo(() =>
+    filterLevel === 'all' ? anomalies : anomalies.filter((a) => a.level === filterLevel),
+    [anomalies, filterLevel])
+
+  // Level card counts: unique tasks, react to filterType
+  const allTaskCount  = countUniqueTasks(filteredByType)
+  const criticalCount = countUniqueTasks(filteredByType.filter((a) => a.level === 'critical'))
+  const warningCount  = countUniqueTasks(filteredByType.filter((a) => a.level === 'warning'))
+  const normalCount   = 0
+
+  // Type tag counts: unique tasks, react to filterLevel
   const typeCounts = useMemo(() => {
     const counts: Record<string, number> = {}
-    anomalies.forEach((a) => { counts[a.type] = (counts[a.type] ?? 0) + 1 })
+    // Group by type, then count unique tasks within each type
+    const byType: Record<string, AnomalyItem[]> = {}
+    filteredByLevel.forEach((a) => {
+      ;(byType[a.type] = byType[a.type] ?? []).push(a)
+    })
+    Object.entries(byType).forEach(([t, items]) => { counts[t] = countUniqueTasks(items) })
     return counts
-  }, [anomalies])
+  }, [filteredByLevel])
 
-  // Filter
+  // Final filtered list: both filters applied
   const filtered = useMemo(() => {
     let list = anomalies
     if (filterLevel !== 'all') list = list.filter((a) => a.level === filterLevel)
     if (filterType !== 'all') list = list.filter((a) => a.type === filterType)
     return list
   }, [anomalies, filterLevel, filterType])
-
-  const critical = filtered.filter((a) => a.level === 'critical')
-  const warning = filtered.filter((a) => a.level === 'warning')
-
-  // By member summary
-  const memberSummary = useMemo(() => {
-    const map: Record<string, { name: string; work_no: string; critical: number; warning: number; items: AnomalyItem[] }> = {}
-    anomalies.forEach((a) => {
-      const key = a.member_work_no ?? 'system'
-      if (!map[key]) map[key] = { name: a.member ?? '系統', work_no: key, critical: 0, warning: 0, items: [] }
-      if (a.level === 'critical') map[key].critical++
-      else map[key].warning++
-      map[key].items.push(a)
-    })
-    return Object.values(map).sort((a, b) => (b.critical * 10 + b.warning) - (a.critical * 10 + a.warning))
-  }, [anomalies])
 
   return (
     <div className="p-6 max-w-[1200px] mx-auto">
@@ -177,16 +236,12 @@ const AnomalyPage: React.FC = () => {
           <h1 className="text-2xl font-bold text-slate-800">異常管理看板</h1>
           <p className="text-slate-400 text-sm mt-0.5">著重管理異常 · 正常項目自動隱藏 · {dayjs().format('YYYY-MM-DD HH:mm')} 更新</p>
         </div>
-        <Tag color="success" style={{ fontSize: 12 }}>
-          <CheckCircleIcon className="w-3.5 h-3.5 inline mr-1 -mt-0.5" />
-          {normalCount} 項正常已隱藏
-        </Tag>
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+      <div className="grid grid-cols-3 gap-3 mb-5">
         <SummaryCard
-          title="全部異常" count={anomalies.length}
+          title="全部異常" count={allTaskCount}
           color="#334155" bg="#f1f5f9"
           icon={<BellAlertIcon className="w-4 h-4 text-slate-500" />}
           active={filterLevel === 'all'} onClick={() => setFilterLevel('all')}
@@ -202,11 +257,6 @@ const AnomalyPage: React.FC = () => {
           color="#d97706" bg="#fff7ed"
           icon={<ExclamationTriangleIcon className="w-4 h-4 text-orange-500" />}
           active={filterLevel === 'warning'} onClick={() => setFilterLevel('warning')}
-        />
-        <SummaryCard
-          title="正常" count={normalCount}
-          color="#16a34a" bg="#f0fdf4"
-          icon={<CheckCircleIcon className="w-4 h-4 text-green-500" />}
         />
       </div>
 
@@ -239,101 +289,216 @@ const AnomalyPage: React.FC = () => {
         })}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Left: anomaly list */}
-        <div className="lg:col-span-2">
-          {/* Critical */}
-          {critical.length > 0 && (
-            <div className="mb-5">
-              <div className="flex items-center gap-2 mb-3">
-                <div className="w-1.5 h-4 rounded bg-red-500" />
-                <span className="text-sm font-bold text-red-600">高風險</span>
-                <Badge count={critical.length} color="#dc2626" />
-              </div>
-              {critical.map((item) => <AnomalyCard key={item.id} item={item} />)}
-            </div>
-          )}
-
-          {/* Warning */}
-          {warning.length > 0 && (
-            <div className="mb-5">
-              <div className="flex items-center gap-2 mb-3">
-                <div className="w-1.5 h-4 rounded bg-orange-500" />
-                <span className="text-sm font-bold text-orange-600">需關注</span>
-                <Badge count={warning.length} color="#d97706" />
-              </div>
-              {warning.map((item) => <AnomalyCard key={item.id} item={item} />)}
-            </div>
-          )}
-
-          {filtered.length === 0 && (
-            <Card bordered={false} className="shadow-sm">
-              <Empty description="當前篩選條件下沒有異常項目" className="py-10" />
-            </Card>
-          )}
-        </div>
-
-        {/* Right: member summary */}
-        <div>
-          <Card
-            bordered={false}
-            className="shadow-sm sticky top-20"
-            title={<span className="text-sm font-semibold text-slate-700">成員異常彙整</span>}
-            bodyStyle={{ padding: '12px 16px' }}
+      {/* View mode toggle */}
+      <div className="flex items-center gap-2 mb-5">
+        <span className="text-xs text-slate-500 font-medium">視角</span>
+        {([
+          { key: 'project' as ViewMode, label: '按專案', icon: <ChartBarIcon className="w-3.5 h-3.5" /> },
+          { key: 'member' as ViewMode, label: '按人員', icon: <BellAlertIcon className="w-3.5 h-3.5" /> },
+        ]).map((v) => (
+          <button
+            key={v.key}
+            onClick={() => setViewMode(v.key)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all border-0 outline-none cursor-pointer ${
+              viewMode === v.key ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
           >
-            {memberSummary.length === 0 ? (
-              <Empty description="暫無異常" className="py-6" />
-            ) : (
-              <div className="space-y-2.5">
-                {memberSummary.map((m) => (
-                  <div key={m.work_no} className="flex items-center gap-2.5 bg-slate-50 rounded-lg px-3 py-2 border border-slate-100">
-                    <Avatar size={28} style={{ background: m.critical > 0 ? '#dc2626' : '#d97706', fontSize: 11, fontWeight: 700 }}>
-                      {m.name[0]}
-                    </Avatar>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs font-semibold text-slate-700 truncate">{m.name}</div>
-                      <div className="text-[10px] text-slate-400">{m.work_no}</div>
+            {v.icon}{v.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Grouped anomaly view */}
+      {filtered.length === 0 ? (
+        <Card bordered={false} className="shadow-sm">
+          <Empty description="當前篩選條件下沒有異常項目" className="py-10" />
+        </Card>
+      ) : (() => {
+        // ── Helper: merge same-task anomalies into one row ──
+        type MergedTask = {
+          taskName: string
+          types: { type: AnomalyType; label: string; color: string }[]
+          members: { name: string; work_no: string }[]
+          maxOverdue: number | null
+          items: AnomalyItem[]
+        }
+        const mergeByTask = (items: AnomalyItem[]): MergedTask[] => {
+          const map: Record<string, MergedTask> = {}
+          items.forEach((a) => {
+            const key = a.task ?? a.title ?? a.id
+            if (!map[key]) map[key] = { taskName: a.task ?? a.title, types: [], members: [], maxOverdue: null, items: [] }
+            const mt = map[key]
+            mt.items.push(a)
+            const tm = TYPE_META[a.type]
+            if (!mt.types.find((t) => t.type === a.type)) {
+              mt.types.push({ type: a.type, label: tm.label, color: tm.color })
+            }
+            if (a.member && a.member_work_no && !mt.members.find((m) => m.work_no === a.member_work_no)) {
+              mt.members.push({ name: a.member, work_no: a.member_work_no })
+            }
+            if (a.value != null && (a.type === 'task_overdue' || a.type === 'project_delay')) {
+              mt.maxOverdue = Math.max(mt.maxOverdue ?? 0, a.value)
+            }
+            if (a.value != null && a.type === 'task_urgent') {
+              mt.maxOverdue = mt.maxOverdue ?? a.value  // keep smallest (most urgent)
+            }
+          })
+          return Object.values(map).sort((a, b) => (b.maxOverdue ?? 0) - (a.maxOverdue ?? 0))
+        }
+
+        // ── Render a merged task row ──
+        const TaskRow: React.FC<{ mt: MergedTask }> = ({ mt }) => {
+          const hasCritical = mt.items.some((i) => i.level === 'critical')
+          const hasOverdue = mt.types.some((t) => t.type === 'task_overdue' || t.type === 'project_delay')
+          const hasUrgent = mt.types.some((t) => t.type === 'task_urgent')
+          return (
+            <div className={`flex items-start gap-3 px-4 py-3 hover:bg-slate-50/50 transition-colors ${hasCritical ? 'border-l-[3px] border-l-red-400' : ''}`}>
+              <div className="flex-1 min-w-0">
+                {/* Task name */}
+                <div className="flex items-center gap-2 flex-wrap mb-1">
+                  <span className="text-sm font-semibold text-slate-700">{mt.taskName}</span>
+                  {/* All anomaly type tags */}
+                  {mt.types.map((t) => (
+                    <Tag key={t.type} style={{ fontSize: 9, padding: '0 5px', margin: 0, lineHeight: '18px', color: t.color, background: t.color + '15', border: `1px solid ${t.color}30`, fontWeight: 600 }}>
+                      {t.label}
+                    </Tag>
+                  ))}
+                </div>
+                {/* Members */}
+                <div className="flex items-center gap-3 flex-wrap">
+                  <span className="text-[10px] text-slate-400">負責人</span>
+                  {mt.members.map((m) => (
+                    <span key={m.work_no} className="flex items-center gap-1 text-[11px] text-slate-600">
+                      <Avatar size={16} style={{ background: hasCritical ? '#dc2626' : '#2563eb', fontSize: 8, fontWeight: 700 }}>{m.name[0]}</Avatar>
+                      {m.name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              {/* Right: key metric */}
+              <div className="flex-shrink-0 text-right mt-0.5">
+                {hasOverdue && mt.maxOverdue != null && (
+                  <span className="text-sm text-red-600 font-bold">超期 {mt.maxOverdue} 天</span>
+                )}
+                {!hasOverdue && hasUrgent && mt.maxOverdue != null && (
+                  <span className="text-sm text-orange-600 font-bold">剩 {mt.maxOverdue} 天</span>
+                )}
+                {mt.types.some((t) => t.type === 'progress_stalled') && !hasOverdue && (
+                  <span className="text-xs text-violet-600 font-medium">7天無更新</span>
+                )}
+                {mt.types.some((t) => t.type === 'no_daily_log') && mt.types.length === 1 && (
+                  <span className="text-xs text-amber-600 font-medium">日報未填</span>
+                )}
+              </div>
+            </div>
+          )
+        }
+
+        if (viewMode === 'project') {
+          // ── 专案视角 ──
+          const byProject: Record<string, { name: string; items: AnomalyItem[] }> = {}
+          filtered.forEach((a) => {
+            const key = a.project ?? '其他'
+            if (!byProject[key]) byProject[key] = { name: key, items: [] }
+            byProject[key].items.push(a)
+          })
+          const groups = Object.values(byProject).sort((a, b) => b.items.length - a.items.length)
+          return (
+            <div className="space-y-4">
+              {groups.map((g) => {
+                const merged = mergeByTask(g.items)
+                const critCount = g.items.filter((i) => i.level === 'critical').length
+                return (
+                  <div key={g.name} className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
+                    <div className="flex items-center gap-3 px-4 py-3 bg-slate-50/80 border-b border-slate-100">
+                      <ChartBarIcon className="w-4 h-4 text-blue-500 flex-shrink-0" />
+                      <span className="text-sm font-semibold text-slate-700">{g.name}</span>
+                      <span className="text-xs text-slate-400">{merged.length} 個任務</span>
+                      {critCount > 0 && <Tag color="error" style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px' }}>{critCount} 項高危</Tag>}
                     </div>
-                    <div className="flex items-center gap-1.5 flex-shrink-0">
-                      {m.critical > 0 && (
-                        <Tag color="error" style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px' }}>
-                          {m.critical} 高危
-                        </Tag>
-                      )}
-                      {m.warning > 0 && (
-                        <Tag color="warning" style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px' }}>
-                          {m.warning} 關注
-                        </Tag>
-                      )}
+                    <div className="divide-y divide-slate-100">
+                      {merged.map((mt) => <TaskRow key={mt.taskName} mt={mt} />)}
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
-
-            {/* Quick stats */}
-            <div className="mt-4 pt-3 border-t border-slate-100">
-              <div className="text-[10px] text-slate-400 font-medium mb-2">本週異常趨勢</div>
-              <div className="flex items-end gap-1 h-12">
-                {[2, 3, 5, 7, 9, 6, 4].map((v, i) => (
-                  <Tooltip key={i} title={`${['一','二','三','四','五','六','日'][i]}: ${v} 項`}>
-                    <div className="flex-1 flex flex-col items-center gap-0.5">
-                      <div
-                        className="w-full rounded-t-sm transition-all"
-                        style={{
-                          height: `${Math.max(4, (v / 9) * 36)}px`,
-                          background: i === 6 ? '#2563eb' : v > 6 ? '#fca5a5' : '#93c5fd',
-                        }}
-                      />
-                      <span className="text-[8px] text-slate-300">{['一','二','三','四','五','六','日'][i]}</span>
-                    </div>
-                  </Tooltip>
-                ))}
-              </div>
+                )
+              })}
             </div>
-          </Card>
-        </div>
-      </div>
+          )
+        } else {
+          // ── 人员视角 ──
+          const byMember: Record<string, { name: string; work_no: string; items: AnomalyItem[] }> = {}
+          filtered.forEach((a) => {
+            const key = a.member_work_no ?? 'system'
+            if (!byMember[key]) byMember[key] = { name: a.member ?? '系統', work_no: key, items: [] }
+            byMember[key].items.push(a)
+          })
+          const members = Object.values(byMember).sort((a, b) => {
+            const ac = a.items.filter((i) => i.level === 'critical').length
+            const bc = b.items.filter((i) => i.level === 'critical').length
+            return bc - ac || b.items.length - a.items.length
+          })
+          return (
+            <div className="space-y-4">
+              {members.map((m) => {
+                const critCount = m.items.filter((i) => i.level === 'critical').length
+                // Group by project, then merge by task
+                const projMap: Record<string, AnomalyItem[]> = {}
+                m.items.forEach((a) => {
+                  const pk = a.project ?? '其他'
+                  ;(projMap[pk] = projMap[pk] ?? []).push(a)
+                })
+                return (
+                  <div key={m.work_no} className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
+                    <div className="flex items-center gap-3 px-4 py-3 bg-slate-50/80 border-b border-slate-100">
+                      <Avatar size={28} style={{ background: critCount > 0 ? '#dc2626' : '#d97706', fontSize: 11, fontWeight: 700 }}>
+                        {m.name[0]}
+                      </Avatar>
+                      <span className="text-sm font-semibold text-slate-700">{m.name}</span>
+                      <span className="text-xs text-slate-400">{m.work_no}</span>
+                      {critCount > 0 && <Tag color="error" style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px' }}>{critCount} 項高危</Tag>}
+                    </div>
+                    <div className="divide-y divide-slate-100">
+                      {Object.entries(projMap).map(([projName, items]) => {
+                        const merged = mergeByTask(items)
+                        return (
+                          <div key={projName}>
+                            <div className="flex items-center gap-2 px-4 pt-2.5 pb-1">
+                              <span className="text-[11px] text-blue-600 font-medium bg-blue-50 border border-blue-100 rounded px-1.5 py-0.5">{projName}</span>
+                              <span className="text-[10px] text-slate-400">{merged.length} 個任務</span>
+                            </div>
+                            {merged.map((mt) => (
+                              <div key={mt.taskName} className="flex items-center gap-2 px-4 py-2 pl-6 hover:bg-slate-50/50">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-xs font-semibold text-slate-700">{mt.taskName}</span>
+                                    {mt.types.map((t) => (
+                                      <Tag key={t.type} style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px', color: t.color, background: t.color + '15', border: `1px solid ${t.color}30` }}>
+                                        {t.label}
+                                      </Tag>
+                                    ))}
+                                  </div>
+                                </div>
+                                <div className="flex-shrink-0">
+                                  {mt.maxOverdue != null && mt.types.some((t) => t.type === 'task_overdue' || t.type === 'project_delay') && (
+                                    <span className="text-xs text-red-600 font-bold">超期 {mt.maxOverdue} 天</span>
+                                  )}
+                                  {mt.maxOverdue != null && !mt.types.some((t) => t.type === 'task_overdue') && mt.types.some((t) => t.type === 'task_urgent') && (
+                                    <span className="text-xs text-orange-600 font-bold">剩 {mt.maxOverdue} 天</span>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )
+        }
+      })()}
     </div>
   )
 }

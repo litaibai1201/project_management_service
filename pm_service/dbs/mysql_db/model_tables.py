@@ -268,12 +268,21 @@ class FunctionDataModel(BaseMixinModel):
     progress = db.Column(db.Integer, default=0)
     expected_start_date = db.Column(db.String(10))
     expected_end_date = db.Column(db.String(10))
+    latest_expected_end_date = db.Column(db.String(10), comment="最新预计完成时间（延期后）")
+    reschedule_count = db.Column(db.Integer, default=0, comment="延期次数")
+    reschedule_log = db.Column(db.Text, comment="延期记录JSON: [{from,to,reason,date,operator}]")
     start_time = db.Column(db.String(19))
     end_time = db.Column(db.String(19))
     group1 = db.Column(db.String(64), comment="功能分组1")
     group2 = db.Column(db.String(64), comment="功能分组2")
 
     def to_dict(self):
+        reschedule_history = []
+        if self.reschedule_log:
+            try:
+                reschedule_history = json.loads(self.reschedule_log)
+            except (ValueError, TypeError):
+                pass
         return {
             "id": self.id, "function_nm": self.function_nm, "describe": self.describe or "",
             "project_id": self.project_id,
@@ -281,7 +290,10 @@ class FunctionDataModel(BaseMixinModel):
             "priority": self.priority,
             "status": self.function_status, "progress": self.progress,
             "expected_start_date": self.expected_start_date or "",
-            "expected_end_date": self.expected_end_date or "",
+            "expected_end_date": self.latest_expected_end_date or self.expected_end_date or "",
+            "original_end_date": self.expected_end_date or "",
+            "reschedule_count": self.reschedule_count or 0,
+            "reschedule_history": reschedule_history,
             "start_time": self.start_time or "", "end_time": self.end_time or "",
             "group1": self.group1 or "", "group2": self.group2 or "",
             "created_at": self.created_at,
@@ -300,7 +312,6 @@ class ProgressRecordDataModel(BaseMixinModel):
     submitter = db.Column(db.String(32), nullable=False)
     cooperator = db.Column(db.Text, comment="协作人(JSON数组)")
     time_consum = db.Column(db.Float, default=0)
-    start_time = db.Column(db.String(10))
     is_read = db.Column(db.Integer, default=0)
     files_json = db.Column(db.Text, comment="附件信息(JSON数组)")
 
@@ -323,7 +334,7 @@ class ProgressRecordDataModel(BaseMixinModel):
             "progress_id": self.progress_id, "progress": self.progress,
             "progress_record": self.progress_record or "", "submitter": self.submitter,
             "cooperator": coops, "time_consum": self.time_consum or 0,
-            "start_time": self.start_time or "", "created_at": self.created_at,
+            "created_at": self.created_at,
             "files": files,
         }
 

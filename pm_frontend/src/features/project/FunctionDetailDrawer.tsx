@@ -1,9 +1,9 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react'
 import {
   Drawer, Descriptions, Progress, Button, Form, Input, InputNumber,
-  Timeline, Avatar, Typography, Tag, Upload, Spin, Divider, Steps, Select, Modal,
+  Timeline, Avatar, Typography, Tag, Upload, Spin, Divider, Steps, Select, Modal, Popover, Tooltip,
 } from 'antd'
-import { PlusIcon, PaperClipIcon, PencilSquareIcon } from '@heroicons/react/24/outline'
+import { PlusIcon, PaperClipIcon, PencilSquareIcon, CalendarDaysIcon, ClockIcon } from '@heroicons/react/24/outline'
 import AttachmentPreview from '@/components/ui/AttachmentPreview'
 import FilePreviewModal from './FilePreviewModal'
 import type { UploadFile } from 'antd'
@@ -28,6 +28,68 @@ export interface FunctionDetailDrawerProps {
   isProjectPm?:   boolean
   projectStatus?: number
   projectPm?:     string
+}
+
+// ─── Reschedule (delay) button component ─────────────────────────────────────
+const RescheduleButton: React.FC<{
+  projectId: string
+  functionId: string
+  currentEnd: string
+  onSuccess: () => void
+}> = ({ projectId, functionId, currentEnd, onSuccess }) => {
+  const [open, setOpen] = useState(false)
+  const [newDate, setNewDate] = useState('')
+  const [reason, setReason] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const handleSubmit = async () => {
+    if (!newDate) { showToast.warning('請選擇新的預計完成時間'); return }
+    if (newDate <= currentEnd) { showToast.warning('新日期必須晚於當前預計完成時間'); return }
+    setLoading(true)
+    try {
+      await projectApi.rescheduleFunction(projectId, functionId, { new_end_date: newDate, reason })
+      showToast.success('延期成功')
+      setOpen(false); setNewDate(''); setReason('')
+      onSuccess()
+    } catch { showToast.error('延期失敗') }
+    finally { setLoading(false) }
+  }
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(v) => { setOpen(v); if (!v) { setNewDate(''); setReason('') } }}
+      trigger="click"
+      placement="bottomLeft"
+      title={
+        <div className="flex items-center gap-2">
+          <CalendarDaysIcon className="w-4 h-4 text-orange-500" />
+          <span className="text-xs font-semibold text-slate-700">任務延期</span>
+          <span className="text-[10px] text-slate-400">當前截止: {currentEnd}</span>
+        </div>
+      }
+      content={
+        <div className="w-64">
+          <div className="mb-2">
+            <label className="text-[10px] text-slate-500 block mb-1">新的預計完成時間</label>
+            <Input type="date" size="small" value={newDate} onChange={(e) => setNewDate(e.target.value)} min={currentEnd} />
+          </div>
+          <div className="mb-2">
+            <label className="text-[10px] text-slate-500 block mb-1">延期原因（選填）</label>
+            <Input.TextArea rows={2} size="small" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="說明延期原因..." />
+          </div>
+          <div className="flex justify-end gap-1.5">
+            <Button size="small" onClick={() => setOpen(false)}>取消</Button>
+            <Button size="small" type="primary" loading={loading} onClick={handleSubmit} style={{ background: '#d97706' }}>確認延期</Button>
+          </div>
+        </div>
+      }
+    >
+      <Button size="small" type="text" danger className="mb-3" icon={<ClockIcon className="w-3.5 h-3.5" />}>
+        任務已超期，點擊延期
+      </Button>
+    </Popover>
+  )
 }
 
 // Allowed file extensions (must match backend UPLOAD_ALLOWED_EXTENSIONS)
@@ -282,11 +344,63 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
             </Descriptions.Item>
             <Descriptions.Item label="分組">{funcData.group1 ?? '—'}</Descriptions.Item>
             <Descriptions.Item label="預計開始">{funcData.expected_start_date ?? '—'}</Descriptions.Item>
-            <Descriptions.Item label="預計完成">{funcData.expected_end_date ?? '—'}</Descriptions.Item>
+            <Descriptions.Item label="預計完成">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span>{funcData.expected_end_date ?? '—'}</span>
+                {(funcData.reschedule_count ?? 0) > 0 && (
+                  <>
+                    <Tooltip title={`原始預計完成: ${funcData.original_end_date ?? '—'}`}>
+                      <Tag color="orange" style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px' }}>
+                        已延期 {funcData.reschedule_count} 次
+                      </Tag>
+                    </Tooltip>
+                    <span className="text-[10px] text-slate-400">
+                      原始: {funcData.original_end_date ?? '—'}
+                    </span>
+                  </>
+                )}
+              </div>
+            </Descriptions.Item>
             {funcData.describe && (
               <Descriptions.Item label="描述" span={2}>{funcData.describe}</Descriptions.Item>
             )}
           </Descriptions>
+
+          {/* ── Reschedule (delay) button — PM only, shown when task is overdue ── */}
+          {(() => {
+            const endStr = funcData.expected_end_date
+            const isOverdue = endStr && new Date(endStr) < new Date(new Date().toISOString().slice(0, 10))
+            const taskNotClosed = funcData.status !== 4 && funcData.status !== 9
+            const isPm = !!projectPm && workNo.toLowerCase() === projectPm.toLowerCase()
+            if (!isOverdue || !taskNotClosed || !isPm) return null
+            return <RescheduleButton projectId={projectId} functionId={funcData.id} currentEnd={endStr} onSuccess={loadData} />
+          })()}
+
+          {/* ── Reschedule history timeline ── */}
+          {(funcData.reschedule_history ?? []).length > 0 && (
+            <div className="bg-orange-50 border border-orange-100 rounded-xl p-3 mb-4">
+              <p className="text-[11px] font-semibold text-orange-700 mb-2">延期記錄</p>
+              <Timeline
+                className="!mb-0"
+                items={(funcData.reschedule_history ?? []).map((h, i) => ({
+                  color: 'orange',
+                  children: (
+                    <div key={i} className="text-[11px] text-slate-600 leading-5">
+                      <span className="text-slate-400">{h.date}</span>
+                      {'　'}
+                      <span className="line-through text-slate-400">{h.from}</span>
+                      {' → '}
+                      <span className="font-semibold text-orange-600">{h.to}</span>
+                      {h.reason && (
+                        <span className="text-slate-400 ml-1">（{h.reason}）</span>
+                      )}
+                      <span className="text-slate-300 ml-1">by {toName(h.operator)}</span>
+                    </div>
+                  ),
+                }))}
+              />
+            </div>
+          )}
 
           {/* Edit form — project PM only */}
           {showEdit && (

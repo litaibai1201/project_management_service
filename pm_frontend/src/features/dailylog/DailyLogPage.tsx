@@ -544,6 +544,9 @@ const entriesToPayload = entriesToBackend
 // Format hours: show up to 2 decimal places, stripping trailing zeros (e.g. 1.50 → "1.5", 1.00 → "1")
 const fmtH = (h: number) => parseFloat(h.toFixed(2))
 
+// Re-export SelfReportView so it can be used from the progress report tab
+export { SelfReportView, WORK_CATEGORIES, CATEGORY_MAP, fmtH }
+
 // ─── Main Page ──────────────────────────────────────────────────────────────
 
 const DailyLogPage: React.FC = () => {

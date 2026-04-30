@@ -26,8 +26,9 @@ const { Search } = Input
 
 const PRIORITY_COLORS = ['', '#22c55e', '#f59e0b', '#ef4444', '#7c3aed']
 
-const DaysLeftBadge: React.FC<{ date?: string }> = ({ date }) => {
-  if (!date) return <span className="text-slate-300 text-xs">—</span>
+const DaysLeftBadge: React.FC<{ date?: string; status?: number }> = ({ date, status }) => {
+  if (!date || !dayjs(date).isValid()) return <span className="text-slate-300 text-xs">—</span>
+  if (status === 7) return <span className="days-ok">{date}</span>
   const days = dayjs(date).diff(dayjs(), 'day')
   if (days < 0)  return <span className="days-overdue">超期 {Math.abs(days)}天</span>
   if (days <= 3) return <span className="days-overdue">剩 {days} 天</span>
@@ -111,7 +112,7 @@ const KanbanView: React.FC<{
                       </Avatar>
                       <span className="text-xs text-slate-400 truncate" style={{ maxWidth: 60 }}>{toName(p.project_pm)}</span>
                     </div>
-                    <DaysLeftBadge date={p.expected_end_date} />
+                    <DaysLeftBadge date={p.expected_end_date} status={p.status} />
                   </div>
                   <div className="flex items-center justify-between mt-2">
                     <Tag style={{ fontSize: 10, padding: '0 5px', margin: 0, lineHeight: '16px' }}
@@ -205,7 +206,7 @@ const ProjectListPage: React.FC = () => {
     },
     {
       title: '預計完成', dataIndex: 'expected_end_date', width: 120,
-      render: (v: string) => <DaysLeftBadge date={v} />,
+      render: (v: string, row: ProjectListItem) => <DaysLeftBadge date={v} status={row.status} />,
       sorter: true,
     },
     {

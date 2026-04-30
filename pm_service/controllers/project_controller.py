@@ -1064,7 +1064,7 @@ class ProjectController:
                     for pr in records[:10]:  # 最近10条
                         submitter_name = name_map.get(pr.submitter, pr.submitter)
                         history.append({
-                            "date":     pr.start_time or (pr.created_at or "")[:10],
+                            "date":     (pr.created_at or "")[:10],
                             "content":  pr.progress_record or "",
                             "progress": pr.progress or 0,
                             "author":   submitter_name,
@@ -1175,6 +1175,46 @@ class FunctionController:
             f.responsible = json.dumps(resp, ensure_ascii=False)
         f.update_at = CommonTools.get_now()
         db.session.commit()
+
+    def reschedule_function(self, function_id: str, new_end_date: str, reason: str, operator: str):
+        """
+        延期任务：仅专案PM可操作，更新最新预计完成时间，记录延期历史。
+        """
+        from utils.exceptions import PermissionException
+        f = db.session.query(FunctionDataModel).filter_by(id=function_id).first()
+        if not f or f.function_status == 9:
+            raise ResourceNotFoundException(resource_type="功能任务")
+
+        # 仅专案PM可延期
+        project = db.session.query(ProjectDataModel).filter_by(id=f.project_id).first()
+        if not project or operator.lower() != (project.project_pm or "").lower():
+            raise PermissionException(msg="僅專案PM可進行任務延期操作")
+
+        # 当前生效的截止日期
+        current_end = f.latest_expected_end_date or f.expected_end_date or ""
+
+        # 更新延期记录
+        history = []
+        if f.reschedule_log:
+            try:
+                history = json.loads(f.reschedule_log)
+            except (ValueError, TypeError):
+                pass
+
+        history.append({
+            "from": current_end,
+            "to": new_end_date,
+            "reason": reason,
+            "date": CommonTools.get_now()[:10],
+            "operator": operator,
+        })
+
+        f.latest_expected_end_date = new_end_date
+        f.reschedule_count = (f.reschedule_count or 0) + 1
+        f.reschedule_log = json.dumps(history, ensure_ascii=False)
+        f.update_at = CommonTools.get_now()
+        db.session.commit()
+        return f.to_dict()
 
     def delete_function(self, function_id: str):
         f = db.session.query(FunctionDataModel).filter_by(id=function_id).first()
@@ -1348,7 +1388,6 @@ class FunctionController:
             submitter=(submitter or "").strip().lower(),
             cooperator=json.dumps(devs, ensure_ascii=False),
             time_consum=payload.get("time_consum", 0),
-            start_time=payload.get("start_time", ""),
         )
         # Save attachments
         if files:
@@ -1440,6 +1479,7 @@ class MilestoneController:
         today = str(_date.today())
 
         result = []
+        dirty = False
         for m in items:
             d = m.to_dict()
             # Recompute status dynamically from linked functions
@@ -1449,7 +1489,11 @@ class MilestoneController:
                 if statuses and all(s == 4 for s in statuses):
                     d["status"] = "achieved"
                     if not d.get("achieved_at"):
+                        # 首次達成：持久化 achieved_at，避免每次查詢都返回今天
+                        m.achieved_at = today
+                        m.milestone_status = "achieved"
                         d["achieved_at"] = today
+                        dirty = True
                 elif m.target_date and m.target_date < today:
                     d["status"] = "overdue"
                 else:
@@ -1459,6 +1503,8 @@ class MilestoneController:
                 if m.target_date and m.target_date < today and m.milestone_status != "achieved":
                     d["status"] = "overdue"
             result.append(d)
+        if dirty:
+            db.session.commit()
         return result
 
     def create_milestone(self, project_id: str, payload: dict, creator: str):

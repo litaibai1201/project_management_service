@@ -34,3 +34,25 @@ class PersonalStatsApi(MethodView):
         start_date = request.args.get("start_date")
         end_date   = request.args.get("end_date")
         return response_result(content=ctrl.get_personal_stats(work_no=work_no, start_date=start_date, end_date=end_date))
+
+
+@blp.route("/progress_report")
+class ProgressReportApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgRawSchema)
+    def get(self):
+        """进度报告（按日期范围返回成员进度汇整）"""
+        work_no    = get_identity()
+        start_date = request.args.get("start_date", "")
+        end_date   = request.args.get("end_date", "")
+        return response_result(content=ctrl.get_progress_report(work_no=work_no, start_date=start_date, end_date=end_date))
+
+
+@blp.route("/anomalies")
+class AnomaliesApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgRawSchema)
+    def get(self):
+        """异常管理看板（自动检测下属的异常项目）"""
+        work_no = get_identity()
+        return response_result(content=ctrl.get_anomalies(work_no=work_no))

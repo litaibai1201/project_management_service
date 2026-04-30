@@ -423,7 +423,11 @@ const DashboardPage: React.FC = () => {
     if (visible.has('member_task_chart') || visible.has('member_detail') ||
         visible.has('team_size') || visible.has('daily_report_status')) {
       projectApi.memberStats()
-        .then((res) => { if (Array.isArray(res.content)) setMemberStats(res.content as MemberWorkStat[]) })
+        .then((res) => {
+          const c = res.content as { members?: MemberWorkStat[] } | MemberWorkStat[]
+          if (Array.isArray(c)) setMemberStats(c as MemberWorkStat[])
+          else if (c && Array.isArray(c.members)) setMemberStats(c.members)
+        })
         .catch(() => {})
     }
 
@@ -647,12 +651,16 @@ const DashboardPage: React.FC = () => {
                     </Bar>
                     <Bar dataKey="臨期任務" stackId="a" fill="#fbbf24" radius={[4,4,4,4]}>
                       <LabelList
-                        formatter={(_v: number, _k: unknown, idx: number) => {
-                          const d = managerChartData[idx] ?? managerChartData[0]
-                          const total = (d?.超時任務 ?? 0) + (d?.臨期任務 ?? 0)
-                          return total > 0 ? total : ''
+                        position="right"
+                        style={{ fontSize: 11, fill: '#64748b', fontWeight: 600 }}
+                        content={({ x, y, width, height, index }: { x?: number; y?: number; width?: number; height?: number; index?: number }) => {
+                          if (index == null || x == null || y == null || width == null || height == null) return null
+                          const d = managerChartData[index]
+                          if (!d) return null
+                          const total = (d.超時任務 ?? 0) + (d.臨期任務 ?? 0)
+                          if (total <= 0) return null
+                          return <text x={x + width + 6} y={y + height / 2 + 4} fill="#64748b" fontSize={11} fontWeight={600}>{total}</text>
                         }}
-                        position="right" style={{ fontSize: 11, fill: '#64748b', fontWeight: 600 }}
                       />
                     </Bar>
                   </BarChart>

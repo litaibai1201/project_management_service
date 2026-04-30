@@ -173,6 +173,9 @@ export interface ProjectFunction {
   progress: number
   expected_start_date?: string
   expected_end_date?: string
+  original_end_date?: string
+  reschedule_count?: number
+  reschedule_history?: { from: string; to: string; reason: string; date: string; operator: string }[]
   start_time?: string
   end_time?: string
   group1: string

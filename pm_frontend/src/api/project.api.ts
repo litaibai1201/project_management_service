@@ -148,6 +148,10 @@ export const projectApi = {
   setFunctionStatus: (pid: string, fid: string, status: number): Promise<ApiResponse<null>> =>
     put(`/project/${pid}/function/${fid}/set_status`, { status }),
 
+  /** POST /api/project/:pid/function/:fid/reschedule — 延期任務 */
+  rescheduleFunction: (pid: string, fid: string, payload: { new_end_date: string; reason: string }): Promise<ApiResponse<unknown>> =>
+    post(`/project/${pid}/function/${fid}/reschedule`, payload),
+
   /** POST /api/project/:pid/function/:fid/submit_completion — 提交任務完結審核 */
   submitFunctionCompletion: (pid: string, fid: string): Promise<ApiResponse<{ direct_complete: boolean }>> =>
     post(`/project/${pid}/function/${fid}/submit_completion`, {}),
@@ -266,4 +270,12 @@ export const projectApi = {
     weekly_overtime: { week: string; normal: number; overtime: number }[]
   }>> =>
     get('/statistics/personal_stats', { params }),
+
+  /** GET /api/statistics/progress_report */
+  progressReport: (params: { start_date: string; end_date: string }): Promise<ApiResponse<unknown[]>> =>
+    get('/statistics/progress_report', { params }),
+
+  /** GET /api/statistics/anomalies */
+  anomalies: (): Promise<ApiResponse<unknown[]>> =>
+    get('/statistics/anomalies'),
 }

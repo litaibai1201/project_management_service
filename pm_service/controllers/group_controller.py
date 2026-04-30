@@ -28,15 +28,29 @@ class GroupController:
         }
 
     def get_member_projects(self, work_no: str, page=1, size=20):
-        q = (
-            db.session.query(ProjectDataModel)
-            .filter(
+        # 查该用户作为 PM 的专案
+        pm_ids = set(
+            r.id for r in db.session.query(ProjectDataModel.id).filter(
                 db.or_(
                     ProjectDataModel.project_pm == work_no,
                     ProjectDataModel.product_pm == work_no,
                 ),
                 ProjectDataModel.project_status != 9,
-            )
+            ).all()
+        )
+        # 查该用户作为任务负责人参与的专案
+        func_proj_ids = set(
+            r.project_id for r in db.session.query(FunctionDataModel.project_id).filter(
+                FunctionDataModel.status == 1,
+                FunctionDataModel.responsible.like(f'%"{work_no}"%'),
+            ).distinct().all()
+        )
+        all_ids = list(pm_ids | func_proj_ids)
+        if not all_ids:
+            return {"total_count": 0, "total_page": 0, "data_list": []}
+        q = db.session.query(ProjectDataModel).filter(
+            ProjectDataModel.id.in_(all_ids),
+            ProjectDataModel.project_status != 9,
         )
         total = q.count()
         projects = q.offset((page - 1) * size).limit(size).all()
@@ -64,8 +78,8 @@ class GroupController:
             db.session.query(db.func.sum(ProgressRecordDataModel.time_consum))
             .filter(
                 ProgressRecordDataModel.submitter == work_no,
-                ProgressRecordDataModel.start_time >= start_date,
-                ProgressRecordDataModel.start_time <= end_date,
+                ProgressRecordDataModel.created_at >= start_date,
+                ProgressRecordDataModel.created_at <= end_date + " 23:59:59",
             ).scalar()
         ) or 0
         duty_hours = (
@@ -188,10 +202,10 @@ class GroupController:
             ProgressRecordDataModel.submitter == work_no
         )
         if start_date:
-            q = q.filter(ProgressRecordDataModel.start_time >= start_date)
+            q = q.filter(ProgressRecordDataModel.created_at >= start_date)
         if end_date:
-            q = q.filter(ProgressRecordDataModel.start_time <= end_date)
-        records = q.order_by(ProgressRecordDataModel.start_time).all()
+            q = q.filter(ProgressRecordDataModel.created_at <= end_date + " 23:59:59")
+        records = q.order_by(ProgressRecordDataModel.created_at).all()
         return [r.to_dict() for r in records]
 
     def produce_report(self, work_no: str, start_date: str = "", end_date: str = ""):

@@ -283,6 +283,22 @@ class FunctionDetailApi(MethodView):
         return response_result()
 
 
+@blp.route("/<string:project_id>/function/<string:function_id>/reschedule")
+class FunctionRescheduleApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def post(self, project_id, function_id):
+        """延期任务（保留原始日期，更新最新预计完成时间）"""
+        work_no = get_identity()
+        payload = request.get_json() or {}
+        return response_result(content=func_ctrl.reschedule_function(
+            function_id,
+            new_end_date=payload.get("new_end_date", ""),
+            reason=payload.get("reason", ""),
+            operator=work_no,
+        ))
+
+
 @blp.route("/<string:project_id>/function/<string:function_id>/submit_completion")
 class FunctionSubmitCompletionApi(MethodView):
     @jwt_required()

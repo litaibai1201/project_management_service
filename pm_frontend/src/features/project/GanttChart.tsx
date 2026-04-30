@@ -184,7 +184,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [] }) =
       if (f.end_time)            dates.push(dayjs(f.end_time))
     })
     milestones.forEach((m) => {
-      dates.push(dayjs(m.target_date))
+      if (m.target_date) dates.push(dayjs(m.target_date))
       if (m.achieved_at) dates.push(dayjs(m.achieved_at.slice(0, 10)))
     })
     if (dates.length === 0) return { rangeStart: dayjs().subtract(1, 'week'), rangeEnd: dayjs().add(8, 'week') }
@@ -193,9 +193,13 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [] }) =
     const start = mode === 'day'   ? min.subtract(2, 'day')
                 : mode === 'week'  ? min.subtract(1, 'week').startOf('week')
                 : min.subtract(1, 'month').startOf('month')
-    const end   = mode === 'day'   ? max.add(2, 'day')
-                : mode === 'week'  ? max.add(1, 'week').endOf('week')
-                : max.add(1, 'month').endOf('month')
+    // 右边界：只有存在未完结任务时才延伸到「今天 + 缓冲」，已全部完结的专案直接用最晚日期
+    const hasActiveTasks = visibleFunctions.some((f) => f.status !== 4 && f.status !== 9)
+    const buffer = mode === 'day' ? dayjs().add(1, 'month') : mode === 'week' ? dayjs().add(2, 'month') : dayjs().add(3, 'month')
+    const effectiveMax = hasActiveTasks && buffer.isAfter(max) ? buffer : max
+    const end   = mode === 'day'   ? effectiveMax.add(2, 'day')
+                : mode === 'week'  ? effectiveMax.add(1, 'week').endOf('week')
+                : effectiveMax.add(1, 'month').endOf('month')
     return { rangeStart: start, rangeEnd: end }
   }, [visibleFunctions, milestones, mode])
 
@@ -238,6 +242,10 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [] }) =
 
     const actualStart = f.start_time ? dayjs(f.start_time) : null
     const actualEnd   = f.end_time   ? dayjs(f.end_time)   : null
+
+    // Reschedule info
+    const originalPlanEnd  = f.original_end_date ? dayjs(f.original_end_date) : null
+    const hasReschedule    = (f.reschedule_count ?? 0) > 0 && !!originalPlanEnd && planEnd.isAfter(originalPlanEnd)
 
     const GRAY   = '#d1d5db'
     const YELLOW = '#fbbf24'
@@ -317,6 +325,11 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [] }) =
             {isLateDone ? ' ⚠ 超時' : f.end_time ? ' ✓ 準時' : ''}
           </div>
         )}
+        {hasReschedule && (
+          <div className="text-orange-300 mt-0.5">
+            原始截止：{f.original_end_date}，已延期 {f.reschedule_count} 次
+          </div>
+        )}
         <div className="opacity-70 mt-0.5">進度 {f.progress}%</div>
       </div>
     )
@@ -343,6 +356,22 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [] }) =
               }}
             />
           ))}
+          {/* B: Delay extension overlay — semi-transparent orange tint + left border at reschedule boundary */}
+          {hasReschedule && originalPlanEnd && (() => {
+            const extLeft  = toX(originalPlanEnd.add(1, 'day')) - containerX
+            const extWidth = toX(planEnd.add(1, 'day')) - toX(originalPlanEnd.add(1, 'day'))
+            if (extWidth <= 0) return null
+            return (
+              <div style={{
+                position: 'absolute',
+                left: extLeft, top: 0, bottom: 0,
+                width: extWidth,
+                background: 'rgba(251,146,60,0.28)',
+                borderLeft: '2px solid #f97316',
+                pointerEvents: 'none',
+              }} />
+            )
+          })()}
           {containerW > 44 && (
             <span style={{
               position: 'absolute', left: 6, top: '50%',
@@ -475,6 +504,10 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [] }) =
               <span>{item.label}</span>
             </div>
           ))}
+          <div className="flex items-center gap-1">
+            <div className="w-5 h-3 rounded-sm flex-shrink-0" style={{ background: 'rgba(251,146,60,0.28)', borderLeft: '2px solid #f97316' }} />
+            <span>任務延期範圍</span>
+          </div>
           <div className="flex items-center gap-1">
             <span className="text-base leading-none" style={{ color: '#2563eb' }}>◆</span>
             <span>里程碑</span>

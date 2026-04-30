@@ -9,7 +9,7 @@ import React, { useEffect, useState, useMemo } from 'react'
 import { useAppSelector } from '@/hooks/redux'
 import {
   Card, Row, Col, Table, Tag, Avatar, DatePicker,
-  Skeleton, Button, Dropdown, Tabs, Collapse, Timeline, Badge, Tooltip,
+  Skeleton, Button, Dropdown, Tabs, Collapse, Badge, Tooltip,
   Empty, Drawer, Input, Progress,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
@@ -26,10 +26,14 @@ import {
   ClipboardDocumentListIcon,
 } from '@heroicons/react/24/outline'
 import type { MenuProps } from 'antd'
-import AttachmentPreview from '@/components/ui/AttachmentPreview'
 import { projectApi } from '@/api/project.api'
 import { groupApi } from '@/api/group.api'
 import { MemberWorkStat } from '@/types/api.types'
+import type { DailyLog } from '@/types/api.types'
+import { backendDetailToLog } from '@/api/daily_log.api'
+import { SelfReportView } from '@/features/dailylog/DailyLogPage'
+import { tokenStorage } from '@/api/httpClient'
+import FilePreviewModal from '@/features/project/FilePreviewModal'
 import { PROJECT_STATUS_MAP, DUTY_STATUS_MAP, PRIORITY_MAP } from '@/utils/status'
 import dayjs, { Dayjs } from 'dayjs'
 
@@ -49,15 +53,23 @@ function exportCSV(filename: string, rows: string[][]): void {
 
 // ─── Project-hours distribution per member (loaded from API) ──────────────────
 const PIE_PALETTE = ['#2563eb','#7c3aed','#16a34a','#d97706','#0891b2','#db2777']
-const MOCK_PROJECT_HOURS: Record<string, { name: string; hours: number }[]> = {}
 
 // ─── Progress Report Mock Data ─────────────────────────────────────────────────
 
-interface CompletedTask  { id: string; name: string; project: string; type: 'function'|'duty'; completed_at: string; hours: number }
-interface InProgressTask { id: string; name: string; project: string; progress: number; days_left: number; status: 'normal'|'urgent'|'overdue' }
-interface ProgressFileInfo { name: string; url: string; size?: number }
-interface ProgressUpdate { id: string; task_nm: string; project?: string; content: string; hours: number; date: string; progress_pct: number; files?: ProgressFileInfo[]; images?: ProgressFileInfo[] }
+interface CompletedTask  { id: string; name: string; project: string; type: 'function'|'duty'; completed_at: string; hours: number; expected_start_date?: string; expected_end_date?: string }
+interface InProgressTask { id: string; name: string; project: string; progress: number; days_left: number; status: 'normal'|'urgent'|'overdue'; expected_start_date?: string; expected_end_date?: string; hours?: number }
 interface OverdueTask    { id: string; name: string; project: string; days_overdue: number }
+
+interface ReportDailyLog {
+  log_id:      string
+  work_no:     string
+  log_date:    string
+  total_hours: number
+  status:      number
+  task_items:  Record<string, unknown>[]
+  free_items:  Record<string, unknown>[]
+  remark:      string
+}
 
 interface ReportMember {
   work_no:        string
@@ -66,7 +78,8 @@ interface ReportMember {
   updates_count:  number
   completed:      CompletedTask[]
   in_progress:    InProgressTask[]
-  updates:        ProgressUpdate[]
+  not_started?:   InProgressTask[]
+  daily_logs:     ReportDailyLog[]
   overdue:        OverdueTask[]
 }
 
@@ -120,7 +133,7 @@ const ExportButton: React.FC<{ stats: MemberWorkStat[] }> = ({ stats }) => {
   const handleExportDetailCSV = () => {
     const rows: string[][] = [['姓名','工號','週次','工時(h)']]
     stats.forEach((m) => {
-      m.weekly_hours.forEach((w) => {
+      m.weekly_hours?.forEach((w) => {
         rows.push([m.name, m.work_no, w.week, String(w.hours)])
       })
     })
@@ -151,10 +164,16 @@ function exportReportCSV(reports: ReportMember[], periodLabel: string) {
       String(r.completed.length), String(r.in_progress.length), String(r.overdue.length),
     ]),
     [],
-    ['─── 進度更新明細 ───'],
-    ['姓名', '任務名稱', '所屬專案', '進度(%)', '工時(h)', '更新日期', '更新內容'],
+    ['─── 日報明細 ───'],
+    ['姓名', '日期', '任務名稱', '工時(h)', '工作內容'],
     ...reports.flatMap((r) =>
-      r.updates.map((u) => [r.name, u.task_nm, u.project ?? '—', String(u.progress_pct), String(u.hours), u.date, u.content])
+      (r.daily_logs ?? []).flatMap((lg) => {
+        const items = [...(lg.task_items ?? []), ...(lg.free_items ?? [])]
+        return items.map((item) => {
+          const ti = item as Record<string, unknown>
+          return [r.name, String(lg.log_date), String(ti.task_nm ?? ti.category ?? ''), String(ti.work_hours ?? 0), String(ti.description ?? '')]
+        })
+      })
     ),
   ]
   exportCSV(`進度報告_${periodLabel}_${dayjs().format('YYYY-MM-DD')}.csv`, rows)
@@ -162,6 +181,7 @@ function exportReportCSV(reports: ReportMember[], periodLabel: string) {
 
 // ─── Report Member Card ────────────────────────────────────────────────────────
 const MemberReportCard: React.FC<{ report: ReportMember }> = ({ report }) => {
+  const [previewFile, setPreviewFile] = useState<{ url: string; name: string } | null>(null)
   const avatarBg = report.overdue.length > 0 ? '#fef2f2' : '#eff6ff'
   const avatarColor = report.overdue.length > 0 ? '#dc2626' : '#2563eb'
 
@@ -194,6 +214,7 @@ const MemberReportCard: React.FC<{ report: ReportMember }> = ({ report }) => {
   )
 
   return (
+    <>
     <Collapse
       defaultActiveKey={[]}
       className="mb-3 bg-white border border-slate-100 rounded-xl overflow-hidden shadow-sm"
@@ -222,52 +243,34 @@ const MemberReportCard: React.FC<{ report: ReportMember }> = ({ report }) => {
         extra={headerExtra}
       >
         <div className="pt-1 pb-2">
-          {/* ─── Progress Updates ─────────────────────────────── */}
-          <div className="mb-5">
-            <div className="flex items-center gap-2 mb-3">
-              <div className="w-1 h-3.5 rounded bg-blue-500" />
-              <span className="text-xs font-semibold text-slate-600">進度更新記錄</span>
-              <Badge count={report.updates.length} color="#2563eb" />
-            </div>
-            {report.updates.length === 0 ? (
-              <p className="text-xs text-slate-300 pl-3">本期無進度更新記錄</p>
-            ) : (
-              <Timeline
-                className="ml-2"
-                items={report.updates.map((u) => ({
-                  dot: (
-                    <div
-                      className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[9px] font-bold"
-                      style={{ background: '#2563eb', marginTop: 2 }}
-                    >
-                      {u.progress_pct}%
-                    </div>
-                  ),
-                  children: (
-                    <div className="pb-1">
-                      <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5 mb-1">
-                        <span className="text-xs font-semibold text-slate-700">{u.task_nm}</span>
-                        {u.project && (
-                          <Tag style={{ fontSize: 9, padding: '0 3px', margin: 0, lineHeight: '14px' }} color="blue">
-                            {u.project}
-                          </Tag>
-                        )}
-                        <span className="text-xs text-slate-300">{u.date}</span>
-                        <span className="text-xs text-slate-400 ml-auto">耗時 <strong className="text-blue-600">{u.hours}h</strong></span>
-                      </div>
-                      <p className="text-xs text-slate-500 leading-relaxed bg-slate-50 rounded-lg px-3 py-2 border border-slate-100">
-                        {u.content}
-                      </p>
-                      <AttachmentPreview files={u.files} images={u.images} />
-                    </div>
-                  ),
-                }))}
+          {/* ─── Daily log view (reusing SelfReportView from DailyLogPage) ── */}
+          {(() => {
+            // Convert backend daily_logs to DailyLog format
+            const logsMap: Record<string, DailyLog> = {}
+            for (const raw of report.daily_logs ?? []) {
+              try {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const dl = backendDetailToLog(raw as any)
+                logsMap[dl.log_date] = dl
+              } catch { /* skip malformed */ }
+            }
+            const dates = Object.keys(logsMap).sort()
+            const startDate = dates.length > 0 ? dayjs(dates[0]) : dayjs()
+            const endDate   = dates.length > 0 ? dayjs(dates[dates.length - 1]) : dayjs()
+            return (
+              <SelfReportView
+                startDate={startDate}
+                endDate={endDate}
+                logs={logsMap}
+                onPreviewFile={(url, name) => setPreviewFile({ url, name })}
+                authToken={tokenStorage.get()}
               />
-            )}
-          </div>
+            )
+          })()}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-            {/* ─── Completed Tasks ─────────────────────────────── */}
+          {/* ─── Task panels (3 columns) ─── */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mt-5">
+            {/* ── Completed ── */}
             <div>
               <div className="flex items-center gap-2 mb-3">
                 <div className="w-1 h-3.5 rounded bg-green-500" />
@@ -282,33 +285,34 @@ const MemberReportCard: React.FC<{ report: ReportMember }> = ({ report }) => {
                     <div key={t.id} className="flex items-start gap-2 bg-green-50 rounded-lg px-3 py-2 border border-green-100">
                       <CheckCircleIcon className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
                       <div className="flex-1 min-w-0">
-                        <div className="text-xs font-medium text-slate-700 truncate">{t.name}</div>
-                        <div className="flex items-center gap-1.5 mt-0.5">
+                        <div className="text-xs font-medium text-slate-700">{t.name}</div>
+                        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                           <span className="text-[10px] text-slate-400">{t.project}</span>
                           <span className="text-[10px] text-slate-300">·</span>
-                          <span className="text-[10px] text-slate-400">{t.completed_at}</span>
-                          <span className="text-[10px] text-slate-300">·</span>
-                          <span className="text-[10px] text-green-600 font-medium">{t.hours}h</span>
+                          <span className="text-[10px] text-slate-400">完成於 {t.completed_at}</span>
+                          {t.hours > 0 && <>
+                            <span className="text-[10px] text-slate-300">·</span>
+                            <span className="text-[10px] text-green-600 font-medium">{t.hours}h</span>
+                          </>}
                         </div>
+                        {(t.expected_start_date || t.expected_end_date) && (
+                          <div className="text-[10px] text-slate-300 mt-0.5">
+                            預計 {t.expected_start_date || '—'} ~ {t.expected_end_date || '—'}
+                          </div>
+                        )}
                       </div>
-                      <Tag
-                        color={t.type === 'function' ? 'blue' : 'purple'}
-                        style={{ fontSize: 9, padding: '0 3px', margin: 0, lineHeight: '14px', flexShrink: 0 }}
-                      >
-                        {t.type === 'function' ? '功能' : '任務'}
-                      </Tag>
                     </div>
                   ))}
                 </div>
               )}
             </div>
 
-            {/* ─── In-Progress Tasks ───────────────────────────── */}
+            {/* ── In-Progress ── */}
             <div>
               <div className="flex items-center gap-2 mb-3">
-                <div className="w-1 h-3.5 rounded bg-amber-500" />
+                <div className="w-1 h-3.5 rounded bg-blue-500" />
                 <span className="text-xs font-semibold text-slate-600">進行中任務</span>
-                <Badge count={report.in_progress.length} color="#d97706" />
+                <Badge count={report.in_progress.length} color="#2563eb" />
               </div>
               {report.in_progress.length === 0 ? (
                 <p className="text-xs text-slate-300 pl-3">暫無進行中任務</p>
@@ -319,37 +323,59 @@ const MemberReportCard: React.FC<{ report: ReportMember }> = ({ report }) => {
                     const bgColor     = t.status === 'overdue' ? '#fef2f2' : t.status === 'urgent' ? '#fff7ed' : '#f8fafc'
                     return (
                       <div key={t.id} className="rounded-lg px-3 py-2 border" style={{ background: bgColor, borderColor }}>
-                        <div className="flex items-center gap-2 mb-1.5">
+                        <div className="flex items-center gap-2 mb-1">
                           <span className="text-xs font-medium text-slate-700 flex-1 truncate">{t.name}</span>
-                          {t.status === 'overdue' && (
-                            <span className="text-[10px] text-red-500 font-semibold flex-shrink-0">
-                              超期 {Math.abs(t.days_left)} 天
-                            </span>
-                          )}
-                          {t.status === 'urgent' && (
-                            <span className="text-[10px] text-orange-500 font-semibold flex-shrink-0">
-                              剩 {t.days_left} 天
-                            </span>
-                          )}
-                          {t.status === 'normal' && (
-                            <span className="text-[10px] text-slate-400 flex-shrink-0">
-                              剩 {t.days_left} 天
-                            </span>
-                          )}
+                          {t.status === 'overdue' && <span className="text-[10px] text-red-500 font-semibold flex-shrink-0">超期 {Math.abs(t.days_left)} 天</span>}
+                          {t.status === 'urgent' && <span className="text-[10px] text-orange-500 font-semibold flex-shrink-0">剩 {t.days_left} 天</span>}
+                          {t.status === 'normal' && <span className="text-[10px] text-slate-400 flex-shrink-0">剩 {t.days_left} 天</span>}
                         </div>
                         <div className="flex items-center gap-2">
                           <div className="flex-1 bg-white rounded-full h-1.5 overflow-hidden border border-slate-100">
-                            <div
-                              className="h-full rounded-full"
-                              style={{
-                                width: `${t.progress}%`,
-                                background: t.status === 'overdue' ? '#f87171' : t.status === 'urgent' ? '#fb923c' : '#60a5fa',
-                              }}
-                            />
+                            <div className="h-full rounded-full" style={{ width: `${t.progress}%`, background: t.status === 'overdue' ? '#f87171' : t.status === 'urgent' ? '#fb923c' : '#60a5fa' }} />
                           </div>
                           <span className="text-[10px] font-semibold text-slate-500 flex-shrink-0 w-7 text-right">{t.progress}%</span>
                         </div>
-                        <div className="text-[10px] text-slate-400 mt-1">{t.project}</div>
+                        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                          <span className="text-[10px] text-slate-400">{t.project}</span>
+                          {(t.expected_start_date || t.expected_end_date) && (
+                            <span className="text-[10px] text-slate-300">
+                              {t.expected_start_date || '—'} ~ {t.expected_end_date || '—'}
+                            </span>
+                          )}
+                          {(t.hours ?? 0) > 0 && <span className="text-[10px] text-blue-600 font-medium">{t.hours}h</span>}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* ── Not Started (within period) ── */}
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-1 h-3.5 rounded bg-slate-400" />
+                <span className="text-xs font-semibold text-slate-600">本期待開始</span>
+                <Badge count={(report.not_started ?? []).length} color="#94a3b8" />
+              </div>
+              {(report.not_started ?? []).length === 0 ? (
+                <p className="text-xs text-slate-300 pl-3">本期無待開始任務</p>
+              ) : (
+                <div className="space-y-2">
+                  {(report.not_started ?? []).map((t) => {
+                    const isOverdue = t.status === 'overdue'
+                    return (
+                      <div key={t.id} className={`rounded-lg px-3 py-2 border ${isOverdue ? 'bg-red-50/50 border-red-100' : 'bg-slate-50 border-slate-100'}`}>
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <span className="text-xs font-medium text-slate-700 flex-1 truncate">{t.name}</span>
+                          {isOverdue && <span className="text-[10px] text-red-500 font-semibold flex-shrink-0">已逾期</span>}
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[10px] text-slate-400">{t.project}</span>
+                          <span className="text-[10px] text-slate-300">
+                            預計 {t.expected_start_date || '—'} ~ {t.expected_end_date || '—'}
+                          </span>
+                        </div>
                       </div>
                     )
                   })}
@@ -360,6 +386,15 @@ const MemberReportCard: React.FC<{ report: ReportMember }> = ({ report }) => {
         </div>
       </Panel>
     </Collapse>
+
+    {previewFile && (
+      <FilePreviewModal
+        directUrl={previewFile.url}
+        filename={previewFile.name}
+        onClose={() => setPreviewFile(null)}
+      />
+    )}
+    </>
   )
 }
 
@@ -375,11 +410,16 @@ const ProgressReportTab: React.FC = () => {
   const periodLabel = period === 'custom' ? dateLabel : (currentPreset?.label ?? '') + ' ' + dateLabel
 
   useEffect(() => {
-    // TODO: call real API when endpoint is available, e.g.:
-    // groupApi.progressReport({ start_date: range[0].format('YYYY-MM-DD'), end_date: range[1].format('YYYY-MM-DD') })
-    //   .then((res) => { if (res.content) setReports(res.content) })
-    //   .catch(() => {})
-    setReports([])
+    const startStr = range[0].format('YYYY-MM-DD')
+    const endStr   = range[1].format('YYYY-MM-DD')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(projectApi as any).progressReport({ start_date: startStr, end_date: endStr })
+      .then((res: { content?: unknown }) => {
+        if (Array.isArray(res.content)) setReports(res.content as ReportMember[])
+        else setReports([])
+      })
+      .catch(() => setReports([]))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [period, customRange])
 
   const totalHours    = reports.reduce((s, r) => s + r.period_hours, 0)
@@ -401,7 +441,7 @@ const ProgressReportTab: React.FC = () => {
             <button
               key={p.key}
               onClick={() => { setPeriod(p.key); setCustomRange(null) }}
-              className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+              className={`px-3 py-1 rounded-lg text-xs font-medium transition-all border-0 outline-none cursor-pointer ${
                 period === p.key && period !== 'custom'
                   ? 'bg-blue-600 text-white shadow-sm'
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -412,7 +452,7 @@ const ProgressReportTab: React.FC = () => {
           ))}
           <button
             onClick={() => setPeriod('custom')}
-            className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+            className={`px-3 py-1 rounded-lg text-xs font-medium transition-all border-0 outline-none cursor-pointer ${
               period === 'custom'
                 ? 'bg-blue-600 text-white shadow-sm'
                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -476,7 +516,9 @@ const ProgressReportTab: React.FC = () => {
       {reports.length === 0 ? (
         <Empty description="本期暫無進度數據" className="my-12" />
       ) : (
-        reports.map((r) => <MemberReportCard key={r.work_no} report={r} />)
+        [...reports]
+          .sort((a, b) => b.updates_count - a.updates_count || b.period_hours - a.period_hours)
+          .map((r) => <MemberReportCard key={r.work_no} report={r} />)
       )}
     </div>
   )
@@ -484,8 +526,6 @@ const ProgressReportTab: React.FC = () => {
 
 // ─── Personal Work Analysis Tab ──────────────────────────────────────────────
 // Data loaded from API per member selection
-const EMPTY_DIST: { name: string; hours: number; color: string }[] = []
-const EMPTY_OVERTIME: { week: string; normal: number; overtime: number }[] = []
 // ─── Member Overview Tab (merged from GroupMembersPage) ──────────────────────
 
 const { Search } = Input
@@ -714,7 +754,7 @@ const MemberOverviewTab: React.FC = () => {
                           <BarChart data={overview.weekly_hours} barCategoryGap="40%">
                             <XAxis dataKey="week" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
                             <YAxis hide />
-                            <RTooltip formatter={(v: number) => [`${v}h`, '工時']} contentStyle={{ borderRadius: 8, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: 12 }} cursor={{ fill: '#f8fafc' }} />
+                            <RTooltip formatter={(v: number, name: string) => [`${v}h`, name]} contentStyle={{ borderRadius: 8, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: 12 }} cursor={{ fill: '#f8fafc' }} />
                             <Bar dataKey="hours" name="工時" fill="#2563eb" radius={[4, 4, 0, 0]} />
                           </BarChart>
                         </ResponsiveContainer>
@@ -813,6 +853,7 @@ const StatisticsPage: React.FC = () => {
   const myWorkNo  = useAppSelector((s) => s.auth.workNo) ?? ''
 
   const [stats,      setStats]      = useState<MemberWorkStat[]>([])
+  const [teamSummary, setTeamSummary] = useState<{ total_hours: number; completed_tasks: number; in_progress_tasks: number; overdue_tasks: number } | null>(null)
   const [isLoading,  setIsLoading]  = useState(false)
   const [selected,   setSelected]   = useState<string | null>(null)
 
@@ -839,7 +880,13 @@ const StatisticsPage: React.FC = () => {
     setIsLoading(true)
     try {
       const res = await projectApi.memberStats()
-      setStats(Array.isArray(res.content) ? (res.content as MemberWorkStat[]) : [])
+      const content = res.content as { members?: MemberWorkStat[]; summary?: typeof teamSummary } | MemberWorkStat[]
+      if (content && !Array.isArray(content) && content.members) {
+        setStats(content.members)
+        setTeamSummary(content.summary ?? null)
+      } else if (Array.isArray(content)) {
+        setStats(content as MemberWorkStat[])
+      }
     } catch { /* global */ }
     finally { setIsLoading(false) }
   }
@@ -848,19 +895,33 @@ const StatisticsPage: React.FC = () => {
   // 非管理员：进入页面即加载自己的个人工时详情
   useEffect(() => { if (!isManager && myWorkNo) loadPersonalStats(myWorkNo) }, [isManager, myWorkNo])
 
-  const totals = useMemo(() => ({
-    hours:    stats.reduce((s, m) => s + m.total_hours, 0),
-    done:     stats.reduce((s, m) => s + m.completed_tasks, 0),
-    overdue:  stats.reduce((s, m) => s + m.overdue_tasks, 0),
-    inProg:   stats.reduce((s, m) => s + m.in_progress_tasks, 0),
-  }), [stats])
+  const totals = useMemo(() => {
+    if (teamSummary) {
+      return {
+        hours:   teamSummary.total_hours,
+        done:    teamSummary.completed_tasks,
+        overdue: teamSummary.overdue_tasks,
+        inProg:  teamSummary.in_progress_tasks,
+      }
+    }
+    // fallback: sum per member (may double-count shared tasks)
+    return {
+      hours:    stats.reduce((s, m) => s + m.total_hours, 0),
+      done:     stats.reduce((s, m) => s + m.completed_tasks, 0),
+      overdue:  stats.reduce((s, m) => s + m.overdue_tasks, 0),
+      inProg:   stats.reduce((s, m) => s + m.in_progress_tasks, 0),
+    }
+  }, [stats, teamSummary])
 
   const lineData = useMemo(() => {
     if (stats.length === 0) return []
-    const weeks = stats[0]?.weekly_hours?.map((w) => w.week) ?? []
+    // Collect all unique week keys from ALL members (not just the first)
+    const weekSet = new Set<string>()
+    stats.forEach((m) => { m.weekly_hours?.forEach((w) => weekSet.add(w.week)) })
+    const weeks = [...weekSet].sort()
     return weeks.map((week) => {
       const row: Record<string, unknown> = { week }
-      stats.forEach((m) => { row[m.name] = m.weekly_hours.find((w) => w.week === week)?.hours ?? 0 })
+      stats.forEach((m) => { row[m.name] = m.weekly_hours?.find((w) => w.week === week)?.hours ?? 0 })
       return row
     })
   }, [stats])
@@ -938,7 +999,7 @@ const StatisticsPage: React.FC = () => {
             { label: '總工時',   value: totalHrs,     unit: 'h',  color: '#2563eb', bg: '#eff6ff', icon: <ClockIcon className="w-4 h-4 text-blue-500" /> },
             { label: '正常工時', value: totalNormal,  unit: 'h',  color: '#16a34a', bg: '#f0fdf4', icon: <SunIcon className="w-4 h-4 text-green-500" /> },
             { label: '加班工時', value: totalOvertime, unit: 'h', color: '#d97706', bg: '#fff7ed', icon: <MoonIcon className="w-4 h-4 text-orange-500" /> },
-            { label: '加班佔比', value: Math.round((totalOvertime / totalHrs) * 100), unit: '%', color: '#dc2626', bg: '#fef2f2', icon: <ExclamationTriangleIcon className="w-4 h-4 text-red-500" /> },
+            { label: '加班佔比', value: totalHrs > 0 ? Math.round((totalOvertime / totalHrs) * 100) : 0, unit: '%', color: '#dc2626', bg: '#fef2f2', icon: <ExclamationTriangleIcon className="w-4 h-4 text-red-500" /> },
           ].map((s) => (
             <div key={s.label} className="bg-white rounded-xl border border-slate-100 shadow-sm px-4 py-3 flex items-center gap-3">
               <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: s.bg }}>{s.icon}</div>
@@ -961,7 +1022,7 @@ const StatisticsPage: React.FC = () => {
                   <Pie data={projectData} dataKey="hours" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={68} paddingAngle={2}>
                     {projectData.map((_: unknown, i: number) => <Cell key={i} fill={PIE_PALETTE[i % PIE_PALETTE.length]} />)}
                   </Pie>
-                  <RTooltip formatter={(v: number) => [`${v}h`, '工時']} contentStyle={{ borderRadius: 8, fontSize: 11, border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }} />
+                  <RTooltip formatter={(v: number, name: string) => [`${v}h`, name]} contentStyle={{ borderRadius: 8, fontSize: 11, border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }} />
                 </PieChart>
               </ResponsiveContainer>
               <div className="flex flex-col gap-1">
@@ -984,7 +1045,7 @@ const StatisticsPage: React.FC = () => {
                   <Pie data={categoryData} dataKey="hours" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={68} paddingAngle={2}>
                     {categoryData.map((_: unknown, i: number) => <Cell key={i} fill={PIE_PALETTE[i % PIE_PALETTE.length]} />)}
                   </Pie>
-                  <RTooltip formatter={(v: number) => [`${v}h`, '工時']} contentStyle={{ borderRadius: 8, fontSize: 11, border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }} />
+                  <RTooltip formatter={(v: number, name: string) => [`${v}h`, name]} contentStyle={{ borderRadius: 8, fontSize: 11, border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }} />
                 </PieChart>
               </ResponsiveContainer>
               <div className="flex flex-col gap-1">
@@ -1201,14 +1262,6 @@ const StatisticsPage: React.FC = () => {
               : '搜索查看同事資訊與工作概況'}
           </p>
         </div>
-        {/* Global time filter — only relevant for manager analysis tabs */}
-        {isManager && (
-          <RangePicker
-            size="small"
-            defaultValue={[dayjs().subtract(5, 'week'), dayjs()]}
-            style={{ borderRadius: 8 }}
-          />
-        )}
       </div>
 
       <Tabs
