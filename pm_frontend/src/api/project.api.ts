@@ -255,6 +255,10 @@ export const projectApi = {
 
   // ─── Statistics ──────────────────────────────────────────────────────────────
 
+  /** GET /api/project/my_functions — 我的跨專案任務 */
+  myFunctions: (params?: { page?: number; size?: number; status?: number; scope?: 'all' | 'mine' | 'supervisor' }): Promise<ApiResponse<{ total_count: number; data_list: (ProjectFunction & { project_nm: string; project_status: number; project_pm: string })[] }>> =>
+    get('/project/my_functions', { params }),
+
   /** GET /api/project/wbs_overview — 專案進度總覽（WBS 結構） */
   wbsOverview: (): Promise<ApiResponse<unknown[]>> =>
     get('/project/wbs_overview'),

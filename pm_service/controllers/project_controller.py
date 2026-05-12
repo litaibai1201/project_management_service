@@ -10,6 +10,7 @@ from dbs.mysql_db import db
 from dbs.mysql_db.model_tables import (
     ProjectDataModel, ProjectGroupModel, FunctionDataModel,
     ProgressRecordDataModel, ReviewApplyModel, MilestoneModel, ProjectFileModel,
+    HierarchyModel,
 )
 
 
@@ -987,7 +988,7 @@ class ProjectController:
         def _compute_is_overdue(f: FunctionDataModel, status: str) -> bool:
             if status == "completed":
                 return False
-            end = f.expected_end_date
+            end = f.latest_expected_end_date or f.expected_end_date  # 延期後用新日期判斷
             if not end:
                 return False
             try:
@@ -1051,7 +1052,9 @@ class ProjectController:
                     resp = json.loads(f.responsible) if f.responsible else []
                     assignee_names = [name_map.get(w, w) for w in resp]
 
-                    end_str = f.expected_end_date or ""
+                    end_str = f.latest_expected_end_date or f.expected_end_date or ""  # 延期後用新日期
+                    original_end_str = f.expected_end_date or ""
+                    reschedule_count = f.reschedule_count or 0
                     actual_end = (f.end_time or "")[:10] if f.end_time else None
                     days_overdue = None
                     if is_overdue and end_str:
@@ -1078,6 +1081,8 @@ class ProjectController:
                         "status":          status,
                         "is_overdue":      is_overdue,
                         "expected_end":    end_str,
+                        "original_end":    original_end_str,
+                        "reschedule_count": reschedule_count,
                         "actual_end":      actual_end,
                         "days_overdue":    days_overdue,
                         "latest_update":   latest.progress_record if latest else None,
@@ -1309,6 +1314,72 @@ class FunctionController:
             f.expected_end_date = payload["expected_end_date"]
         f.update_at = CommonTools.get_now()
         db.session.commit()
+
+    def my_functions(self, work_no: str, page: int = 1, size: int = 20, status: int = None, scope: str = 'all') -> dict:
+        """查询功能任务。scope='mine' 仅负责任务；scope='all' 所属专案全部；scope='supervisor' 下属专案全部"""
+        if scope == 'mine':
+            q = db.session.query(FunctionDataModel).filter(
+                FunctionDataModel.function_status != 9,
+                FunctionDataModel.responsible.like(f'%"{work_no}"%'),
+            )
+        elif scope == 'supervisor':
+            # 找出所有下属工号
+            subordinates = [r[0] for r in db.session.query(HierarchyModel.subordinate_work_no).filter(
+                HierarchyModel.supervisor_work_no == work_no,
+            ).all()]
+            all_nos = [work_no] + subordinates  # 包含自己
+            # 下属担任 PM 的专案
+            pm_ids = [r[0] for r in db.session.query(ProjectDataModel.id).filter(
+                ProjectDataModel.project_pm.in_(all_nos),
+                ProjectDataModel.project_status != 9,
+            ).all()]
+            # 下属作为负责人出现的专案
+            from sqlalchemy import or_
+            resp_filters = [FunctionDataModel.responsible.like(f'%"{n}"%') for n in all_nos]
+            resp_proj_ids = [r[0] for r in db.session.query(FunctionDataModel.project_id).filter(
+                FunctionDataModel.function_status != 9,
+                or_(*resp_filters) if resp_filters else db.false(),
+            ).distinct().all()]
+            all_proj_ids = list(set(pm_ids + resp_proj_ids))
+            q = db.session.query(FunctionDataModel).filter(
+                FunctionDataModel.function_status != 9,
+                FunctionDataModel.project_id.in_(all_proj_ids) if all_proj_ids else db.false(),
+            )
+        else:
+            # scope='all'：收集用户所属专案 ID（作为 PM 或在任意任务中为负责人）
+            pm_ids = [r[0] for r in db.session.query(ProjectDataModel.id).filter(
+                ProjectDataModel.project_pm == work_no,
+                ProjectDataModel.project_status != 9,
+            ).all()]
+            func_proj_ids = [r[0] for r in db.session.query(FunctionDataModel.project_id).filter(
+                FunctionDataModel.responsible.like(f'%"{work_no}"%'),
+                FunctionDataModel.function_status != 9,
+            ).distinct().all()]
+            all_proj_ids = list(set(pm_ids + func_proj_ids))
+            q = db.session.query(FunctionDataModel).filter(
+                FunctionDataModel.function_status != 9,
+                FunctionDataModel.project_id.in_(all_proj_ids) if all_proj_ids else db.false(),
+            )
+        if status is not None:
+            q = q.filter(FunctionDataModel.function_status == status)
+        total = q.count()
+        funcs = q.order_by(FunctionDataModel.expected_end_date.asc()).offset((page - 1) * size).limit(size).all()
+
+        # 批量查专案信息
+        proj_ids = list({f.project_id for f in funcs})
+        projects = db.session.query(ProjectDataModel).filter(ProjectDataModel.id.in_(proj_ids)).all()
+        proj_map = {p.id: p for p in projects}
+
+        result = []
+        for f in funcs:
+            d = f.to_dict()
+            p = proj_map.get(f.project_id)
+            d['project_nm']     = p.project_nm if p else ''
+            d['project_status'] = p.project_status if p else 0
+            d['project_pm']     = p.project_pm if p else ''
+            result.append(d)
+
+        return {'total_count': total, 'data_list': result}
 
     def list_functions(self, project_id: str, payload: dict):
         page = payload.get("page", 1)

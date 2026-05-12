@@ -48,16 +48,81 @@ class DutyDetailApi(MethodView):
     @blp.response(200, RspMsgDictSchema)
     def put(self, duty_id):
         """更新临时任务"""
+        work_no = get_identity()
         payload = request.form.to_dict()
-        ctrl.update_duty(duty_id, payload)
+        ctrl.update_duty(duty_id, payload, work_no=work_no)
         return response_result()
 
     @jwt_required()
     @blp.response(200, RspMsgDictSchema)
     def delete(self, duty_id):
         """删除临时任务"""
-        ctrl.delete_duty(duty_id)
+        work_no = get_identity()
+        ctrl.delete_duty(duty_id, work_no=work_no)
         return response_result()
+
+
+@blp.route("/<string:duty_id>/reschedule")
+class DutyRescheduleApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def post(self, duty_id):
+        """延期任务（更新预计完成时间，记录历史）"""
+        work_no = get_identity()
+        payload = request.get_json() or {}
+        return response_result(content=ctrl.reschedule_duty(
+            duty_id,
+            new_end_date=payload.get("new_end_date", ""),
+            reason=payload.get("reason", ""),
+            operator=work_no,
+        ))
+
+
+@blp.route("/<string:duty_id>/activate")
+class DutyActivateApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def post(self, duty_id):
+        """激活任务（草稿→进行中），可附带补充字段"""
+        work_no = get_identity()
+        payload = request.get_json() or {}
+        ctrl.activate_duty(duty_id, work_no, payload=payload)
+        return response_result()
+
+
+@blp.route("/<string:duty_id>/hold")
+class DutyHoldApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def post(self, duty_id):
+        """搁置任务（进行中→搁置）"""
+        work_no = get_identity()
+        ctrl.hold_duty(duty_id, work_no)
+        return response_result()
+
+
+@blp.route("/<string:duty_id>/resume")
+class DutyResumeApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def post(self, duty_id):
+        """恢复任务（搁置→进行中）"""
+        work_no = get_identity()
+        ctrl.resume_duty(duty_id, work_no)
+        return response_result()
+
+
+@blp.route("/<string:duty_id>/submit_completion")
+class DutySubmitCompletionApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def post(self, duty_id):
+        """提交完结审核（进行中→完结审核）"""
+        work_no = get_identity()
+        payload = request.get_json() or {}
+        reviewer = payload.get("reviewer", [])
+        submitter_name = payload.get("submitter_name", "")
+        return response_result(content=ctrl.submit_completion(duty_id, work_no, reviewer, submitter_name))
 
 
 @blp.route("/<string:duty_id>/allocation")

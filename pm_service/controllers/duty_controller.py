@@ -3,10 +3,10 @@
 import json
 
 from utils.tools import CommonTools
-from utils.exceptions import ResourceNotFoundException
+from utils.exceptions import ResourceNotFoundException, PermissionException, BusinessException
 from dbs.mysql_db import db
 from dbs.mysql_db.model_tables import (
-    TemporaryDutyModel, DutyProgressRecordModel, ReviewApplyModel
+    TemporaryDutyModel, DutyProgressRecordModel, ReviewApplyModel, ProjectDataModel
 )
 
 
@@ -31,10 +31,19 @@ class DutyController:
             q = q.filter(TemporaryDutyModel.responsible.like(f"%{responsible}%"))
         total = q.count()
         duties = q.order_by(TemporaryDutyModel.created_at.desc()).offset((page-1)*size).limit(size).all()
+        proj_ids = [d.project_id for d in duties if d.project_id]
+        proj_map = {}
+        if proj_ids:
+            projs = db.session.query(ProjectDataModel).filter(ProjectDataModel.id.in_(proj_ids)).all()
+            proj_map = {p.id: p.project_nm for p in projs}
+        def _enrich(d):
+            r = d.to_dict()
+            r['project_nm'] = proj_map.get(d.project_id, '') if d.project_id else ''
+            return r
         return {
             "total_count": total,
             "total_page": (total + size - 1) // size,
-            "data_list": [d.to_dict() for d in duties],
+            "data_list": [_enrich(d) for d in duties],
         }
 
     def get_duty(self, duty_id: str):
@@ -58,6 +67,7 @@ class DutyController:
             responsible=json.dumps(resp, ensure_ascii=False),
             priority=payload.get("priority", 2),
             group=payload.get("group", ""),
+            project_id=payload.get("project_id", "") or None,
             expected_start_date=payload.get("expected_start_date", ""),
             expected_end_date=payload.get("expected_end_date", ""),
         )
@@ -65,11 +75,13 @@ class DutyController:
         db.session.commit()
         return {"duty_id": d.id}
 
-    def update_duty(self, duty_id: str, payload: dict):
+    def update_duty(self, duty_id: str, payload: dict, work_no: str = None):
         d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
         if not d or d.duty_status == 9:
             raise ResourceNotFoundException(resource_type="临时任务")
-        for field in ("duty_nm", "describe", "priority", "group",
+        if work_no and d.creator != work_no:
+            raise PermissionException("只有建立人可以修改任務基本資訊")
+        for field in ("duty_nm", "describe", "priority", "group", "project_id",
                       "expected_start_date", "expected_end_date"):
             if field in payload and payload[field] is not None:
                 setattr(d, field, payload[field])
@@ -82,17 +94,159 @@ class DutyController:
                     resp = [resp] if resp else []
             resp = [w.strip().lower() for w in (resp if isinstance(resp, list) else [resp]) if w]
             d.responsible = json.dumps(resp, ensure_ascii=False)
-        d.revision_count = (d.revision_count or 0) + 1
         d.update_at = CommonTools.get_now()
         db.session.commit()
 
-    def delete_duty(self, duty_id: str):
+    def reschedule_duty(self, duty_id: str, new_end_date: str, reason: str, operator: str):
+        """延期临时任务：建立人或责任人可操作，记录延期历史"""
+        d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
+        if not d or d.duty_status == 9:
+            raise ResourceNotFoundException(resource_type="临时任务")
+
+        responsible = []
+        if d.responsible:
+            try:
+                responsible = json.loads(d.responsible)
+            except Exception:
+                responsible = [d.responsible]
+
+        is_creator = d.creator.lower() == operator.lower()
+        is_responsible = operator.lower() in [w.lower() for w in responsible]
+        if not is_creator and not is_responsible:
+            raise PermissionException("只有建立人或負責人可進行延期操作")
+
+        current_end = d.latest_expected_end_date or d.expected_end_date or ""
+        history = []
+        if d.reschedule_log:
+            try:
+                history = json.loads(d.reschedule_log)
+            except (ValueError, TypeError):
+                pass
+
+        history.append({
+            "from": current_end,
+            "to": new_end_date,
+            "reason": reason,
+            "date": CommonTools.get_now()[:10],
+            "operator": operator,
+        })
+
+        d.latest_expected_end_date = new_end_date
+        d.revision_count = (d.revision_count or 0) + 1
+        d.reschedule_log = json.dumps(history, ensure_ascii=False)
+        d.update_at = CommonTools.get_now()
+        db.session.commit()
+        return d.to_dict()
+
+    def delete_duty(self, duty_id: str, work_no: str = None):
         d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
         if not d:
             raise ResourceNotFoundException(resource_type="临时任务")
+        if work_no and d.creator != work_no:
+            raise PermissionException("只有建立人可以刪除任務")
+        if d.duty_status not in (0, 1, 8):
+            raise BusinessException("當前狀態不允許刪除")
         d.duty_status = 9
         d.update_at = CommonTools.get_now()
         db.session.commit()
+
+    def activate_duty(self, duty_id: str, work_no: str, payload: dict = None):
+        """草稿 → 進行中（建立人）。可附帶 responsible/expected_start_date/expected_end_date 一起更新"""
+        d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
+        if not d or d.duty_status == 9:
+            raise ResourceNotFoundException(resource_type="临时任务")
+        responsible = json.loads(d.responsible) if d.responsible else []
+        if work_no != d.creator and work_no not in responsible:
+            raise PermissionException("只有建立人或負責人可以激活任務")
+        if d.duty_status != 0:
+            raise BusinessException("僅草稿狀態可激活")
+        # 先應用傳入的補充欄位
+        if payload:
+            if payload.get("responsible"):
+                resp = payload["responsible"]
+                if isinstance(resp, list):
+                    resp = [w.strip().lower() for w in resp if w]
+                d.responsible = json.dumps(resp, ensure_ascii=False)
+            if payload.get("expected_start_date"):
+                d.expected_start_date = payload["expected_start_date"]
+            if payload.get("expected_end_date"):
+                d.expected_end_date = payload["expected_end_date"]
+        # 驗證必填欄位
+        responsible = json.loads(d.responsible) if d.responsible else []
+        if not responsible:
+            raise BusinessException("激活前請先指定負責人")
+        if not d.expected_start_date or not d.expected_end_date:
+            raise BusinessException("激活前請先設定預計開始和預計完成時間")
+        d.duty_status = 1
+        d.update_at = CommonTools.get_now()
+        db.session.commit()
+
+    def hold_duty(self, duty_id: str, work_no: str):
+        """進行中 → 擱置（建立人）"""
+        d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
+        if not d or d.duty_status == 9:
+            raise ResourceNotFoundException(resource_type="临时任务")
+        if d.creator != work_no:
+            raise PermissionException("只有建立人可以擱置任務")
+        if d.duty_status != 1:
+            raise BusinessException("僅進行中狀態可擱置")
+        d.duty_status = 8
+        d.update_at = CommonTools.get_now()
+        db.session.commit()
+
+    def resume_duty(self, duty_id: str, work_no: str):
+        """擱置 → 進行中（建立人）"""
+        d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
+        if not d or d.duty_status == 9:
+            raise ResourceNotFoundException(resource_type="临时任务")
+        if d.creator != work_no:
+            raise PermissionException("只有建立人可以恢復任務")
+        if d.duty_status != 8:
+            raise BusinessException("僅擱置狀態可恢復")
+        d.duty_status = 1
+        d.update_at = CommonTools.get_now()
+        db.session.commit()
+
+    def submit_completion(self, duty_id: str, work_no: str, reviewer: list, submitter_name: str = ""):
+        """提交完結審核：進行中 → 完結審核，建立 ReviewApplyModel"""
+        d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
+        if not d or d.duty_status == 9:
+            raise ResourceNotFoundException(resource_type="临时任务")
+        responsible = json.loads(d.responsible) if d.responsible else []
+        if work_no not in responsible:
+            raise PermissionException("只有負責人可以提交完結審核")
+        if d.duty_status != 1:
+            raise BusinessException("僅進行中狀態可提交完結審核")
+        if not reviewer:
+            raise BusinessException("請至少指定一位審核人")
+        nodes = [
+            {
+                "node_id": f"node_{i+1}",
+                "order": i + 1,
+                "approver": r,
+                "approver_work_no": r,
+                "is_countersign": False,
+                "status": 0,
+                "approved_at": None,
+                "comment": None,
+            }
+            for i, r in enumerate(reviewer)
+        ]
+        review = ReviewApplyModel(
+            duty_id=duty_id,
+            apply_type="臨時任務完結審核",
+            apply_type_code="duty_completion",
+            submitter=work_no,
+            submitter_name=submitter_name,
+            reviewer=json.dumps(reviewer, ensure_ascii=False),
+            apply_status=1,
+            approval_nodes_json=json.dumps(nodes, ensure_ascii=False),
+        )
+        d.duty_status = 2
+        d.update_at = CommonTools.get_now()
+        db.session.add(review)
+        db.session.commit()
+        return {"review_id": review.id}
 
     def allocate(self, duty_id: str, payload: dict):
         d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
@@ -138,6 +292,14 @@ class DutyController:
         }
 
     def create_progress(self, duty_id: str, payload: dict, submitter: str):
+        d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
+        if not d or d.duty_status == 9:
+            raise ResourceNotFoundException(resource_type="临时任务")
+        if d.duty_status != 1:
+            raise BusinessException("只有進行中的任務才能更新進度")
+        responsible = json.loads(d.responsible) if d.responsible else []
+        if submitter not in responsible:
+            raise PermissionException("只有負責人可以更新進度")
         rec = DutyProgressRecordModel(
             duty_id=duty_id,
             progress=payload["progress"],
@@ -148,10 +310,8 @@ class DutyController:
             start_time=payload.get("start_time", ""),
         )
         db.session.add(rec)
-        d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
-        if d:
-            d.progress = payload["progress"]
-            d.update_at = CommonTools.get_now()
+        d.progress = payload["progress"]
+        d.update_at = CommonTools.get_now()
         db.session.commit()
 
     def get_review_list(self, page=1, size=20, work_no=None):

@@ -431,12 +431,14 @@ class TemporaryDutyModel(BaseMixinModel):
     priority = db.Column(db.Integer, default=2)
     progress = db.Column(db.Integer, default=0)
     group = db.Column(db.String(64), comment="任务分组(用户自定义)")
+    project_id = db.Column(db.String(32), comment="关联专案ID（仅作参考，不纳入专案任务）")
     expected_start_date = db.Column(db.String(10))
     expected_end_date = db.Column(db.String(10))
     start_time = db.Column(db.String(19))
     end_time = db.Column(db.String(19))
     latest_expected_end_date = db.Column(db.String(10))
     revision_count = db.Column(db.Integer, default=0)
+    reschedule_log = db.Column(db.Text, comment="延期记录JSON: [{from,to,reason,date,operator}]")
 
     def to_dict(self):
         resp = []
@@ -445,15 +447,24 @@ class TemporaryDutyModel(BaseMixinModel):
                 resp = json.loads(self.responsible)
             except Exception:
                 resp = [self.responsible]
+        reschedule_history = []
+        if self.reschedule_log:
+            try:
+                reschedule_history = json.loads(self.reschedule_log)
+            except (ValueError, TypeError):
+                pass
         return {
             "id": self.id, "duty_nm": self.duty_nm, "describe": self.describe or "",
             "creator": self.creator, "responsible": resp, "status": self.duty_status,
             "priority": self.priority, "progress": self.progress, "group": self.group or "",
+            "project_id": self.project_id or "",
             "expected_start_date": self.expected_start_date or "",
-            "expected_end_date": self.expected_end_date or "",
+            "expected_end_date": self.latest_expected_end_date or self.expected_end_date or "",
+            "original_end_date": self.expected_end_date or "",
+            "reschedule_count": self.revision_count or 0,
+            "reschedule_history": reschedule_history,
             "start_time": self.start_time or "", "end_time": self.end_time or "",
-            "latest_expected_end_date": self.latest_expected_end_date or "",
-            "revision_count": self.revision_count or 0, "created_at": self.created_at,
+            "created_at": self.created_at,
         }
 
 

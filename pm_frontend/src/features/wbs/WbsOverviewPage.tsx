@@ -59,6 +59,8 @@ interface WbsTask {
   status: TaskStatus
   is_overdue?: boolean       // independent of status — a not_started task can also be overdue
   expected_end: string
+  original_end?: string      // 原始預計完成時間（延期前）
+  reschedule_count?: number  // 延期次數
   actual_end?: string
   days_overdue?: number
   latest_update?: string
@@ -156,7 +158,7 @@ function exportWbsCSV(projects: WbsProject[]) {
 
 type PptTextRun = {
   text: string
-  options?: { bold?: boolean; italic?: boolean; color?: string; fontSize?: number; breakType?: string }
+  options?: { bold?: boolean; italic?: boolean; color?: string; fontSize?: number; breakType?: string; strike?: boolean; fontFace?: string }
 }
 
 const PPT_FONT_SIZE = 8
@@ -208,10 +210,20 @@ function buildProgressTextRuns(project: WbsProject): PptTextRun[] {
       runs.push(_run(`${taskIdx}. `, { color: lineColor }))
       runs.push(..._statusRuns(task))
       runs.push(_run(task.name, { color: lineColor }))
-      const meta: string[] = []
-      if (task.expected_end) meta.push(task.expected_end)
-      if (task.assignee && task.assignee !== '未指派') meta.push(task.assignee)
-      if (meta.length > 0) runs.push(_run(`(${meta.join(', ')})`, { color: lineColor }))
+      const hasReschedule = (task.reschedule_count ?? 0) > 0 && !!task.original_end
+      if (hasReschedule) {
+        runs.push(_run(`(`, { color: lineColor }))
+        runs.push(_run(task.original_end ?? '', { color: 'AAAAAA', strike: true }))
+        runs.push(_run(` ${task.expected_end}`, { color: 'D97706', bold: true }))
+        runs.push(_run(` 延期${task.reschedule_count}次`, { color: 'D97706', fontSize: PPT_FONT_SIZE - 1 }))
+        if (task.assignee && task.assignee !== '未指派') runs.push(_run(`, ${task.assignee}`, { color: lineColor }))
+        runs.push(_run(`)`, { color: lineColor }))
+      } else {
+        const meta: string[] = []
+        if (task.expected_end) meta.push(task.expected_end)
+        if (task.assignee && task.assignee !== '未指派') meta.push(task.assignee)
+        if (meta.length > 0) runs.push(_run(`(${meta.join(', ')})`, { color: lineColor }))
+      }
       if (task.week_tag.length > 0) {
         task.week_tag.forEach((wt) => {
           const cfg = WEEK_TAG_PPT[wt]
@@ -733,6 +745,14 @@ const TaskRow: React.FC<{
             <Tooltip title={`預計 ${task.expected_end}，實際 ${task.actual_end}`}>
               <span className="text-[10px] text-green-600">{task.actual_end}</span>
             </Tooltip>
+          ) : (task.reschedule_count ?? 0) > 0 ? (
+            <Tooltip title={`延期 ${task.reschedule_count} 次，原始截止：${task.original_end}`}>
+              <div className="flex flex-col items-end gap-0.5">
+                <span className="text-[9px] text-slate-300 line-through">{task.original_end}</span>
+                <span className="text-[10px] text-orange-500 font-semibold">{task.expected_end}</span>
+                <span className="text-[8px] text-orange-400">延期{task.reschedule_count}次</span>
+              </div>
+            </Tooltip>
           ) : (
             <Tooltip title="預計完成時間">
               <span className={`text-[10px] ${isOverdue ? 'text-red-500 font-semibold' : 'text-slate-400'}`}>
@@ -1184,15 +1204,25 @@ const ReportPreviewModal: React.FC<{
                           taskIdx++
                           const { label, color } = _taskStatusLabel(task)
                           const lineColor = task.status === 'completed' ? '#00B050' : '#000'
-                          const meta: string[] = []
-                          if (task.expected_end) meta.push(task.expected_end)
-                          if (task.assignee && task.assignee !== '未指派') meta.push(task.assignee)
+                          const hasReschedule = (task.reschedule_count ?? 0) > 0 && !!task.original_end
+                          const assigneeMeta = task.assignee && task.assignee !== '未指派' ? task.assignee : null
                           return (
                             <div key={task.id} style={{ marginTop: taskIdx > 1 ? 2 : 0, color: lineColor }}>
                               <span>{taskIdx}. </span>
                               <span style={{ color, fontWeight: 700 }}>({label})</span>
                               <span>{task.name}</span>
-                              {meta.length > 0 && <span>({meta.join(', ')})</span>}
+                              <span>(</span>
+                              {hasReschedule ? (
+                                <>
+                                  <s style={{ color: '#aaa', fontSize: 11 }}>{task.original_end}</s>
+                                  <span style={{ color: '#d97706', fontWeight: 700, marginLeft: 3 }}>{task.expected_end}</span>
+                                  <span style={{ color: '#d97706', fontSize: 10, marginLeft: 2 }}>延期{task.reschedule_count}次</span>
+                                </>
+                              ) : (
+                                task.expected_end && <span>{task.expected_end}</span>
+                              )}
+                              {assigneeMeta && <span>{task.expected_end || hasReschedule ? ', ' : ''}{assigneeMeta}</span>}
+                              <span>)</span>
                               {task.week_tag.map((wt) => (
                                 <span key={wt} style={{ color: WEEK_TAG_CONFIG[wt].color, fontWeight: 700, marginLeft: 2 }}>
                                   [{WEEK_TAG_CONFIG[wt].label}]

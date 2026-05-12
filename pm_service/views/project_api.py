@@ -332,6 +332,21 @@ class FunctionAllocationApi(MethodView):
         return response_result()
 
 
+@blp.route("/my_functions")
+class MyFunctionsApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def get(self):
+        """查询当前用户作为负责人的所有跨专案功能任务"""
+        work_no = get_identity()
+        page    = int(request.args.get("page", 1))
+        size    = int(request.args.get("size", 20))
+        status  = request.args.get("status")
+        status  = int(status) if status is not None else None
+        scope   = request.args.get("scope", "all")
+        return response_result(content=func_ctrl.my_functions(work_no, page=page, size=size, status=status, scope=scope))
+
+
 @blp.route("/<string:project_id>/function_list")
 class FunctionListApi(MethodView):
     @jwt_required()

@@ -85,6 +85,28 @@ export const dutyApi = {
     return postForm(`/temporary_duty/${id}/progress`, fd)
   },
 
+  // ─── Status actions ──────────────────────────────────────────────────────────
+
+  /** POST /api/temporary_duty/:id/reschedule */
+  reschedule: (id: string, newEndDate: string, reason?: string): Promise<ApiResponse<null>> =>
+    post(`/temporary_duty/${id}/reschedule`, { new_end_date: newEndDate, reason: reason ?? '' }),
+
+  /** POST /api/temporary_duty/:id/activate */
+  activate: (id: string, payload?: { responsible?: string[]; expected_start_date?: string; expected_end_date?: string }): Promise<ApiResponse<null>> =>
+    post(`/temporary_duty/${id}/activate`, payload ?? {}),
+
+  /** POST /api/temporary_duty/:id/hold */
+  hold: (id: string): Promise<ApiResponse<null>> =>
+    post(`/temporary_duty/${id}/hold`, {}),
+
+  /** POST /api/temporary_duty/:id/resume */
+  resume: (id: string): Promise<ApiResponse<null>> =>
+    post(`/temporary_duty/${id}/resume`, {}),
+
+  /** POST /api/temporary_duty/:id/submit_completion */
+  submitCompletion: (id: string, reviewer: string[], submitterName?: string): Promise<ApiResponse<{ review_id: string }>> =>
+    post(`/temporary_duty/${id}/submit_completion`, { reviewer, submitter_name: submitterName ?? '' }),
+
   // ─── Review ──────────────────────────────────────────────────────────────────
 
   /** GET /api/temporary_duty/review_list */

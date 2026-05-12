@@ -237,22 +237,28 @@ export interface TemporaryDuty {
   id: string
   duty_nm: string
   describe?: string
+  group?: string
+  project_id?: string
+  project_nm?: string
   creator: string
-  responsible?: string
+  responsible?: string[]
   status: DutyStatus
   priority: number
   progress: number
   expected_start_date?: string
   expected_end_date?: string
+  original_end_date?: string
   start_time?: string
   end_time?: string
-  latest_expected_end_date?: string
-  revision_count?: number
+  reschedule_count?: number
+  reschedule_history?: Array<{ from: string; to: string; reason?: string; date: string; operator: string }>
 }
 
 export interface CreateDutyPayload {
   duty_nm: string
   describe?: string
+  group?: string
+  project_id?: string
   expected_start_date?: string
   expected_end_date?: string
   priority: number

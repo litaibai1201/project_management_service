@@ -122,18 +122,19 @@ const DutyDetailPage: React.FC = () => {
           contentStyle={{ fontSize: 13, color: '#334155' }}>
           <Descriptions.Item label="建立人">{toName(current.creator)}</Descriptions.Item>
           <Descriptions.Item label="負責人">
-            {current.responsible
+            {current.responsible?.length
               ? <div className="flex items-center gap-1.5">
-                  <Avatar size={18} style={{ background: '#7c3aed', fontSize: 10, fontWeight: 600 }}>{current.responsible?.[0]?.toUpperCase()}</Avatar>
-                  <span>{current.responsible.split(';').join(', ')}</span>
+                  <Avatar size={18} style={{ background: '#7c3aed', fontSize: 10, fontWeight: 600 }}>{current.responsible[0]?.[0]?.toUpperCase()}</Avatar>
+                  <span>{current.responsible.join(', ')}</span>
                 </div>
               : <span className="text-slate-300">未分配</span>}
           </Descriptions.Item>
           <Descriptions.Item label="預計開始">{current.expected_start_date ?? '—'}</Descriptions.Item>
           <Descriptions.Item label="預計完成">{current.expected_end_date ?? '—'}</Descriptions.Item>
-          {(current.revision_count ?? 0) > 0 && (
+          {(current.reschedule_count ?? 0) > 0 && (
             <Descriptions.Item label="延期次數">
-              <Tag color="orange">{current.revision_count} 次</Tag>
+              <Tag color="orange">{current.reschedule_count} 次</Tag>
+              <span className="text-[10px] text-slate-400 ml-1">原始: {current.original_end_date || '—'}</span>
             </Descriptions.Item>
           )}
           {current.describe && (
