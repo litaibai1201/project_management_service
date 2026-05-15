@@ -25,6 +25,10 @@ import { showToast } from '@/utils/toast'
 import FunctionDetailDrawer from './FunctionDetailDrawer'
 import GanttChart from './GanttChart'
 import MilestoneTab from './MilestoneTab'
+import DutyDetailDrawer from '@/features/duty/DutyDetailDrawer'
+import { dutyApi } from '@/api/duty.api'
+import { TemporaryDuty } from '@/types/api.types'
+import { DUTY_STATUS_MAP } from '@/utils/status'
 
 // ─── Office Preview Sub-components ────────────────────────────────────────────
 
@@ -77,6 +81,9 @@ const ProjectDetailPage: React.FC = () => {
   const [funcPage,           setFuncPage]           = useState(1)
   const [funcPageSize,       setFuncPageSize]       = useState(100)
   const [funcTotal,          setFuncTotal]          = useState(0)
+  const [projectDuties,      setProjectDuties]      = useState<TemporaryDuty[]>([])
+  const [dutyLoading,        setDutyLoading]        = useState(false)
+  const [selectedDutyId,     setSelectedDutyId]     = useState<string | null>(null)
   const [dynamics,           setDynamics]           = useState<Record<string, unknown>[]>([])
   const [dynamicsPage,       setDynamicsPage]       = useState(1)
   const [dynamicsHasMore,    setDynamicsHasMore]    = useState(false)
@@ -570,10 +577,21 @@ const ProjectDetailPage: React.FC = () => {
   }
 
   const myFunctions = useMemo(
-    () => functions.filter((f) => (Array.isArray(f.responsible) ? f.responsible : []).includes(workNo)),
+    () => functions.filter((f) =>
+      (Array.isArray(f.responsible) ? f.responsible : []).some((wn) => wn.toLowerCase() === workNo.toLowerCase())
+    ),
     [functions, workNo],
   )
   const displayedFunctions = funcView === 'mine' ? myFunctions : functions
+
+  const myDuties = useMemo(
+    () => projectDuties.filter((d) =>
+      d.creator?.toLowerCase() === workNo.toLowerCase() ||
+      (d.responsible ?? []).some((wn) => wn.toLowerCase() === workNo.toLowerCase())
+    ),
+    [projectDuties, workNo],
+  )
+  const displayedDuties = funcView === 'mine' ? myDuties : projectDuties
 
   // Group-related computed data
   const existingGroups = useMemo(
@@ -600,7 +618,7 @@ const ProjectDetailPage: React.FC = () => {
     }))
   }, [displayedFunctions])
 
-  const funcColumns: ColumnsType<ProjectFunction> = [
+  const funcColumnsGrouped: ColumnsType<ProjectFunction> = [
     {
       title: '功能名稱', dataIndex: 'function_nm', width: 200, ellipsis: true,
       render: (name: string, r) => (
@@ -733,6 +751,95 @@ const ProjectDetailPage: React.FC = () => {
     },
   ]
 
+  const funcColumnsFlat: ColumnsType<ProjectFunction> = [
+    funcColumnsGrouped[0], // 功能名稱
+    { title: '分組', dataIndex: 'group1', width: 100, render: (v: string) => <Tag style={{ fontSize: 10 }}>{v || '未分組'}</Tag> },
+    ...funcColumnsGrouped.slice(1), // 狀態, 優先級, 進度, 負責人, 預計完成, 實際完成, 操作
+  ]
+
+  const dutyTableColumns: ColumnsType<TemporaryDuty> = [
+    {
+      title: '任務名稱', dataIndex: 'duty_nm', width: 200, ellipsis: true,
+      render: (v: string, r) => (
+        <Button type="link" style={{ padding: 0, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%' }}
+          onClick={() => setSelectedDutyId(r.id)}>{v}</Button>
+      ),
+    },
+    {
+      title: '分組', dataIndex: 'group', width: 100,
+      render: (v: string) => <Tag style={{ fontSize: 10 }}>{v || '未分組'}</Tag>,
+    },
+    {
+      title: '狀態', dataIndex: 'status', width: 110,
+      render: (v: number) => {
+        const s = DUTY_STATUS_MAP[v]
+        const colorMap: Record<string, string> = { default: '#94a3b8', processing: '#2563eb', orange: '#d97706', success: '#16a34a', warning: '#f59e0b', error: '#dc2626' }
+        return s ? <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: colorMap[s.color] ?? '#94a3b8' }} /><span className="text-sm">{s.label}</span></div> : v
+      },
+    },
+    {
+      title: '優先級', dataIndex: 'priority', width: 80,
+      render: (v: number) => { const p = PRIORITY_MAP[v]; return p ? <Tag color={p.color} style={{ fontSize: 11 }}>{p.label}</Tag> : v },
+    },
+    {
+      title: '進度', dataIndex: 'progress', width: 140,
+      render: (v: number) => (
+        <div className="flex items-center gap-2">
+          <Progress percent={v ?? 0} size="small" showInfo={false} style={{ flex: 1 }} strokeColor="#2563eb" trailColor="#f1f5f9" />
+          <span className="text-xs text-slate-400">{v ?? 0}%</span>
+        </div>
+      ),
+    },
+    {
+      title: '負責人', dataIndex: 'responsible', width: 150,
+      render: (v: string[]) => {
+        const list = v ?? []
+        if (list.length === 0) return <span className="text-slate-300 text-xs">未指定</span>
+        const COLORS = ['#7c3aed', '#2563eb', '#059669', '#d97706', '#dc2626']
+        const shown = list.slice(0, 3)
+        const extra = list.length - shown.length
+        return (
+          <div className="flex items-center gap-1.5">
+            <div className="flex items-center">
+              {shown.map((wn, i) => (
+                <Tooltip key={wn} title={toName(wn)}>
+                  <Avatar size={22} style={{ background: COLORS[i % COLORS.length], fontSize: 10, fontWeight: 700, border: '2px solid white', marginLeft: i > 0 ? -6 : 0, zIndex: shown.length - i }}>
+                    {toName(wn)[0]?.toUpperCase()}
+                  </Avatar>
+                </Tooltip>
+              ))}
+              {extra > 0 && <Avatar size={22} style={{ background: '#94a3b8', fontSize: 10, border: '2px solid white', marginLeft: -6 }}>+{extra}</Avatar>}
+            </div>
+            <span className="text-xs text-slate-600">{toName(list[0])}{list.length > 1 ? ` 等${list.length}人` : ''}</span>
+          </div>
+        )
+      },
+    },
+    {
+      title: '預計完成', dataIndex: 'expected_end_date', width: 110,
+      render: (v: string, r) => {
+        if (!v) return <span className="text-slate-300 text-xs">—</span>
+        if (r.status === 3) return <span className="text-green-600 text-xs">{v}</span>
+        if (r.status === 8) return <span className="text-slate-400 text-xs">{v}</span>
+        const isLate = r.end_time && r.end_time > v
+        const isEarly = r.end_time && r.end_time <= v
+        return <span className={isLate ? 'text-red-500 text-xs' : isEarly ? 'text-green-600 text-xs' : 'text-xs'}>{v}</span>
+      },
+    },
+    {
+      title: '實際完成', dataIndex: 'end_time', width: 110,
+      render: (v: string, r) => {
+        if (!v) return <span className="text-slate-300 text-xs">—</span>
+        const isLate = r.expected_end_date && v > r.expected_end_date
+        return <span className={isLate ? 'text-red-500 text-xs font-medium' : 'text-green-600 text-xs font-medium'}>{v}{isLate ? ' ⚠' : ' ✓'}</span>
+      },
+    },
+    {
+      title: '建立人', dataIndex: 'creator', width: 90,
+      render: (v: string) => <span className="text-sm text-slate-500">{toName(v)}</span>,
+    },
+  ]
+
   if (isLoading) return <div className="flex items-center justify-center h-64"><Spin size="large" /></div>
   if (!current)  return <Empty description="專案不存在" className="mt-20" />
 
@@ -839,6 +946,15 @@ const ProjectDetailPage: React.FC = () => {
       {/* Tabs */}
       <Tabs
         type="card"
+        onChange={(key) => {
+          if (key === 'functions' && id && projectDuties.length === 0 && !dutyLoading) {
+            setDutyLoading(true)
+            dutyApi.listByProject(id)
+              .then((res) => setProjectDuties(Array.isArray(res.content) ? res.content : []))
+              .catch(() => {})
+              .finally(() => setDutyLoading(false))
+          }
+        }}
         items={[
           {
             key: 'info',
@@ -865,7 +981,7 @@ const ProjectDetailPage: React.FC = () => {
           },
           {
             key: 'functions',
-            label: `功能任務 (${functions.length})`,
+            label: `功能任務 (${functions.length + projectDuties.filter((d) => d.status !== 3).length})`,
             children: (
               <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: 0 } }}>
                 <div className="flex justify-between items-center px-4 py-3 border-b border-slate-100">
@@ -875,8 +991,8 @@ const ProjectDetailPage: React.FC = () => {
                       value={funcView}
                       onChange={(v) => setFuncView(v as 'all' | 'mine')}
                       options={[
-                        { label: `全部 (${functions.length})`, value: 'all'  },
-                        { label: `我的 (${myFunctions.length})`,     value: 'mine' },
+                        { label: `全部 (${functions.length + projectDuties.filter((d) => d.status !== 3).length})`, value: 'all'  },
+                        { label: `我的 (${myFunctions.length + myDuties.length})`, value: 'mine' },
                       ]}
                     />
                     <div className="w-px h-5 bg-slate-200" />
@@ -899,21 +1015,43 @@ const ProjectDetailPage: React.FC = () => {
                 </div>
 
                 {funcGroupMode === 'flat' ? (
-                  <Table rowKey="id" columns={funcColumns} dataSource={displayedFunctions}
-                    loading={funcLoading} size="middle" scroll={{ x: 800 }}
-                    pagination={{
-                      current: funcPage,
-                      pageSize: funcPageSize,
-                      total: funcTotal,
-                      showSizeChanger: true,
-                      pageSizeOptions: ['20', '50', '100', '200'],
-                      showTotal: (total) => `共 ${total} 筆`,
-                      onChange: (page, size) => {
-                        setFuncPageSize(size)
-                        if (id) loadFunctions(id, page, size)
-                      },
-                    }}
-                  />
+                  <>
+                    <Table rowKey="id" columns={funcColumnsFlat} dataSource={displayedFunctions}
+                      loading={funcLoading} size="middle" scroll={{ x: 900 }}
+                      pagination={{
+                        current: funcPage,
+                        pageSize: funcPageSize,
+                        total: funcTotal,
+                        showSizeChanger: true,
+                        pageSizeOptions: ['20', '50', '100', '200'],
+                        showTotal: (total) => `共 ${total} 筆`,
+                        onChange: (page, size) => {
+                          setFuncPageSize(size)
+                          if (id) loadFunctions(id, page, size)
+                        },
+                      }}
+                    />
+                    {displayedDuties.length > 0 && (
+                      <div className="border-t border-orange-100">
+                        <div className="flex items-center gap-2 px-4 py-2 bg-orange-50/60">
+                          <FolderIcon className="w-4 h-4 text-orange-500" />
+                          <span className="text-sm font-semibold text-slate-700">臨時任務</span>
+                          <Tag color="orange" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>
+                            {displayedDuties.filter((d) => d.status !== 3).length} 項
+                          </Tag>
+                        </div>
+                        <Table
+                          rowKey="id"
+                          size="middle"
+                          dataSource={displayedDuties}
+                          pagination={false}
+                          scroll={{ x: 1000 }}
+                          showHeader={true}
+                          columns={dutyTableColumns}
+                        />
+                      </div>
+                    )}
+                  </>
                 ) : (
                   <div className="px-2 py-2">
                     {funcLoading ? (
@@ -947,10 +1085,30 @@ const ProjectDetailPage: React.FC = () => {
                               </div>
                             }
                           >
-                            <Table rowKey="id" columns={funcColumns} dataSource={g.items}
+                            <Table rowKey="id" columns={funcColumnsGrouped} dataSource={g.items}
                               pagination={false} size="small" scroll={{ x: 800 }} />
                           </Collapse.Panel>
                         ))}
+                        {displayedDuties.length > 0 && (
+                          <Collapse.Panel
+                            key="__duties__"
+                            header={
+                              <div className="flex items-center gap-3">
+                                <FolderIcon className="w-4 h-4 text-orange-500" />
+                                <span className="font-semibold text-slate-700">臨時任務</span>
+                                <Tag color="orange" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>
+                                  {displayedDuties.filter((d) => d.status !== 3).length} 項
+                                </Tag>
+                                {displayedDuties.some((d) => d.status !== 8 && d.status !== 3 && d.expected_end_date && dayjs(d.expected_end_date).isBefore(dayjs(), 'day')) && (
+                                  <Tag color="error" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>超時</Tag>
+                                )}
+                              </div>
+                            }
+                          >
+                            <Table rowKey="id" size="small" dataSource={displayedDuties}
+                              pagination={false} scroll={{ x: 1000 }} columns={dutyTableColumns} />
+                          </Collapse.Panel>
+                        )}
                       </Collapse>
                     )}
                   </div>
@@ -1403,6 +1561,15 @@ const ProjectDetailPage: React.FC = () => {
           projectStatus={current?.status}
           projectPm={current?.project_pm} />
       )}
+
+      <DutyDetailDrawer
+        open={!!selectedDutyId}
+        dutyId={selectedDutyId}
+        onClose={() => {
+          setSelectedDutyId(null)
+          if (id) dutyApi.listByProject(id).then((res) => setProjectDuties(Array.isArray(res.content) ? res.content : [])).catch(() => {})
+        }}
+      />
 
       {/* 編輯專案 Modal */}
       <Modal title="編輯專案" open={showEdit} onCancel={() => setShowEdit(false)}

@@ -481,6 +481,7 @@ class DutyProgressRecordModel(BaseMixinModel):
     time_consum = db.Column(db.Float, default=0)
     start_time = db.Column(db.String(10))
     is_read = db.Column(db.Integer, default=0)
+    files_json = db.Column(db.Text, comment="附件信息(JSON数组)")
 
     def to_dict(self):
         coops = []
@@ -489,11 +490,20 @@ class DutyProgressRecordModel(BaseMixinModel):
                 coops = json.loads(self.cooperator)
             except Exception:
                 coops = [self.cooperator]
+        raw_files = []
+        if self.files_json:
+            try:
+                raw_files = json.loads(self.files_json)
+            except Exception:
+                pass
+        base = f"/api/temporary_duty/{self.duty_id}/progress/{self.id}/files"
+        files = [{"name": f["name"], "url": f"{base}/{f['id']}/preview", "size": f.get("size")} for f in raw_files]
         return {
             "progress_id": self.id, "progress": self.progress,
             "progress_record": self.progress_record or "", "submitter": self.submitter,
             "cooperator": coops, "time_consum": self.time_consum or 0,
             "start_time": self.start_time or "", "created_at": self.created_at,
+            "files": files,
         }
 
 

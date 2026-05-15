@@ -6,13 +6,22 @@ from flask_smorest import Blueprint
 from utils.auth import jwt_required, get_identity
 from utils.response import response_result
 from controllers.duty_controller import DutyController
-from serializes.response_serialize import RspMsgDictSchema
+from serializes.response_serialize import RspMsgDictSchema, RspMsgRawSchema
 
 blp = Blueprint("duty_api", __name__, description="临时任务管理接口")
 ctrl = DutyController()
 
 
 # ─── Duty CRUD ───────────────────────────────────────────────────────────────
+
+@blp.route("/by_project/<string:project_id>")
+class DutyByProjectApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgRawSchema)
+    def get(self, project_id):
+        """查询关联到某专案的所有临时任务"""
+        return response_result(content=ctrl.list_duties_by_project(project_id))
+
 
 @blp.route("/temporary_duty_list")
 class DutyListApi(MethodView):
@@ -186,8 +195,36 @@ class DutyProgressApi(MethodView):
         """创建任务进度"""
         work_no = get_identity()
         payload = request.form.to_dict()
-        ctrl.create_progress(duty_id, payload, submitter=work_no)
+        ctrl.create_progress(duty_id, payload, submitter=work_no, files=request.files)
         return response_result()
+
+
+@blp.route("/<string:duty_id>/progress/<string:progress_id>/files/<string:file_id>/preview")
+class DutyProgressFilePreviewApi(MethodView):
+    @jwt_required()
+    def get(self, duty_id, progress_id, file_id):
+        """预览进度附件"""
+        import os, json
+        from flask import send_file, abort
+        from dbs.mysql_db import db
+        from dbs.mysql_db.model_tables import DutyProgressRecordModel
+        rec = db.session.query(DutyProgressRecordModel).filter_by(id=progress_id).first()
+        if not rec or not rec.files_json:
+            abort(404)
+        try:
+            file_list = json.loads(rec.files_json)
+        except Exception:
+            abort(404)
+        meta = next((f for f in file_list if f["id"] == file_id), None)
+        if not meta:
+            abort(404)
+        ext = meta.get("ext", "")
+        filename = f"{file_id}.{ext}" if ext else file_id
+        dest_dir = ctrl._duty_progress_upload_dir(duty_id, progress_id)
+        abs_path = os.path.join(dest_dir, filename)
+        if not os.path.exists(abs_path):
+            abort(404)
+        return send_file(abs_path, download_name=meta["name"], as_attachment=False)
 
 
 # ─── Review ──────────────────────────────────────────────────────────────────

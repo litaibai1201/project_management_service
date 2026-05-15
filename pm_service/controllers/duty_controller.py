@@ -46,6 +46,14 @@ class DutyController:
             "data_list": [_enrich(d) for d in duties],
         }
 
+    def list_duties_by_project(self, project_id: str):
+        """查询关联到某专案的所有临时任务（不含已删除）"""
+        duties = db.session.query(TemporaryDutyModel).filter(
+            TemporaryDutyModel.project_id == project_id,
+            TemporaryDutyModel.duty_status != 9,
+        ).order_by(TemporaryDutyModel.created_at.desc()).all()
+        return [d.to_dict() for d in duties]
+
     def get_duty(self, duty_id: str):
         d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
         if not d or d.duty_status == 9:
@@ -291,7 +299,16 @@ class DutyController:
             "data_list": [r.to_dict() for r in records],
         }
 
-    def create_progress(self, duty_id: str, payload: dict, submitter: str):
+    def _duty_progress_upload_dir(self, duty_id: str, progress_id: str) -> str:
+        import os
+        from configs.base import BaseConfig
+        base = os.path.abspath(BaseConfig.UPLOAD_DIR)
+        path = os.path.join(base, "duty_progress_files", duty_id, progress_id)
+        os.makedirs(path, exist_ok=True)
+        return path
+
+    def create_progress(self, duty_id: str, payload: dict, submitter: str, files=None):
+        import os, uuid as _uuid
         d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
         if not d or d.duty_status == 9:
             raise ResourceNotFoundException(resource_type="临时任务")
@@ -300,7 +317,9 @@ class DutyController:
         responsible = json.loads(d.responsible) if d.responsible else []
         if submitter not in responsible:
             raise PermissionException("只有負責人可以更新進度")
+        progress_id = _uuid.uuid4().hex
         rec = DutyProgressRecordModel(
+            id=progress_id,
             duty_id=duty_id,
             progress=payload["progress"],
             progress_record=payload.get("progress_record", ""),
@@ -309,6 +328,24 @@ class DutyController:
             time_consum=payload.get("time_consum", 0),
             start_time=payload.get("start_time", ""),
         )
+        if files:
+            from configs.base import BaseConfig
+            from utils.exceptions import ValidationException
+            saved = []
+            upload_list = files.getlist("files") if hasattr(files, "getlist") else []
+            for f_obj in upload_list:
+                if not f_obj or not f_obj.filename:
+                    continue
+                ext = f_obj.filename.rsplit(".", 1)[-1].lower() if "." in f_obj.filename else ""
+                if ext not in BaseConfig.UPLOAD_ALLOWED_EXTENSIONS:
+                    raise ValidationException(msg=f"不支持的文件类型: .{ext}")
+                fid = _uuid.uuid4().hex
+                dest_dir = self._duty_progress_upload_dir(duty_id, progress_id)
+                dest = os.path.join(dest_dir, f"{fid}.{ext}" if ext else fid)
+                f_obj.save(dest)
+                saved.append({"id": fid, "name": f_obj.filename, "ext": ext, "size": os.path.getsize(dest)})
+            if saved:
+                rec.files_json = json.dumps(saved, ensure_ascii=False)
         db.session.add(rec)
         d.progress = payload["progress"]
         d.update_at = CommonTools.get_now()

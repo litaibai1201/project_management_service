@@ -1,14 +1,16 @@
 import React, { useEffect, useState, useMemo } from 'react'
 import {
   Tabs, Table, Button, Tag, Modal, Form, Input, Select, Space,
-  Avatar, Badge, Tooltip, Drawer, Spin, Empty,
+  Avatar, Badge, Tooltip, Drawer, Spin, Empty, DatePicker,
 } from 'antd'
+import type { Dayjs } from 'dayjs'
 import type { ColumnsType } from 'antd/es/table'
 import {
   CheckIcon, XMarkIcon, ArrowUturnLeftIcon, UserPlusIcon, EyeIcon,
   CheckCircleIcon, InformationCircleIcon, PaperClipIcon,
-  ArrowDownTrayIcon, PlusIcon,
+  ArrowDownTrayIcon, PlusIcon, MagnifyingGlassIcon, FunnelIcon,
 } from '@heroicons/react/24/outline'
+import { useLocation } from 'react-router-dom'
 import { projectApi } from '@/api/project.api'
 import { dutyApi } from '@/api/duty.api'
 import { userApi } from '@/api/user.api'
@@ -42,6 +44,7 @@ const APPLY_TYPE_COLOR: Record<string, string> = {
   function_completion: 'cyan',   // alias — 兼容旧记录
   project_complete:    'green',
   duty_complete:       'volcano',
+  duty_completion:     'volcano',  // 兼容旧记录
   requirement_change:  'orange',
 }
 
@@ -96,15 +99,37 @@ const APPLY_TYPE_META: Record<string, {
   },
 }
 
-const APPLY_TYPE_TABS = [
-  { key: 'pending',           label: '全部待審'  },
-  { key: 'initiate',          label: '立案申請'  },
-  { key: 'plan',              label: '規劃審核'  },
-  { key: 'schedule',          label: '排程審核'  },
-  { key: 'function_complete', label: '功能完結審核'  },
-  { key: 'project_complete',  label: '專案完結'  },
-  { key: 'duty_complete',     label: '臨時任務'  },
-  { key: 'done',              label: '已審核'    },
+// 待我審核（只看待處理）
+const REVIEWER_TABS = [
+  { key: 'all',               label: '全部待審'    },
+  { key: 'initiate',          label: '立案申請'    },
+  { key: 'plan',              label: '規劃審核'    },
+  { key: 'schedule',          label: '排程審核'    },
+  { key: 'function_complete', label: '功能完結審核' },
+  { key: 'project_complete',  label: '專案完結'    },
+  { key: 'duty_complete',     label: '臨時任務'    },
+]
+
+// 我的審核（已審核過的記錄，按類型分）
+const REVIEWED_TABS = [
+  { key: 'all',               label: '全部'        },
+  { key: 'initiate',          label: '立案申請'    },
+  { key: 'plan',              label: '規劃審核'    },
+  { key: 'schedule',          label: '排程審核'    },
+  { key: 'function_complete', label: '功能完結審核' },
+  { key: 'project_complete',  label: '專案完結'    },
+  { key: 'duty_complete',     label: '臨時任務'    },
+]
+
+// 我的提交
+const SUBMITTER_TABS = [
+  { key: 'all',               label: '全部'        },
+  { key: 'initiate',          label: '立案申請'    },
+  { key: 'plan',              label: '規劃審核'    },
+  { key: 'schedule',          label: '排程審核'    },
+  { key: 'function_complete', label: '功能完結審核' },
+  { key: 'project_complete',  label: '專案完結'    },
+  { key: 'duty_complete',     label: '臨時任務'    },
 ]
 
 // ─── 每種審批類型需要展示的附件分類 ──────────────────────────────────────────────
@@ -222,7 +247,7 @@ const FUNC_STATUS_LABEL: Record<number, { label: string; color: string }> = {
   8: { label: '擱置',    color: '#6b7280' },
 }
 
-const WbsTable: React.FC<{ functions: ProjectFunction[] }> = ({ functions }) => {
+const WbsTable: React.FC<{ functions: ProjectFunction[]; toName: (workNo: string) => string }> = ({ functions, toName }) => {
   // Build ordered groups
   const groups = useMemo(() => {
     const map: Record<string, ProjectFunction[]> = {}
@@ -313,12 +338,12 @@ const WbsTable: React.FC<{ functions: ProjectFunction[] }> = ({ functions }) => 
               {isCollapsed ? (
                 <>
                   <div className="px-2 py-2 text-violet-500 truncate">
-                    {responsible.length > 0 ? responsible.join('、') : <span className="text-violet-300">—</span>}
+                    {responsible.length > 0 ? responsible.map((r) => toName(r) || r).join('、') : <span className="text-violet-300">—</span>}
                   </div>
-                  <div className="px-2 py-2 col-span-2" />
-                  <div className="px-2 py-2 text-violet-500 tabular-nums">{start ?? '—'}</div>
-                  <div className="px-2 py-2 text-violet-500 tabular-nums">{end ?? '—'}</div>
-                  <div className="px-2 py-2" />
+                  <div className="px-2 py-2" />{/* 優先級 */}
+                  <div className="px-2 py-2 text-violet-500 tabular-nums">{start ?? '—'}</div>{/* 預計開始 */}
+                  <div className="px-2 py-2 text-violet-500 tabular-nums">{end ?? '—'}</div>{/* 預計完成 */}
+                  <div className="px-2 py-2" />{/* 狀態 */}
                 </>
               ) : (
                 <div className="col-span-5" />
@@ -337,7 +362,7 @@ const WbsTable: React.FC<{ functions: ProjectFunction[] }> = ({ functions }) => 
                 </div>
                 <div className="px-2 py-2 text-slate-600 truncate">
                   {task.responsible && task.responsible.length > 0
-                    ? task.responsible.join('、')
+                    ? task.responsible.map((r) => toName(r) || r).join('、')
                     : <span className="text-slate-300">—</span>}
                 </div>
                 <div className="px-2 py-2">
@@ -459,7 +484,11 @@ const ReviewDetailDrawer: React.FC<{
 
   if (!record) return null
 
-  const targetName    = record.project_nm || record.duty_nm || record.function_nm || '—'
+  const targetName = record.apply_type_code === 'function_complete'
+    ? (record.function_nm || record.project_nm || '—')
+    : record.apply_type_code === 'duty_complete'
+    ? (record.duty_nm || '—')
+    : (record.project_nm || record.duty_nm || record.function_nm || '—')
   const nodes         = [...(record.approval_nodes ?? [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
 
   // 本次審批需要展示的附件分類
@@ -754,7 +783,7 @@ const ReviewDetailDrawer: React.FC<{
           ) : functions.length === 0 ? (
             <div className="text-xs text-slate-400 py-4 text-center border border-dashed border-slate-200 rounded-lg">暫無任務資料</div>
           ) : (
-            <WbsTable functions={functions} />
+            <WbsTable functions={functions} toName={toName} />
           )}
         </div>
       )}
@@ -973,10 +1002,19 @@ const ReviewDetailDrawer: React.FC<{
 
 const ReviewListPage: React.FC = () => {
   const toName = useWorkNoToName()
+  const location = useLocation()
+  const isSubmitterMode = location.pathname === '/review/submitted'
+  const isReviewedMode  = location.pathname === '/review/reviewed'
+
   const [allRecords,   setAllRecords]   = useState<ApplyRecord[]>([])
+  const [myRecords,    setMyRecords]    = useState<ApplyRecord[]>([])
   const [isLoading,    setIsLoading]    = useState(false)
   const [isSaving,     setIsSaving]     = useState(false)
-  const [activeTab,    setActiveTab]    = useState('pending')
+  const [reviewerTab,  setReviewerTab]  = useState('all')
+  const [reviewedTab,  setReviewedTab]  = useState('all')
+  const [submitterTab, setSubmitterTab] = useState('all')
+  const [keyword,      setKeyword]      = useState('')
+  const [dateRange,    setDateRange]    = useState<[Dayjs | null, Dayjs | null] | null>(null)
   const [detailRecord, setDetailRecord] = useState<ApplyRecord | null>(null)
   const [actionTarget, setActionTarget] = useState<{
     record: ApplyRecord
@@ -1004,40 +1042,85 @@ const ReviewListPage: React.FC = () => {
     if (r.apply_type_code === 'function_complete' && r.apply_type !== '功能完結審核') {
       return { ...r, apply_type: '功能完結審核' }
     }
+    if (r.apply_type_code === 'duty_completion') {
+      return { ...r, apply_type_code: 'duty_complete', apply_type: '臨時任務完結審核' }
+    }
     return r
   }
 
   const loadData = async () => {
     setIsLoading(true)
     try {
-      const [proj, duty] = await Promise.all([
+      const [proj, duty, mySubmitted] = await Promise.all([
         projectApi.reviewList({ page: 1, size: 100 }),
         dutyApi.reviewList({ page: 1, size: 100 }),
+        projectApi.mySubmittedReviews({ page: 1, size: 200 }),
       ])
       const projContent = proj.content as { project_list?: ApplyRecord[]; data_list?: ApplyRecord[] }
       const dutyContent = duty.content as { project_list?: ApplyRecord[]; data_list?: ApplyRecord[] }
+      const myContent   = mySubmitted.content as { project_list?: ApplyRecord[]; data_list?: ApplyRecord[] }
       const projList = (projContent.project_list ?? projContent.data_list ?? []) as ApplyRecord[]
       const dutyList = (dutyContent.project_list ?? dutyContent.data_list ?? []) as ApplyRecord[]
+      const myList   = (myContent.project_list ?? myContent.data_list ?? []) as ApplyRecord[]
       const merged = [...projList, ...dutyList]
         .map(normalizeRecord)
         .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
       setAllRecords(merged)
+      setMyRecords(myList.map(normalizeRecord).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()))
     } catch { /* global handler */ }
     finally { setIsLoading(false) }
   }
 
   useEffect(() => { loadData() }, [])
 
-  // Filter records by tab
-  const displayedRecords = useMemo(() => {
-    if (activeTab === 'pending') return allRecords.filter((r) => r.is_my_turn)
-    if (activeTab === 'done')    return allRecords.filter((r) => !r.is_my_turn)
-    return allRecords.filter((r) => r.apply_type_code === activeTab && r.is_my_turn)
-  }, [allRecords, activeTab])
+  const pendingAll = useMemo(() => allRecords.filter((r) => r.is_my_turn),  [allRecords])
+  const doneAll    = useMemo(() => allRecords.filter((r) => !r.is_my_turn), [allRecords])
 
-  // Tab badge counts
-  const pendingCount  = allRecords.filter((r) => r.is_my_turn).length
-  const doneCount     = allRecords.filter((r) => !r.is_my_turn).length
+  // 通用篩選：關鍵字 + 時間範圍
+  const applyFilters = (list: ApplyRecord[]): ApplyRecord[] => {
+    let result = list
+    const kw = keyword.trim().toLowerCase()
+    if (kw) {
+      result = result.filter((r) =>
+        (r.project_nm ?? '').toLowerCase().includes(kw) ||
+        (r.duty_nm    ?? '').toLowerCase().includes(kw) ||
+        (r.function_nm ?? '').toLowerCase().includes(kw) ||
+        (r.submitter_name ?? '').toLowerCase().includes(kw) ||
+        (r.apply_type ?? '').toLowerCase().includes(kw) ||
+        (r.description ?? '').toLowerCase().includes(kw),
+      )
+    }
+    if (dateRange?.[0] && dateRange?.[1]) {
+      const [start, end] = dateRange
+      result = result.filter((r) => {
+        const d = r.created_at ? new Date(r.created_at).getTime() : 0
+        return d >= start.startOf('day').valueOf() && d <= end.endOf('day').valueOf()
+      })
+    }
+    return result
+  }
+
+  // 待我審核 - 依子標籤過濾（只有待處理）
+  const reviewerRecords = useMemo(() => {
+    const base = reviewerTab === 'all' ? pendingAll : pendingAll.filter((r) => r.apply_type_code === reviewerTab)
+    return applyFilters(base)
+  }, [pendingAll, reviewerTab, keyword, dateRange])
+
+  // 我的審核 - 依子標籤過濾（已審核）
+  const reviewedRecords = useMemo(() => {
+    const base = reviewedTab === 'all' ? doneAll : doneAll.filter((r) => r.apply_type_code === reviewedTab)
+    return applyFilters(base)
+  }, [doneAll, reviewedTab, keyword, dateRange])
+
+  // 我的提交 - 依子標籤過濾
+  const submitterRecords = useMemo(() => {
+    const base = submitterTab === 'all' ? myRecords : myRecords.filter((r) => r.apply_type_code === submitterTab)
+    return applyFilters(base)
+  }, [myRecords, submitterTab, keyword, dateRange])
+
+  // Badge counts
+  const pendingCount = pendingAll.length
+  const doneCount    = doneAll.length
 
   // ─── Actions ───────────────────────────────────────────────────────────────
 
@@ -1081,15 +1164,25 @@ const ReviewListPage: React.FC = () => {
     {
       title: '相關項目', key: 'target', ellipsis: true,
       render: (_: unknown, r) => {
-        const name = r.project_nm ?? r.duty_nm ?? r.function_nm ?? '—'
-        const meta = APPLY_TYPE_META[r.apply_type_code]
+        const isFuncComplete = r.apply_type_code === 'function_complete'
+        const isDutyComplete = r.apply_type_code === 'duty_complete'
+        // 用 || 跳過空字串（後端返回 "" 而非 null）
+        const primaryName = isFuncComplete
+          ? (r.function_nm || r.project_nm || '—')
+          : isDutyComplete
+          ? (r.duty_nm || '—')
+          : (r.project_nm || r.duty_nm || r.function_nm || '—')
+        // 功能完結審核：次標題顯示所屬專案
+        const secondaryName = isFuncComplete && r.project_nm ? r.project_nm : null
         return (
           <div
             className="cursor-pointer group"
             onClick={() => setDetailRecord(r)}
           >
-            <div className="text-slate-700 text-sm font-medium group-hover:text-blue-600 transition-colors">{name}</div>
-            {meta && <div className="text-slate-400 text-xs mt-0.5">{meta.what}</div>}
+            <div className="text-slate-700 text-sm font-medium group-hover:text-blue-600 transition-colors">{primaryName}</div>
+            {secondaryName && (
+              <div className="text-slate-400 text-xs mt-0.5">專案：{secondaryName}</div>
+            )}
           </div>
         )
       },
@@ -1216,33 +1309,121 @@ const ReviewListPage: React.FC = () => {
   return (
     <div className="p-6">
       <div className="mb-5">
-        <h1 className="text-2xl font-bold text-slate-800">審批中心</h1>
+        <h1 className="text-2xl font-bold text-slate-800">
+          {isSubmitterMode ? '我的提交' : isReviewedMode ? '我的審核' : '待我審核'}
+        </h1>
         <p className="text-slate-400 text-sm mt-1">
-          待審核 <span className="text-orange-500 font-semibold">{pendingCount}</span> 項 · 已審核 {doneCount} 項
+          {isSubmitterMode
+            ? <>共 <span className="text-blue-500 font-semibold">{myRecords.length}</span> 筆提交記錄</>
+            : isReviewedMode
+            ? <>已審核 <span className="text-blue-500 font-semibold">{doneCount}</span> 筆</>
+            : <>待審核 <span className="text-orange-500 font-semibold">{pendingCount}</span> 項</>
+          }
         </p>
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-slate-100">
-        <Tabs
-          activeKey={activeTab}
-          onChange={setActiveTab}
-          style={{ padding: '0 16px' }}
-          items={APPLY_TYPE_TABS.map((tab) => {
-            const count = tab.key === 'pending'
-              ? pendingCount
-              : tab.key === 'done'
-              ? doneCount
-              : allRecords.filter((r) => r.apply_type_code === tab.key && r.is_my_turn).length
-
-            return {
-              key:   tab.key,
-              label: count > 0
-                ? <Badge count={count} size="small" offset={[6, -2]}><span className="pr-2">{tab.label}</span></Badge>
-                : tab.label,
-              children: tabContent(displayedRecords),
+        {/* ── 篩選工具列 ── */}
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-100 flex-wrap">
+          <FunnelIcon className="w-4 h-4 text-slate-400 flex-shrink-0" />
+          <Input
+            prefix={<MagnifyingGlassIcon className="w-3.5 h-3.5 text-slate-400" />}
+            placeholder="搜尋專案名稱、申請人、申請說明…"
+            allowClear
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            style={{ width: 280 }}
+            size="small"
+          />
+          <DatePicker.RangePicker
+            size="small"
+            placeholder={['提交開始日期', '提交結束日期']}
+            value={dateRange ?? undefined}
+            onChange={(v) => setDateRange(v as [Dayjs, Dayjs] | null)}
+            style={{ width: 240 }}
+          />
+          {(keyword || dateRange) && (
+            <Button
+              size="small"
+              type="text"
+              className="text-slate-400 hover:text-slate-600"
+              onClick={() => { setKeyword(''); setDateRange(null) }}
+            >
+              清除篩選
+            </Button>
+          )}
+          <span className="ml-auto text-xs text-slate-400">
+            {isSubmitterMode
+              ? `顯示 ${submitterRecords.length} / ${myRecords.length} 筆`
+              : isReviewedMode
+              ? `顯示 ${reviewedRecords.length} / ${doneCount} 筆`
+              : `顯示 ${reviewerRecords.length} / ${pendingCount} 筆`
             }
-          })}
-        />
+          </span>
+        </div>
+
+        {/* ── 待我審核面板 ── */}
+        {!isSubmitterMode && !isReviewedMode && (
+          <Tabs
+            activeKey={reviewerTab}
+            onChange={setReviewerTab}
+            style={{ padding: '0 16px' }}
+            items={REVIEWER_TABS.map((tab) => {
+              const count = tab.key === 'all'
+                ? pendingCount
+                : pendingAll.filter((r) => r.apply_type_code === tab.key).length
+              return {
+                key: tab.key,
+                label: count > 0
+                  ? <Badge count={count} size="small" offset={[6, -2]}><span className="pr-2">{tab.label}</span></Badge>
+                  : tab.label,
+                children: tabContent(reviewerRecords),
+              }
+            })}
+          />
+        )}
+
+        {/* ── 我的審核面板 ── */}
+        {isReviewedMode && (
+          <Tabs
+            activeKey={reviewedTab}
+            onChange={setReviewedTab}
+            style={{ padding: '0 16px' }}
+            items={REVIEWED_TABS.map((tab) => {
+              const count = tab.key === 'all'
+                ? doneCount
+                : doneAll.filter((r) => r.apply_type_code === tab.key).length
+              return {
+                key: tab.key,
+                label: count > 0
+                  ? <Badge count={count} size="small" offset={[6, -2]}><span className="pr-2">{tab.label}</span></Badge>
+                  : tab.label,
+                children: tabContent(reviewedRecords),
+              }
+            })}
+          />
+        )}
+
+        {/* ── 我的提交面板 ── */}
+        {isSubmitterMode && (
+          <Tabs
+            activeKey={submitterTab}
+            onChange={setSubmitterTab}
+            style={{ padding: '0 16px' }}
+            items={SUBMITTER_TABS.map((tab) => {
+              const count = tab.key === 'all'
+                ? myRecords.length
+                : myRecords.filter((r) => r.apply_type_code === tab.key).length
+              return {
+                key: tab.key,
+                label: count > 0
+                  ? <Badge count={count} size="small" offset={[6, -2]}><span className="pr-2">{tab.label}</span></Badge>
+                  : tab.label,
+                children: tabContent(submitterRecords),
+              }
+            })}
+          />
+        )}
       </div>
 
       {/* Detail Drawer */}

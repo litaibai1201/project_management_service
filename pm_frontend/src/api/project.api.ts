@@ -193,6 +193,10 @@ export const projectApi = {
   allReviews: (): Promise<ApiResponse<ApplyRecord[]>> =>
     get('/project/all_reviews'),
 
+  /** GET /api/project/my_submitted_reviews — 我提交的審核記錄 */
+  mySubmittedReviews: (params?: { page?: number; size?: number }): Promise<ApiResponse<PaginatedContent<ApplyRecord>>> =>
+    get('/project/my_submitted_reviews', { params }),
+
   /** PUT /api/project/review/:review_id */
   approveReview: (reviewId: string, payload: ReviewPayload): Promise<ApiResponse<null>> =>
     put(`/project/review/${reviewId}`, payload),

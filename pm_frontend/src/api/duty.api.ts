@@ -13,6 +13,10 @@ import {
 // ─── Duty API ─────────────────────────────────────────────────────────────────
 
 export const dutyApi = {
+  /** GET /api/temporary_duty/by_project/:projectId */
+  listByProject: (projectId: string): Promise<ApiResponse<TemporaryDuty[]>> =>
+    get(`/temporary_duty/by_project/${projectId}`),
+
   /** POST /api/temporary_duty/temporary_duty_list */
   list: (payload: DutyListQuery): Promise<ApiResponse<PaginatedContent<TemporaryDuty>>> =>
     post('/temporary_duty/temporary_duty_list', payload),

@@ -28,6 +28,9 @@ import {
 } from '@heroicons/react/24/outline'
 import { useNavigate } from 'react-router-dom'
 import { projectApi } from '@/api/project.api'
+import { dutyApi } from '@/api/duty.api'
+import { TemporaryDuty } from '@/types/api.types'
+import { DUTY_STATUS_MAP } from '@/utils/status'
 import { meetingNoteApi, type MeetingNote as ApiMeetingNote } from '@/api/meeting_note.api'
 import reportLogoUrl from '@/assets/report_logo.png'
 import dayjs from 'dayjs'
@@ -862,6 +865,80 @@ const FunctionModule: React.FC<{
   )
 }
 
+// ─── Duties Section (inside ProjectCard) ───────────────────────────────────
+
+const DutiesSection: React.FC<{ duties: TemporaryDuty[] }> = ({ duties }) => {
+  const [show, setShow] = useState(false)
+  const overdueCount = duties.filter((d) => {
+    if (d.status === 8 || d.status === 3) return false
+    const end = d.expected_end_date
+    return end && dayjs(end).isBefore(dayjs(), 'day')
+  }).length
+
+  return (
+    <div className="mt-3 px-1">
+      <button
+        className="border-0 bg-transparent cursor-pointer w-full flex items-center gap-2 py-1.5 text-left group/duties"
+        onClick={() => setShow(!show)}
+      >
+        {show
+          ? <ChevronDownIcon className="w-3 h-3 text-orange-400" />
+          : <ChevronRightIcon className="w-3 h-3 text-slate-400 group-hover/duties:text-orange-400 transition-colors" />
+        }
+        <ClockIcon className={`w-3.5 h-3.5 ${show || overdueCount > 0 ? 'text-orange-500' : 'text-slate-400 group-hover/duties:text-orange-400 transition-colors'}`} />
+        <span className={`text-[11px] font-semibold ${show || overdueCount > 0 ? 'text-orange-600' : 'text-slate-400 group-hover/duties:text-orange-500 transition-colors'}`}>
+          臨時任務
+        </span>
+        <span className="text-[10px] font-bold bg-orange-100 text-orange-600 rounded-full px-1.5 py-0.5 leading-none">
+          {duties.length}
+        </span>
+        {overdueCount > 0 && (
+          <span className="text-[10px] font-bold bg-red-500 text-white rounded-full px-1.5 py-0.5 leading-none">
+            {overdueCount} 超時
+          </span>
+        )}
+      </button>
+      {show && (
+        <div className="mt-1 rounded-lg border border-orange-100 bg-orange-50/40 overflow-hidden">
+          {duties.map((d, idx) => {
+            const s = DUTY_STATUS_MAP[d.status]
+            const isOverdue = d.status !== 8 && d.status !== 3 && d.expected_end_date
+              ? dayjs(d.expected_end_date).isBefore(dayjs(), 'day')
+              : false
+            return (
+              <div
+                key={d.id}
+                className={`flex items-center gap-2 px-3 py-2 text-[11px] ${idx > 0 ? 'border-t border-orange-100' : ''}`}
+              >
+                <span className="flex-1 font-medium text-slate-700 truncate">{d.duty_nm}</span>
+                {s && (
+                  <Tag
+                    color={s.color}
+                    style={{ fontSize: 10, margin: 0, lineHeight: '16px', padding: '0 4px' }}
+                  >
+                    {s.label}
+                  </Tag>
+                )}
+                {isOverdue && (
+                  <Tag color="error" style={{ fontSize: 10, margin: 0, lineHeight: '16px', padding: '0 4px' }}>超時</Tag>
+                )}
+                {(d.responsible ?? []).length > 0 && (
+                  <span className="text-slate-400 shrink-0">{(d.responsible ?? []).join('、')}</span>
+                )}
+                {d.expected_end_date && (
+                  <span className={`shrink-0 ${isOverdue ? 'text-red-500 font-semibold' : 'text-slate-400'}`}>
+                    {d.expected_end_date}
+                  </span>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Project Card Component ─────────────────────────────────────────────────
 
 const ProjectCard: React.FC<{
@@ -874,7 +951,8 @@ const ProjectCard: React.FC<{
   onAddNote: (taskId: string | null, taskName: string | null, type: NoteType, content: string) => void
   onResolveNote: (noteId: string) => void
   onDeleteNote: (noteId: string) => void
-}> = ({ project, originalProject, onWeekTagClick, expandedTaskId, onToggleTaskExpand, notes, onAddNote, onResolveNote, onDeleteNote }) => {
+  duties?: TemporaryDuty[]
+}> = ({ project, originalProject, onWeekTagClick, expandedTaskId, onToggleTaskExpand, notes, onAddNote, onResolveNote, onDeleteNote, duties }) => {
   const navigate = useNavigate()
 
   // Use ORIGINAL project data for summary stats to avoid filter distortion
@@ -1012,6 +1090,11 @@ const ProjectCard: React.FC<{
             onDeleteNote={onDeleteNote}
           />
         ))}
+
+        {/* Temporary Duties Section */}
+        {duties && duties.length > 0 && (
+          <DutiesSection duties={duties} />
+        )}
 
         {/* Meeting Notes Section — all notes (task-level + project-level) */}
         <div className="mt-3 px-1">
@@ -1261,6 +1344,7 @@ const WbsOverviewPage: React.FC = () => {
   const isManager = useAppSelector((s) => s.auth.isSupervisor)
 
   const [wbsData, setWbsData] = useState<WbsProject[]>([])
+  const [projectDutiesMap, setProjectDutiesMap] = useState<Record<string, TemporaryDuty[]>>({})
   const [weekFilter, setWeekFilter] = useState<WeekFilter>('all')
   const [statusFilter, setStatusFilter] = useState<TaskStatus | 'all'>('all')
   const [searchKeyword, setSearchKeyword] = useState('')
@@ -1274,6 +1358,22 @@ const WbsOverviewPage: React.FC = () => {
       .then((res) => { if (Array.isArray(res.content)) setWbsData(res.content as WbsProject[]) })
       .catch(() => {})
   }, [])
+
+  // Load temporary duties for each project (independent, non-blocking)
+  useEffect(() => {
+    if (wbsData.length === 0) return
+    Promise.all(
+      wbsData.map((p) =>
+        dutyApi.listByProject(p.id)
+          .then((res) => ({ projectId: p.id, duties: Array.isArray(res.content) ? res.content as TemporaryDuty[] : [] }))
+          .catch(() => ({ projectId: p.id, duties: [] as TemporaryDuty[] }))
+      )
+    ).then((results) => {
+      const map: Record<string, TemporaryDuty[]> = {}
+      results.forEach(({ projectId, duties }) => { if (duties.length > 0) map[projectId] = duties })
+      setProjectDutiesMap(map)
+    })
+  }, [wbsData])
 
   // Load all meeting notes for visible projects after WBS data arrives
   useEffect(() => {
@@ -1567,6 +1667,7 @@ const WbsOverviewPage: React.FC = () => {
             onAddNote={(taskId, taskName, type, content) => handleAddNote(p.id, taskId, taskName, type, content)}
             onResolveNote={(noteId) => handleResolveNote(p.id, noteId)}
             onDeleteNote={(noteId) => handleDeleteNote(p.id, noteId)}
+            duties={projectDutiesMap[p.id]}
           />
         ))
       )}

@@ -424,6 +424,18 @@ class ReviewListApi(MethodView):
         return response_result(content=proj_ctrl.get_review_list(page=page, size=size, work_no=work_no))
 
 
+@blp.route("/my_submitted_reviews")
+class MySubmittedReviewsApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def get(self):
+        """我提交的审核记录（提交人视角）"""
+        work_no = get_identity()
+        page = int(request.args.get("page", 1))
+        size = int(request.args.get("size", 50))
+        return response_result(content=proj_ctrl.get_my_submitted_reviews(page=page, size=size, work_no=work_no))
+
+
 @blp.route("/all_reviews")
 class AllReviewsApi(MethodView):
     @jwt_required()

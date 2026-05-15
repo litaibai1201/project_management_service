@@ -58,20 +58,57 @@ const getREmbed = (el: Element): string =>
   el.getAttribute('r:embed') || ''
 
 // ─── Color ────────────────────────────────────────────────────────────────────
-const SCHEME: Record<string, string> = {
+const DEFAULT_SCHEME: Record<string, string> = {
   dk1: '#000000', dk2: '#44546a', lt1: '#ffffff', lt2: '#e7e6e6',
   tx1: '#000000', tx2: '#44546a', bg1: '#ffffff', bg2: '#e7e6e6',
   accent1: '#4472c4', accent2: '#ed7d31', accent3: '#a9d18e',
   accent4: '#ffc000', accent5: '#5b9bd5', accent6: '#70ad47',
 }
 
-function parseColor(el: Element | null, fallback = ''): string {
+function applyLumMod(hex: string, lumMod: number, lumOff: number): string {
+  // Convert hex to RGB, apply luminance mod/offset
+  const r = parseInt(hex.slice(1, 3), 16)
+  const g = parseInt(hex.slice(3, 5), 16)
+  const b = parseInt(hex.slice(5, 7), 16)
+  const mod = lumMod / 100000
+  const off = lumOff / 100000
+  const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)))
+  const nr = clamp(r * mod + 255 * off)
+  const ng = clamp(g * mod + 255 * off)
+  const nb = clamp(b * mod + 255 * off)
+  return `#${nr.toString(16).padStart(2,'0')}${ng.toString(16).padStart(2,'0')}${nb.toString(16).padStart(2,'0')}`
+}
+
+function parseColor(el: Element | null, fallback = '', scheme: Record<string, string> = DEFAULT_SCHEME): string {
   if (!el) return fallback
-  const sf = gel(el, A, 'solidFill')
+  // Search only direct children for fill type — prevents border <solidFill> inside
+  // <lnL>/<lnR> etc. from leaking into cell/shape background colors.
+  let sf: Element | null = null
+  let child = el.firstElementChild
+  while (child) {
+    const ln = child.localName
+    if (ln === 'noFill') return fallback          // explicit no-fill → transparent
+    if (ln === 'solidFill') { sf = child; break } // found fill
+    // gradFill / pattFill → unsupported, treat as no fill
+    if (ln === 'gradFill' || ln === 'pattFill') return fallback
+    child = child.nextElementSibling
+  }
   if (!sf) return fallback
-  const srgb = gel(sf, A, 'srgbClr'); if (srgb) return `#${ga(srgb, 'val')}`
-  const sys  = gel(sf, A, 'sysClr');  if (sys)  return `#${ga(sys,  'lastClr')}`
-  const sc   = gel(sf, A, 'schemeClr'); if (sc) return SCHEME[ga(sc, 'val')] ?? fallback
+  const srgb = gel(sf, A, 'srgbClr')
+  if (srgb) { const v = ga(srgb, 'val'); return v ? `#${v}` : fallback }
+  const sys = gel(sf, A, 'sysClr')
+  if (sys)  { const v = ga(sys,  'lastClr'); return v ? `#${v}` : fallback }
+  const sc = gel(sf, A, 'schemeClr')
+  if (sc) {
+    const base = scheme[ga(sc, 'val')] ?? fallback
+    if (!base) return fallback
+    const lumModEl = gel(sc, A, 'lumMod')
+    const lumOffEl = gel(sc, A, 'lumOff')
+    const lumMod = lumModEl ? parseInt(ga(lumModEl, 'val') || '100000') : 100000
+    const lumOff = lumOffEl ? parseInt(ga(lumOffEl, 'val') || '0') : 0
+    if (lumMod !== 100000 || lumOff !== 0) return applyLumMod(base, lumMod, lumOff)
+    return base
+  }
   return fallback
 }
 
@@ -154,7 +191,7 @@ function extractLayoutPositions(doc: Document, slideW: number, slideH: number): 
 
 // ─── Text run helper ──────────────────────────────────────────────────────────
 
-function extractTextRuns(txBody: Element, slideW: number, defaultAlign: TextRun['align'] = 'left'): TextRun[] {
+function extractTextRuns(txBody: Element, slideW: number, scheme: Record<string, string>, defaultAlign: TextRun['align'] = 'left'): TextRun[] {
   const runs: TextRun[] = []
   for (const para of gels(txBody, A, 'p')) {
     const pPr      = gel(para, A, 'pPr')
@@ -172,7 +209,7 @@ function extractTextRuns(txBody: Element, slideW: number, defaultAlign: TextRun[
       const italic   = ga(rPr, 'i') === '1'
       const u        = ga(rPr, 'u')
       const underline = !!u && u !== 'none'
-      const color    = parseColor(rPr)
+      const color    = parseColor(rPr, '', scheme)
       lineRuns.push({ text, fontSize: szToPx(sz, slideW), bold, italic, underline, color, align: paraAlign })
     }
     if (lineRuns.length) {
@@ -200,6 +237,39 @@ async function parsePptx(blob: Blob) {
   const slideW   = parseInt(ga(sldSz, 'cx') || String(DEFAULT_W))
   const slideH   = parseInt(ga(sldSz, 'cy') || String(DEFAULT_H))
   const aspectRatio = slideW / slideH
+
+  // Read actual theme colors
+  const scheme: Record<string, string> = { ...DEFAULT_SCHEME }
+  const themeFiles = Object.keys(zip.files).filter(f => /^ppt\/theme\/theme\d+\.xml$/.test(f))
+  if (themeFiles.length > 0) {
+    const themeDoc = parse(await read(themeFiles[0]))
+    const clrScheme = gel(themeDoc, A, 'clrScheme')
+    if (clrScheme) {
+      let child = clrScheme.firstElementChild
+      while (child) {
+        const name = child.localName
+        // Each child of clrScheme has exactly one color child (srgbClr or sysClr)
+        const colorEl = child.firstElementChild
+        if (colorEl) {
+          const ln = colorEl.localName
+          if (ln === 'srgbClr') {
+            const v = ga(colorEl, 'val'); if (v) scheme[name] = `#${v}`
+          } else if (ln === 'sysClr') {
+            const v = ga(colorEl, 'lastClr'); if (v) scheme[name] = `#${v}`
+          }
+        }
+        child = child.nextElementSibling
+      }
+    }
+  }
+  // Build aliases so both short names (dk1) and long names (dark1) resolve
+  const ALIASES: Record<string, string> = {
+    dk1: 'dark1', dk2: 'dark2', lt1: 'light1', lt2: 'light2',
+    dark1: 'dk1', dark2: 'dk2', light1: 'lt1', light2: 'lt2',
+  }
+  for (const [k, v] of Object.entries(ALIASES)) {
+    if (!scheme[k] && scheme[v]) scheme[k] = scheme[v]
+  }
 
   const slideFiles = Object.keys(zip.files)
     .filter(f => /^ppt\/slides\/slide\d+\.xml$/.test(f))
@@ -261,8 +331,18 @@ async function parsePptx(blob: Blob) {
 
     // ── Background ────────────────────────────────────────────────────────
     let bgColor = '#ffffff'
-    const bgPr  = gel(gel(doc, P, 'bg'), P, 'bgPr')
-    if (bgPr) bgColor = parseColor(bgPr, '#ffffff') || '#ffffff'
+    const bg    = gel(doc, P, 'bg')
+    const bgPr  = bg ? gel(bg, P, 'bgPr') : null
+    if (bgPr) {
+      bgColor = parseColor(bgPr, '#ffffff', scheme) || '#ffffff'
+    } else {
+      // Most slides use <p:bgRef idx="N"><a:schemeClr val="bg1"/></p:bgRef>
+      const bgRef = bg ? gel(bg, P, 'bgRef') : null
+      if (bgRef) {
+        const sc = gel(bgRef, A, 'schemeClr')
+        if (sc) bgColor = scheme[ga(sc, 'val')] || '#ffffff'
+      }
+    }
 
     const shapes: SlideShape[] = []
 
@@ -272,7 +352,7 @@ async function parsePptx(blob: Blob) {
       if (!txBody) continue
       const pos = getTextPos(sp)
       if (!pos) continue
-      const runs = extractTextRuns(txBody, slideW)
+      const runs = extractTextRuns(txBody, slideW, scheme)
       if (runs.some(r => r.text !== '\n')) {
         shapes.push({ type: 'text', ...pos, runs })
       }
@@ -304,9 +384,9 @@ async function parsePptx(blob: Blob) {
             continue
           }
           const txBody  = gel(tc, A, 'txBody')
-          const runs    = txBody ? extractTextRuns(txBody, slideW) : []
+          const runs    = txBody ? extractTextRuns(txBody, slideW, scheme) : []
           const tcPr    = gel(tc, A, 'tcPr')
-          const bg      = parseColor(tcPr)
+          const bg      = parseColor(tcPr, '', scheme)
           cells.push({ runs, bgColor: bg })
         }
         if (cells.length) rows.push(cells)

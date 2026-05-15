@@ -576,6 +576,22 @@ class ProjectController:
             ],
         }
 
+    def get_my_submitted_reviews(self, page=1, size=50, work_no=None):
+        """返回当前用户作为提交人的所有审核记录"""
+        q = db.session.query(ReviewApplyModel)
+        if work_no:
+            q = q.filter(ReviewApplyModel.submitter == work_no)
+        total = q.count()
+        records = q.order_by(ReviewApplyModel.created_at.desc()).offset((page-1)*size).limit(size).all()
+        return {
+            "total_count": total,
+            "total_page": (total + size - 1) // size,
+            "data_list": [
+                self._enrich_review(r, viewer_work_no=work_no or "", viewer_is_supervisor=False)
+                for r in records
+            ],
+        }
+
     def get_all_reviews(self, work_no=None):
         from sqlalchemy import or_
         q = db.session.query(ReviewApplyModel).filter(ReviewApplyModel.apply_status == 1)

@@ -228,18 +228,29 @@ class DailyLogController:
             ).order_by(DutyProgressRecordModel.created_at.asc()).all()
         )
         duty_ids = list({r.duty_id for r in duty_recs})
-        duty_map = {}
+        duty_obj_map = {}  # duty_id → TemporaryDutyModel (for name & latest progress)
         if duty_ids:
             duties = db.session.query(TemporaryDutyModel).filter(TemporaryDutyModel.id.in_(duty_ids)).all()
-            duty_map = {d.id: d.duty_nm for d in duties}
+            duty_obj_map = {d.id: d for d in duties}
         for r in duty_recs:
+            try:
+                raw_files = json.loads(r.files_json or "[]")
+            except Exception:
+                raw_files = []
+            file_base = f"/api/temporary_duty/{r.duty_id}/progress/{r.id}/files"
+            files = [{"name": f["name"], "url": f"{file_base}/{f['id']}/preview", "size": f.get("size")} for f in raw_files]
+            duty_obj = duty_obj_map.get(r.duty_id)
+            # Use the duty's current progress (TemporaryDutyModel.progress) — always the latest
+            current_progress = duty_obj.progress if duty_obj else None
             result.append({
                 "task_type":   "duty",
                 "task_id":     r.duty_id,
-                "task_nm":     duty_map.get(r.duty_id, ""),
+                "task_nm":     duty_obj.duty_nm if duty_obj else "",
                 "project_nm":  None,
                 "work_hours":  float(r.time_consum or 0),
                 "description": r.progress_record or "",
+                "progress":    int(current_progress) if current_progress is not None else None,
+                "files":       files,
                 "suggest_id":  r.id,
                 "record_time": str(r.created_at)[11:16] if r.created_at else None,
             })
@@ -322,3 +333,4 @@ class DailyLogController:
         base["free_items"] = doc.get("free_items", [])
         base["remark"]     = doc.get("remark", "")
         return base
+

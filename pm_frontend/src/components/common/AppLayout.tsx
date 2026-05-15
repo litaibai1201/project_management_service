@@ -38,7 +38,16 @@ const NAV_ITEMS: NavItem[] = [
     ],
   },
   { key: '/daily-log',  icon: <PencilSquareIcon className="w-[18px] h-[18px]" />,           label: '工作日誌',  path: '/daily-log'  },
-  { key: '/review',     icon: <ClipboardDocumentCheckIcon className="w-[18px] h-[18px]" />, label: '審核管理',  path: '/review'     },
+  {
+    key: '/review-mgmt',
+    icon: <ClipboardDocumentCheckIcon className="w-[18px] h-[18px]" />,
+    label: '審核管理',
+    children: [
+      { key: '/review',           icon: <ClipboardDocumentCheckIcon className="w-[16px] h-[16px]" />, label: '待我審核', path: '/review'           },
+      { key: '/review/reviewed',  icon: <ClipboardDocumentListIcon  className="w-[16px] h-[16px]" />, label: '我的審核', path: '/review/reviewed'  },
+      { key: '/review/submitted', icon: <ClipboardDocumentListIcon  className="w-[16px] h-[16px]" />, label: '我的提交', path: '/review/submitted' },
+    ],
+  },
   { key: '/wbs',         icon: <TableCellsIcon className="w-[18px] h-[18px]" />,             label: '專案進度總覽', path: '/wbs'     },
   { key: '/statistics', icon: <ChartBarIcon className="w-[18px] h-[18px]" />,               label: '統計與成員', path: '/statistics' },
   { key: '/anomaly',    icon: <ExclamationTriangleIcon className="w-[18px] h-[18px]" />,    label: '異常管理',  path: '/anomaly'    },
@@ -77,7 +86,9 @@ const AppLayout: React.FC = () => {
   const currentKey = useMemo(() => {
     for (const item of navItems) {
       if (isGroup(item)) {
-        const child = item.children.find((c) =>
+        // Sort by path length desc so longer paths match first (e.g. /review/submitted before /review)
+        const sorted = [...item.children].sort((a, b) => b.path.length - a.path.length)
+        const child = sorted.find((c) =>
           c.path === '/' ? location.pathname === '/' : location.pathname.startsWith(c.path),
         )
         if (child) return child.key
@@ -116,25 +127,27 @@ const AppLayout: React.FC = () => {
           key: item.key,
           icon: item.icon,
           label: item.label,
-          children: item.children.map((c) => ({
-            key: c.key,
-            icon: c.icon,
-            label: c.label,
-            onClick: () => navigate(c.path),
-          })),
+          children: item.children.map((c) => {
+            const childBadge = c.key === '/review' ? pendingReview : undefined
+            return {
+              key: c.key,
+              icon: c.icon,
+              label: childBadge != null && childBadge > 0 ? (
+                <div className="flex items-center justify-between">
+                  <span>{c.label}</span>
+                  <Badge count={childBadge} size="small" style={{ backgroundColor: '#ef4444', fontSize: 10, boxShadow: 'none' }} />
+                </div>
+              ) : c.label,
+              onClick: () => navigate(c.path),
+            }
+          }),
         }
       }
       const leaf = item as NavLeaf
-      const badge = leaf.key === '/review' ? pendingReview : undefined
       return {
         key: leaf.key,
         icon: leaf.icon,
-        label: badge != null && badge > 0 ? (
-          <div className="flex items-center justify-between">
-            <span>{leaf.label}</span>
-            <Badge count={badge} size="small" style={{ backgroundColor: '#ef4444', fontSize: 10, boxShadow: 'none' }} />
-          </div>
-        ) : leaf.label,
+        label: leaf.label,
         onClick: () => navigate(leaf.path),
       }
     })

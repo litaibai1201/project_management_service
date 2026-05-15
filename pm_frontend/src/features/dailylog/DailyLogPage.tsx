@@ -6,7 +6,7 @@ import React, { useState, useMemo, useCallback, useEffect } from 'react'
 import {
   Card, Button, Tag, Progress, Modal, Form, Select, Input, InputNumber,
   Switch, Upload, Segmented, Empty, Badge, Popconfirm, Popover,
-  AutoComplete, Alert, Spin,
+  AutoComplete, Alert, Spin, DatePicker, Dropdown,
 } from 'antd'
 import type { UploadFile } from 'antd'
 import {
@@ -26,6 +26,7 @@ import { projectApi } from '@/api/project.api'
 import { dutyApi } from '@/api/duty.api'
 import dayjs, { Dayjs } from 'dayjs'
 import isoWeek from 'dayjs/plugin/isoWeek'
+import { exportDailyReport, exportRangeReport } from './exportDailyReport'
 
 dayjs.extend(isoWeek)
 
@@ -550,7 +551,8 @@ export { SelfReportView, WORK_CATEGORIES, CATEGORY_MAP, fmtH }
 // ─── Main Page ──────────────────────────────────────────────────────────────
 
 const DailyLogPage: React.FC = () => {
-  const workNo = useAppSelector((s) => s.auth.workNo)
+  const workNo   = useAppSelector((s) => s.auth.workNo)
+  const userName = useAppSelector((s) => s.auth.name)
   // Mock: role-based daily log requirement
   // In production this comes from user profile / API
   const isManager = false  // TODO: derive from user role API
@@ -843,6 +845,15 @@ const DailyLogPage: React.FC = () => {
           })
           .catch(() => {})
       }
+      // Ensure the duty option is present even if it wasn't in the initial list
+      // (e.g. duty with a non-active status, or duty from a suggest entry)
+      if (entry.duty_id && entry.duty_nm) {
+        setDutyOpts((prev) =>
+          prev.some((d) => d.id === entry.duty_id)
+            ? prev
+            : [...prev, { id: entry.duty_id!, name: entry.duty_nm! }]
+        )
+      }
       form.setFieldsValue({
         work_category: entry.work_category,
         project_id: entry.project_id,
@@ -908,7 +919,7 @@ const DailyLogPage: React.FC = () => {
         function_id: funcId, function_nm: selectedFunc?.name,
         group1: selectedFunc?.group1 ?? editingEntry?.group1,
         group2: selectedFunc?.group2 ?? editingEntry?.group2,
-        duty_id: dutyId, duty_nm: dutyOpts.find((d) => d.id === dutyId)?.name,
+        duty_id: dutyId, duty_nm: dutyOpts.find((d) => d.id === dutyId)?.name ?? editingEntry?.duty_nm,
         bu_unit: values.bu_unit as string | undefined,
         description: values.description as string,
         hours: values.hours as number,
@@ -958,7 +969,7 @@ const DailyLogPage: React.FC = () => {
       function_id: funcId, function_nm: selectedFunc?.name,
       group1: selectedFunc?.group1 ?? editingEntry?.group1,
       group2: selectedFunc?.group2 ?? editingEntry?.group2,
-      duty_id: dutyId, duty_nm: dutyOpts.find((d) => d.id === dutyId)?.name,
+      duty_id: dutyId, duty_nm: dutyOpts.find((d) => d.id === dutyId)?.name ?? editingEntry?.duty_nm,
       bu_unit: values.bu_unit as string | undefined,
       description: values.description as string,
       hours: values.hours as number,
@@ -1089,10 +1100,102 @@ const DailyLogPage: React.FC = () => {
     }))
   }
 
-  // Export
+  // Export CSV
   const handleExport = () => {
     const allLogs = Object.values(logs).sort((a, b) => (a.log_date ?? '').localeCompare(b.log_date ?? ''))
     exportDailyLogCSV(allLogs, dateLabel.replace(/\s/g, '_'))
+  }
+
+  // Export daily report DOCX (day view only)
+  const [exportingDocx, setExportingDocx] = useState(false)
+  const handleExportDailyDocx = async () => {
+    if (!currentLog || !workNo) return
+    setExportingDocx(true)
+    try {
+      await exportDailyReport({
+        date: dateStr,
+        workNo,
+        userName: userName ?? workNo,
+        entries: displayEntries,
+      })
+    } finally {
+      setExportingDocx(false)
+    }
+  }
+
+  // Export range report DOCX
+  const [rangeExportOpen,    setRangeExportOpen]    = useState(false)
+  const [rangeExportDates,   setRangeExportDates]   = useState<[Dayjs, Dayjs] | null>(null)
+  const [rangeExportLoading, setRangeExportLoading] = useState(false)
+
+  const doExportRange = async (start: Dayjs, end: Dayjs) => {
+    if (!workNo) return
+    const startStr = start.format('YYYY-MM-DD')
+    const endStr   = end.format('YYYY-MM-DD')
+    const todayStr = dayjs().format('YYYY-MM-DD')
+
+    setRangeExportLoading(true)
+    try {
+      const res = await dailyLogApi.list({ page: 1, size: 366, start_date: startStr, end_date: endStr })
+      const summaries = res.content?.list ?? []
+      const dateEntryMap: Record<string, DailyLogEntry[]> = {}
+      await Promise.all(summaries.map(async (s) => {
+        try {
+          const detailRes = await dailyLogApi.detail(s.log_id)
+          dateEntryMap[s.log_date] = backendDetailToLog(detailRes.content).entries
+        } catch { /* skip */ }
+      }))
+
+      const days: { date: string; entries: DailyLogEntry[] }[] = []
+      let cur = start
+      while (!cur.isAfter(end, 'day')) {
+        const d = cur.format('YYYY-MM-DD')
+        if (dateEntryMap[d]?.length) days.push({ date: d, entries: dateEntryMap[d] })
+        cur = cur.add(1, 'day')
+      }
+
+      await exportRangeReport({ startDate: startStr, endDate: endStr, workNo, userName: userName ?? workNo, today: todayStr, days })
+      setRangeExportOpen(false)
+    } finally {
+      setRangeExportLoading(false)
+    }
+  }
+
+  const handleExportRange = async () => {
+    if (!rangeExportDates) return
+    await doExportRange(rangeExportDates[0], rangeExportDates[1])
+  }
+
+  const today = dayjs()
+  const quarterStart = today.month(Math.floor(today.month() / 3) * 3).startOf('month')
+  const exportMenuItems = [
+    { key: 'today',   label: '今日日報' },
+    { key: 'week',    label: '本週週報' },
+    { key: 'month',   label: '本月月報' },
+    { key: 'quarter', label: '本季季報' },
+    { key: 'year',    label: '本年年報' },
+    { type: 'divider' as const },
+    { key: 'last1m',  label: '最近一個月' },
+    { key: 'last6m',  label: '最近半年' },
+    { key: 'last1y',  label: '最近一年' },
+    { type: 'divider' as const },
+    { key: 'custom',  label: '自定義範圍...' },
+  ]
+
+  const handleExportMenuClick = ({ key }: { key: string }) => {
+    if (key === 'custom') { setRangeExportOpen(true); return }
+    const ranges: Record<string, [Dayjs, Dayjs]> = {
+      today:   [today, today],
+      week:    [today.startOf('isoWeek'), today],
+      month:   [today.startOf('month'), today],
+      quarter: [quarterStart, today],
+      year:    [today.startOf('year'), today],
+      last1m:  [today.subtract(1, 'month'), today],
+      last6m:  [today.subtract(6, 'month'), today],
+      last1y:  [today.subtract(1, 'year'), today],
+    }
+    const [s, e] = ranges[key] ?? [today, today]
+    doExportRange(s, e)
   }
 
   // Status badge
@@ -1117,6 +1220,25 @@ const DailyLogPage: React.FC = () => {
           <p className="text-slate-400 text-sm mt-0.5">每日記錄工作內容 · 週/月/季/年報自動從日報彙整</p>
         </div>
         <div className="flex items-center gap-2">
+          {viewMode === 'day' && currentLog && (
+            <Button
+              icon={<ArrowDownTrayIcon className="w-4 h-4" />}
+              size="small"
+              loading={exportingDocx}
+              onClick={handleExportDailyDocx}
+            >
+              導出日報
+            </Button>
+          )}
+          <Dropdown
+            menu={{ items: exportMenuItems, onClick: handleExportMenuClick }}
+            disabled={rangeExportLoading}
+            trigger={['click']}
+          >
+            <Button icon={<ArrowDownTrayIcon className="w-4 h-4" />} size="small" loading={rangeExportLoading}>
+              導出報告
+            </Button>
+          </Dropdown>
           <Button icon={<ArrowDownTrayIcon className="w-4 h-4" />} size="small" onClick={handleExport}>
             導出 CSV
           </Button>
@@ -1407,7 +1529,7 @@ const DailyLogPage: React.FC = () => {
                                     {/* Entries */}
                                     {(!task.taskNm || !taskCollapsed) && <div>
                                       {task.entries.map((entry, idx) => (
-                                        <div key={`${entry.log_date ?? ''}-${entry.entry_id}`}>
+                                        <div key={entry.entry_id}>
                                           <div className="px-4 py-2 group flex items-center gap-3">
                                             <div className="flex-1 min-w-0">
                                               <div className="flex items-center gap-1.5 flex-wrap">
@@ -1736,6 +1858,28 @@ const DailyLogPage: React.FC = () => {
             </Button>
           </div>
         </Form>
+      </Modal>
+
+      {/* ─── Range Report Export Modal ─────────────────────────────── */}
+      <Modal
+        title="導出範圍報告"
+        open={rangeExportOpen}
+        onCancel={() => setRangeExportOpen(false)}
+        onOk={handleExportRange}
+        okText="導出 DOCX"
+        cancelText="取消"
+        confirmLoading={rangeExportLoading}
+        width={400}
+      >
+        <div className="py-4">
+          <p className="text-sm text-slate-500 mb-3">今日（{dayjs().format('YYYY-MM-DD')}）的記錄將以黃色高亮顯示。</p>
+          <DatePicker.RangePicker
+            value={rangeExportDates}
+            onChange={(v) => setRangeExportDates(v as [Dayjs, Dayjs] | null)}
+            style={{ width: '100%' }}
+            disabledDate={(d) => d.isAfter(dayjs(), 'day')}
+          />
+        </div>
       </Modal>
 
     </div>

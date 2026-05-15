@@ -720,7 +720,7 @@ const DutyListPage: React.FC = () => {
       open={!!selectedFid && !!selectedFunc}
       projectId={selectedFunc?.project_id ?? ''}
       functionId={selectedFid ?? ''}
-      isProjectPm={workNo.toLowerCase() === (selectedFunc?.project_pm ?? '').toLowerCase()}
+      isProjectPm={workNo.toLowerCase() === (selectedFunc?.project_pm ?? '').toLowerCase() && [3, 10].includes(selectedFunc?.project_status ?? 0)}
       projectStatus={selectedFunc?.project_status ?? 0}
       projectPm={selectedFunc?.project_pm ?? ''}
       onClose={() => setSelectedFid(null)}
