@@ -21,12 +21,15 @@ import dayjs from 'dayjs'
 import isoWeek from 'dayjs/plugin/isoWeek'
 dayjs.extend(isoWeek)
 import { projectApi } from '@/api/project.api'
+import { dutyApi } from '@/api/duty.api'
 import { authApi, type AlertTask, type WeeklyActivityItem, type NewsItem } from '@/api/auth.api'
 import { dailyLogApi, type BackendDailyLogSummary } from '@/api/daily_log.api'
-import type { ProjectListItem, UserStatistical, TeamStatistical } from '@/types/api.types'
+import type { ProjectListItem, UserStatistical, TeamStatistical, TemporaryDuty, ApplyRecord } from '@/types/api.types'
+import { DUTY_STATUS_MAP } from '@/utils/status'
+import { useWorkNoToName } from '@/hooks/useWorkNoToName'
 import { useDashboardConfig } from '@/hooks/useDashboardConfig'
 import {
-  EditToggleButton, WidgetTray, WidgetEditOverlay,
+  AddCardModal, WidgetMenu,
 } from '@/components/common/DashboardCustomizeDrawer'
 
 
@@ -187,7 +190,7 @@ const AlertBar: React.FC<{ pendingReview: number; alertTasks: AlertTask[] }> = (
 }
 
 // ─── Daily Log Status Card ─────────────────────────────────────────────────
-const DailyLogCard: React.FC<{ canDismiss?: boolean; todayLog: BackendDailyLogSummary | null }> = ({ canDismiss = false, todayLog }) => {
+const DailyLogCard: React.FC<{ canDismiss?: boolean; todayLog: BackendDailyLogSummary | null; onDismiss?: () => void }> = ({ canDismiss = false, todayLog, onDismiss }) => {
   const navigate = useNavigate()
   const todayHours = todayLog ? Number(todayLog.total_hours) : 0
   const standardHours = 8.0
@@ -195,13 +198,10 @@ const DailyLogCard: React.FC<{ canDismiss?: boolean; todayLog: BackendDailyLogSu
     ? (todayLog.status === 2 ? 'submitted' : 'draft')
     : 'not_started'
   const pct = Math.min(100, Math.round((todayHours / standardHours) * 100))
-  const [dismissed, setDismissed] = useState(false)
-
-  if (dismissed) return null
 
   return (
-    <Card bordered={false} className="shadow-sm mb-5 border border-blue-100 bg-blue-50/30"
-      styles={{ body: { padding: '16px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%' } }}>
+    <Card className="h-full"
+      styles={{ body: { padding: '16px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%', overflow: 'hidden' } }}>
       <div className="flex items-center gap-4">
         <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center flex-shrink-0">
           <PencilSquareIcon className="w-5 h-5 text-blue-600" />
@@ -239,13 +239,13 @@ const DailyLogCard: React.FC<{ canDismiss?: boolean; todayLog: BackendDailyLogSu
             </div>
           </div>
         </div>
-        <div className="flex flex-col items-end gap-1 flex-shrink-0">
+        <div className="flex flex-col items-end gap-3 flex-shrink-0 mr-6">
           <Button type="primary" size="small" style={{ background: '#2563eb', borderRadius: 8 }}
             onClick={() => navigate('/daily-log')}>
             {status === 'not_started' ? '立即填寫' : '繼續填寫'} →
           </Button>
           {canDismiss && (
-            <button onClick={() => setDismissed(true)} className="text-[10px] text-slate-400 hover:text-slate-600 transition-colors">
+            <button onClick={() => onDismiss?.()} className="text-[10px] text-slate-400 hover:text-slate-600 transition-colors border-0 outline-none bg-transparent cursor-pointer p-0">
               關閉日報提醒
             </button>
           )}
@@ -406,14 +406,19 @@ const DashboardPage: React.FC = () => {
     isEditing, setIsEditing,
     onLayoutChange, showWidget, hideWidget,
   } = useDashboardConfig(viewType)
-  const [memberStats,    setMemberStats]    = useState<MemberWorkStat[]>([])
-  const [myProjects,     setMyProjects]     = useState<ProjectListItem[]>([])
-  const [todayLog,       setTodayLog]       = useState<BackendDailyLogSummary | null>(null)
-  const [alertTasks,     setAlertTasks]     = useState<AlertTask[]>([])
-  const [userStat,       setUserStat]       = useState<UserStatistical | null>(null)
-  const [teamStat,       setTeamStat]       = useState<TeamStatistical | null>(null)
-  const [weeklyActivity, setWeeklyActivity] = useState<WeeklyActivityItem[]>([])
-  const [latestNews,     setLatestNews]     = useState<NewsItem[]>([])
+  const [addCardOpen,  setAddCardOpen]  = useState(false)
+  const [refreshKey,   setRefreshKey]   = useState(0)
+  const toName = useWorkNoToName()
+  const [memberStats,      setMemberStats]      = useState<MemberWorkStat[]>([])
+  const [myProjects,       setMyProjects]       = useState<ProjectListItem[]>([])
+  const [myDuties,         setMyDuties]         = useState<TemporaryDuty[]>([])
+  const [pendingReviews,   setPendingReviews]   = useState<ApplyRecord[]>([])
+  const [todayLog,         setTodayLog]         = useState<BackendDailyLogSummary | null>(null)
+  const [alertTasks,       setAlertTasks]       = useState<AlertTask[]>([])
+  const [userStat,         setUserStat]         = useState<UserStatistical | null>(null)
+  const [teamStat,         setTeamStat]         = useState<TeamStatistical | null>(null)
+  const [weeklyActivity,   setWeeklyActivity]   = useState<WeeklyActivityItem[]>([])
+  const [latestNews,       setLatestNews]       = useState<NewsItem[]>([])
 
   useEffect(() => { dispatch(fetchIndexThunk()) }, [dispatch])
 
@@ -444,10 +449,28 @@ const DashboardPage: React.FC = () => {
     }
 
     if (visible.has('my_projects')) {
-      projectApi.list({ page: 1, size: 10, work_no: workNo ?? undefined })
+      projectApi.list({ page: 1, size: 20, work_no: workNo ?? undefined })
         .then((res) => {
           const list = (res as { content?: { project_list?: ProjectListItem[] } }).content?.project_list ?? []
           setMyProjects(list)
+        })
+        .catch(() => {})
+    }
+
+    if (visible.has('my_tasks')) {
+      dutyApi.list({ page: 1, size: 20, responsible: workNo ?? undefined })
+        .then((res) => {
+          const list = (res as { content?: { data_list?: TemporaryDuty[] } }).content?.data_list ?? []
+          setMyDuties(list)
+        })
+        .catch(() => {})
+    }
+
+    if (visible.has('my_pending_review')) {
+      projectApi.allReviews()
+        .then((res) => {
+          const list = (Array.isArray(res.content) ? res.content : []) as ApplyRecord[]
+          setPendingReviews(list.filter((r) => r.status === 1 && r.is_my_turn))
         })
         .catch(() => {})
     }
@@ -481,7 +504,7 @@ const DashboardPage: React.FC = () => {
       .then((res) => { if (Array.isArray(res.content)) setAlertTasks(res.content) })
       .catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewType, allWidgets.length])
+  }, [viewType, allWidgets.length, refreshKey])
 
   // ── 統計數據預計算 ─────────────────────────────────────────────────────────
   const taskInProg     = (indexData?.total_task_num?.doing_task   ?? 0) + (indexData?.total_task_num?.doing_duty    ?? 0)
@@ -505,9 +528,36 @@ const DashboardPage: React.FC = () => {
           <h1 className="text-2xl font-bold text-slate-800">歡迎回來，{name ?? '用戶'} 👋</h1>
           <p className="text-slate-400 text-sm mt-0.5">{dayjs().format('YYYY 年 M 月 D 日')} · 今天也加油！</p>
         </div>
-        <div className="flex items-center gap-4">
-          {/* Dashboard customize button */}
-          <EditToggleButton isEditing={isEditing} setIsEditing={setIsEditing} />
+        <div className="flex items-center gap-3">
+          {isEditing ? (
+            <>
+              <button
+                onClick={() => setAddCardOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50 transition-colors outline-none cursor-pointer"
+              >
+                <span className="text-base leading-none">+</span> 添加卡片
+              </button>
+              <button
+                onClick={() => setIsEditing(false)}
+                className="px-3 py-1.5 rounded-lg text-sm text-slate-500 hover:bg-slate-100 transition-colors outline-none border-0 cursor-pointer"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => setIsEditing(false)}
+                className="px-4 py-1.5 rounded-lg text-sm bg-blue-600 text-white hover:bg-blue-700 transition-colors outline-none border-0 cursor-pointer"
+              >
+                保存
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => setIsEditing(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors outline-none border-0 cursor-pointer"
+            >
+              <span className="text-base leading-none">⊞</span> 管理卡片
+            </button>
+          )}
           {/* Manager view toggle — only shown to supervisors */}
           {isSupervisor && (
             <div className="hidden md:flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5">
@@ -528,8 +578,14 @@ const DashboardPage: React.FC = () => {
       {/* Alert Bar — always shown when there are pending reviews */}
       <AlertBar pendingReview={(indexData?.total_awaiting_review_num?.project ?? 0) + (indexData?.total_awaiting_review_num?.duty ?? 0)} alertTasks={alertTasks} />
 
-      {/* Widget tray for hidden widgets (shown only in edit mode) */}
-      <WidgetTray isEditing={isEditing} hiddenWidgets={allWidgets.filter((w) => !w.is_visible)} onShow={showWidget} />
+      <AddCardModal
+        open={addCardOpen}
+        onClose={() => setAddCardOpen(false)}
+        viewType={viewType}
+        allWidgets={allWidgets}
+        onShow={showWidget}
+        onHide={hideWidget}
+      />
 
       {/* ── Widget 渲染（react-grid-layout） ── */}
       {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
@@ -538,7 +594,7 @@ const DashboardPage: React.FC = () => {
       <GridLayout
         width={gridWidth ?? 800}
         layout={gridLayout as any}
-        gridConfig={{ cols: 12, rowHeight: 40, margin: [12, 12] as [number, number] }}
+        gridConfig={{ cols: 120, rowHeight: 4, margin: [1, 1] as [number, number] }}
         dragConfig={{ enabled: isEditing }}
         resizeConfig={{ enabled: isEditing }}
         onLayoutChange={onLayoutChange as any}
@@ -549,7 +605,7 @@ const DashboardPage: React.FC = () => {
 
             // ── Manager widgets ─────────────────────────────────────────────
             case 'team_project': return !isManager ? null : (
-              <Card className="shadow-sm h-full" styles={{ body: { padding: '16px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%' } }}>
+              <Card className="h-full" styles={{ body: { padding: '16px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%', overflow: 'hidden' } }}>
                 <div className="flex items-center gap-2 mb-4">
                   <div className="w-7 h-7 rounded-lg bg-indigo-100 flex items-center justify-center"><FolderIcon className="w-4 h-4 text-indigo-600" /></div>
                   <span className="text-sm font-semibold text-slate-600">團隊專案</span>
@@ -563,7 +619,7 @@ const DashboardPage: React.FC = () => {
             )
 
             case 'team_task': return !isManager ? null : (
-              <Card className="shadow-sm h-full" styles={{ body: { padding: '16px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%' } }}>
+              <Card className="h-full" styles={{ body: { padding: '16px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%', overflow: 'hidden' } }}>
                 <div className="flex items-center gap-2 mb-3">
                   <div className="w-7 h-7 rounded-lg bg-blue-100 flex items-center justify-center"><ClipboardDocumentListIcon className="w-4 h-4 text-blue-600" /></div>
                   <span className="text-sm font-semibold text-slate-600">團隊任務</span>
@@ -578,7 +634,7 @@ const DashboardPage: React.FC = () => {
             )
 
             case 'team_pending': return !isManager ? null : (
-              <Card className="shadow-sm h-full" styles={{ body: { padding: '16px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%' } }}>
+              <Card className="h-full" styles={{ body: { padding: '16px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%', overflow: 'hidden' } }}>
                 <div className="flex items-center gap-2 mb-4">
                   <div className="w-7 h-7 rounded-lg bg-orange-100 flex items-center justify-center"><ClockIcon className="w-4 h-4 text-orange-500" /></div>
                   <span className="text-sm font-semibold text-slate-600">待處理</span>
@@ -591,7 +647,7 @@ const DashboardPage: React.FC = () => {
             )
 
             case 'team_size': return !isManager ? null : (
-              <Card className="shadow-sm h-full" styles={{ body: { padding: '16px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%' } }}>
+              <Card className="h-full" styles={{ body: { padding: '16px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%', overflow: 'hidden' } }}>
                 <div className="flex items-center gap-2 mb-3">
                   <div className="w-7 h-7 rounded-lg bg-indigo-100 flex items-center justify-center"><UsersIcon className="w-4 h-4 text-indigo-600" /></div>
                   <span className="text-sm font-semibold text-slate-600">下屬人數</span>
@@ -605,7 +661,7 @@ const DashboardPage: React.FC = () => {
               const total = memberStats.length
               const isLow = submitted < total
               return (
-                <Card className="shadow-sm h-full" styles={{ body: { padding: '16px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%' } }}>
+                <Card className="h-full" styles={{ body: { padding: '16px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%', overflow: 'hidden' } }}>
                   <div className="flex items-center gap-2 mb-3">
                     <div className="w-7 h-7 rounded-lg bg-green-100 flex items-center justify-center"><PencilSquareIcon className="w-4 h-4 text-green-600" /></div>
                     <span className="text-sm font-semibold text-slate-600">今日日報提交</span>
@@ -621,7 +677,7 @@ const DashboardPage: React.FC = () => {
 
             case 'member_task_chart': return !isManager ? null : (
               <Card
-                bordered={false} className="shadow-sm h-full"
+                className="h-full"
                 style={{ display: 'flex', flexDirection: 'column' }}
                 title={
                   <div className="flex items-center gap-2">
@@ -670,10 +726,10 @@ const DashboardPage: React.FC = () => {
 
             case 'member_detail': return !isManager ? null : (
               <Card
-                bordered={false} className="shadow-sm h-full"
+                className="h-full"
                 style={{ display: 'flex', flexDirection: 'column' }}
                 title={<span className="text-sm font-semibold text-slate-600">成員明細</span>}
-                extra={<span className="text-xs text-slate-400 cursor-pointer hover:text-blue-500" onClick={() => navigate('/statistics?tab=members')}>查看詳情 →</span>}
+                extra={<span className="text-xs text-slate-400 cursor-pointer hover:text-blue-500" onClick={() => navigate('/duties')}>查看詳情 →</span>}
                 styles={{ body: { flex: 1, overflow: 'auto', padding: 0, minHeight: 0 } }}
               >
                 <div className="divide-y divide-slate-50">
@@ -683,7 +739,7 @@ const DashboardPage: React.FC = () => {
                       <div
                         key={m.work_no}
                         className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 cursor-pointer transition-colors"
-                        onClick={() => navigate('/statistics?tab=members')}
+                        onClick={() => navigate(`/duties?responsible=${m.work_no}`)}
                       >
                         <Avatar
                           size={28}
@@ -709,7 +765,7 @@ const DashboardPage: React.FC = () => {
 
             // ── Personal widgets ────────────────────────────────────────────
             case 'project_stats': return isManager ? null : (
-              <Card className="shadow-sm h-full" styles={{ body: { padding: '16px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%' } }}>
+              <Card className="h-full" styles={{ body: { padding: '16px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%', overflow: 'hidden' } }}>
                 <div className="flex items-center gap-2 mb-4">
                   <div className="w-7 h-7 rounded-lg bg-blue-100 flex items-center justify-center"><FolderIcon className="w-4 h-4 text-blue-600" /></div>
                   <span className="text-sm font-semibold text-slate-600">專案統計</span>
@@ -723,7 +779,7 @@ const DashboardPage: React.FC = () => {
             )
 
             case 'task_stats': return isManager ? null : (
-              <Card className="shadow-sm h-full" styles={{ body: { padding: '16px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%' } }}>
+              <Card className="h-full" styles={{ body: { padding: '16px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%', overflow: 'hidden' } }}>
                 <div className="flex items-center gap-2 mb-4">
                   <div className="w-7 h-7 rounded-lg bg-purple-100 flex items-center justify-center"><ClipboardDocumentListIcon className="w-4 h-4 text-purple-600" /></div>
                   <span className="text-sm font-semibold text-slate-600">任務統計</span>
@@ -738,7 +794,7 @@ const DashboardPage: React.FC = () => {
             )
 
             case 'pending_review': return isManager ? null : (
-              <Card className="shadow-sm h-full" styles={{ body: { padding: '16px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%' } }}>
+              <Card className="h-full" styles={{ body: { padding: '16px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%', overflow: 'hidden' } }}>
                 <div className="flex items-center gap-2 mb-4">
                   <div className="w-7 h-7 rounded-lg bg-orange-100 flex items-center justify-center"><ClockIcon className="w-4 h-4 text-orange-500" /></div>
                   <span className="text-sm font-semibold text-slate-600">待處理</span>
@@ -761,17 +817,17 @@ const DashboardPage: React.FC = () => {
             )
 
             case 'daily_log': return isManager ? null : (
-              <DailyLogCard canDismiss={isSupervisor} todayLog={todayLog} />
+              <DailyLogCard canDismiss={isSupervisor} todayLog={todayLog} onDismiss={() => hideWidget('daily_log')} />
             )
 
             case 'activity_chart': return isManager ? null : (
               <Card
-                bordered={false} className="shadow-sm h-full"
+                className="h-full"
                 title={<span className="font-semibold text-slate-700 text-sm">本週活動概覽</span>}
                 extra={<span className="text-xs text-slate-400">{dayjs().startOf('isoWeek').format('MM/DD')} – {dayjs().endOf('isoWeek').format('MM/DD')}</span>}
-                styles={{ body: { paddingTop: 8 } }}
+                styles={{ body: { paddingTop: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '100%' } }}
               >
-                <ResponsiveContainer width="100%" height={160}>
+                <ResponsiveContainer width="100%" height="70%">
                   <BarChart data={weeklyActivity} barCategoryGap="35%">
                     <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
                     <YAxis hide />
@@ -789,29 +845,109 @@ const DashboardPage: React.FC = () => {
 
             case 'my_projects': return isManager ? null : (
               <Card
-                bordered={false} className="shadow-sm h-full"
-                title={<span className="font-semibold text-slate-700 text-sm">我的專案</span>}
-                extra={<a href="/projects" className="text-xs text-blue-500 hover:underline">查看全部 →</a>}
-                styles={{ body: { padding: '0 24px 16px' } }}
+                className="h-full"
+                styles={{ body: { padding: 0, overflow: 'auto', height: '100%' } }}
+                title={
+                  <div>
+                    <div className="text-sm font-semibold text-slate-700">我參與的專案</div>
+                    <div className="text-xs text-slate-400 font-normal mt-0.5">{myProjects.length} 個項目</div>
+                  </div>
+                }
               >
                 {myProjects.length === 0
                   ? <Empty description="暫無相關專案" className="py-6" image={Empty.PRESENTED_IMAGE_SIMPLE} />
                   : myProjects.map((p) => {
-                    const daysLeft = p.expected_end_date ? dayjs(p.expected_end_date).diff(dayjs(), 'day') : null
+                    const pmName = toName(p.project_pm)
                     return (
-                      <div key={p.id} className="flex items-center gap-3 py-3 border-b border-slate-50 last:border-0 hover:bg-slate-50 -mx-4 px-4 rounded-lg cursor-pointer transition-colors" onClick={() => navigate(`/projects/${p.id}`)}>
-                        <div className="w-1 self-stretch rounded-full flex-shrink-0" style={{ background: PRIORITY_COLORS[(p.priority ?? 1) - 1] }} />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="font-medium text-slate-700 text-sm truncate">{p.project_nm}</span>
-                            <Tag color={STATUS_COLOR[p.status]} style={{ fontSize: 11, lineHeight: '18px', padding: '0 6px', margin: 0 }}>{STATUS_LABEL[p.status]}</Tag>
-                          </div>
-                          <Progress percent={p.progress ?? 0} size="small" showInfo={false} strokeColor={(p.progress ?? 0) >= 80 ? '#16a34a' : (p.progress ?? 0) >= 40 ? '#2563eb' : '#94a3b8'} trailColor="#f1f5f9" />
+                      <div
+                        key={p.id}
+                        className="flex items-center gap-3 px-5 py-3 border-b border-slate-100 last:border-0 hover:bg-slate-50 cursor-pointer transition-colors"
+                        onClick={() => navigate(`/projects/${p.id}`)}
+                      >
+                        <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0" style={{ background: `${PRIORITY_COLORS[(p.priority ?? 1) - 1]}20` }}>
+                          <FolderIcon className="w-4 h-4" style={{ color: PRIORITY_COLORS[(p.priority ?? 1) - 1] }} />
                         </div>
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          <span className="text-xs text-slate-400 hidden sm:block">{p.progress ?? 0}%</span>
-                          {daysLeft !== null && <DaysLeftBadge days={daysLeft} />}
+                        <span className="flex-1 text-sm text-slate-700 truncate">{p.project_nm}</span>
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          <Avatar size={22} style={{ background: '#2563eb', fontSize: 10, fontWeight: 700 }}>
+                            {pmName?.[0]?.toUpperCase() || 'P'}
+                          </Avatar>
+                          <span className="text-xs text-slate-500 hidden sm:block">{pmName || p.project_pm}</span>
                         </div>
+                        <span className="text-xs text-slate-300 w-20 text-right flex-shrink-0">
+                          {p.expected_end_date ? dayjs(p.expected_end_date).format('MM/DD') : '-'}
+                        </span>
+                      </div>
+                    )
+                  })
+                }
+              </Card>
+            )
+
+            case 'my_tasks': return isManager ? null : (
+              <Card
+                className="h-full"
+                styles={{ body: { padding: 0, overflow: 'auto', height: '100%' } }}
+                title={
+                  <div>
+                    <div className="text-sm font-semibold text-slate-700">我負責的任務</div>
+                    <div className="text-xs text-slate-400 font-normal mt-0.5">全部 · {myDuties.length} 個任務</div>
+                  </div>
+                }
+              >
+                {myDuties.length === 0
+                  ? <Empty description="暫無相關任務" className="py-6" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                  : myDuties.map((d) => {
+                    const st = DUTY_STATUS_MAP[d.status]
+                    return (
+                      <div
+                        key={d.id}
+                        className="flex items-center gap-3 px-5 py-3 border-b border-slate-100 last:border-0 hover:bg-slate-50 cursor-pointer transition-colors"
+                        onClick={() => navigate(`/duties/${d.id}`)}
+                      >
+                        <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: st?.dot ?? '#94a3b8' }} />
+                        <span className="flex-1 text-sm text-slate-700 truncate">{d.duty_nm}</span>
+                        {st && <Tag color={st.color} style={{ fontSize: 11, padding: '0 6px', margin: 0 }}>{st.label}</Tag>}
+                        <span className="text-xs text-slate-300 w-14 text-right flex-shrink-0">
+                          {d.expected_end_date ? dayjs(d.expected_end_date).format('MM/DD') : '-'}
+                        </span>
+                        <span className="text-xs text-slate-400 w-20 text-right flex-shrink-0 truncate">
+                          {d.project_nm || d.group || '-'}
+                        </span>
+                      </div>
+                    )
+                  })
+                }
+              </Card>
+            )
+
+            case 'my_pending_review': return isManager ? null : (
+              <Card
+                className="h-full"
+                styles={{ body: { padding: 0, overflow: 'auto', height: '100%' } }}
+                title={
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-slate-700">待我審批</span>
+                    {pendingReviews.length > 0 && (
+                      <span className="w-5 h-5 rounded-full bg-orange-500 text-white text-[10px] font-bold flex items-center justify-center">{pendingReviews.length}</span>
+                    )}
+                  </div>
+                }
+              >
+                {pendingReviews.length === 0
+                  ? <Empty description="暫無待審批項目" className="py-6" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                  : pendingReviews.map((r) => {
+                    const title = r.project_nm || r.duty_nm || r.function_nm || r.id
+                    const typeLabel = r.apply_type || '申請'
+                    return (
+                      <div
+                        key={r.id}
+                        className="flex items-center gap-3 px-5 py-3 border-b border-slate-100 last:border-0 hover:bg-slate-50 cursor-pointer transition-colors"
+                        onClick={() => navigate('/review')}
+                      >
+                        <Tag color="orange" style={{ fontSize: 10, padding: '0 5px', lineHeight: '18px', margin: 0, flexShrink: 0 }}>{typeLabel}</Tag>
+                        <span className="flex-1 text-sm text-slate-700 truncate">{title}</span>
+                        <span className="text-xs text-slate-300 flex-shrink-0">{dayjs(r.created_at).format('MM/DD')}</span>
                       </div>
                     )
                   })
@@ -823,7 +959,7 @@ const DashboardPage: React.FC = () => {
 
             case 'latest_news': return isManager ? null : (
               <Card
-                bordered={false} className="shadow-sm h-full"
+                className="h-full"
                 title={<span className="font-semibold text-slate-700 text-sm">近期動態</span>}
                 style={{ display: 'flex', flexDirection: 'column' }}
                 styles={{ body: { padding: '0 16px 12px', overflowY: 'auto', flex: 1, minHeight: 0 } }}
@@ -858,9 +994,11 @@ const DashboardPage: React.FC = () => {
         if (!node) return null
         return (
           <div key={w.widget_id} className="relative">
-            <WidgetEditOverlay widgetId={w.widget_id} isEditing={isEditing} onHide={hideWidget} removable={w.removable} />
+            <div className="absolute overflow-hidden rounded-lg [&_.ant-card-head]:pr-9" style={{ inset: '0 4px 8px 4px' }}>
+            <WidgetMenu widgetId={w.widget_id} removable={w.removable} onHide={hideWidget} onRefresh={() => setRefreshKey((k) => k + 1)} />
             <div style={{ height: '100%' }} className="[&>*]:!h-full [&>*]:!mb-0">
               {node}
+            </div>
             </div>
           </div>
         )

@@ -10,6 +10,7 @@ import {
   BellIcon, ArrowRightStartOnRectangleIcon, Bars3Icon,
   ChevronDoubleLeftIcon, ChartBarIcon, PencilSquareIcon,
   ExclamationTriangleIcon, TableCellsIcon, RectangleStackIcon,
+  DocumentChartBarIcon, Squares2X2Icon,
 } from '@heroicons/react/24/outline'
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
 import { logout } from '@/features/auth/authSlice'
@@ -33,8 +34,10 @@ const NAV_ITEMS: NavItem[] = [
     icon: <FolderIcon className="w-[18px] h-[18px]" />,
     label: '項目管理',
     children: [
-      { key: '/projects', icon: <RectangleStackIcon className="w-[16px] h-[16px]" />, label: '專案列表', path: '/projects' },
-      { key: '/duties',   icon: <ClipboardDocumentListIcon className="w-[16px] h-[16px]" />, label: '任務列表', path: '/duties'  },
+      { key: '/projects',       icon: <RectangleStackIcon className="w-[16px] h-[16px]" />,       label: '專案列表', path: '/projects'       },
+      { key: '/duties',         icon: <ClipboardDocumentListIcon className="w-[16px] h-[16px]" />, label: '任務列表', path: '/duties'         },
+      { key: '/project-report',   icon: <DocumentChartBarIcon className="w-[16px] h-[16px]" />,  label: '項目報表',   path: '/project-report'   },
+      // { key: '/dept-tasks', icon: <Squares2X2Icon className="w-[16px] h-[16px]" />, label: '部門任務', path: '/dept-tasks' }, // TODO: 功能開發中，暫時隱藏
     ],
   },
   { key: '/daily-log',  icon: <PencilSquareIcon className="w-[18px] h-[18px]" />,           label: '工作日誌',  path: '/daily-log'  },
@@ -76,11 +79,23 @@ const AppLayout: React.FC = () => {
   const pendingReview = (indexData?.total_awaiting_review_num?.project ?? 0) + (indexData?.total_awaiting_review_num?.duty ?? 0)
   const unreadCount   = notifications.filter((n) => !n.read).length
 
-  const navItems = NAV_ITEMS.filter((item) => {
-    if (item.key === '/wbs' || item.key === '/anomaly') return isSupervisor
-    if (item.key === '/daily-log') return !isManagerView
-    return true
-  })
+  const navItems = useMemo(() => {
+    return NAV_ITEMS.map((item) => {
+      if (!isGroup(item)) return item
+      if (item.key !== '/project-mgmt') return item
+      return {
+        ...item,
+        children: item.children.filter((c) => {
+          if (c.key === '/dept-tasks') return isSupervisor
+          return true
+        }),
+      }
+    }).filter((item) => {
+      if (item.key === '/wbs' || item.key === '/anomaly') return isSupervisor
+      if (item.key === '/daily-log') return !isManagerView
+      return true
+    })
+  }, [isSupervisor, isManagerView])
 
   // Find the currently active leaf key by checking paths
   const currentKey = useMemo(() => {

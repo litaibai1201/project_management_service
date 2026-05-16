@@ -1,94 +1,270 @@
-import React from 'react'
-import { Tooltip } from 'antd'
-import { PencilSquareIcon, XMarkIcon } from '@heroicons/react/24/outline'
+import React, { useState, useEffect } from 'react'
+import { Modal, Button, Dropdown } from 'antd'
+import type { MenuProps } from 'antd'
+import { XMarkIcon, CheckIcon, EllipsisVerticalIcon, ArrowPathIcon } from '@heroicons/react/24/outline'
 import type { UseDashboardConfigReturn, WidgetEntry } from '@/hooks/useDashboardConfig'
-import { DEFAULT_LAYOUTS } from '@/hooks/useDashboardConfig'
+import type { DashboardViewType } from '@/types/api.types'
 
-interface TrayProps {
-  isEditing:     boolean
-  hiddenWidgets: WidgetEntry[]
-  onShow:        UseDashboardConfigReturn['showWidget']
+// ── Widget metadata ────────────────────────────────────────────────────────────
+
+interface WidgetMeta {
+  id: string
+  title: string
+  desc: string
+  color: string
 }
 
-interface EditToggleProps {
-  isEditing:    boolean
-  setIsEditing: (v: boolean) => void
+interface Category {
+  key: string
+  label: string
+  widgets: WidgetMeta[]
 }
 
-/** 编辑模式开关按钮 */
-export const EditToggleButton: React.FC<EditToggleProps> = ({
-  isEditing, setIsEditing,
-}) => (
-  <Tooltip title={isEditing ? '完成編輯' : '自定義首頁佈局'}>
-    <button
-      onClick={() => setIsEditing(!isEditing)}
-      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors outline-none border-0 cursor-pointer ${
-        isEditing
-          ? 'bg-blue-600 text-white hover:bg-blue-700'
-          : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'
-      }`}
-    >
-      <PencilSquareIcon className="w-4 h-4" />
-      <span>{isEditing ? '完成' : '自定義'}</span>
-    </button>
-  </Tooltip>
+const WIDGET_CATEGORIES: Record<DashboardViewType, Category[]> = {
+  personal: [
+    {
+      key: 'project',
+      label: '項目',
+      widgets: [
+        { id: 'project_stats',      title: '專案統計',      desc: '展示專案進度與狀態概覽',     color: '#3b82f6' },
+        { id: 'my_projects',        title: '我參與的專案',  desc: '展示我參與的專案列表',       color: '#3b82f6' },
+      ],
+    },
+    {
+      key: 'task',
+      label: '任務',
+      widgets: [
+        { id: 'task_stats',         title: '任務統計',      desc: '展示任務完成情況',           color: '#22c55e' },
+        { id: 'my_tasks',           title: '我負責的任務',  desc: '展示我負責的臨時任務列表',   color: '#22c55e' },
+        { id: 'pending_review',     title: '待處理',        desc: '展示待處理數量概覽',         color: '#f59e0b' },
+        { id: 'my_pending_review',  title: '待我審批',      desc: '展示待我審批的申請列表',     color: '#f59e0b' },
+      ],
+    },
+    {
+      key: 'hours',
+      label: '工時',
+      widgets: [
+        { id: 'activity_chart',     title: '工時趨勢',      desc: '展示近期工時趨勢圖',         color: '#8b5cf6' },
+        { id: 'monthly_attendance', title: '月出勤日曆',    desc: '展示本月工時日曆',           color: '#8b5cf6' },
+      ],
+    },
+    {
+      key: 'log',
+      label: '日誌',
+      widgets: [
+        { id: 'daily_log',          title: '工作日誌',      desc: '展示今日工作日誌填寫狀態',   color: '#06b6d4' },
+      ],
+    },
+    {
+      key: 'other',
+      label: '其他',
+      widgets: [
+        { id: 'latest_news',        title: '最新消息',      desc: '展示系統最新動態',           color: '#64748b' },
+      ],
+    },
+  ],
+  manager: [
+    {
+      key: 'project',
+      label: '項目',
+      widgets: [
+        { id: 'team_project',        title: '團隊專案',      desc: '展示團隊專案整體情況',    color: '#3b82f6' },
+      ],
+    },
+    {
+      key: 'task',
+      label: '任務',
+      widgets: [
+        { id: 'team_task',           title: '團隊任務',      desc: '展示團隊任務狀態',        color: '#22c55e' },
+        { id: 'team_pending',        title: '待處理',        desc: '展示團隊待處理事項',      color: '#f59e0b' },
+      ],
+    },
+    {
+      key: 'member',
+      label: '成員',
+      widgets: [
+        { id: 'team_size',           title: '團隊規模',      desc: '展示團隊人員數量',        color: '#ec4899' },
+        { id: 'daily_report_status', title: '日報提交情況',  desc: '展示成員日誌提交狀態',    color: '#06b6d4' },
+        { id: 'member_task_chart',   title: '成員任務圖',    desc: '展示各成員任務分布圖表',  color: '#8b5cf6' },
+        { id: 'member_detail',       title: '成員明細',      desc: '展示成員任務詳情列表',    color: '#64748b' },
+      ],
+    },
+  ],
+}
+
+// ── Widget card preview illustration ──────────────────────────────────────────
+
+const WidgetPreview: React.FC<{ color: string }> = ({ color }) => (
+  <div className="rounded-lg p-2.5" style={{ background: `${color}12` }}>
+    <div className="flex flex-col gap-1.5">
+      {[0.7, 0.5, 0.35].map((opacity, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <div className="w-3 h-3 rounded" style={{ background: color, opacity }} />
+          <div className="flex-1 h-1.5 rounded-full bg-slate-200" />
+          <div className="w-5 h-1.5 rounded-full" style={{ background: color, opacity: opacity * 0.7 }} />
+        </div>
+      ))}
+    </div>
+  </div>
 )
 
-/** 编辑模式下显示在页面顶部的 widget 托盘 */
-export const WidgetTray: React.FC<TrayProps> = ({ isEditing, hiddenWidgets, onShow }) => {
-  if (!isEditing) return null
+// ── AddCardModal (controlled) ──────────────────────────────────────────────────
+
+interface AddCardModalProps {
+  open:       boolean
+  onClose:    () => void
+  viewType:   DashboardViewType
+  allWidgets: WidgetEntry[]
+  onShow:     UseDashboardConfigReturn['showWidget']
+  onHide:     UseDashboardConfigReturn['hideWidget']
+}
+
+export const AddCardModal: React.FC<AddCardModalProps> = ({
+  open, onClose, viewType, allWidgets, onShow, onHide,
+}) => {
+  const [activeCategory, setActiveCategory] = useState<string>('')
+  const [pendingVisible, setPendingVisible] = useState<Set<string>>(new Set())
+
+  const categories = WIDGET_CATEGORIES[viewType] ?? WIDGET_CATEGORIES.personal
+
+  useEffect(() => {
+    if (open) {
+      const visible = new Set(allWidgets.filter((w) => w.is_visible).map((w) => w.widget_id))
+      setPendingVisible(visible)
+      setActiveCategory(categories[0]?.key ?? '')
+    }
+  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleConfirm = () => {
+    allWidgets.forEach((w) => {
+      const shouldShow = pendingVisible.has(w.widget_id)
+      if (shouldShow && !w.is_visible) onShow(w.widget_id)
+      else if (!shouldShow && w.is_visible && w.removable) onHide(w.widget_id)
+    })
+    onClose()
+  }
+
+  const toggle = (id: string, removable: boolean) => {
+    if (!removable) return
+    setPendingVisible((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const currentCat = categories.find((c) => c.key === activeCategory)
+
   return (
-    <div className="mb-4 p-3 rounded-xl border-2 border-dashed border-blue-200 bg-blue-50/50">
-      <p className="text-xs text-blue-500 font-medium mb-2">
-        點擊卡片加入首頁；拖曳網格中的卡片移動位置，拖曳右下角調整大小，點擊 × 移除。
-      </p>
-      {hiddenWidgets.length === 0 ? (
-        <p className="text-xs text-slate-400">所有卡片已顯示於首頁中</p>
-      ) : (
-        <div className="flex flex-wrap gap-2">
-          {hiddenWidgets.map((w) => (
-            <TrayItem key={w.widget_id} widget={w} onAdd={onShow} />
-          ))}
+    <Modal
+      open={open}
+      onCancel={onClose}
+      title="添加卡片"
+      width={680}
+      footer={
+        <div className="flex justify-end gap-2 pt-1">
+          <Button onClick={onClose}>取消</Button>
+          <Button type="primary" onClick={handleConfirm}>確定</Button>
         </div>
-      )}
-    </div>
-  )
-}
-
-const TrayItem: React.FC<{ widget: WidgetEntry; onAdd: (id: string) => void }> = ({ widget, onAdd }) => {
-  const def = DEFAULT_LAYOUTS[widget.widget_id]
-  return (
-    <button
-      onClick={() => onAdd(widget.widget_id)}
-      className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-blue-200 text-sm text-slate-700 hover:border-blue-400 hover:shadow-sm transition-all"
+      }
+      styles={{ body: { padding: '16px 0 0 0' } }}
     >
-      <span>{widget.label}</span>
-      {def && (
-        <span className="text-[10px] text-slate-400 font-mono">{def.w}×{def.h}</span>
-      )}
-    </button>
+      <div className="flex" style={{ minHeight: 380 }}>
+        {/* Left: category sidebar */}
+        <div className="w-28 border-r border-slate-100 flex flex-col gap-0.5 px-2 pb-4 flex-shrink-0">
+          {categories.map((cat) => {
+            const count = cat.widgets.filter((w) => pendingVisible.has(w.id)).length
+            return (
+              <div
+                key={cat.key}
+                onClick={() => setActiveCategory(cat.key)}
+                className={`flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer text-sm transition-colors select-none ${
+                  activeCategory === cat.key
+                    ? 'bg-blue-50 text-blue-600 font-medium'
+                    : 'text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                <span>{cat.label}</span>
+                <span className="text-xs text-slate-400">· {count}</span>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Right: card grid */}
+        <div className="flex-1 px-5 pb-4 overflow-y-auto">
+          <p className="text-xs text-slate-400 mb-3">點擊卡片切換顯示狀態</p>
+          <div className="grid grid-cols-2 gap-3">
+            {currentCat?.widgets.map((meta) => {
+              const entry     = allWidgets.find((w) => w.widget_id === meta.id)
+              const removable = entry?.removable ?? true
+              const selected  = pendingVisible.has(meta.id)
+              return (
+                <div
+                  key={meta.id}
+                  onClick={() => toggle(meta.id, removable)}
+                  className={`relative rounded-xl border-2 p-3 transition-all ${
+                    selected
+                      ? 'border-blue-400 bg-blue-50/60'
+                      : 'border-slate-100 bg-white hover:border-slate-300'
+                  } ${removable ? 'cursor-pointer' : 'cursor-default opacity-60'}`}
+                >
+                  {selected && (
+                    <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center">
+                      <CheckIcon className="w-3 h-3 text-white" />
+                    </div>
+                  )}
+                  <WidgetPreview color={meta.color} />
+                  <div className="mt-2.5">
+                    <div className="text-sm font-medium text-slate-700">{meta.title}</div>
+                    <div className="text-xs text-slate-400 mt-0.5 leading-snug">{meta.desc}</div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+    </Modal>
   )
 }
 
-/** 覆盖在网格 widget 上的编辑层（移除按钮 + 蓝色边框提示） */
-export const WidgetEditOverlay: React.FC<{
+// ── WidgetMenu (⋮ dropdown on each card) ─────────────────────────────────────
+
+export const WidgetMenu: React.FC<{
   widgetId:  string
-  isEditing: boolean
-  onHide:    (id: string) => void
   removable: boolean
-}> = ({ widgetId, isEditing, onHide, removable }) => {
-  if (!isEditing) return null
+  onHide:    (id: string) => void
+  onRefresh: () => void
+}> = ({ widgetId, removable, onHide, onRefresh }) => {
+  const items: MenuProps['items'] = [
+    {
+      key:   'refresh',
+      label: '刷新',
+      icon:  <ArrowPathIcon className="w-3.5 h-3.5" />,
+      onClick: () => onRefresh(),
+    },
+    ...(removable ? [{
+      key:     'remove',
+      label:   '移除',
+      danger:  true,
+      icon:    <XMarkIcon className="w-3.5 h-3.5" />,
+      onClick: () => onHide(widgetId),
+    }] : []),
+  ]
+
   return (
-    <div className="absolute inset-0 z-10 pointer-events-none rounded-lg ring-2 ring-blue-300 ring-inset">
-      {removable && (
-        <button
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={(e) => { e.stopPropagation(); onHide(widgetId) }}
-          className="pointer-events-auto absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center hover:bg-red-600 shadow-sm transition-colors"
-        >
-          <XMarkIcon className="w-3 h-3" />
+    <div
+      className="absolute z-10"
+      style={{ top: 11, right: 12 }}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      <Dropdown menu={{ items }} trigger={['click']}>
+        <button className="w-6 h-6 flex items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors cursor-pointer border-0 outline-none bg-transparent">
+          <EllipsisVerticalIcon className="w-4 h-4" />
         </button>
-      )}
+      </Dropdown>
     </div>
   )
 }

@@ -236,6 +236,24 @@ class ProjectGroupApi(MethodView):
         return response_result(content=proj_ctrl.get_project_groups())
 
 
+@blp.route("/report_stats")
+class ProjectReportStatsApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgRawSchema)
+    def get(self):
+        """專案進度報表統計"""
+        return response_result(content=proj_ctrl.get_report_stats())
+
+
+@blp.route("/member_report_stats")
+class MemberReportStatsApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgRawSchema)
+    def get(self):
+        """成員報表統計"""
+        return response_result(content=proj_ctrl.get_member_report_stats())
+
+
 @blp.route("/wbs_overview")
 class WbsOverviewApi(MethodView):
     @jwt_required()

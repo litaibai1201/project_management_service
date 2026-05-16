@@ -61,6 +61,7 @@ interface WbsTask {
   progress: number
   status: TaskStatus
   is_overdue?: boolean       // independent of status — a not_started task can also be overdue
+  is_suspended?: boolean     // function_status === 8 (搁置)
   expected_end: string
   original_end?: string      // 原始預計完成時間（延期前）
   reschedule_count?: number  // 延期次數
@@ -1283,7 +1284,16 @@ const ReportPreviewModal: React.FC<{
                     {/* 進度 — rich-text matching template style */}
                     <td style={{ verticalAlign: 'top', border: '1px solid #B4C6E7', lineHeight: 1.6 }}>
                       {project.functions.flatMap((func) =>
-                        func.tasks.map((task) => {
+                        func.tasks
+                          .filter((task) => {
+                            if (task.is_suspended) return false
+                            // 三週範圍內（上週/本週/下週）的任務正常顯示
+                            if (task.week_tag.length > 0) return true
+                            // 超時且未完成，無論週期始終統計進來
+                            if (task.is_overdue && task.status !== 'completed') return true
+                            return false
+                          })
+                          .map((task) => {
                           taskIdx++
                           const { label, color } = _taskStatusLabel(task)
                           const lineColor = task.status === 'completed' ? '#00B050' : '#000'
@@ -1468,20 +1478,37 @@ const WbsOverviewPage: React.FC = () => {
     })
   }, [])
 
-  // Summary stats (always from full data)
+  // Summary stats — week filter applies to all except overdue (always full-data)
   const summary = useMemo(() => {
     const allTasks = wbsData.flatMap((p) => p.functions.flatMap((f) => f.tasks))
-    return {
-      totalProjects: wbsData.length,
-      totalTasks: allTasks.length,
-      completed: allTasks.filter((t) => t.status === 'completed').length,
-      inProgress: allTasks.filter((t) => t.status === 'in_progress').length,
-      overdue: allTasks.filter((t) => !!t.is_overdue).length,
-      notStarted: allTasks.filter((t) => t.status === 'not_started').length,
-      thisWeek: allTasks.filter((t) => t.week_tag.includes('this_week')).length,
-      nextWeek: allTasks.filter((t) => t.week_tag.includes('next_week')).length,
+
+    // Apply week filter only (not status filter) so stats show status breakdown within the period
+    // overdue is excluded here and always counted from full data separately
+    const matchesPeriod = (task: WbsTask) => {
+      if (weekFilter === 'show_all') return true
+      if (weekFilter === 'all') return task.week_tag.length > 0  // 近3週：上/本/下週任意
+      return task.week_tag.includes(weekFilter as WeekTag)
     }
-  }, [wbsData])
+
+    const periodTasks = allTasks.filter(matchesPeriod)
+
+    const periodProjectIds = new Set(
+      wbsData
+        .filter((p) => p.functions.some((f) => f.tasks.some(matchesPeriod)))
+        .map((p) => p.id)
+    )
+
+    return {
+      totalProjects: periodProjectIds.size,
+      totalTasks:    periodTasks.length,
+      completed:     periodTasks.filter((t) => t.status === 'completed').length,
+      inProgress:    periodTasks.filter((t) => t.status === 'in_progress').length,
+      overdue:       allTasks.filter((t) => !!t.is_overdue).length,   // always full-data
+      notStarted:    periodTasks.filter((t) => t.status === 'not_started').length,
+      thisWeek:      allTasks.filter((t) => t.week_tag.includes('this_week')).length,
+      nextWeek:      allTasks.filter((t) => t.week_tag.includes('next_week')).length,
+    }
+  }, [wbsData, weekFilter])
 
   // Total pending notes across all projects (for header indicator)
   const totalPendingNotes = useMemo(() => {

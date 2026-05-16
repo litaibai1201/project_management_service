@@ -21,6 +21,38 @@ import {
   ProjectFile,
 } from '@/types/api.types'
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+export interface MemberReportStat {
+  work_no:            string
+  name:               string
+  total:              number
+  pending:            number
+  not_started:        number
+  in_progress:        number
+  completed:          number
+  overdue_incomplete: number
+  overdue_complete:   number
+  completion_rate:    number
+  overdue_rate:       number
+}
+
+export interface ProjectReportStat {
+  project_id:         string
+  project_nm:         string
+  status:             number
+  total:              number
+  pending:            number
+  not_started:        number
+  in_progress:        number
+  completed:          number
+  overdue_incomplete: number
+  overdue_complete:   number
+  completion_rate:    number
+  overdue_rate:       number
+  expected_end_date:  string
+}
+
 // ─── Project CRUD ─────────────────────────────────────────────────────────────
 
 export const projectApi = {
@@ -266,6 +298,14 @@ export const projectApi = {
   /** GET /api/project/wbs_overview — 專案進度總覽（WBS 結構） */
   wbsOverview: (): Promise<ApiResponse<unknown[]>> =>
     get('/project/wbs_overview'),
+
+  /** GET /api/project/report_stats — 專案進度報表統計 */
+  reportStats: (): Promise<ApiResponse<ProjectReportStat[]>> =>
+    get('/project/report_stats'),
+
+  /** GET /api/project/member_report_stats — 成員報表統計 */
+  memberReportStats: (): Promise<ApiResponse<MemberReportStat[]>> =>
+    get('/project/member_report_stats'),
 
   /** GET /api/statistics/member_stats */
   memberStats: (params?: { start_date?: string; end_date?: string }): Promise<ApiResponse<MemberWorkStat[]>> =>

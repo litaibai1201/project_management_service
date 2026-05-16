@@ -1063,26 +1063,28 @@ const StatisticsPage: React.FC = () => {
               </div>
             </Card>
           </Col>
+          <Col xs={24} md={8}>
+            <Card bordered={false} className="shadow-sm h-full"
+              style={{ display: 'flex', flexDirection: 'column' }}
+              title={<span className="text-sm font-semibold text-slate-700">正常 vs 加班工時（近5週）</span>}
+              bodyStyle={{ paddingTop: 8, flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+              <div style={{ flex: 1, minHeight: 0 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={overtimeData} maxBarSize={48} barCategoryGap="30%">
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                    <XAxis dataKey="week" tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} unit="h" />
+                    <RTooltip contentStyle={{ borderRadius: 10, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: 12 }}
+                      formatter={(v: number, name: string) => [`${v}h`, name]} />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Bar dataKey="normal" name="正常工時" stackId="a" fill="#93c5fd" />
+                    <Bar dataKey="overtime" name="加班工時" stackId="a" fill="#fb923c" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </Card>
+          </Col>
         </Row>
-
-        {/* Normal vs Overtime stacked bar */}
-        <Card bordered={false} className="shadow-sm"
-          title={<span className="text-sm font-semibold text-slate-700">正常 vs 加班工時（近5週）{memberName ? `— ${memberName}` : ''}</span>}
-          bodyStyle={{ paddingTop: 8 }}>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={overtimeData} barCategoryGap="25%">
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-              <XAxis dataKey="week" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} unit="h" />
-              <RTooltip contentStyle={{ borderRadius: 10, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: 12 }}
-                formatter={(v: number, name: string) => [`${v}h`, name]} />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
-              <Bar dataKey="normal" name="正常工時" stackId="a" fill="#93c5fd" />
-              <Bar dataKey="overtime" name="加班工時" stackId="a" fill="#fb923c" radius={[4, 4, 0, 0]} />
-              <ReferenceLine y={40} stroke="#94a3b8" strokeDasharray="4 4" label={{ value: '標準 40h', position: 'right', fontSize: 10, fill: '#94a3b8' }} />
-            </BarChart>
-          </ResponsiveContainer>
-        </Card>
       </div>
     )
   }

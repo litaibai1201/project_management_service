@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Table, Button, Input, Select, Space, Tooltip, Popconfirm,
   Progress, Modal, Form, Tag, Avatar, Segmented, Collapse, AutoComplete, Spin, Empty, Tabs, Switch,
@@ -48,6 +48,7 @@ type MyFunction = ProjectFunction & { project_nm: string; project_status: number
 const DutyListPage: React.FC = () => {
   const dispatch = useAppDispatch()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { list, isLoading, isSaving, query } = useAppSelector((s) => s.duty)
   const workNo        = useAppSelector((s) => s.auth.workNo) ?? ''
   const isManagerView = useAppSelector((s) => s.auth.isManagerView)
@@ -147,6 +148,21 @@ const DutyListPage: React.FC = () => {
   const [showCreate, setShowCreate] = useState(false)
   const [modalUserOptions, setModalUserOptions] = useState<{ value: string; label: string }[]>([])
   const [modalProjectOptions, setModalProjectOptions] = useState<{ value: string; label: string }[]>([])
+
+  // ── 從 URL 參數初始化成員篩選 ─────────────────────────────────────────────
+  useEffect(() => {
+    const responsible = searchParams.get('responsible')
+    if (responsible) {
+      setMyFuncResponsible(responsible)
+      dispatch(setDutyQuery({ responsible }))
+      // Pre-load user options so the select shows the name
+      userApi.list({ page: 1, size: 2000 }).then((res) => {
+        const data = (res.content as { data_list?: { work_no: string; name: string }[] }).data_list ?? []
+        setModalUserOptions(data.map((u) => ({ value: u.work_no, label: `${u.name} (${u.work_no})` })))
+      }).catch(() => {})
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const [form] = Form.useForm()
 
   const openCreateModal = useCallback(async () => {
@@ -586,6 +602,25 @@ const DutyListPage: React.FC = () => {
             options={groupFilterOptions}
           />
         )}
+        {/* Responsible filter */}
+        <Select
+          placeholder="負責人"
+          allowClear
+          showSearch
+          optionFilterProp="label"
+          style={{ width: 140 }}
+          value={query.responsible ?? undefined}
+          onChange={(v) => dispatch(setDutyQuery({ responsible: v ?? undefined, page: 1 }))}
+          options={modalUserOptions}
+          onDropdownVisibleChange={(open) => {
+            if (open && modalUserOptions.length === 0) {
+              userApi.list({ page: 1, size: 2000 }).then((res) => {
+                const data = (res.content as { data_list?: { work_no: string; name: string }[] }).data_list ?? []
+                setModalUserOptions(data.map((u) => ({ value: u.work_no, label: `${u.name} (${u.work_no})` })))
+              }).catch(() => {})
+            }
+          }}
+        />
         <div className="ml-auto flex items-center gap-4 text-sm text-slate-500">
           <label className="flex items-center gap-2 cursor-pointer">
             <Switch size="small" checked={showHeld} onChange={setShowHeld} />

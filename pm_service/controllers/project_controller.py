@@ -1096,6 +1096,7 @@ class ProjectController:
                         "progress":        f.progress or 0,
                         "status":          status,
                         "is_overdue":      is_overdue,
+                        "is_suspended":    (f.function_status or 1) == 8,
                         "expected_end":    end_str,
                         "original_end":    original_end_str,
                         "reschedule_count": reschedule_count,
@@ -1134,6 +1135,187 @@ class ProjectController:
                 "functions":    wbs_functions,
             })
 
+        return result
+
+    def get_report_stats(self) -> list:
+        """
+        項目進度報表統計
+        返回所有活躍專案及其任務狀態統計（不含草稿/刪除）
+        """
+        from datetime import date as date_type
+
+        today = date_type.today().isoformat()
+
+        # 排除草稿(1)、刪除(9) 的專案
+        projects = (
+            db.session.query(ProjectDataModel)
+            .filter(
+                ProjectDataModel.project_status.notin_([1, 9]),
+                ProjectDataModel.status == 1,
+            )
+            .order_by(ProjectDataModel.priority.desc(), ProjectDataModel.created_at.desc())
+            .all()
+        )
+
+        project_ids = [p.id for p in projects]
+
+        # 批量查詢所有有效功能任務（不含刪除）
+        functions = (
+            db.session.query(FunctionDataModel)
+            .filter(
+                FunctionDataModel.project_id.in_(project_ids),
+                FunctionDataModel.function_status != 9,
+                FunctionDataModel.status == 1,
+            )
+            .all()
+        ) if project_ids else []
+
+        # 按專案聚合任務統計
+        from collections import defaultdict
+        stats_map: dict = defaultdict(lambda: {
+            "total": 0, "not_started": 0, "in_progress": 0, "completed": 0,
+            "overdue_incomplete": 0, "overdue_complete": 0,
+        })
+        for f in functions:
+            s = stats_map[f.project_id]
+            s["total"] += 1
+            end = f.latest_expected_end_date or f.expected_end_date
+            is_past_due = bool(end and end < today)
+            if f.function_status == 4:
+                s["completed"] += 1
+                # 已完成但原本預計完工日已過（曾延期完成）
+                orig_end = f.expected_end_date
+                if orig_end and orig_end < today:
+                    s["overdue_complete"] += 1
+            elif f.function_status in (2, 3):
+                s["in_progress"] += 1
+                if is_past_due:
+                    s["overdue_incomplete"] += 1
+            else:  # 1 = 待開始, 8 = 搁置
+                s["not_started"] += 1
+                if is_past_due:
+                    s["overdue_incomplete"] += 1
+
+        result = []
+        for p in projects:
+            st = stats_map[p.id]
+            total = st["total"]
+            completed = st["completed"]
+            pending = st["not_started"] + st["in_progress"]
+            overdue_total = st["overdue_incomplete"] + st["overdue_complete"]
+            completion_rate = round(completed / total * 100, 1) if total > 0 else 0.0
+            overdue_rate = round(overdue_total / total * 100, 1) if total > 0 else 0.0
+            result.append({
+                "project_id":        p.id,
+                "project_nm":        p.project_nm,
+                "status":            p.project_status,
+                "total":             total,
+                "pending":           pending,
+                "not_started":       st["not_started"],
+                "in_progress":       st["in_progress"],
+                "completed":         completed,
+                "overdue_incomplete": st["overdue_incomplete"],
+                "overdue_complete":  st["overdue_complete"],
+                "completion_rate":   completion_rate,
+                "overdue_rate":      overdue_rate,
+                "expected_end_date": p.expected_end_date or "",
+            })
+        return result
+
+    def get_member_report_stats(self) -> list:
+        """
+        成員報表統計
+        返回每位負責人的任務狀態統計
+        """
+        import json
+        from datetime import date as date_type
+        from collections import defaultdict
+        from dbs.mysql_db.model_tables import UserProfileModel
+
+        today = date_type.today().isoformat()
+
+        # 查詢所有有效功能任務（不含刪除、不含草稿/刪除專案）
+        active_project_ids = [
+            p.id for p in db.session.query(ProjectDataModel.id)
+            .filter(
+                ProjectDataModel.project_status.notin_([1, 9]),
+                ProjectDataModel.status == 1,
+            ).all()
+        ]
+
+        functions = (
+            db.session.query(FunctionDataModel)
+            .filter(
+                FunctionDataModel.project_id.in_(active_project_ids),
+                FunctionDataModel.function_status != 9,
+                FunctionDataModel.status == 1,
+            )
+            .all()
+        ) if active_project_ids else []
+
+        stats_map: dict = defaultdict(lambda: {
+            "total": 0, "not_started": 0, "in_progress": 0, "completed": 0,
+            "overdue_incomplete": 0, "overdue_complete": 0,
+        })
+
+        all_work_nos: set = set()
+        for f in functions:
+            responsible = []
+            if f.responsible:
+                try:
+                    responsible = json.loads(f.responsible)
+                except (ValueError, TypeError):
+                    pass
+            if not responsible:
+                continue
+            end = f.latest_expected_end_date or f.expected_end_date
+            is_past_due = bool(end and end < today)
+            orig_end = f.expected_end_date
+            for wn in responsible:
+                all_work_nos.add(wn)
+                s = stats_map[wn]
+                s["total"] += 1
+                if f.function_status == 4:
+                    s["completed"] += 1
+                    if orig_end and orig_end < today:
+                        s["overdue_complete"] += 1
+                elif f.function_status in (2, 3):
+                    s["in_progress"] += 1
+                    if is_past_due:
+                        s["overdue_incomplete"] += 1
+                else:
+                    s["not_started"] += 1
+                    if is_past_due:
+                        s["overdue_incomplete"] += 1
+
+        # 查詢姓名
+        name_map: dict = {}
+        if all_work_nos:
+            profiles = db.session.query(UserProfileModel).filter(
+                UserProfileModel.work_no.in_(all_work_nos)
+            ).all()
+            name_map = {p.work_no: p.name for p in profiles}
+
+        result = []
+        for wn, st in stats_map.items():
+            total = st["total"]
+            completed = st["completed"]
+            pending = st["not_started"] + st["in_progress"]
+            overdue_total = st["overdue_incomplete"] + st["overdue_complete"]
+            result.append({
+                "work_no":           wn,
+                "name":              name_map.get(wn, wn),
+                "total":             total,
+                "pending":           pending,
+                "not_started":       st["not_started"],
+                "in_progress":       st["in_progress"],
+                "completed":         completed,
+                "overdue_incomplete": st["overdue_incomplete"],
+                "overdue_complete":  st["overdue_complete"],
+                "completion_rate":   round(completed / total * 100, 1) if total > 0 else 0.0,
+                "overdue_rate":      round(overdue_total / total * 100, 1) if total > 0 else 0.0,
+            })
+        result.sort(key=lambda x: x["total"], reverse=True)
         return result
 
 
