@@ -195,6 +195,7 @@ class DutyProgressApi(MethodView):
         """创建任务进度"""
         work_no = get_identity()
         payload = request.form.to_dict()
+        payload["cooperator"] = request.form.getlist("cooperator")
         ctrl.create_progress(duty_id, payload, submitter=work_no, files=request.files)
         return response_result()
 

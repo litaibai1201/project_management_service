@@ -208,7 +208,7 @@ export interface ProgressRecord {
   progress_record: string
   submitter: string
   created_at: string
-  cooperator?: string
+  cooperator?: string[]
   time_consum: number
   files?: FileInfo[]
   images?: FileInfo[]
@@ -426,6 +426,8 @@ export interface DailyLogEntry {
   files?:          { name: string; url: string; size?: number }[]
   /** 來源進度記錄 ID（由 suggest 條目 promote 而來時保留，用於刷新後去重） */
   suggest_id?:          string
+  /** 原始進度記錄提交人（合作人視角的 suggest 條目才有值） */
+  suggest_submitter?:   string
   /** 提交時間 HH:mm（來自進度記錄 created_at，用於日視圖顯示） */
   record_time?:         string
   /** 任務預計開始日期 YYYY-MM-DD */

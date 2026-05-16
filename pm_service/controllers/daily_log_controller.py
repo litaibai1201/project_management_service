@@ -169,6 +169,7 @@ class DailyLogController:
             ProgressRecordDataModel, DutyProgressRecordModel,
             FunctionDataModel, TemporaryDutyModel, ProjectDataModel,
         )
+        from sqlalchemy import or_
         import json
         if not date:
             from utils.tools import CommonTools
@@ -180,7 +181,10 @@ class DailyLogController:
         func_recs = (
             db.session.query(ProgressRecordDataModel)
             .filter(
-                ProgressRecordDataModel.submitter == work_no,
+                or_(
+                    ProgressRecordDataModel.submitter == work_no,
+                    ProgressRecordDataModel.cooperator.like(f'%"{work_no}"%'),
+                ),
                 ProgressRecordDataModel.created_at.like(f"{date}%"),
             ).order_by(ProgressRecordDataModel.created_at.asc()).all()
         )
@@ -217,13 +221,17 @@ class DailyLogController:
                 "files":               files,
                 "suggest_id":          r.progress_id,
                 "record_time":         str(r.created_at)[11:16] if r.created_at else None,
+                "submitter":           r.submitter,
             })
 
         # ── 临时任务进度记录 ──────────────────────────────────────────────
         duty_recs = (
             db.session.query(DutyProgressRecordModel)
             .filter(
-                DutyProgressRecordModel.submitter == work_no,
+                or_(
+                    DutyProgressRecordModel.submitter == work_no,
+                    DutyProgressRecordModel.cooperator.like(f'%"{work_no}"%'),
+                ),
                 DutyProgressRecordModel.created_at.like(f"{date}%"),
             ).order_by(DutyProgressRecordModel.created_at.asc()).all()
         )
@@ -253,6 +261,7 @@ class DailyLogController:
                 "files":       files,
                 "suggest_id":  r.id,
                 "record_time": str(r.created_at)[11:16] if r.created_at else None,
+                "submitter":   r.submitter,
             })
 
         return result

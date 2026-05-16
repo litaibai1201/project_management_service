@@ -298,4 +298,6 @@ export interface SuggestItem {
   record_time?: string
   expected_start_date?: string
   expected_end_date?:   string
+  /** 原始提交人工號（合作人視角時與當前用戶不同） */
+  submitter?: string
 }

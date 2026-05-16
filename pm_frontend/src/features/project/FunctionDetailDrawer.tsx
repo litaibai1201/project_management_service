@@ -8,6 +8,7 @@ import AttachmentPreview from '@/components/ui/AttachmentPreview'
 import FilePreviewModal from './FilePreviewModal'
 import type { UploadFile } from 'antd'
 import { projectApi } from '@/api/project.api'
+import { userApi } from '@/api/user.api'
 import { dailyLogApi } from '@/api/daily_log.api'
 import type { TaskLogEntry } from '@/api/daily_log.api'
 import { tokenStorage } from '@/api/httpClient'
@@ -116,6 +117,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
   const workNo = useAppSelector((s) => s.auth.workNo) ?? ''
   const toName = useWorkNoToName()
   const [previewFile, setPreviewFile] = useState<FileInfo | null>(null)
+  const [userOpts,        setUserOpts]        = useState<{ value: string; label: string }[]>([])
   const [funcData,        setFuncData]        = useState<ProjectFunction | null>(null)
   const [records,         setRecords]         = useState<ProgressRecord[]>([])
   const [progressPage,    setProgressPage]    = useState(1)
@@ -132,7 +134,21 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
   const [editForm]   = Form.useForm()
   const sentinelRef  = useRef<HTMLDivElement>(null)
 
+  useEffect(() => {
+    userApi.list({ size: 200 }).then((res) => {
+      const list = (res as { content?: { data_list?: { work_no: string; name: string }[] } }).content?.data_list ?? []
+      setUserOpts(list.map((u) => ({ value: u.work_no, label: u.name })))
+    }).catch(() => {})
+  }, [])
+
   useEffect(() => { if (open) loadData() }, [open, functionId])
+
+  const normalizeCooperator = (c: unknown): string[] => {
+    if (!c) return []
+    if (Array.isArray(c)) return c as string[]
+    if (typeof c === 'string') { try { const p = JSON.parse(c); return Array.isArray(p) ? p : [c] } catch { return [c] } }
+    return []
+  }
 
   const addTokenToFiles = (items: FileInfo[] | undefined): FileInfo[] => {
     if (!items?.length) return []
@@ -154,7 +170,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
       setFuncData(funcRes.content)
       const c = progressRes.content as { data_list?: ProgressRecord[]; total_count?: number }
       const list = (c.data_list ?? []) as ProgressRecord[]
-      setRecords(list.map((r) => ({ ...r, files: addTokenToFiles(r.files) })))
+      setRecords(list.map((r) => ({ ...r, files: addTokenToFiles(r.files), cooperator: normalizeCooperator(r.cooperator) })))
       setProgressTotal(c.total_count ?? list.length)
       setLogEntries(logRes.content ?? [])
     } catch { /* global */ }
@@ -169,7 +185,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
       const res = await projectApi.getProgress(projectId, functionId, { page: nextPage, size: PAGE_SIZE })
       const c = res.content as { data_list?: ProgressRecord[]; total_count?: number }
       const list = (c.data_list ?? []) as ProgressRecord[]
-      setRecords((prev) => [...prev, ...list.map((r) => ({ ...r, files: addTokenToFiles(r.files) }))])
+      setRecords((prev) => [...prev, ...list.map((r) => ({ ...r, files: addTokenToFiles(r.files), cooperator: normalizeCooperator(r.cooperator) }))])
       setProgressPage(nextPage)
       if (c.total_count !== undefined) setProgressTotal(c.total_count)
     } catch { /* global */ }
@@ -197,6 +213,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
         progress:        values.progress as number,
         progress_record: values.progress_record as string | undefined,
         time_consum:     values.time_consum as number | undefined,
+        cooperator:      values.cooperator as string[] | undefined,
       }, Object.keys(files).length > 0 ? files : undefined)
       showToast.success('進度更新成功')
       setShowForm(false); form.resetFields(); setFileList([])
@@ -451,6 +468,16 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
                 <Form.Item name="progress_record" label="進度說明">
                   <Input.TextArea rows={2} placeholder="本次完成了哪些工作..." />
                 </Form.Item>
+                <Form.Item name="cooperator" label="合作人">
+                  <Select
+                    mode="multiple"
+                    showSearch
+                    placeholder="搜尋並選擇合作人（選填）"
+                    optionFilterProp="label"
+                    options={userOpts.filter((u) => u.value.toLowerCase() !== workNo.toLowerCase())}
+                    allowClear
+                  />
+                </Form.Item>
                 <Form.Item label="附件">
                   <Upload
                     fileList={fileList}
@@ -520,7 +547,10 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
                   items={mixed.map(({ kind, data }) => {
                     if (kind === 'progress') {
                       const item = data as ProgressRecord
-                      const updates = updatedMap.get(item.progress_id) ?? []
+                      const allUpdates = updatedMap.get(item.progress_id) ?? []
+                      // 分離：提交人自己的日誌更新 vs 合作人的日誌更新
+                      const ownUpdates  = allUpdates.filter((e) => e.work_no === item.submitter)
+                      const coopUpdates = allUpdates.filter((e) => e.work_no !== item.submitter)
                       return {
                         dot: (
                           <Avatar size={26} style={{ background: '#2563eb', fontSize: 11, fontWeight: 700 }}>
@@ -530,7 +560,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
                         children: (
                           <div className="pb-3">
                             {(() => {
-                              const latestUpd = updates.length > 0 ? updates[updates.length - 1] : null
+                              const latestUpd = ownUpdates.length > 0 ? ownUpdates[ownUpdates.length - 1] : null
                               const origHours = Number(item.time_consum ?? 0)
                               const latestHours = latestUpd ? Number(latestUpd.work_hours ?? 0) : origHours
                               const hoursChanged = latestUpd && latestHours !== origHours
@@ -541,6 +571,18 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
                                 <div className="flex items-center justify-between gap-2">
                                   <div className="flex items-center gap-2 flex-wrap">
                                     <span className="font-semibold text-slate-700 text-sm">{toName(item.submitter)}</span>
+                                    {(item.cooperator ?? []).length > 0 && (
+                                      <Tooltip title={`合作人：${(item.cooperator ?? []).map((c) => toName(c) || c).join('、')}`}>
+                                        <div className="flex items-center gap-0.5">
+                                          <span className="text-xs text-slate-400">+</span>
+                                          {(item.cooperator ?? []).map((c) => (
+                                            <Avatar key={c} size={18} style={{ background: '#7c3aed', fontSize: 9, fontWeight: 700, marginLeft: 2 }}>
+                                              {(toName(c) || c)[0]?.toUpperCase()}
+                                            </Avatar>
+                                          ))}
+                                        </div>
+                                      </Tooltip>
+                                    )}
                                     {progressChanged ? (
                                       <span className="flex items-center gap-1">
                                         <span className="text-xs text-slate-400 line-through">{origProgress}%</span>
@@ -569,10 +611,10 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
                                 </div>
                               )
                             })()}
-                            {/* 原始進度說明：只有第一條更新確實改了文字才劃線 */}
+                            {/* 原始進度說明：只有第一條提交人自己的更新確實改了文字才劃線 */}
                             {item.progress_record && (() => {
-                              const firstUpdDesc = updates[0]?.description ?? ''
-                              const origChanged  = updates.length > 0 && firstUpdDesc !== item.progress_record
+                              const firstUpdDesc = ownUpdates[0]?.description ?? ''
+                              const origChanged  = ownUpdates.length > 0 && firstUpdDesc !== item.progress_record
                               return (
                                 <p className="text-sm mt-1 mb-0 leading-snug"
                                   style={{ color: origChanged ? '#94a3b8' : '#475569', textDecoration: origChanged ? 'line-through' : 'none', margin: '4px 0 0 0' }}>
@@ -580,15 +622,14 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
                                 </p>
                               )
                             })()}
-                            {/* 日誌更新鏈 */}
-                            {updates.map((upd, idx) => {
-                              const isLatest    = idx === updates.length - 1
-                              const prevDesc    = idx === 0 ? (item.progress_record ?? '') : (updates[idx - 1].description ?? '')
+                            {/* 提交人自己的日誌更新鏈 */}
+                            {ownUpdates.map((upd, idx) => {
+                              const isLatest    = idx === ownUpdates.length - 1
+                              const prevDesc    = idx === 0 ? (item.progress_record ?? '') : (ownUpdates[idx - 1].description ?? '')
                               const descChanged = upd.description !== prevDesc
-                              // 僅用於文件名比對，不在此處加 token（splitFiles 統一處理）
                               const prevRawFiles = idx === 0
                                 ? (item.files ?? [])
-                                : (updates[idx - 1].files ?? [])
+                                : (ownUpdates[idx - 1].files ?? [])
                               const currRawFiles = (upd.files ?? [])
                               const prevNameSet = new Set(prevRawFiles.map((f) => f.name))
                               const currNameSet = new Set(currRawFiles.map((f) => f.name))
@@ -598,14 +639,12 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
                               if (!descChanged && !hasFileDiff) return null
                               return (
                                 <div key={upd.log_date}>
-                                  {/* 上一版文字劃線：僅在 idx>0 且文字確實改了時才顯示 */}
                                   {idx > 0 && descChanged && (
                                     <p className="text-sm leading-tight"
                                       style={{ color: '#94a3b8', textDecoration: 'line-through', margin: '2px 0 0 0' }}>
-                                      {updates[idx - 1].description}
+                                      {ownUpdates[idx - 1].description}
                                     </p>
                                   )}
-                                  {/* 文字：只有確實改變才顯示 */}
                                   {descChanged && (
                                     <p className="text-sm leading-tight"
                                       style={{ color: isLatest ? '#334155' : '#94a3b8', textDecoration: isLatest ? 'none' : 'line-through', margin: '2px 0 0 0' }}>
@@ -630,6 +669,42 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
                             <AttachmentPreview files={item.files} images={item.images} onPreview={setPreviewFile} />
                             {/* 時間戳放在附件下方 */}
                             <span className="text-xs text-slate-300 mt-1 block">{item.created_at}</span>
+                            {/* 合作人的日誌更新（獨立顯示，不影響原始記錄） */}
+                            {coopUpdates.map((upd) => {
+                              const origNameSet = new Set((item.files ?? []).map((f) => f.name))
+                              const newFiles = (upd.files ?? []).filter((f) => !origNameSet.has(f.name))
+                              return (
+                                <div key={`coop-${upd.work_no}-${upd.log_date}`}
+                                  className="mt-2 pt-2"
+                                  style={{ borderTop: '1px dashed #e2e8f0' }}>
+                                  <div className="flex items-center justify-between gap-2 mb-1">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <Avatar size={18} style={{ background: '#7c3aed', fontSize: 9, fontWeight: 700 }}>
+                                        {toName(upd.work_no)?.[0]?.toUpperCase()}
+                                      </Avatar>
+                                      <span className="text-xs font-semibold text-slate-600">{toName(upd.work_no)}</span>
+                                      {upd.progress != null && (
+                                        <Tag color="blue" style={{ fontSize: 11, padding: '0 6px', margin: 0 }}>{upd.progress}%</Tag>
+                                      )}
+                                      {upd.work_hours > 0 && (
+                                        <Tag style={{ fontSize: 11, padding: '0 6px', margin: 0 }}>{upd.work_hours}h</Tag>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center gap-1 flex-shrink-0">
+                                      <Tag color="purple" style={{ fontSize: 9, padding: '0 4px', lineHeight: '16px', margin: 0 }}>合作人更新</Tag>
+                                      <Tag style={{ fontSize: 9, padding: '0 4px', lineHeight: '16px', margin: 0 }}>
+                                        {upd.log_status === 2 ? '已提交' : '草稿'}
+                                      </Tag>
+                                    </div>
+                                  </div>
+                                  {upd.description && (
+                                    <p className="text-sm text-slate-600 leading-snug" style={{ margin: '0 0 4px 0' }}>{upd.description}</p>
+                                  )}
+                                  {newFiles.length > 0 && (() => { const sf = splitFiles(newFiles); return <AttachmentPreview files={sf.files} images={sf.images} onPreview={setPreviewFile} /> })()}
+                                  <span className="text-xs text-slate-300 block">{upd.log_date}{upd.record_time ? ` ${upd.record_time}` : ''}</span>
+                                </div>
+                              )
+                            })}
                           </div>
                         ),
                       }

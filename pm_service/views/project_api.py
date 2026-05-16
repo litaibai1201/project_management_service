@@ -379,6 +379,7 @@ class FunctionProgressApi(MethodView):
         """创建功能任务进度"""
         work_no = get_identity()
         payload = request.form.to_dict()
+        payload["cooperator"] = request.form.getlist("cooperator")
         return response_result(content=func_ctrl.create_progress(
             project_id, function_id, payload, submitter=work_no, files=request.files,
         ))

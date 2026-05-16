@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import {
   Descriptions, Button, Tag, Progress, Spin, Empty, Avatar,
   Typography, Space, Form, Input, InputNumber, Upload, Timeline,
-  Card, Steps,
+  Card, Steps, Select, Tooltip,
 } from 'antd'
 import type { UploadFile } from 'antd'
 import { ArrowLeftIcon, PlusIcon, PaperClipIcon } from '@heroicons/react/24/outline'
@@ -13,6 +13,7 @@ import { useAppDispatch, useAppSelector } from '@/hooks/redux'
 import { useWorkNoToName } from '@/hooks/useWorkNoToName'
 import { fetchDutyThunk, clearCurrentDuty } from './dutySlice'
 import { dutyApi } from '@/api/duty.api'
+import { userApi } from '@/api/user.api'
 import { dailyLogApi } from '@/api/daily_log.api'
 import type { TaskLogEntry } from '@/api/daily_log.api'
 import { tokenStorage } from '@/api/httpClient'
@@ -36,6 +37,13 @@ const DaysLeftBadge: React.FC<{ date?: string }> = ({ date }) => {
 
 const PRIORITY_COLORS = ['', '#22c55e', '#f59e0b', '#ef4444', '#7c3aed']
 
+const normalizeCooperator = (c: unknown): string[] => {
+  if (!c) return []
+  if (Array.isArray(c)) return c as string[]
+  if (typeof c === 'string') { try { const p = JSON.parse(c); return Array.isArray(p) ? p : [c] } catch { return [c] } }
+  return []
+}
+
 const DutyDetailPage: React.FC = () => {
   const { id }   = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -50,6 +58,7 @@ const DutyDetailPage: React.FC = () => {
   const [isSaving,   setIsSaving]   = useState(false)
   const [fileList,   setFileList]   = useState<UploadFile[]>([])
   const [previewFile, setPreviewFile] = useState<{ url: string; name: string } | null>(null)
+  const [userOpts,   setUserOpts]   = useState<{ value: string; label: string }[]>([])
   const [form]                      = Form.useForm()
 
   const IMG_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp'])
@@ -67,6 +76,13 @@ const DutyDetailPage: React.FC = () => {
     return () => { dispatch(clearCurrentDuty()) }
   }, [id, dispatch])
 
+  useEffect(() => {
+    userApi.list().then((res) => {
+      const list = (res.content as { work_no: string; name: string }[] | undefined) ?? []
+      setUserOpts(list.map((u) => ({ value: u.work_no, label: u.name })))
+    }).catch(() => {})
+  }, [])
+
   const loadProgress = async (dutyId: string) => {
     try {
       const [progRes, logRes] = await Promise.all([
@@ -74,7 +90,7 @@ const DutyDetailPage: React.FC = () => {
         dailyLogApi.taskEntries('duty', dutyId),
       ])
       const c = progRes.content as { data_list?: Record<string, unknown>[] }
-      setRecords(c.data_list ?? [])
+      setRecords((c.data_list ?? []).map((r) => ({ ...r, cooperator: normalizeCooperator(r.cooperator) })))
       setLogEntries(logRes.content ?? [])
     } catch { /* global */ }
   }
@@ -85,7 +101,7 @@ const DutyDetailPage: React.FC = () => {
     try {
       const files: Record<string, File[]> = {}
       fileList.forEach((f) => { if (f.originFileObj) { if (!files.files) files.files = []; files.files.push(f.originFileObj) } })
-      await dutyApi.createProgress(id, { progress: values.progress, progress_record: values.progress_record, time_consum: values.time_consum, submitter: workNo },
+      await dutyApi.createProgress(id, { progress: values.progress, progress_record: values.progress_record, time_consum: values.time_consum, cooperator: values.cooperator, submitter: workNo },
         Object.keys(files).length > 0 ? files : undefined)
       showToast.success('進度更新成功')
       setShowForm(false); form.resetFields(); setFileList([]); loadProgress(id)
@@ -198,6 +214,16 @@ const DutyDetailPage: React.FC = () => {
               <Form.Item name="progress_record" label="進度說明">
                 <Input.TextArea rows={2} placeholder="本次完成了哪些工作..." />
               </Form.Item>
+              <Form.Item name="cooperator" label="合作人">
+                <Select
+                  mode="multiple"
+                  showSearch
+                  optionFilterProp="label"
+                  placeholder="選擇本次一同完成的合作人（選填）"
+                  options={userOpts.filter((u) => u.value.toLowerCase() !== (workNo ?? '').toLowerCase())}
+                  allowClear
+                />
+              </Form.Item>
               <Form.Item label="附件">
                 <Upload fileList={fileList} onChange={({ fileList: fl }) => setFileList(fl)} beforeUpload={() => false} multiple>
                   <Button icon={<PaperClipIcon className="w-4 h-4" />} size="small">選擇附件</Button>
@@ -241,8 +267,11 @@ const DutyDetailPage: React.FC = () => {
               if (kind === 'progress') {
                 const item = data
                 const recordId = String(item.progress_id ?? '')
-                const updates = updatedMap.get(recordId) ?? []
-                const latestUpd = updates.length > 0 ? updates[updates.length - 1] : null
+                const allUpdates = updatedMap.get(recordId) ?? []
+                const submitterWno = String(item.submitter ?? '')
+                const ownUpdates  = allUpdates.filter((e) => e.work_no === submitterWno)
+                const coopUpdates = allUpdates.filter((e) => e.work_no !== submitterWno)
+                const latestUpd = ownUpdates.length > 0 ? ownUpdates[ownUpdates.length - 1] : null
                 const origHours = Number(item.time_consum ?? 0)
                 const latestHours = latestUpd ? Number(latestUpd.work_hours ?? 0) : origHours
                 const hoursChanged = latestUpd && latestHours !== origHours
@@ -260,6 +289,18 @@ const DutyDetailPage: React.FC = () => {
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-semibold text-slate-700 text-sm">{toName(String(item.submitter ?? ''))}</span>
+                          {((item.cooperator as string[] | undefined) ?? []).length > 0 && (
+                            <Tooltip title={`合作人：${((item.cooperator as string[] | undefined) ?? []).map((c) => toName(c) || c).join('、')}`}>
+                              <div className="flex items-center gap-0.5">
+                                <span className="text-xs text-slate-400">+</span>
+                                {((item.cooperator as string[] | undefined) ?? []).map((c) => (
+                                  <Avatar key={c} size={18} style={{ background: '#7c3aed', fontSize: 9, fontWeight: 700, marginLeft: 2 }}>
+                                    {(toName(c) || c)[0]?.toUpperCase()}
+                                  </Avatar>
+                                ))}
+                              </div>
+                            </Tooltip>
+                          )}
                           {progressChanged ? (
                             <span className="flex items-center gap-1">
                               <span className="text-xs text-slate-400 line-through">{origProgress}%</span>
@@ -288,8 +329,8 @@ const DutyDetailPage: React.FC = () => {
                       </div>
                       {!!item.progress_record && (() => {
                         const origText = String(item.progress_record)
-                        const firstUpdDesc = updates[0]?.description ?? ''
-                        const origChanged = updates.length > 0 && firstUpdDesc !== origText
+                        const firstUpdDesc = ownUpdates[0]?.description ?? ''
+                        const origChanged = ownUpdates.length > 0 && firstUpdDesc !== origText
                         return (
                           <p className="text-sm mt-1 mb-0 leading-snug"
                             style={{ color: origChanged ? '#94a3b8' : '#475569', textDecoration: origChanged ? 'line-through' : 'none', margin: '4px 0 0 0' }}>
@@ -297,13 +338,13 @@ const DutyDetailPage: React.FC = () => {
                           </p>
                         )
                       })()}
-                      {updates.map((upd, idx) => {
-                        const isLatest    = idx === updates.length - 1
-                        const prevDesc    = idx === 0 ? String(item.progress_record ?? '') : (updates[idx - 1].description ?? '')
+                      {ownUpdates.map((upd, idx) => {
+                        const isLatest    = idx === ownUpdates.length - 1
+                        const prevDesc    = idx === 0 ? String(item.progress_record ?? '') : (ownUpdates[idx - 1].description ?? '')
                         const descChanged = upd.description !== prevDesc
                         const prevRawFiles = idx === 0
                           ? (item.files as { name: string; url: string; size?: number }[] ?? [])
-                          : (updates[idx - 1].files ?? [])
+                          : (ownUpdates[idx - 1].files ?? [])
                         const currRawFiles = upd.files ?? []
                         const prevNameSet  = new Set(prevRawFiles.map((f) => f.name))
                         const currNameSet  = new Set(currRawFiles.map((f) => f.name))
@@ -316,7 +357,7 @@ const DutyDetailPage: React.FC = () => {
                             {idx > 0 && descChanged && (
                               <p className="text-sm leading-tight"
                                 style={{ color: '#94a3b8', textDecoration: 'line-through', margin: '2px 0 0 0' }}>
-                                {updates[idx - 1].description}
+                                {ownUpdates[idx - 1].description}
                               </p>
                             )}
                             {descChanged && (
@@ -341,6 +382,42 @@ const DutyDetailPage: React.FC = () => {
                       })}
                       {(() => { const sf = splitFiles(item.files as { name: string; url: string; size?: number }[] | undefined); return <AttachmentPreview files={sf.files} images={sf.images} onPreview={setPreviewFile} /> })()}
                       <span className="text-xs text-slate-300 mt-1 block">{String(item.created_at ?? '')}</span>
+                      {/* 合作人的日誌更新（獨立顯示，不影響原始記錄） */}
+                      {coopUpdates.map((upd) => {
+                        const origNameSet = new Set((item.files as { name: string }[] ?? []).map((f) => f.name))
+                        const newFiles = (upd.files ?? []).filter((f) => !origNameSet.has(f.name))
+                        return (
+                          <div key={`coop-${upd.work_no}-${upd.log_date}`}
+                            className="mt-2 pt-2"
+                            style={{ borderTop: '1px dashed #e2e8f0' }}>
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <Avatar size={18} style={{ background: '#7c3aed', fontSize: 9, fontWeight: 700 }}>
+                                  {toName(upd.work_no)?.[0]?.toUpperCase()}
+                                </Avatar>
+                                <span className="text-xs font-semibold text-slate-600">{toName(upd.work_no)}</span>
+                                {upd.progress != null && (
+                                  <Tag color="blue" style={{ fontSize: 11, padding: '0 6px', margin: 0 }}>{upd.progress}%</Tag>
+                                )}
+                                {upd.work_hours > 0 && (
+                                  <Tag style={{ fontSize: 11, padding: '0 6px', margin: 0 }}>{upd.work_hours}h</Tag>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1 flex-shrink-0">
+                                <Tag color="purple" style={{ fontSize: 9, padding: '0 4px', lineHeight: '16px', margin: 0 }}>合作人更新</Tag>
+                                <Tag style={{ fontSize: 9, padding: '0 4px', lineHeight: '16px', margin: 0 }}>
+                                  {upd.log_status === 2 ? '已提交' : '草稿'}
+                                </Tag>
+                              </div>
+                            </div>
+                            {upd.description && (
+                              <p className="text-sm text-slate-600 leading-snug" style={{ margin: '0 0 4px 0' }}>{upd.description}</p>
+                            )}
+                            {newFiles.length > 0 && (() => { const sf = splitFiles(newFiles as { name: string; url: string; size?: number }[]); return <AttachmentPreview files={sf.files} images={sf.images} onPreview={setPreviewFile} /> })()}
+                            <span className="text-xs text-slate-300 block">{upd.log_date}{upd.record_time ? ` ${upd.record_time}` : ''}</span>
+                          </div>
+                        )
+                      })}
                     </div>
                   ),
                 }

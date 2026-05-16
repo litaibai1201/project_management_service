@@ -1056,7 +1056,7 @@ const ProjectDetailPage: React.FC = () => {
                   <div className="px-2 py-2">
                     {funcLoading ? (
                       <div className="flex justify-center py-8"><Spin /></div>
-                    ) : groupedFunctions.length === 0 ? (
+                    ) : groupedFunctions.length === 0 && displayedDuties.length === 0 ? (
                       <Empty description="暫無功能任務" className="py-8" />
                     ) : (
                       <Collapse

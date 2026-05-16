@@ -18,6 +18,7 @@ import {
   EllipsisHorizontalCircleIcon, ArrowDownTrayIcon,
 } from '@heroicons/react/24/outline'
 import { useAppSelector } from '@/hooks/redux'
+import { useWorkNoToName } from '@/hooks/useWorkNoToName'
 import type { DailyLog, DailyLogEntry, WorkCategory } from '@/types/api.types'
 import { dailyLogApi, entriesToBackend, backendDetailToLog } from '@/api/daily_log.api'
 import { tokenStorage } from '@/api/httpClient'
@@ -553,6 +554,7 @@ export { SelfReportView, WORK_CATEGORIES, CATEGORY_MAP, fmtH }
 const DailyLogPage: React.FC = () => {
   const workNo   = useAppSelector((s) => s.auth.workNo)
   const userName = useAppSelector((s) => s.auth.name)
+  const toName   = useWorkNoToName()
   // Mock: role-based daily log requirement
   // In production this comes from user profile / API
   const isManager = false  // TODO: derive from user role API
@@ -701,10 +703,11 @@ const DailyLogPage: React.FC = () => {
                 progress:      item.progress,
                 is_overtime:   false,
                 overtime_hours: 0,
-                source:        'progress' as const,
-                files:         item.files?.length ? item.files : undefined,
-                suggest_id:    item.suggest_id,
-                record_time:   item.record_time ?? undefined,
+                source:           'progress' as const,
+                files:            item.files?.length ? item.files : undefined,
+                suggest_id:       item.suggest_id,
+                record_time:      item.record_time ?? undefined,
+                suggest_submitter: (item.submitter && item.submitter !== workNo) ? item.submitter : undefined,
               }))
               setSuggestMap((prev) => ({ ...prev, [startStr]: freshEntries }))
             })
@@ -1541,6 +1544,11 @@ const DailyLogPage: React.FC = () => {
                                                 )}
                                                 {entry.source === 'manual' && (
                                                   <Tag color="green" style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px' }}>日誌新增</Tag>
+                                                )}
+                                                {entry.suggest_submitter && (
+                                                  <Tag color="purple" style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px' }}>
+                                                    由 {toName(entry.suggest_submitter) || entry.suggest_submitter} 提交
+                                                  </Tag>
                                                 )}
                                               </div>
                                               {entry.files && entry.files.length > 0 && (

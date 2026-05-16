@@ -673,7 +673,7 @@ const DashboardPage: React.FC = () => {
                 bordered={false} className="shadow-sm h-full"
                 style={{ display: 'flex', flexDirection: 'column' }}
                 title={<span className="text-sm font-semibold text-slate-600">成員明細</span>}
-                extra={<span className="text-xs text-slate-400 cursor-pointer hover:text-blue-500" onClick={() => navigate('/group')}>查看詳情 →</span>}
+                extra={<span className="text-xs text-slate-400 cursor-pointer hover:text-blue-500" onClick={() => navigate('/statistics?tab=members')}>查看詳情 →</span>}
                 styles={{ body: { flex: 1, overflow: 'auto', padding: 0, minHeight: 0 } }}
               >
                 <div className="divide-y divide-slate-50">
@@ -683,7 +683,7 @@ const DashboardPage: React.FC = () => {
                       <div
                         key={m.work_no}
                         className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 cursor-pointer transition-colors"
-                        onClick={() => navigate('/group')}
+                        onClick={() => navigate('/statistics?tab=members')}
                       >
                         <Avatar
                           size={28}

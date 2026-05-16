@@ -6,6 +6,7 @@
  * Tab 4 成員總覽：部門分組卡片 + 成員詳情抽屜（工時/專案/任務）
  */
 import React, { useEffect, useState, useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useAppSelector } from '@/hooks/redux'
 import {
   Card, Row, Col, Table, Tag, Avatar, DatePicker,
@@ -851,6 +852,8 @@ const StatisticsPage: React.FC = () => {
   // Role: supervisors see all tabs; regular employees only see personal + member overview
   const isManager = useAppSelector((s) => s.auth.isSupervisor)
   const myWorkNo  = useAppSelector((s) => s.auth.workNo) ?? ''
+  const [searchParams] = useSearchParams()
+  const initialTab = searchParams.get('tab') ?? 'analysis'
 
   const [stats,      setStats]      = useState<MemberWorkStat[]>([])
   const [teamSummary, setTeamSummary] = useState<{ total_hours: number; completed_tasks: number; in_progress_tasks: number; overdue_tasks: number } | null>(null)
@@ -1266,7 +1269,7 @@ const StatisticsPage: React.FC = () => {
 
       <Tabs
         type="card"
-        defaultActiveKey="analysis"
+        defaultActiveKey={initialTab}
         items={tabItems}
       />
     </div>
