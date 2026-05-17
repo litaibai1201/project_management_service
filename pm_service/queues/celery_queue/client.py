@@ -227,6 +227,10 @@ class CeleryClientManager:
                 },
             }
 
+            # 加载 Beat 定时任务配置
+            from queues.celery_queue.config import get_beat_schedule
+            celery_config['beat_schedule'] = get_beat_schedule()
+
             # 应用配置
             self._celery_app.conf.update(celery_config)
 

@@ -97,6 +97,8 @@ export interface Project {
   code_url?: string
   group_id: string
   expected_benefit?: string
+  benefit_amount?: number | null
+  benefit_unit?: string
   created_at: string
   updated_at?: string
   progress?: number
@@ -323,14 +325,20 @@ export interface SearchPayload {
   keyword: string
   page?: number
   size?: number
-  type?: 'project' | 'duty'
+  type?: 'project' | 'function' | 'duty'
 }
 
 export interface SearchResult {
   id: string
-  type: 'project' | 'duty'
+  type: 'project' | 'function' | 'duty'
   title: string
   status: number
+  priority?: number
+  responsible?: string
+  department?: string
+  expected_end_date?: string
+  progress?: number
+  project_id?: string   // function 类型专用：所属专案 ID
   created_at: string
 }
 

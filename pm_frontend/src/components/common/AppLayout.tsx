@@ -1,7 +1,7 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import {
   Layout, Menu, Avatar, Dropdown, Button, Typography, Badge,
-  Popover, List, Empty, Input,
+  Popover, List, Empty, Input, Spin,
 } from 'antd'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import {
@@ -15,6 +15,7 @@ import {
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
 import { logout } from '@/features/auth/authSlice'
 import { useSocketConnection } from '@/hooks/useSocket'
+import { notificationApi, type NotificationItem } from '@/api/notification.api'
 
 const { Header, Sider, Content } = Layout
 const { Text } = Typography
@@ -23,7 +24,7 @@ interface NavLeaf  { key: string; icon?: React.ReactNode; label: string; path: s
 interface NavGroup { key: string; icon: React.ReactNode; label: string; children: NavLeaf[] }
 type NavItem = NavLeaf | NavGroup
 
-interface Notification { id: string; title: string; desc: string; time: string; read: boolean }
+// NotificationItem is imported from notification.api
 
 const isGroup = (item: NavItem): item is NavGroup => 'children' in item
 
@@ -57,11 +58,18 @@ const NAV_ITEMS: NavItem[] = [
   { key: '/users',      icon: <UsersIcon className="w-[18px] h-[18px]" />,                  label: '用戶管理',  path: '/users'      },
 ]
 
-const INIT_NOTIFS: Notification[] = [
-  { id: '1', title: '專案「ERP系統改版」需要審核',  desc: '提交人：王小明',             time: '5 分鐘前', read: false },
-  { id: '2', title: '任務「API整合」進度已更新',    desc: '負責人更新進度至 80%',        time: '1 小時前', read: false },
-  { id: '3', title: '您的申請已通過審核',           desc: '「行動端改版」立案審核通過',  time: '昨天',     read: true  },
-]
+// Relative time helper
+const relativeTime = (dateStr: string): string => {
+  const diff = Date.now() - new Date(dateStr).getTime()
+  const mins  = Math.floor(diff / 60000)
+  const hours = Math.floor(diff / 3600000)
+  const days  = Math.floor(diff / 86400000)
+  if (mins < 1)   return '剛剛'
+  if (mins < 60)  return `${mins} 分鐘前`
+  if (hours < 24) return `${hours} 小時前`
+  if (days < 7)   return `${days} 天前`
+  return dateStr.slice(0, 10)
+}
 
 const AppLayout: React.FC = () => {
   const dispatch = useAppDispatch()
@@ -72,12 +80,33 @@ const AppLayout: React.FC = () => {
   const [collapsed,     setCollapsed]     = useState(false)
   const [searchVisible, setSearchVisible] = useState(false)
   const [searchVal,     setSearchVal]     = useState('')
-  const [notifications, setNotifications] = useState<Notification[]>(INIT_NOTIFS)
+  const [notifications, setNotifications] = useState<NotificationItem[]>([])
+  const [unreadCount,   setUnreadCount]   = useState(0)
+  const [notifLoading,  setNotifLoading]  = useState(false)
+  const [notifOpen,     setNotifOpen]     = useState(false)
+  const pollRef = useRef<ReturnType<typeof setInterval>>()
 
   useSocketConnection()
 
+  const loadNotifications = useCallback(async () => {
+    setNotifLoading(true)
+    try {
+      const res = await notificationApi.list()
+      const c = res.content as { data_list: NotificationItem[]; unread_count: number }
+      setNotifications(c.data_list ?? [])
+      setUnreadCount(c.unread_count ?? 0)
+    } catch { /* ignore */ }
+    finally { setNotifLoading(false) }
+  }, [])
+
+  // Initial load + poll unread count every 2 min
+  useEffect(() => {
+    loadNotifications()
+    pollRef.current = setInterval(loadNotifications, 120_000)
+    return () => clearInterval(pollRef.current)
+  }, [loadNotifications])
+
   const pendingReview = (indexData?.total_awaiting_review_num?.project ?? 0) + (indexData?.total_awaiting_review_num?.duty ?? 0)
-  const unreadCount   = notifications.filter((n) => !n.read).length
 
   const navItems = useMemo(() => {
     return NAV_ITEMS.map((item) => {
@@ -167,7 +196,28 @@ const AppLayout: React.FC = () => {
       }
     })
 
-  const markAllRead = () => setNotifications((prev) => prev.map((n) => ({ ...n, read: true })))
+  const handleMarkAllRead = async () => {
+    try {
+      await notificationApi.markAllRead()
+      setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })))
+      setUnreadCount(0)
+    } catch { /* ignore */ }
+  }
+
+  const handleNotifClick = async (n: NotificationItem) => {
+    // Mark as read
+    if (!n.is_read) {
+      notificationApi.markRead(n.id).catch(() => {})
+      setNotifications((prev) => prev.map((x) => x.id === n.id ? { ...x, is_read: true } : x))
+      setUnreadCount((c) => Math.max(0, c - 1))
+    }
+    setNotifOpen(false)
+    // Navigate to linked resource
+    if (n.link_type === 'review')   navigate('/review')
+    else if (n.link_type === 'project' && n.link_id) navigate(`/projects/${n.link_id}`)
+    else if (n.link_type === 'duty' && n.link_id) navigate(`/duties?dutyId=${n.link_id}&tab=duty`)
+    else if (n.link_type === 'duty') navigate('/duties?tab=duty')
+  }
 
   const handleLogout = () => { dispatch(logout()); navigate('/login', { replace: true }) }
 
@@ -180,29 +230,38 @@ const AppLayout: React.FC = () => {
   }
 
   const notifContent = (
-    <div style={{ width: 320 }}>
+    <div style={{ width: 340 }}>
       <div className="flex items-center justify-between pb-2 mb-1 border-b border-slate-100">
-        <span className="font-semibold text-slate-700 text-sm">通知</span>
+        <span className="font-semibold text-slate-700 text-sm">
+          通知
+          {unreadCount > 0 && (
+            <span className="ml-1.5 text-xs font-normal text-blue-500">{unreadCount} 條未讀</span>
+          )}
+        </span>
         {unreadCount > 0 && (
-          <Button type="link" size="small" onClick={markAllRead} className="text-xs p-0">全部標為已讀</Button>
+          <Button type="link" size="small" onClick={handleMarkAllRead} className="text-xs p-0">全部標為已讀</Button>
         )}
       </div>
-      {notifications.length === 0 ? (
+      {notifLoading && notifications.length === 0 ? (
+        <div className="flex justify-center py-8"><Spin size="small" /></div>
+      ) : notifications.length === 0 ? (
         <Empty description="暫無通知" className="py-6" />
       ) : (
         <List
           dataSource={notifications}
+          style={{ maxHeight: 400, overflowY: 'auto' }}
           renderItem={(n) => (
             <List.Item
-              style={{ padding: '8px 6px', cursor: 'pointer', borderBottom: 'none' }}
-              className={`rounded-lg hover:bg-slate-50 transition-colors ${!n.read ? 'bg-blue-50/60' : ''}`}
+              onClick={() => handleNotifClick(n)}
+              style={{ padding: '8px 6px', cursor: n.link_type ? 'pointer' : 'default', borderBottom: 'none' }}
+              className={`rounded-lg hover:bg-slate-50 transition-colors ${!n.is_read ? 'bg-blue-50/60' : ''}`}
             >
               <div className="flex gap-2.5 w-full">
-                <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${n.read ? 'bg-slate-200' : 'bg-blue-500'}`} />
+                <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${n.is_read ? 'bg-slate-200' : 'bg-blue-500'}`} />
                 <div className="flex-1 min-w-0">
-                  <div className={`text-sm leading-snug ${!n.read ? 'font-semibold text-slate-800' : 'text-slate-600'}`}>{n.title}</div>
-                  <div className="text-xs text-slate-400 mt-0.5">{n.desc}</div>
-                  <div className="text-xs text-slate-300 mt-0.5">{n.time}</div>
+                  <div className={`text-sm leading-snug ${!n.is_read ? 'font-semibold text-slate-800' : 'text-slate-600'}`}>{n.title}</div>
+                  {n.desc && <div className="text-xs text-slate-400 mt-0.5 truncate">{n.desc}</div>}
+                  <div className="text-xs text-slate-300 mt-0.5">{relativeTime(n.created_at)}</div>
                 </div>
               </div>
             </List.Item>
@@ -310,8 +369,18 @@ const AppLayout: React.FC = () => {
                 icon={<MagnifyingGlassIcon className="w-[18px] h-[18px] text-slate-500" />} />
             )}
 
-            <Popover content={notifContent} trigger="click" placement="bottomRight" arrow={false}
-              overlayInnerStyle={{ borderRadius: 12, padding: '12px 12px 8px', boxShadow: '0 8px 24px rgba(0,0,0,0.1)' }}>
+            <Popover
+              content={notifContent}
+              trigger="click"
+              placement="bottomRight"
+              arrow={false}
+              open={notifOpen}
+              onOpenChange={(open) => {
+                setNotifOpen(open)
+                if (open) loadNotifications()
+              }}
+              overlayInnerStyle={{ borderRadius: 12, padding: '12px 12px 8px', boxShadow: '0 8px 24px rgba(0,0,0,0.1)' }}
+            >
               <Button type="text" size="small" style={{ display: 'flex', alignItems: 'center' }}>
                 <Badge count={unreadCount} size="small" offset={[-2, 2]}>
                   <BellIcon className="w-[18px] h-[18px] text-slate-500" />

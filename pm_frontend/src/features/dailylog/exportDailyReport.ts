@@ -434,7 +434,7 @@ function groupByTaskWithDate(
 }
 
 function trHighlight(text: string, highlight = false): TextRun {
-  return new TextRun({ text, font: FONT, size: FONT_SIZE, ...(highlight ? { highlight: 'yellow' } : {}) })
+  return new TextRun({ text, font: FONT, size: FONT_SIZE, ...(highlight ? { color: 'F59E0B' } : {}) })
 }
 
 /** Build right-cell paragraphs for range report (entries carry a date prefix, today highlighted) */

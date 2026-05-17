@@ -147,8 +147,27 @@ class DepartmentsApi(MethodView):
     @jwt_required()
     @blp.response(200, RspMsgRawSchema)
     def get(self):
-        """获取部门列表"""
+        """获取部门列表（部门表 + 用户记录合并）"""
         return response_result(content=ctrl.get_departments())
+
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def post(self):
+        """新建部门"""
+        data = request.get_json(silent=True) or {}
+        name = data.get("name", "").strip()
+        result = ctrl.create_department(name)
+        return response_result(content=result)
+
+
+@blp.route("/mgmt/departments/<string:dept_id>")
+class DepartmentDetailApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def delete(self, dept_id):
+        """删除部门（仅限手动创建的）"""
+        ctrl.delete_department(dept_id)
+        return response_result(content={})
 
 
 # ─── Hierarchy ───────────────────────────────────────────────────────────────

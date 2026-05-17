@@ -32,13 +32,9 @@
         print(result.get())
 """
 
-# 这里可以导入所有任务，方便统一管理
-# from .email_tasks import send_email
-# from .report_tasks import generate_daily_report
-# from .cleanup_tasks import cleanup_temp_files
+# 导入所有任务模块以确保 Celery 能发现任务
+from tasks import notification_tasks  # noqa: F401
 
 __all__ = [
-    # 'send_email',
-    # 'generate_daily_report',
-    # 'cleanup_temp_files',
+    'notification_tasks',
 ]

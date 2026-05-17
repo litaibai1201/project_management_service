@@ -38,6 +38,7 @@ class SearchController:
     def _search_projects(self, keyword: str):
         q = db.session.query(ProjectDataModel).filter(
             ProjectDataModel.status == 1,
+            ProjectDataModel.project_status != 9,
             db.or_(
                 ProjectDataModel.project_nm.like(f"%{keyword}%"),
                 ProjectDataModel.describe.like(f"%{keyword}%"),
@@ -57,7 +58,7 @@ class SearchController:
 
     def _search_functions(self, keyword: str):
         q = db.session.query(FunctionDataModel).filter(
-            FunctionDataModel.status == 1,
+            FunctionDataModel.function_status != 9,
             db.or_(
                 FunctionDataModel.function_nm.like(f"%{keyword}%"),
                 FunctionDataModel.describe.like(f"%{keyword}%"),
@@ -78,7 +79,7 @@ class SearchController:
 
     def _search_duties(self, keyword: str):
         q = db.session.query(TemporaryDutyModel).filter(
-            TemporaryDutyModel.status == 1,
+            TemporaryDutyModel.duty_status != 9,
             db.or_(
                 TemporaryDutyModel.duty_nm.like(f"%{keyword}%"),
                 TemporaryDutyModel.describe.like(f"%{keyword}%"),

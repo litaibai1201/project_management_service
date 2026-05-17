@@ -4,8 +4,9 @@ import {
   Table, Button, Input, Select, Space, Tooltip, Popconfirm,
   Progress, Modal, Form, Tag, Avatar, Segmented, Collapse, AutoComplete, Spin, Empty, Tabs, Switch,
 } from 'antd'
+import RichTextEditor from '@/components/common/RichTextEditor'
 import type { ColumnsType } from 'antd/es/table'
-import { PlusIcon, MagnifyingGlassIcon, TrashIcon, EyeIcon, FolderIcon } from '@heroicons/react/24/outline'
+import { PlusIcon, MagnifyingGlassIcon, TrashIcon, EyeIcon, FolderIcon, ArrowsPointingOutIcon } from '@heroicons/react/24/outline'
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
 import { fetchDutyListThunk, deleteDutyThunk, setDutyQuery, createDutyThunk } from './dutySlice'
 import { TemporaryDuty, ProjectFunction } from '@/types/api.types'
@@ -148,8 +149,13 @@ const DutyListPage: React.FC = () => {
   const [showCreate, setShowCreate] = useState(false)
   const [modalUserOptions, setModalUserOptions] = useState<{ value: string; label: string }[]>([])
   const [modalProjectOptions, setModalProjectOptions] = useState<{ value: string; label: string }[]>([])
+  const [dutyExpandOpen,  setDutyExpandOpen]  = useState(false)
+  const [dutyExpandDraft, setDutyExpandDraft] = useState('')
 
-  // ── 從 URL 參數初始化成員篩選 ─────────────────────────────────────────────
+  const isHtml = (v: string) => /<[a-z][\s\S]*>/i.test(v)
+  const stripHtml = (html: string) => html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+
+  // ── 從 URL 參數初始化成員篩選 / 跳轉打開指定任務 ──────────────────────────
   useEffect(() => {
     const responsible = searchParams.get('responsible')
     if (responsible) {
@@ -161,6 +167,11 @@ const DutyListPage: React.FC = () => {
         setModalUserOptions(data.map((u) => ({ value: u.work_no, label: `${u.name} (${u.work_no})` })))
       }).catch(() => {})
     }
+    // 通知跳轉：切換到 duty tab 並打開指定任務抽屜
+    const tab = searchParams.get('tab')
+    if (tab === 'duty') setActiveTab('duty')
+    const dutyId = searchParams.get('dutyId')
+    if (dutyId) setSelectedDutyId(dutyId)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   const [form] = Form.useForm()
@@ -694,7 +705,7 @@ const DutyListPage: React.FC = () => {
       {/* Create Modal */}
       <Modal title="新建臨時任務" open={showCreate}
         onCancel={() => { setShowCreate(false); form.resetFields() }}
-        footer={null} width={520} destroyOnClose>
+        footer={null} width={640} destroyOnClose>
         <Form form={form} layout="vertical" onFinish={handleCreate} className="mt-4">
           <Form.Item name="duty_nm" label="任務名稱" rules={[{ required: true }]}>
             <Input placeholder="請輸入任務名稱" />
@@ -732,14 +743,77 @@ const DutyListPage: React.FC = () => {
               allowClear
             />
           </Form.Item>
-          <Form.Item name="describe" label="任務描述">
-            <Input.TextArea rows={3} placeholder="請描述任務內容" />
+
+          {/* 任務描述 — 小輸入框 + 展開富文本編輯 */}
+          <Form.Item shouldUpdate={(prev, curr) => prev.describe !== curr.describe} noStyle>
+            {({ getFieldValue }) => {
+              const v: string = getFieldValue('describe') ?? ''
+              const displayValue = isHtml(v) ? stripHtml(v) : v
+              return (
+                <div className="mb-4">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-sm text-slate-700">任務描述</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const html = isHtml(v) ? v : v.trim() ? `<p>${v.replace(/\n/g, '</p><p>')}</p>` : ''
+                        setDutyExpandDraft(html)
+                        setDutyExpandOpen(true)
+                      }}
+                      className="flex items-center gap-1 text-xs text-slate-500 hover:text-blue-600 border border-slate-200 rounded-md px-2 py-1 hover:border-blue-300 bg-white transition-colors"
+                    >
+                      <ArrowsPointingOutIcon className="w-3.5 h-3.5" />
+                      展開富文本編輯
+                    </button>
+                  </div>
+                  <Input.TextArea
+                    value={displayValue}
+                    onChange={(e) => form.setFieldValue('describe', e.target.value)}
+                    rows={3}
+                    placeholder="請描述任務內容，或點擊右上角展開富文本編輯器..."
+                    style={{ resize: 'none' }}
+                  />
+                  <Form.Item name="describe" noStyle><input type="hidden" /></Form.Item>
+                  {isHtml(v) && (
+                    <p className="text-xs text-blue-500 mt-1">已套用富文本格式，點擊「展開富文本編輯」可繼續修改</p>
+                  )}
+                </div>
+              )
+            }}
           </Form.Item>
+
           <div className="flex justify-end gap-3">
             <Button onClick={() => { setShowCreate(false); form.resetFields() }}>取消</Button>
             <Button type="primary" htmlType="submit" loading={isSaving} style={{ background: '#2563eb' }}>建立</Button>
           </div>
         </Form>
+      </Modal>
+
+      {/* 任務描述展開編輯 Modal */}
+      <Modal
+        open={dutyExpandOpen}
+        title="任務描述"
+        onCancel={() => setDutyExpandOpen(false)}
+        width="80vw"
+        style={{ top: 40, maxWidth: 1100 }}
+        styles={{ body: { padding: '16px 24px 24px' } }}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button onClick={() => setDutyExpandOpen(false)}>取消</Button>
+            <Button type="primary" style={{ background: '#2563eb' }} onClick={() => {
+              form.setFieldValue('describe', dutyExpandDraft)
+              setDutyExpandOpen(false)
+            }}>完成</Button>
+          </div>
+        }
+        destroyOnClose
+      >
+        <RichTextEditor
+          value={dutyExpandDraft}
+          onChange={setDutyExpandDraft}
+          placeholder="請描述任務內容（支援標題、列表、粗體等格式）"
+          minHeight={480}
+        />
       </Modal>
     </div>
           ),

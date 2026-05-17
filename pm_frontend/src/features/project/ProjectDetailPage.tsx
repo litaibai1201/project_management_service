@@ -12,11 +12,12 @@ import { PencilSquareIcon as EditIcon, PencilSquareIcon } from '@heroicons/react
 import type { ColumnsType } from 'antd/es/table'
 import {
   ArrowLeftIcon, PlusIcon, EyeIcon, TrashIcon, XMarkIcon,
-  CodeBracketIcon, UserCircleIcon, FolderIcon,
+  CodeBracketIcon, UserCircleIcon, FolderIcon, ArrowsPointingOutIcon,
 } from '@heroicons/react/24/outline'
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
 import { useWorkNoToName } from '@/hooks/useWorkNoToName'
 import { fetchProjectThunk, clearCurrent, fetchProjectGroupsThunk } from './projectSlice'
+import { fetchDepartmentsThunk } from '@/features/user/userSlice'
 import { projectApi } from '@/api/project.api'
 import { userApi } from '@/api/user.api'
 import { ProjectFunction, Milestone, ProjectFile, UserProfile } from '@/types/api.types'
@@ -29,6 +30,8 @@ import DutyDetailDrawer from '@/features/duty/DutyDetailDrawer'
 import { dutyApi } from '@/api/duty.api'
 import { TemporaryDuty } from '@/types/api.types'
 import { DUTY_STATUS_MAP } from '@/utils/status'
+import RichTextEditor from '@/components/common/RichTextEditor'
+import RichTextContent from '@/components/common/RichTextContent'
 
 // ─── Office Preview Sub-components ────────────────────────────────────────────
 
@@ -66,6 +69,7 @@ const ProjectDetailPage: React.FC = () => {
   const [searchParams] = useSearchParams()
   const dispatch = useAppDispatch()
   const { current, isLoading, groups } = useAppSelector((s) => s.project)
+  const { departments } = useAppSelector((s) => s.user)
   const workNo = useAppSelector((s) => s.auth.workNo) ?? ''
   const { isAdmin, isSupervisor } = useAppSelector((s) => s.auth)
   const toName = useWorkNoToName()
@@ -109,13 +113,22 @@ const ProjectDetailPage: React.FC = () => {
   const [editForm]                            = Form.useForm()
   const [newGroupName,    setNewGroupName]    = useState('')
   const [creatingGroup,   setCreatingGroup]   = useState(false)
+  const [newDeptName,     setNewDeptName]     = useState('')
+  const [creatingDept,    setCreatingDept]    = useState(false)
+  const [pmOptions,       setPmOptions]       = useState<{ value: string; label: string }[]>([])
+  const [pmSearching,     setPmSearching]     = useState(false)
+  const pmTimerRef = useRef<ReturnType<typeof setTimeout>>()
+  const [editExpandOpen,  setEditExpandOpen]  = useState(false)
+  const [editExpandDraft, setEditExpandDraft] = useState('')
 
-  // ── 新增功能負責人 picker ──────────────────────────────────────────────────
-  const [addFuncPersons,     setAddFuncPersons]     = useState<UserProfile[]>([])
-  const [addFuncSearchKw,    setAddFuncSearchKw]    = useState('')
-  const [addFuncSearchRes,   setAddFuncSearchRes]   = useState<UserProfile | null | false>(null)
-  const [addFuncSearching,   setAddFuncSearching]   = useState(false)
-  const addFuncSearchRef = useRef<InputRef>(null)
+  // ── 新增功能 ────────────────────────────────────────────────────────────────
+  const [funcModalUserOptions, setFuncModalUserOptions] = useState<{ value: string; label: string }[]>([])
+  const [addFuncExpandOpen,  setAddFuncExpandOpen]  = useState(false)
+  const [addFuncExpandDraft, setAddFuncExpandDraft] = useState('')
+
+  // ── 編輯功能任務描述展開 ────────────────────────────────────────────────────
+  const [funcEditExpandOpen,  setFuncEditExpandOpen]  = useState(false)
+  const [funcEditExpandDraft, setFuncEditExpandDraft] = useState('')
 
   // ── 快速設定任務負責人 ─────────────────────────────────────────────────────
   const [quickResponsible,   setQuickResponsible]   = useState<{ fid: string; persons: UserProfile[] } | null>(null)
@@ -307,7 +320,7 @@ const ProjectDetailPage: React.FC = () => {
       await projectApi.addFunction(id, {
         function_nm:  values.function_nm as string,
         describe:     values.describe as string | undefined,
-        responsible:  addFuncPersons.length > 0 ? addFuncPersons.map((p) => p.work_no) : undefined,
+        responsible:  (values.responsible as string[] | undefined)?.length ? values.responsible as string[] : undefined,
         priority:     values.priority as number,
         group1:       values.group1 as string,
         expected_start_date: values.expected_start_date as string | undefined,
@@ -316,7 +329,6 @@ const ProjectDetailPage: React.FC = () => {
       showToast.success('功能新增成功')
       setShowAddFunc(false)
       funcForm.resetFields()
-      setAddFuncPersons([]); setAddFuncSearchKw(''); setAddFuncSearchRes(null)
       loadFunctions(id)
     } catch { /* global */ }
     finally { setAddFuncLoading(false) }
@@ -330,9 +342,81 @@ const ProjectDetailPage: React.FC = () => {
     } catch { /* global */ }
   }
 
+  const isHtml = (v: string) => /<[a-z][\s\S]*>/i.test(v)
+  const stripHtml = (html: string) => html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+
+  const handleCreateDept = async () => {
+    const nm = newDeptName.trim()
+    if (!nm) return
+    setCreatingDept(true)
+    try {
+      await userApi.createDepartment(nm)
+      await dispatch(fetchDepartmentsThunk())
+      editForm.setFieldValue('department', nm)
+      setNewDeptName('')
+      showToast.success(`部門「${nm}」已建立`)
+    } catch {
+      showToast.error('建立部門失敗')
+    } finally {
+      setCreatingDept(false)
+    }
+  }
+
+  const handlePmSearch = (keyword: string) => {
+    clearTimeout(pmTimerRef.current)
+    if (!keyword.trim()) { setPmOptions([]); return }
+    setPmSearching(true)
+    pmTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await userApi.list({ keyword, page: 1, size: 20 })
+        const list = (res.content as { data_list?: { work_no: string; name: string }[] }).data_list ?? []
+        setPmOptions(list.map((u) => ({ value: u.work_no, label: `${u.name}（${u.work_no}）` })))
+      } catch { setPmOptions([]) }
+      finally  { setPmSearching(false) }
+    }, 300)
+  }
+
+  const handleOpenExpandEdit = () => {
+    const v = editForm.getFieldValue('describe') ?? ''
+    const html = isHtml(v) ? v : v.trim() ? `<p>${v.replace(/\n/g, '</p><p>')}</p>` : ''
+    setEditExpandDraft(html)
+    setEditExpandOpen(true)
+  }
+
+  const handleOpenAddFuncExpand = () => {
+    const v = funcForm.getFieldValue('describe') ?? ''
+    const html = isHtml(v) ? v : v.trim() ? `<p>${v.replace(/\n/g, '</p><p>')}</p>` : ''
+    setAddFuncExpandDraft(html)
+    setAddFuncExpandOpen(true)
+  }
+
+  const handleOpenFuncEditExpand = () => {
+    const v = funcEditForm.getFieldValue('describe') ?? ''
+    const html = isHtml(v) ? v : v.trim() ? `<p>${v.replace(/\n/g, '</p><p>')}</p>` : ''
+    setFuncEditExpandDraft(html)
+    setFuncEditExpandOpen(true)
+  }
+
+  const handleConfirmExpandEdit = () => {
+    editForm.setFieldValue('describe', editExpandDraft)
+    setEditExpandOpen(false)
+  }
+
   const handleEditOpen = () => {
     if (!current) return
     dispatch(fetchProjectGroupsThunk())
+    dispatch(fetchDepartmentsThunk())
+    // Pre-populate pmOptions with current PM values so labels display correctly
+    const initOpts: { value: string; label: string }[] = []
+    if (current.project_pm) {
+      const nm = toName(current.project_pm)
+      initOpts.push({ value: current.project_pm, label: nm !== current.project_pm ? `${nm}（${current.project_pm}）` : current.project_pm })
+    }
+    if (current.product_pm && current.product_pm !== current.project_pm) {
+      const nm = toName(current.product_pm)
+      initOpts.push({ value: current.product_pm, label: nm !== current.product_pm ? `${nm}（${current.product_pm}）` : current.product_pm })
+    }
+    setPmOptions(initOpts)
     editForm.setFieldsValue({
       project_nm:        current.project_nm,
       department:        current.department,
@@ -343,9 +427,13 @@ const ProjectDetailPage: React.FC = () => {
       expected_end_date: current.expected_end_date,
       code_url:          current.code_url,
       expected_benefit:  current.expected_benefit,
+      benefit_amount:    current.benefit_amount,
+      benefit_unit:      current.benefit_unit ?? '元/年',
       describe:          current.describe,
     })
     setNewGroupName('')
+    setNewDeptName('')
+    setEditExpandDraft('')
     setShowEdit(true)
   }
 
@@ -376,27 +464,6 @@ const ProjectDetailPage: React.FC = () => {
     } catch { /* global */ }
     finally { setEditSaving(false) }
   }
-
-  const handleAddFuncSearch = async (kw: string) => {
-    const trimmed = kw.trim().toLowerCase()
-    if (trimmed.length < 4) { setAddFuncSearchRes(null); return }
-    setAddFuncSearching(true)
-    setAddFuncSearchRes(null)
-    try {
-      const res = await userApi.getQuiet(trimmed)
-      setAddFuncSearchRes(res.content ?? false)
-    } catch {
-      setAddFuncSearchRes(false)
-    } finally {
-      setAddFuncSearching(false)
-    }
-  }
-
-  useEffect(() => {
-    if (addFuncSearchKw.trim().length < 4) { setAddFuncSearchRes(null); return }
-    const t = setTimeout(() => handleAddFuncSearch(addFuncSearchKw), 600)
-    return () => clearTimeout(t)
-  }, [addFuncSearchKw])
 
   const handleRespSearch = async (kw: string) => {
     const trimmed = kw.trim().toLowerCase()
@@ -973,8 +1040,13 @@ const ProjectDetailPage: React.FC = () => {
                   <Descriptions.Item label="專案PM">{toName(current.project_pm)}</Descriptions.Item>
                   <Descriptions.Item label="預計完成">{current.expected_end_date ?? '—'}</Descriptions.Item>
                   <Descriptions.Item label="建立時間">{current.created_at}</Descriptions.Item>
-                  <Descriptions.Item label="描述" span={2}>{current.describe || '—'}</Descriptions.Item>
-                  <Descriptions.Item label="預期效益" span={2}>{current.expected_benefit || '—'}</Descriptions.Item>
+                  <Descriptions.Item label="描述" span={2}><RichTextContent html={current.describe} /></Descriptions.Item>
+                  <Descriptions.Item label="預估效益" span={2}>
+                    {current.benefit_amount != null
+                      ? <>{current.benefit_amount} {current.benefit_unit ?? '元/年'}{current.expected_benefit ? <span className="text-slate-400 ml-2 text-xs">（{current.expected_benefit}）</span> : null}</>
+                      : current.expected_benefit || '—'
+                    }
+                  </Descriptions.Item>
                 </Descriptions>
               </Card>
             ),
@@ -1008,7 +1080,15 @@ const ProjectDetailPage: React.FC = () => {
                   </div>
                   {isPm && [3, 10].includes(current?.status ?? 0) && !isProjectLocked && (
                     <Button type="primary" icon={<PlusIcon className="w-4 h-4" />}
-                      onClick={() => setShowAddFunc(true)} size="small" style={{ background: '#2563eb' }}>
+                      onClick={() => {
+                        setShowAddFunc(true)
+                        if (funcModalUserOptions.length === 0) {
+                          userApi.list({ page: 1, size: 2000 }).then((res) => {
+                            const data = (res.content as { data_list?: { work_no: string; name: string }[] }).data_list ?? []
+                            setFuncModalUserOptions(data.map((u) => ({ value: u.work_no, label: `${u.name}（${u.work_no}）` })))
+                          }).catch(() => {})
+                        }
+                      }} size="small" style={{ background: '#2563eb' }}>
                       新增功能
                     </Button>
                   )}
@@ -1454,8 +1534,8 @@ const ProjectDetailPage: React.FC = () => {
 
       {/* Add Function Modal */}
       <Modal title="新增功能任務" open={showAddFunc}
-        onCancel={() => { setShowAddFunc(false); funcForm.resetFields(); setAddFuncPersons([]); setAddFuncSearchKw(''); setAddFuncSearchRes(null) }}
-        footer={null} width={540} destroyOnHidden>
+        onCancel={() => { setShowAddFunc(false); funcForm.resetFields() }}
+        footer={null} width={640} destroyOnHidden>
         <Form form={funcForm} layout="vertical" onFinish={handleAddFunction} className="mt-4">
           <Form.Item name="function_nm" label="功能名稱" rules={[{ required: true }]}>
             <Input placeholder="請輸入功能名稱" />
@@ -1475,81 +1555,83 @@ const ProjectDetailPage: React.FC = () => {
             <Form.Item name="expected_end_date"   label="預計結束"><Input type="date" /></Form.Item>
           </div>
 
-          {/* 負責人 picker */}
-          <div className="mb-4">
-            <div className="text-sm font-medium text-slate-700 mb-1.5">
-              負責人
-              {addFuncPersons.length > 0 && (
-                <span className="ml-1.5 text-xs font-normal text-slate-400">（已選 {addFuncPersons.length} 人）</span>
-              )}
-            </div>
-            <Input
-              ref={addFuncSearchRef}
-              placeholder="輸入工號，自動搜索"
-              value={addFuncSearchKw}
-              onChange={(e) => setAddFuncSearchKw(e.target.value)}
-              suffix={<Spin size="small" style={{ opacity: addFuncSearching ? 1 : 0 }} />}
-              className="mb-2"
+          <Form.Item name="responsible" label="負責人">
+            <Select
+              mode="multiple"
+              placeholder="選擇負責人"
+              options={funcModalUserOptions}
+              showSearch
+              filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
+              allowClear
             />
-            {addFuncSearchRes === false && (
-              <div className="text-xs text-red-400 mb-2">找不到該工號，請確認後重試</div>
-            )}
-            {typeof addFuncSearchRes === 'object' && addFuncSearchRes !== null && (
-              <div className="flex items-center gap-2.5 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 mb-2">
-                <Avatar size={28} style={{ background: '#2563eb', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
-                  {(addFuncSearchRes as UserProfile).name?.[0]?.toUpperCase()}
-                </Avatar>
-                <div className="flex-1 min-w-0">
-                  <span className="text-sm font-medium text-slate-700">{(addFuncSearchRes as UserProfile).name}</span>
-                  <span className="text-xs text-slate-400 ml-1.5">{(addFuncSearchRes as UserProfile).work_no} · {(addFuncSearchRes as UserProfile).department}</span>
-                </div>
-                <Button
-                  size="small" type="primary" style={{ background: '#2563eb' }}
-                  disabled={addFuncPersons.some((p) => p.work_no === (addFuncSearchRes as UserProfile).work_no)}
-                  onClick={() => {
-                    const person = addFuncSearchRes as UserProfile
-                    if (!addFuncPersons.some((p) => p.work_no === person.work_no)) {
-                      setAddFuncPersons((prev) => [...prev, person])
-                    }
-                    setAddFuncSearchKw(''); setAddFuncSearchRes(null)
-                  }}
-                >
-                  {addFuncPersons.some((p) => p.work_no === (addFuncSearchRes as UserProfile).work_no) ? '已加入' : '加入'}
-                </Button>
-              </div>
-            )}
-            {addFuncPersons.length > 0 && (
-              <div className="space-y-1.5">
-                {addFuncPersons.map((p, i) => (
-                  <div key={p.work_no} className="flex items-center gap-2.5 bg-slate-50 rounded-lg px-3 py-2">
-                    <div className="w-5 h-5 rounded-full bg-violet-100 text-violet-600 text-[10px] font-bold flex items-center justify-center flex-shrink-0">{i + 1}</div>
-                    <Avatar size={24} style={{ background: '#7c3aed', fontSize: 10, fontWeight: 700, flexShrink: 0 }}>
-                      {p.name?.[0]?.toUpperCase()}
-                    </Avatar>
-                    <div className="flex-1 min-w-0">
-                      <span className="text-sm font-medium text-slate-700">{p.name}</span>
-                      <span className="text-xs text-slate-400 ml-1.5">{p.work_no} · {p.department}</span>
-                    </div>
+          </Form.Item>
+
+          {/* 功能描述 — 小輸入框 + 展開富文本編輯 */}
+          <Form.Item shouldUpdate={(prev, curr) => prev.describe !== curr.describe} noStyle>
+            {({ getFieldValue }) => {
+              const v: string = getFieldValue('describe') ?? ''
+              const displayValue = isHtml(v) ? stripHtml(v) : v
+              return (
+                <div className="mb-4">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-sm text-slate-700">功能描述</span>
                     <button
-                      className="text-red-400 hover:text-red-600 transition-colors flex-shrink-0 border-0 outline-none bg-transparent p-0 cursor-pointer"
-                      onClick={() => setAddFuncPersons((prev) => prev.filter((x) => x.work_no !== p.work_no))}
+                      type="button"
+                      onClick={handleOpenAddFuncExpand}
+                      className="flex items-center gap-1 text-xs text-slate-500 hover:text-blue-600 border border-slate-200 rounded-md px-2 py-1 hover:border-blue-300 bg-white transition-colors"
                     >
-                      <XMarkIcon className="w-4 h-4" />
+                      <ArrowsPointingOutIcon className="w-3.5 h-3.5" />
+                      展開富文本編輯
                     </button>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <Form.Item name="describe" label="功能描述">
-            <Input.TextArea rows={3} placeholder="請描述功能需求" />
+                  <Input.TextArea
+                    value={displayValue}
+                    onChange={(e) => funcForm.setFieldValue('describe', e.target.value)}
+                    rows={3}
+                    placeholder="請描述功能需求，或點擊右上角展開富文本編輯器..."
+                    style={{ resize: 'none' }}
+                  />
+                  <Form.Item name="describe" noStyle><input type="hidden" /></Form.Item>
+                  {isHtml(v) && (
+                    <p className="text-xs text-blue-500 mt-1">已套用富文本格式，點擊「展開富文本編輯」可繼續修改</p>
+                  )}
+                </div>
+              )
+            }}
           </Form.Item>
+
           <div className="flex justify-end gap-3">
-            <Button onClick={() => { setShowAddFunc(false); funcForm.resetFields(); setAddFuncPersons([]); setAddFuncSearchKw(''); setAddFuncSearchRes(null) }}>取消</Button>
+            <Button onClick={() => { setShowAddFunc(false); funcForm.resetFields() }}>取消</Button>
             <Button type="primary" htmlType="submit" loading={addFuncLoading} style={{ background: '#2563eb' }}>新增</Button>
           </div>
         </Form>
+      </Modal>
+
+      {/* 新增功能描述展開 Modal */}
+      <Modal
+        open={addFuncExpandOpen}
+        title="功能描述"
+        onCancel={() => setAddFuncExpandOpen(false)}
+        width="80vw"
+        style={{ top: 40, maxWidth: 1100 }}
+        styles={{ body: { padding: '16px 24px 24px' } }}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button onClick={() => setAddFuncExpandOpen(false)}>取消</Button>
+            <Button type="primary" style={{ background: '#2563eb' }} onClick={() => {
+              funcForm.setFieldValue('describe', addFuncExpandDraft)
+              setAddFuncExpandOpen(false)
+            }}>完成</Button>
+          </div>
+        }
+        destroyOnClose
+      >
+        <RichTextEditor
+          value={addFuncExpandDraft}
+          onChange={setAddFuncExpandDraft}
+          placeholder="請描述功能需求（支援標題、列表、粗體等格式）"
+          minHeight={480}
+        />
       </Modal>
 
       {/* Function Detail Drawer */}
@@ -1573,24 +1655,75 @@ const ProjectDetailPage: React.FC = () => {
 
       {/* 編輯專案 Modal */}
       <Modal title="編輯專案" open={showEdit} onCancel={() => setShowEdit(false)}
-        footer={null} width={600} destroyOnHidden>
+        footer={null} width={820} destroyOnHidden>
         <Form form={editForm} layout="vertical" onFinish={handleEditSave} className="mt-4">
-          <Form.Item name="project_nm" label="專案名稱" rules={[{ required: true }]} className="col-span-2">
-            <Input />
-          </Form.Item>
           <div className="grid grid-cols-2 gap-x-4">
-            <Form.Item name="department" label="部門" rules={[{ required: true }]}>
+            <Form.Item name="project_nm" label="專案名稱" rules={[{ required: true }]} className="col-span-2">
               <Input />
             </Form.Item>
+
+            {/* 部門 — 選擇或新增 */}
+            <Form.Item name="department" label="部門" rules={[{ required: true }]}>
+              <Select
+                showSearch
+                placeholder="輸入或選擇部門"
+                filterOption={(input, opt) =>
+                  (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())
+                }
+                options={departments.map((d) => ({ value: d.name, label: d.name }))}
+                popupRender={(menu) => (
+                  <>
+                    {menu}
+                    <Divider style={{ margin: '8px 0' }} />
+                    <Space style={{ padding: '0 8px 8px' }}>
+                      <input
+                        value={newDeptName}
+                        onChange={(e) => setNewDeptName(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCreateDept() } }}
+                        placeholder="輸入新部門名稱"
+                        style={{ flex: 1, padding: '4px 8px', border: '1px solid #d9d9d9', borderRadius: 6, fontSize: 13, outline: 'none' }}
+                      />
+                      <Button type="text" icon={<span>+</span>} size="small"
+                        loading={creatingDept} disabled={!newDeptName.trim()}
+                        onClick={handleCreateDept}>
+                        新增部門
+                      </Button>
+                    </Space>
+                  </>
+                )}
+              />
+            </Form.Item>
+
             <Form.Item name="priority" label="優先級" rules={[{ required: true }]}>
               <Select options={PRIORITY_OPTIONS} />
             </Form.Item>
-            <Form.Item name="project_pm" label="專案PM（工號）" rules={[{ required: true }]} normalize={(v) => (v || '').toLowerCase()}>
-              <Input />
+
+            {/* 專案PM — 搜尋選擇 */}
+            <Form.Item name="project_pm" label="專案PM" rules={[{ required: true }]}>
+              <Select
+                showSearch
+                placeholder="輸入工號或姓名搜索..."
+                filterOption={false}
+                onSearch={handlePmSearch}
+                notFoundContent={pmSearching ? <Spin size="small" /> : '未找到用戶，請繼續輸入'}
+                options={pmOptions}
+                allowClear
+              />
             </Form.Item>
-            <Form.Item name="product_pm" label="産品PM（工號）" normalize={(v) => (v || '').toLowerCase()}>
-              <Input placeholder="（可空，預設與建立人相同）" />
+
+            {/* 産品PM — 搜尋選擇 */}
+            <Form.Item name="product_pm" label="産品PM">
+              <Select
+                showSearch
+                placeholder="輸入工號或姓名搜索（可留空）"
+                filterOption={false}
+                onSearch={handlePmSearch}
+                notFoundContent={pmSearching ? <Spin size="small" /> : '未找到用戶，請繼續輸入'}
+                options={pmOptions}
+                allowClear
+              />
             </Form.Item>
+
             <Form.Item name="group_id" label="專案分組" rules={[{ required: true, message: '請選擇專案分組' }]}>
               <Select
                 options={groups.map((g) => ({ value: g.id, label: g.group_nm }))}
@@ -1616,32 +1749,108 @@ const ProjectDetailPage: React.FC = () => {
                 ) : undefined}
               />
             </Form.Item>
+
             <Form.Item name="expected_end_date" label="預計完成日期"
               getValueProps={(v) => ({ value: v ? dayjs(v) : null })}
               getValueFromEvent={(date) => date ? date.format('YYYY-MM-DD') : ''}>
               <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
             </Form.Item>
+
             <Form.Item name="code_url" label="代碼庫地址" className="col-span-2">
               <Input placeholder="https://..." />
             </Form.Item>
-            <Form.Item name="benefit_amount" label="預估效益金額">
-              <InputNumber
-                style={{ width: '100%' }} placeholder="預估節省/產生的金額"
-                min={0} suffix="元/年"
-              />
+
+            <Form.Item label="預估效益數量" style={{ marginBottom: 0 }}>
+              <Form.Item name="benefit_amount" style={{ display: 'inline-block', width: '100%', marginBottom: 0 }}>
+                <InputNumber
+                  style={{ width: '100%' }}
+                  placeholder="請輸入數字（支援小數）"
+                  min={0}
+                  addonAfter={
+                    <Form.Item name="benefit_unit" noStyle initialValue="元/年">
+                      <Select
+                        options={[
+                          { value: '元/年', label: '元/年' },
+                          { value: '人/年', label: '人/年' },
+                        ]}
+                        style={{ width: 80 }}
+                      />
+                    </Form.Item>
+                  }
+                />
+              </Form.Item>
             </Form.Item>
+
             <Form.Item name="expected_benefit" label="效益說明">
               <Input.TextArea rows={2} placeholder="例：預計減少人工作業30%，每年節省約50萬元" />
             </Form.Item>
+
           </div>
-          <Form.Item name="describe" label="專案描述">
-            <Input.TextArea rows={3} />
+
+          {/* 描述 — 小輸入框 + 展開富文本編輯 */}
+          <Form.Item shouldUpdate={(prev, curr) => prev.describe !== curr.describe} noStyle>
+            {({ getFieldValue }) => {
+              const v: string = getFieldValue('describe') ?? ''
+              const displayValue = isHtml(v) ? stripHtml(v) : v
+              return (
+                <div className="mb-4">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-sm text-slate-700">專案描述</span>
+                    <button
+                      type="button"
+                      onClick={handleOpenExpandEdit}
+                      className="flex items-center gap-1 text-xs text-slate-500 hover:text-blue-600 border border-slate-200 rounded-md px-2 py-1 hover:border-blue-300 bg-white transition-colors"
+                    >
+                      <ArrowsPointingOutIcon className="w-3.5 h-3.5" />
+                      展開富文本編輯
+                    </button>
+                  </div>
+                  <Input.TextArea
+                    value={displayValue}
+                    onChange={(e) => editForm.setFieldValue('describe', e.target.value)}
+                    rows={3}
+                    placeholder="請輸入專案描述，或點擊右上角展開富文本編輯器..."
+                    style={{ resize: 'none' }}
+                  />
+                  {/* Hidden Form.Item carries the value on submit */}
+                  <Form.Item name="describe" noStyle><input type="hidden" /></Form.Item>
+                  {isHtml(v) && (
+                    <p className="text-xs text-blue-500 mt-1">已套用富文本格式，點擊「展開富文本編輯」可繼續修改</p>
+                  )}
+                </div>
+              )
+            }}
           </Form.Item>
+
           <div className="flex justify-end gap-3">
             <Button onClick={() => setShowEdit(false)}>取消</Button>
             <Button type="primary" htmlType="submit" loading={editSaving} style={{ background: '#2563eb' }}>保存</Button>
           </div>
         </Form>
+      </Modal>
+
+      {/* 描述展開編輯 Modal（編輯專案用） */}
+      <Modal
+        open={editExpandOpen}
+        title="專案描述"
+        onCancel={() => setEditExpandOpen(false)}
+        width="80vw"
+        style={{ top: 40, maxWidth: 1100 }}
+        styles={{ body: { padding: '16px 24px 24px' } }}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button onClick={() => setEditExpandOpen(false)}>取消</Button>
+            <Button type="primary" onClick={handleConfirmExpandEdit} style={{ background: '#2563eb' }}>完成</Button>
+          </div>
+        }
+        destroyOnClose
+      >
+        <RichTextEditor
+          value={editExpandDraft}
+          onChange={setEditExpandDraft}
+          placeholder="請輸入專案描述（支援標題、列表、粗體等格式）"
+          minHeight={480}
+        />
       </Modal>
 
       {/* 快速設定任務負責人 Modal */}
@@ -1750,7 +1959,7 @@ const ProjectDetailPage: React.FC = () => {
         okText="儲存"
         confirmLoading={funcEditSaving}
         okButtonProps={{ style: { background: '#2563eb' } }}
-        width={520}
+        width={640}
         destroyOnHidden
       >
         {!funcEditData ? (
@@ -1765,16 +1974,77 @@ const ProjectDetailPage: React.FC = () => {
                 <Select options={[{value:1,label:'低'},{value:2,label:'中'},{value:3,label:'高'},{value:4,label:'緊急'}]} />
               </Form.Item>
               <Form.Item name="group1" label="任務分組" rules={[{ required: true }]}>
-                <Input />
+                <AutoComplete
+                  options={groupAutoOptions}
+                  placeholder="選擇或輸入分組名稱"
+                  filterOption={(input, option) => (option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
+                />
               </Form.Item>
               <Form.Item name="expected_start_date" label="預計開始"><Input type="date" /></Form.Item>
               <Form.Item name="expected_end_date" label="預計完成"><Input type="date" /></Form.Item>
             </div>
-            <Form.Item name="describe" label="功能描述">
-              <Input.TextArea rows={3} />
+            {/* 功能描述 — 小輸入框 + 展開富文本編輯 */}
+            <Form.Item shouldUpdate={(prev, curr) => prev.describe !== curr.describe} noStyle>
+              {({ getFieldValue }) => {
+                const v: string = getFieldValue('describe') ?? ''
+                const displayValue = isHtml(v) ? stripHtml(v) : v
+                return (
+                  <div className="mb-2">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-sm text-slate-700">功能描述</span>
+                      <button
+                        type="button"
+                        onClick={handleOpenFuncEditExpand}
+                        className="flex items-center gap-1 text-xs text-slate-500 hover:text-blue-600 border border-slate-200 rounded-md px-2 py-1 hover:border-blue-300 bg-white transition-colors"
+                      >
+                        <ArrowsPointingOutIcon className="w-3.5 h-3.5" />
+                        展開富文本編輯
+                      </button>
+                    </div>
+                    <Input.TextArea
+                      value={displayValue}
+                      onChange={(e) => funcEditForm.setFieldValue('describe', e.target.value)}
+                      rows={3}
+                      placeholder="請描述功能需求，或點擊右上角展開富文本編輯器..."
+                      style={{ resize: 'none' }}
+                    />
+                    <Form.Item name="describe" noStyle><input type="hidden" /></Form.Item>
+                    {isHtml(v) && (
+                      <p className="text-xs text-blue-500 mt-1">已套用富文本格式，點擊「展開富文本編輯」可繼續修改</p>
+                    )}
+                  </div>
+                )
+              }}
             </Form.Item>
           </Form>
         )}
+      </Modal>
+
+      {/* 編輯功能描述展開 Modal */}
+      <Modal
+        open={funcEditExpandOpen}
+        title="功能描述"
+        onCancel={() => setFuncEditExpandOpen(false)}
+        width="80vw"
+        style={{ top: 40, maxWidth: 1100 }}
+        styles={{ body: { padding: '16px 24px 24px' } }}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button onClick={() => setFuncEditExpandOpen(false)}>取消</Button>
+            <Button type="primary" style={{ background: '#2563eb' }} onClick={() => {
+              funcEditForm.setFieldValue('describe', funcEditExpandDraft)
+              setFuncEditExpandOpen(false)
+            }}>完成</Button>
+          </div>
+        }
+        destroyOnClose
+      >
+        <RichTextEditor
+          value={funcEditExpandDraft}
+          onChange={setFuncEditExpandDraft}
+          placeholder="請描述功能需求（支援標題、列表、粗體等格式）"
+          minHeight={480}
+        />
       </Modal>
 
       {/* 設定專案PM Modal */}

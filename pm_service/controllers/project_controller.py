@@ -224,6 +224,8 @@ class ProjectController:
             group_id=payload.get("group_id", ""),
             code_url=payload.get("code_url", ""),
             expected_benefit=payload.get("expected_benefit", ""),
+            benefit_amount=payload.get("benefit_amount"),
+            benefit_unit=payload.get("benefit_unit", "元/年"),
         )
         db.session.add(p)
         db.session.commit()
@@ -250,7 +252,8 @@ class ProjectController:
                     raise PermissionException(msg="只有产品PM或其直属上级可以编辑专案")
         WN_FIELDS = {"product_pm", "project_pm"}
         fields = ("project_nm", "describe", "department", "product_pm", "project_pm",
-                  "expected_start_date", "expected_end_date", "priority", "group_id", "code_url", "expected_benefit")
+                  "expected_start_date", "expected_end_date", "priority", "group_id", "code_url",
+                  "expected_benefit", "benefit_amount", "benefit_unit")
         for f in fields:
             if f in payload and payload[f] is not None:
                 v = (payload[f] or "").strip().lower() if f in WN_FIELDS else payload[f]
@@ -270,9 +273,19 @@ class ProjectController:
             raise PermissionException(msg="专案PM已设定，如需变更请编辑专案")
         if operator not in (p.creator or "", p.product_pm or ""):
             raise PermissionException(msg="只有创建人或产品PM可以设定专案PM")
-        p.project_pm = (project_pm or "").strip().lower()
+        new_pm = (project_pm or "").strip().lower()
+        p.project_pm = new_pm
         p.update_at = CommonTools.get_now()
         db.session.commit()
+        # 通知新設定的專案PM
+        from controllers.notification_controller import push_notification
+        push_notification(
+            [new_pm],
+            title="您已被設定為專案PM",
+            desc=f"「{p.project_nm}」，請前往查看並負責後續規劃審核提交",
+            link_type="project",
+            link_id=project_id,
+        )
 
     def delete_project(self, project_id: str):
         p = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
@@ -369,6 +382,16 @@ class ProjectController:
         p.project_status = status
         p.update_at = CommonTools.get_now()
         db.session.commit()
+        # 通知第一位審核人
+        from controllers.notification_controller import push_notification
+        first_reviewers = [n["approver_work_no"] for n in nodes if n.get("order") == 1]
+        push_notification(
+            first_reviewers,
+            title=f"您有新的審核申請待處理",
+            desc=f"「{p.project_nm}」{apply_type}，提交人：{submitter_name}",
+            link_type="review",
+            link_id=apply.id,
+        )
 
     def submit_change_request(self, project_id: str, reviewer: list, description: str, submitter: str):
         """提交需求变更申请（执行阶段申请补充需求/规划文档）"""
@@ -402,6 +425,15 @@ class ProjectController:
         )
         db.session.add(apply)
         db.session.commit()
+        # 通知审核人
+        from controllers.notification_controller import push_notification
+        push_notification(
+            recipients=reviewer,
+            title="您有新的需求變更審核待處理",
+            desc=f"專案「{p.project_nm}」提交了需求變更申請，請及時審核。",
+            link_type="review",
+            link_id=apply.id,
+        )
         return apply.to_dict()
 
     def get_gantt_chart(self, project_id: str):
@@ -728,6 +760,20 @@ class ProjectController:
             # 还有待审节点，保持待审状态
             r.update_at = now
             db.session.commit()
+            # 通知下一位待審核人
+            from controllers.notification_controller import push_notification
+            next_node = next(
+                (n for n in sorted(nodes, key=lambda n: n.get("order", 0)) if n.get("status") == 0),
+                None,
+            )
+            if next_node:
+                push_notification(
+                    [next_node["approver_work_no"]],
+                    title="您有新的審核申請待處理",
+                    desc=f"「{r.apply_type}」輪到您審核，請前往審核管理查看",
+                    link_type="review",
+                    link_id=review_id,
+                )
             return
 
         r.apply_status = final_status
@@ -777,6 +823,16 @@ class ProjectController:
                     p.project_status = next_fail
                 p.update_at = now
         db.session.commit()
+        # 通知提交人審核結果
+        from controllers.notification_controller import push_notification
+        result_text = "已通過" if final_status == 2 else ("已被退回" if final_status == 4 else "已被拒絕")
+        push_notification(
+            [r.submitter],
+            title=f"您的申請{result_text}",
+            desc=f"「{r.apply_type}」{result_text}",
+            link_type="project" if r.project_id else "duty",
+            link_id=r.project_id or r.duty_id or "",
+        )
 
     def countersign_review(self, review_id: str, approver_work_no: str, approver_name: str):
         approver_work_no = (approver_work_no or "").strip().lower()
@@ -1082,11 +1138,30 @@ class ProjectController:
                     history = []
                     for pr in records[:10]:  # 最近10条
                         submitter_name = name_map.get(pr.submitter, pr.submitter)
+                        raw_files = []
+                        if pr.files_json:
+                            try:
+                                raw_files = json.loads(pr.files_json)
+                            except Exception:
+                                pass
+                        base = f"/api/project/{pr.project_id}/function/{pr.function_id}/progress/{pr.progress_id}/files"
+                        files = [{"name": f["name"], "url": f"{base}/{f['id']}/preview", "size": f.get("size")} for f in raw_files]
+                        coops = []
+                        if pr.cooperator:
+                            try:
+                                coops = json.loads(pr.cooperator)
+                            except Exception:
+                                pass
                         history.append({
-                            "date":     (pr.created_at or "")[:10],
-                            "content":  pr.progress_record or "",
-                            "progress": pr.progress or 0,
-                            "author":   submitter_name,
+                            "date":       (pr.created_at or "")[:10],
+                            "created_at": pr.created_at or "",
+                            "content":    pr.progress_record or "",
+                            "progress":   pr.progress or 0,
+                            "author":     submitter_name,
+                            "work_no":    pr.submitter or "",
+                            "time_consum": pr.time_consum or 0,
+                            "cooperator": coops,
+                            "files":      files,
                         })
 
                     tasks.append({
@@ -1355,6 +1430,17 @@ class FunctionController:
         )
         db.session.add(f)
         db.session.commit()
+        # 通知负责人（排除创建者本人）
+        from controllers.notification_controller import push_notification
+        notif_targets = [w for w in resp if w != creator]
+        if notif_targets:
+            push_notification(
+                recipients=notif_targets,
+                title="您已被指派為功能任務負責人",
+                desc=f"任務「{f.function_nm}」已指派您為負責人，請及時跟進。",
+                link_type="project",
+                link_id=project_id,
+            )
         return {"function_id": f.id}
 
     def update_function(self, function_id: str, payload: dict):
@@ -1366,6 +1452,7 @@ class FunctionController:
                       "expected_end_date", "priority", "group1", "group2"):
             if field in payload and payload[field] is not None:
                 setattr(f, field, payload[field])
+        new_resp = None
         if "responsible" in payload and payload["responsible"] is not None:
             resp = payload["responsible"]
             if isinstance(resp, str):
@@ -1375,9 +1462,22 @@ class FunctionController:
                 except (json.JSONDecodeError, ValueError):
                     resp = [resp] if resp else []
             resp = [str(w).strip().lower() for w in (resp if isinstance(resp, list) else [resp]) if w]
+            # 找出新增的负责人
+            old_resp = json.loads(f.responsible) if f.responsible else []
+            new_resp = [w for w in resp if w not in old_resp]
             f.responsible = json.dumps(resp, ensure_ascii=False)
         f.update_at = CommonTools.get_now()
         db.session.commit()
+        # 通知新增负责人
+        if new_resp:
+            from controllers.notification_controller import push_notification
+            push_notification(
+                recipients=new_resp,
+                title="您已被指派為功能任務負責人",
+                desc=f"任務「{f.function_nm}」已指派您為負責人，請及時跟進。",
+                link_type="project",
+                link_id=f.project_id,
+            )
 
     def reschedule_function(self, function_id: str, new_end_date: str, reason: str, operator: str):
         """
@@ -1497,14 +1597,25 @@ class FunctionController:
             f.update_at = now
             db.session.add(review)
             db.session.commit()
+            # 通知专案 PM 有功能任务待审核
+            from controllers.notification_controller import push_notification
+            push_notification(
+                recipients=[project_pm],
+                title="您有新的功能完結審核待處理",
+                desc=f"【{project.project_nm}】任務「{f.function_nm}」已提交完結審核，請前往審核。",
+                link_type="review",
+                link_id=review.id,
+            )
             return {"direct_complete": False}
 
     def allocate(self, function_id: str, payload: dict):
         f = db.session.query(FunctionDataModel).filter_by(id=function_id).first()
         if not f:
             raise ResourceNotFoundException(resource_type="功能任务")
+        old_resp = json.loads(f.responsible) if f.responsible else []
         resp = payload.get("responsible", [])
         resp = [w.strip().lower() for w in (resp if isinstance(resp, list) else [resp]) if w]
+        new_resp = [w for w in resp if w not in old_resp]
         f.responsible = json.dumps(resp, ensure_ascii=False)
         if payload.get("expected_start_date"):
             f.expected_start_date = payload["expected_start_date"]
@@ -1512,6 +1623,15 @@ class FunctionController:
             f.expected_end_date = payload["expected_end_date"]
         f.update_at = CommonTools.get_now()
         db.session.commit()
+        if new_resp:
+            from controllers.notification_controller import push_notification
+            push_notification(
+                recipients=new_resp,
+                title="您已被指派為功能任務負責人",
+                desc=f"任務「{f.function_nm}」已指派您為負責人，請及時跟進。",
+                link_type="project",
+                link_id=f.project_id,
+            )
 
     def my_functions(self, work_no: str, page: int = 1, size: int = 20, status: int = None, scope: str = 'all') -> dict:
         """查询功能任务。scope='mine' 仅负责任务；scope='all' 所属专案全部；scope='supervisor' 下属专案全部"""

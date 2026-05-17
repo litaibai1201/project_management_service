@@ -81,6 +81,17 @@ class DutyController:
         )
         db.session.add(d)
         db.session.commit()
+        # 通知非建立人的負責人
+        from controllers.notification_controller import push_notification
+        notif_targets = [w for w in resp if w != creator]
+        if notif_targets:
+            push_notification(
+                notif_targets,
+                title="您被指定為臨時任務負責人",
+                desc=f"「{d.duty_nm}」，建立人：{creator}",
+                link_type="duty",
+                link_id=d.id,
+            )
         return {"duty_id": d.id}
 
     def update_duty(self, duty_id: str, payload: dict, work_no: str = None):
@@ -93,6 +104,7 @@ class DutyController:
                       "expected_start_date", "expected_end_date"):
             if field in payload and payload[field] is not None:
                 setattr(d, field, payload[field])
+        new_resp = None
         if "responsible" in payload and payload["responsible"] is not None:
             resp = payload["responsible"]
             if isinstance(resp, str):
@@ -101,9 +113,21 @@ class DutyController:
                 except Exception:
                     resp = [resp] if resp else []
             resp = [w.strip().lower() for w in (resp if isinstance(resp, list) else [resp]) if w]
+            old_resp = json.loads(d.responsible) if d.responsible else []
+            new_resp = [w for w in resp if w not in old_resp]
             d.responsible = json.dumps(resp, ensure_ascii=False)
         d.update_at = CommonTools.get_now()
         db.session.commit()
+        # 通知新增负责人
+        if new_resp:
+            from controllers.notification_controller import push_notification
+            push_notification(
+                recipients=new_resp,
+                title="您已被指定為臨時任務負責人",
+                desc=f"「{d.duty_nm}」已指派您為負責人，請及時跟進。",
+                link_type="duty",
+                link_id=d.id,
+            )
 
     def reschedule_duty(self, duty_id: str, new_end_date: str, reason: str, operator: str):
         """延期临时任务：建立人或责任人可操作，记录延期历史"""
@@ -188,6 +212,17 @@ class DutyController:
         d.duty_status = 1
         d.update_at = CommonTools.get_now()
         db.session.commit()
+        # 通知负责人（排除激活人本身）
+        from controllers.notification_controller import push_notification
+        notif_targets = [w for w in responsible if w != work_no]
+        if notif_targets:
+            push_notification(
+                recipients=notif_targets,
+                title="您負責的臨時任務已激活",
+                desc=f"「{d.duty_nm}」已開始進行，請及時跟進。",
+                link_type="duty",
+                link_id=d.id,
+            )
 
     def hold_duty(self, duty_id: str, work_no: str):
         """進行中 → 擱置（建立人）"""
@@ -254,14 +289,28 @@ class DutyController:
         d.update_at = CommonTools.get_now()
         db.session.add(review)
         db.session.commit()
+        # 通知第一位審核人
+        from controllers.notification_controller import push_notification
+        first_reviewers = [n["approver_work_no"] for n in nodes if n.get("order") == 1]
+        push_notification(
+            first_reviewers,
+            title="您有新的審核申請待處理",
+            desc=f"「{d.duty_nm}」臨時任務完結審核，提交人：{submitter_name or work_no}",
+            link_type="review",
+            link_id=review.id,
+        )
         return {"review_id": review.id}
 
     def allocate(self, duty_id: str, payload: dict):
         d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
         if not d:
             raise ResourceNotFoundException(resource_type="临时任务")
+        new_resp = []
         if payload.get("responsible"):
-            d.responsible = json.dumps(payload["responsible"], ensure_ascii=False)
+            old_resp = json.loads(d.responsible) if d.responsible else []
+            new_resp_list = payload["responsible"]
+            new_resp = [w for w in new_resp_list if w not in old_resp]
+            d.responsible = json.dumps(new_resp_list, ensure_ascii=False)
         if payload.get("expected_start_date"):
             d.expected_start_date = payload["expected_start_date"]
         if payload.get("expected_end_date"):
@@ -269,6 +318,16 @@ class DutyController:
             d.latest_expected_end_date = payload["expected_end_date"]
         d.update_at = CommonTools.get_now()
         db.session.commit()
+        # 通知新增负责人
+        if new_resp:
+            from controllers.notification_controller import push_notification
+            push_notification(
+                recipients=new_resp,
+                title="您已被指定為臨時任務負責人",
+                desc=f"「{d.duty_nm}」已指派您為負責人，請及時跟進。",
+                link_type="duty",
+                link_id=d.id,
+            )
 
     def set_status(self, duty_id: str, status: int):
         d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()

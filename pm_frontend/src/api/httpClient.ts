@@ -109,6 +109,9 @@ export const post = <T>(url: string, data?: unknown, config?: AxiosRequestConfig
 export const put = <T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<ApiResponse<T>> =>
   httpClient.put<ApiResponse<T>>(url, data, config).then((r) => r.data)
 
+export const patch = <T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<ApiResponse<T>> =>
+  httpClient.patch<ApiResponse<T>>(url, data, config).then((r) => r.data)
+
 export const del = <T>(url: string, config?: AxiosRequestConfig): Promise<ApiResponse<T>> =>
   httpClient.delete<ApiResponse<T>>(url, config).then((r) => r.data)
 

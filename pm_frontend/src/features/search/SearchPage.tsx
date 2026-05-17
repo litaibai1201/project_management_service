@@ -14,7 +14,7 @@ import {
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { searchApi } from '@/api/search.api'
 import { SearchResult } from '@/types/api.types'
-import { PROJECT_STATUS_MAP, DUTY_STATUS_MAP, PRIORITY_MAP } from '@/utils/status'
+import { PROJECT_STATUS_MAP, DUTY_STATUS_MAP, FUNCTION_STATUS_MAP, PRIORITY_MAP } from '@/utils/status'
 
 const { Search } = Input
 
@@ -45,8 +45,9 @@ const DaysTag: React.FC<{ date?: string }> = ({ date }) => {
 
 // ─── Result Card ─────────────────────────────────────────────────────────────
 const ResultCard: React.FC<{ item: SearchResult; keyword: string; onClick: () => void }> = ({ item, keyword, onClick }) => {
-  const isProject = item.type === 'project'
-  const statusMap  = isProject ? PROJECT_STATUS_MAP : DUTY_STATUS_MAP
+  const isProject  = item.type === 'project'
+  const isFunction = item.type === 'function'
+  const statusMap  = isProject ? PROJECT_STATUS_MAP : isFunction ? FUNCTION_STATUS_MAP : DUTY_STATUS_MAP
   const statusInfo = statusMap[item.status]
   const priority   = item.priority ? PRIORITY_MAP[item.priority] : null
 
@@ -56,10 +57,12 @@ const ResultCard: React.FC<{ item: SearchResult; keyword: string; onClick: () =>
       className="group bg-white rounded-xl border border-slate-100 shadow-sm hover:shadow-md hover:border-blue-200 cursor-pointer transition-all p-4 flex items-start gap-4"
     >
       {/* Icon */}
-      <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${isProject ? 'bg-blue-50' : 'bg-purple-50'}`}>
+      <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${isProject ? 'bg-blue-50' : isFunction ? 'bg-green-50' : 'bg-purple-50'}`}>
         {isProject
           ? <FolderIcon className="w-5 h-5 text-blue-500" />
-          : <ClipboardDocumentListIcon className="w-5 h-5 text-purple-500" />
+          : isFunction
+            ? <ClipboardDocumentListIcon className="w-5 h-5 text-green-500" />
+            : <ClipboardDocumentListIcon className="w-5 h-5 text-purple-500" />
         }
       </div>
 
@@ -68,10 +71,10 @@ const ResultCard: React.FC<{ item: SearchResult; keyword: string; onClick: () =>
         {/* Title row */}
         <div className="flex items-center gap-2 flex-wrap mb-1.5">
           <Tag
-            color={isProject ? 'blue' : 'purple'}
+            color={isProject ? 'blue' : isFunction ? 'green' : 'purple'}
             style={{ fontSize: 10, lineHeight: '16px', padding: '0 5px', margin: 0 }}
           >
-            {isProject ? '專案' : '任務'}
+            {isProject ? '專案' : isFunction ? '功能任務' : '臨時任務'}
           </Tag>
           <span className="font-semibold text-slate-800 text-sm">
             <Highlight text={item.title} keyword={keyword} />
@@ -173,12 +176,17 @@ const SearchPage: React.FC = () => {
 
   const handleNavigate = (item: SearchResult) => {
     if (item.type === 'project') navigate(`/projects/${item.id}`)
-    else navigate(`/duties/${item.id}`)
+    else if (item.type === 'function') navigate(`/projects/${item.project_id}?fid=${item.id}`)
+    else navigate(`/duties?dutyId=${item.id}&tab=duty`)
   }
 
-  const displayed = results.filter((r) => activeTab === 'all' || r.type === activeTab)
+  const displayed = results.filter((r) =>
+    activeTab === 'all' ||
+    (activeTab === 'project' && r.type === 'project') ||
+    (activeTab === 'duty' && (r.type === 'duty' || r.type === 'function'))
+  )
   const projectCount = results.filter((r) => r.type === 'project').length
-  const dutyCount    = results.filter((r) => r.type === 'duty').length
+  const dutyCount    = results.filter((r) => r.type === 'duty' || r.type === 'function').length
 
   return (
     <div className="p-6 max-w-3xl mx-auto">

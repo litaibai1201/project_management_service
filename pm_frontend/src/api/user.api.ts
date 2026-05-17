@@ -53,9 +53,17 @@ export const userApi = {
   delete: (workNo: string): Promise<ApiResponse<null>> =>
     del(`/user/mgmt/user/${workNo}`),
 
-  /** GET /api/user/mgmt/departments */
-  departments: (): Promise<ApiResponse<string[]>> =>
+  /** GET /api/user/mgmt/departments — returns [{id, name}] merged from dept table + user records */
+  departments: (): Promise<ApiResponse<{ id: string | null; name: string }[]>> =>
     get('/user/mgmt/departments'),
+
+  /** POST /api/user/mgmt/departments */
+  createDepartment: (name: string): Promise<ApiResponse<{ id: string; name: string }>> =>
+    post('/user/mgmt/departments', { name }),
+
+  /** DELETE /api/user/mgmt/departments/:id */
+  deleteDepartment: (id: string): Promise<ApiResponse<{}>> =>
+    del(`/user/mgmt/departments/${id}`),
 
   // ─── Hierarchy ────────────────────────────────────────────────────────────────
 

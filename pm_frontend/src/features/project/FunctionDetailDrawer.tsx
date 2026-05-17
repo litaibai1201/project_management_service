@@ -3,7 +3,8 @@ import {
   Drawer, Descriptions, Progress, Button, Form, Input, InputNumber,
   Timeline, Avatar, Typography, Tag, Upload, Spin, Divider, Steps, Select, Modal, Popover, Tooltip,
 } from 'antd'
-import { PlusIcon, PaperClipIcon, PencilSquareIcon, CalendarDaysIcon, ClockIcon } from '@heroicons/react/24/outline'
+import { PlusIcon, PaperClipIcon, PencilSquareIcon, CalendarDaysIcon, ClockIcon, ArrowsPointingOutIcon } from '@heroicons/react/24/outline'
+import RichTextEditor from '@/components/common/RichTextEditor'
 import AttachmentPreview from '@/components/ui/AttachmentPreview'
 import FilePreviewModal from './FilePreviewModal'
 import type { UploadFile } from 'antd'
@@ -129,10 +130,15 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
   const [showForm,        setShowForm]        = useState(false)
   const [showEdit,        setShowEdit]        = useState(false)
   const [editSaving,      setEditSaving]      = useState(false)
+  const [editExpandOpen,  setEditExpandOpen]  = useState(false)
+  const [editExpandDraft, setEditExpandDraft] = useState('')
   const [fileList,        setFileList]        = useState<UploadFile[]>([])
   const [form]       = Form.useForm()
   const [editForm]   = Form.useForm()
   const sentinelRef  = useRef<HTMLDivElement>(null)
+
+  const isHtml    = (v: string) => /<[a-z][\s\S]*>/i.test(v)
+  const stripHtml = (html: string) => html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
 
   useEffect(() => {
     userApi.list({ size: 200 }).then((res) => {
@@ -255,6 +261,13 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
       expected_end_date:   funcData.expected_end_date,
     })
     setShowEdit(true)
+  }
+
+  const handleOpenEditExpand = () => {
+    const v = editForm.getFieldValue('describe') ?? ''
+    const html = isHtml(v) ? v : v.trim() ? `<p>${v.replace(/\n/g, '</p><p>')}</p>` : ''
+    setEditExpandDraft(html)
+    setEditExpandOpen(true)
   }
 
   const handleEditSave = async (values: Record<string, unknown>) => {
@@ -419,38 +432,6 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
             </div>
           )}
 
-          {/* Edit form — project PM only */}
-          {showEdit && (
-            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4">
-              <p className="font-semibold text-slate-700 text-sm mb-3">編輯任務資訊</p>
-              <Form form={editForm} layout="vertical" onFinish={handleEditSave}>
-                <Form.Item name="function_nm" label="功能名稱" rules={[{ required: true }]}>
-                  <Input />
-                </Form.Item>
-                <div className="grid grid-cols-2 gap-x-3">
-                  <Form.Item name="priority" label="優先級">
-                    <Select options={PRIORITY_OPTIONS} />
-                  </Form.Item>
-                  <Form.Item name="responsible" label="負責人工號">
-                    <Input placeholder="請輸入工號" />
-                  </Form.Item>
-                  <Form.Item name="expected_start_date" label="預計開始">
-                    <Input type="date" />
-                  </Form.Item>
-                  <Form.Item name="expected_end_date" label="預計完成">
-                    <Input type="date" />
-                  </Form.Item>
-                </div>
-                <Form.Item name="describe" label="功能描述">
-                  <Input.TextArea rows={2} />
-                </Form.Item>
-                <div className="flex justify-end gap-2">
-                  <Button size="small" onClick={() => setShowEdit(false)}>取消</Button>
-                  <Button type="primary" size="small" htmlType="submit" loading={editSaving} style={{ background: '#2563eb' }}>儲存</Button>
-                </div>
-              </Form>
-            </div>
-          )}
 
           {/* Progress submit form */}
           {showForm && canUpdateProgress && (
@@ -771,6 +752,108 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
         <Text type="secondary" className="block text-center py-10">功能資料不存在</Text>
       )}
     </Drawer>
+
+    {/* ── Edit Function Modal ─────────────────────────────────────────────── */}
+    <Modal
+      title="編輯功能任務"
+      open={showEdit}
+      onCancel={() => { setShowEdit(false); editForm.resetFields() }}
+      footer={null}
+      width={640}
+      destroyOnHidden
+    >
+      <Form form={editForm} layout="vertical" onFinish={handleEditSave} className="mt-4">
+        <Form.Item name="function_nm" label="功能名稱" rules={[{ required: true }]}>
+          <Input placeholder="請輸入功能名稱" />
+        </Form.Item>
+        <div className="grid grid-cols-2 gap-x-4">
+          <Form.Item name="priority" label="優先級">
+            <Select options={PRIORITY_OPTIONS} />
+          </Form.Item>
+          <Form.Item name="group1" label="任務分組">
+            <Input placeholder="請輸入分組名稱" />
+          </Form.Item>
+          <Form.Item name="expected_start_date" label="預計開始"><Input type="date" /></Form.Item>
+          <Form.Item name="expected_end_date"   label="預計結束"><Input type="date" /></Form.Item>
+        </div>
+        <Form.Item name="responsible" label="負責人">
+          <Select
+            mode="multiple"
+            placeholder="選擇負責人"
+            options={userOpts}
+            showSearch
+            filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
+            allowClear
+          />
+        </Form.Item>
+
+        {/* 功能描述 — 小輸入框 + 展開富文本編輯 */}
+        <Form.Item shouldUpdate={(prev, curr) => prev.describe !== curr.describe} noStyle>
+          {({ getFieldValue }) => {
+            const v: string = getFieldValue('describe') ?? ''
+            const displayValue = isHtml(v) ? stripHtml(v) : v
+            return (
+              <div className="mb-4">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-sm text-slate-700">功能描述</span>
+                  <button
+                    type="button"
+                    onClick={handleOpenEditExpand}
+                    className="flex items-center gap-1 text-xs text-slate-500 hover:text-blue-600 border border-slate-200 rounded-md px-2 py-1 hover:border-blue-300 bg-white transition-colors"
+                  >
+                    <ArrowsPointingOutIcon className="w-3.5 h-3.5" />
+                    展開富文本編輯
+                  </button>
+                </div>
+                <Input.TextArea
+                  value={displayValue}
+                  onChange={(e) => editForm.setFieldValue('describe', e.target.value)}
+                  rows={3}
+                  placeholder="請描述功能需求，或點擊右上角展開富文本編輯器..."
+                  style={{ resize: 'none' }}
+                />
+                <Form.Item name="describe" noStyle><input type="hidden" /></Form.Item>
+                {isHtml(v) && (
+                  <p className="text-xs text-blue-500 mt-1">已套用富文本格式，點擊「展開富文本編輯」可繼續修改</p>
+                )}
+              </div>
+            )
+          }}
+        </Form.Item>
+
+        <div className="flex justify-end gap-3">
+          <Button onClick={() => { setShowEdit(false); editForm.resetFields() }}>取消</Button>
+          <Button type="primary" htmlType="submit" loading={editSaving} style={{ background: '#2563eb' }}>儲存</Button>
+        </div>
+      </Form>
+    </Modal>
+
+    {/* ── 描述展開富文本 Modal ────────────────────────────────────────────── */}
+    <Modal
+      open={editExpandOpen}
+      title="功能描述"
+      onCancel={() => setEditExpandOpen(false)}
+      width="80vw"
+      style={{ top: 40, maxWidth: 1100 }}
+      styles={{ body: { padding: '16px 24px 24px' } }}
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button onClick={() => setEditExpandOpen(false)}>取消</Button>
+          <Button type="primary" style={{ background: '#2563eb' }} onClick={() => {
+            editForm.setFieldValue('describe', editExpandDraft)
+            setEditExpandOpen(false)
+          }}>完成</Button>
+        </div>
+      }
+      destroyOnClose
+    >
+      <RichTextEditor
+        value={editExpandDraft}
+        onChange={setEditExpandDraft}
+        placeholder="請描述功能需求（支援標題、列表、粗體等格式）"
+        minHeight={480}
+      />
+    </Modal>
     </>
   )
 }

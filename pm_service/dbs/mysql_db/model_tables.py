@@ -89,6 +89,18 @@ class UserProfileModel(BaseMixinModel):
         }
 
 
+class DepartmentModel(db.Model):
+    """部门（独立管理，与用户 department 字段合并展示）"""
+    __tablename__ = "department_form"
+
+    id         = db.Column(db.String(32), primary_key=True, default=generate_uuid)
+    name       = db.Column(db.String(64), nullable=False, unique=True, comment="部门名称")
+    created_at = db.Column(db.String(19), default=CommonTools.get_now, nullable=False)
+
+    def to_dict(self):
+        return {"id": self.id, "name": self.name, "created_at": self.created_at}
+
+
 class RoleModel(db.Model):
     """角色"""
     __tablename__ = "role_form"
@@ -199,7 +211,9 @@ class ProjectDataModel(BaseMixinModel):
     end_time = db.Column(db.String(19), comment="实际结束时间")
     code_url = db.Column(db.String(255), comment="代码仓库地址")
     group_id = db.Column(db.String(32), db.ForeignKey("project_group_form.id"), comment="分组ID")
-    expected_benefit = db.Column(db.Text, comment="预期效益")
+    expected_benefit = db.Column(db.Text, comment="预期效益描述")
+    benefit_amount   = db.Column(db.Float,       comment="效益金额/数量")
+    benefit_unit     = db.Column(db.String(10),  default="元/年", comment="效益单位(元/年|人/年)")
     progress = db.Column(db.Integer, default=0, comment="完成进度(0-100)")
 
     def to_dict(self):
@@ -211,7 +225,10 @@ class ProjectDataModel(BaseMixinModel):
             "expected_start_date": self.expected_start_date or "",
             "expected_end_date": self.expected_end_date or "", "end_time": self.end_time or "",
             "code_url": self.code_url or "", "group_id": self.group_id or "",
-            "expected_benefit": self.expected_benefit or "", "progress": self.progress,
+            "expected_benefit": self.expected_benefit or "",
+            "benefit_amount": self.benefit_amount,
+            "benefit_unit": self.benefit_unit or "元/年",
+            "progress": self.progress,
             "created_at": self.created_at, "updated_at": self.update_at or "",
         }
 
@@ -583,6 +600,36 @@ class UserDashboardConfigModel(db.Model):
 # ─────────────────────────────────────────────────────────────────────────────
 # 会议备注
 # ─────────────────────────────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 消息通知
+# ─────────────────────────────────────────────────────────────────────────────
+
+class NotificationModel(db.Model):
+    __tablename__ = "notification_form"
+
+    id         = db.Column(db.String(32), primary_key=True, default=generate_uuid)
+    recipient  = db.Column(db.String(32), nullable=False, index=True, comment="接收人工号")
+    title      = db.Column(db.String(200), nullable=False, comment="通知标题")
+    desc       = db.Column(db.String(500), default="", comment="通知描述")
+    # link_type: 'review'|'project'|'duty'|'task'|''
+    link_type  = db.Column(db.String(30), default="", comment="跳转类型")
+    link_id    = db.Column(db.String(32), default="", comment="跳转目标ID")
+    is_read    = db.Column(db.Boolean, default=False, nullable=False, comment="是否已读")
+    created_at = db.Column(db.String(19), default=CommonTools.get_now, nullable=False, comment="创建时间")
+
+    def to_dict(self):
+        return {
+            "id":         self.id,
+            "recipient":  self.recipient,
+            "title":      self.title,
+            "desc":       self.desc or "",
+            "link_type":  self.link_type or "",
+            "link_id":    self.link_id or "",
+            "is_read":    self.is_read,
+            "created_at": self.created_at,
+        }
+
 
 class MeetingNoteModel(db.Model):
     __tablename__ = "meeting_note"

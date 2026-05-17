@@ -8,7 +8,7 @@ from utils.exceptions import (
 )
 from dbs.mysql_db import db
 from dbs.mysql_db.model_tables import (
-    UserProfileModel, RoleModel, UserRoleModel, HierarchyModel
+    UserProfileModel, RoleModel, UserRoleModel, HierarchyModel, DepartmentModel
 )
 
 
@@ -79,13 +79,42 @@ class UserController:
         db.session.commit()
 
     def get_departments(self):
-        rows = (
+        """返回部门表 + 用户记录里的部门 合并去重后的列表"""
+        # 从部门表读取
+        dept_rows = db.session.query(DepartmentModel).order_by(DepartmentModel.name).all()
+        dept_list = [{"id": d.id, "name": d.name} for d in dept_rows]
+        # 从用户记录里提取（兼容历史数据）
+        user_rows = (
             db.session.query(UserProfileModel.department)
             .filter(UserProfileModel.status == 1, UserProfileModel.department.isnot(None))
             .distinct()
             .all()
         )
-        return sorted({r[0] for r in rows if r[0]})
+        user_depts = {r[0] for r in user_rows if r[0]}
+        # 合并：部门表中已有的不重复添加
+        existing_names = {d["name"] for d in dept_list}
+        for name in sorted(user_depts - existing_names):
+            dept_list.append({"id": None, "name": name})
+        return dept_list
+
+    def create_department(self, name: str):
+        name = name.strip()
+        if not name:
+            raise BusinessException("部门名称不能为空")
+        exists = db.session.query(DepartmentModel).filter_by(name=name).first()
+        if exists:
+            raise ResourceExistsException(f"部门「{name}」已存在")
+        dept = DepartmentModel(name=name)
+        db.session.add(dept)
+        db.session.commit()
+        return dept.to_dict()
+
+    def delete_department(self, dept_id: str):
+        dept = db.session.query(DepartmentModel).filter_by(id=dept_id).first()
+        if not dept:
+            raise ResourceNotFoundException("部门不存在")
+        db.session.delete(dept)
+        db.session.commit()
 
     # ── 上下级关系 ─────────────────────────────────────────────────────────────
 

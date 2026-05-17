@@ -16,7 +16,7 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react'
 import { useAppSelector } from '@/hooks/redux'
 import {
-  Tag, Tooltip, Progress, Collapse, Empty, Segmented, Input, Button, Timeline, Popover, Modal,
+  Tag, Tooltip, Progress, Collapse, Empty, Segmented, Input, Button, Timeline, Popover, Modal, Avatar,
 } from 'antd'
 import {
   FolderIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon,
@@ -29,6 +29,11 @@ import {
 import { useNavigate } from 'react-router-dom'
 import { projectApi } from '@/api/project.api'
 import { dutyApi } from '@/api/duty.api'
+import { tokenStorage } from '@/api/httpClient'
+import AttachmentPreview from '@/components/ui/AttachmentPreview'
+import { useWorkNoToName } from '@/hooks/useWorkNoToName'
+import FunctionDetailDrawer from '@/features/project/FunctionDetailDrawer'
+import DutyDetailDrawer from '@/features/duty/DutyDetailDrawer'
 import { TemporaryDuty } from '@/types/api.types'
 import { DUTY_STATUS_MAP } from '@/utils/status'
 import { meetingNoteApi, type MeetingNote as ApiMeetingNote } from '@/api/meeting_note.api'
@@ -49,9 +54,14 @@ type NoteStatus = 'pending' | 'resolved'
 
 interface TaskProgressEntry {
   date: string
+  created_at?: string
   content: string
-  progress: number   // 0-100 at that point
+  progress: number
   author: string
+  work_no?: string
+  time_consum?: number
+  cooperator?: string[]
+  files?: { name: string; url: string; size?: number }[]
 }
 
 interface WbsTask {
@@ -349,9 +359,15 @@ type WeekFilter = 'all' | 'show_all' | WeekTag
 
 const TaskProgressDetail: React.FC<{ task: WbsTask }> = ({ task }) => {
   const history = task.progress_history ?? []
+  const toName  = useWorkNoToName()
+  const token   = tokenStorage.get()
+
+  const withToken = (url: string) => token ? `${url}?token=${token}` : url
+  const addToken  = (files?: { name: string; url: string; size?: number }[]) =>
+    (files ?? []).map((f) => ({ ...f, url: withToken(f.url) }))
 
   return (
-    <div className="bg-slate-50/80 border-t border-slate-100 px-6 py-3">
+    <div className="bg-slate-50/80 border-t border-slate-100 px-6 py-4">
       <div className="flex items-center gap-3 mb-3">
         <span className="text-xs font-semibold text-slate-600">進度追蹤記錄</span>
         <span className="text-[10px] text-slate-400">共 {history.length} 條記錄</span>
@@ -361,26 +377,53 @@ const TaskProgressDetail: React.FC<{ task: WbsTask }> = ({ task }) => {
       ) : (
         <Timeline
           className="ml-1 mt-2"
-          items={history.map((entry, idx) => ({
-            dot: idx === 0 ? (
-              <div className="w-4 h-4 rounded-full bg-blue-500 flex items-center justify-center">
-                <span className="text-[7px] text-white font-bold">{entry.progress}%</span>
-              </div>
-            ) : undefined,
-            color: entry.progress >= 100 ? 'green' : entry.progress >= 50 ? 'blue' : 'gray',
+          items={history.map((entry) => ({
+            dot: (
+              <Avatar size={26} style={{ background: '#2563eb', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
+                {entry.author?.[0]?.toUpperCase()}
+              </Avatar>
+            ),
             children: (
-              <div className="pb-0.5">
-                <div className="flex items-center gap-2 mb-0.5">
-                  <span className="text-[10px] text-slate-400">{entry.date}</span>
-                  <span className="text-[10px] text-slate-300">·</span>
-                  <span className="text-[10px] text-slate-400">{entry.author}</span>
-                  <Tag style={{ fontSize: 9, margin: 0, lineHeight: '14px', padding: '0 3px' }}
-                    color={entry.progress >= 100 ? 'success' : entry.progress >= 50 ? 'processing' : 'default'}
-                  >
+              <div className="pb-3">
+                {/* Header row: name + cooperators + progress + hours */}
+                <div className="flex items-center gap-2 flex-wrap mb-1">
+                  <span className="font-semibold text-slate-700 text-sm">{entry.author}</span>
+                  {(() => {
+                    const coops = Array.isArray(entry.cooperator) ? entry.cooperator : []
+                    return coops.length > 0 ? (
+                      <Tooltip title={`合作人：${coops.map((c) => toName(c) || c).join('、')}`}>
+                        <div className="flex items-center gap-0.5">
+                          <span className="text-xs text-slate-400">+</span>
+                          {coops.map((c) => (
+                            <Avatar key={c} size={18} style={{ background: '#7c3aed', fontSize: 9, fontWeight: 700, marginLeft: 2 }}>
+                              {(toName(c) || c)[0]?.toUpperCase()}
+                            </Avatar>
+                          ))}
+                        </div>
+                      </Tooltip>
+                    ) : null
+                  })()}
+                  <Tag color="blue" style={{ fontSize: 11, padding: '0 6px', margin: 0 }}>
                     {entry.progress}%
                   </Tag>
+                  {(entry.time_consum ?? 0) > 0 && (
+                    <Tag style={{ fontSize: 11, padding: '0 6px', margin: 0 }}>
+                      {entry.time_consum}h
+                    </Tag>
+                  )}
                 </div>
-                <p className="text-[11px] text-slate-600 leading-relaxed">{entry.content}</p>
+                {/* Progress description */}
+                {entry.content && (
+                  <p className="text-sm text-slate-600 leading-snug mt-1 mb-0" style={{ margin: '4px 0 0 0' }}>
+                    {entry.content}
+                  </p>
+                )}
+                {/* Attachments */}
+                <AttachmentPreview files={addToken(entry.files)} />
+                {/* Timestamp */}
+                <span className="text-xs text-slate-300 mt-1 block">
+                  {entry.created_at || entry.date}
+                </span>
               </div>
             ),
           }))}
@@ -695,7 +738,7 @@ const TaskRow: React.FC<{
             >
               {task.name}
               {hasHistory && (
-                <EyeIcon className={`w-3 h-3 inline-block ml-1 -mt-0.5 ${expanded ? 'text-blue-500' : 'text-slate-300'}`} />
+                <EyeIcon className="w-3 h-3 inline-block ml-1 -mt-0.5 text-slate-300 group-hover:text-blue-400 transition-colors" />
               )}
             </span>
             <span className="text-[10px] text-slate-400 bg-slate-100 rounded px-1.5 py-0.5">{task.assignee}</span>
@@ -868,16 +911,28 @@ const FunctionModule: React.FC<{
 
 // ─── Duties Section (inside ProjectCard) ───────────────────────────────────
 
-const DutiesSection: React.FC<{ duties: TemporaryDuty[] }> = ({ duties }) => {
+// Duty status → icon (mirrors TaskRow STATUS_CONFIG style)
+const DUTY_STATUS_ICON: Record<number, React.ReactNode> = {
+  0: <ClockIcon className="w-3.5 h-3.5 text-slate-400" />,
+  1: <ArrowTrendingUpIcon className="w-3.5 h-3.5 text-blue-500" />,
+  2: <ClockIcon className="w-3.5 h-3.5 text-orange-400" />,
+  3: <CheckCircleIcon className="w-3.5 h-3.5 text-green-500" />,
+  8: <ClockIcon className="w-3.5 h-3.5 text-slate-300" />,
+  9: <ClockIcon className="w-3.5 h-3.5 text-slate-200" />,
+}
+
+const DutiesSection: React.FC<{ duties: TemporaryDuty[]; onOpenDuty: (id: string) => void }> = ({ duties, onOpenDuty }) => {
   const [show, setShow] = useState(false)
+  const toName = useWorkNoToName()
+
   const overdueCount = duties.filter((d) => {
     if (d.status === 8 || d.status === 3) return false
-    const end = d.expected_end_date
-    return end && dayjs(end).isBefore(dayjs(), 'day')
+    return d.expected_end_date ? dayjs(d.expected_end_date).isBefore(dayjs(), 'day') : false
   }).length
 
   return (
     <div className="mt-3 px-1">
+      {/* Section header */}
       <button
         className="border-0 bg-transparent cursor-pointer w-full flex items-center gap-2 py-1.5 text-left group/duties"
         onClick={() => setShow(!show)}
@@ -899,38 +954,79 @@ const DutiesSection: React.FC<{ duties: TemporaryDuty[] }> = ({ duties }) => {
           </span>
         )}
       </button>
+
+      {/* Duty rows — same layout as TaskRow */}
       {show && (
-        <div className="mt-1 rounded-lg border border-orange-100 bg-orange-50/40 overflow-hidden">
-          {duties.map((d, idx) => {
-            const s = DUTY_STATUS_MAP[d.status]
-            const isOverdue = d.status !== 8 && d.status !== 3 && d.expected_end_date
+        <div className="overflow-hidden">
+          {duties.map((d) => {
+            const isOverdue = d.status !== 8 && d.status !== 3 && d.status !== 9 && d.expected_end_date
               ? dayjs(d.expected_end_date).isBefore(dayjs(), 'day')
               : false
+            const isCompleted = d.status === 3
+            const daysOverdue = isOverdue && d.expected_end_date
+              ? dayjs().diff(dayjs(d.expected_end_date), 'day')
+              : 0
+            const assigneeNames = (d.responsible ?? []).map((wn) => toName(wn) || wn).join('、')
+
             return (
               <div
                 key={d.id}
-                className={`flex items-center gap-2 px-3 py-2 text-[11px] ${idx > 0 ? 'border-t border-orange-100' : ''}`}
+                className={`group flex items-start gap-3 px-4 py-2.5 border-b border-slate-50 last:border-b-0 hover:bg-slate-50/50 transition-colors cursor-pointer ${isOverdue ? 'bg-red-50/30' : ''}`}
+                onClick={() => onOpenDuty(d.id)}
               >
-                <span className="flex-1 font-medium text-slate-700 truncate">{d.duty_nm}</span>
-                {s && (
-                  <Tag
-                    color={s.color}
-                    style={{ fontSize: 10, margin: 0, lineHeight: '16px', padding: '0 4px' }}
-                  >
-                    {s.label}
-                  </Tag>
-                )}
-                {isOverdue && (
-                  <Tag color="error" style={{ fontSize: 10, margin: 0, lineHeight: '16px', padding: '0 4px' }}>超時</Tag>
-                )}
-                {(d.responsible ?? []).length > 0 && (
-                  <span className="text-slate-400 shrink-0">{(d.responsible ?? []).join('、')}</span>
-                )}
-                {d.expected_end_date && (
-                  <span className={`shrink-0 ${isOverdue ? 'text-red-500 font-semibold' : 'text-slate-400'}`}>
-                    {d.expected_end_date}
-                  </span>
-                )}
+                {/* Status icon */}
+                <div className="mt-0.5 flex-shrink-0">
+                  {DUTY_STATUS_ICON[d.status] ?? DUTY_STATUS_ICON[0]}
+                </div>
+
+                {/* Name + assignee + overdue */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`text-xs font-medium cursor-pointer hover:underline decoration-dotted underline-offset-2 hover:text-blue-600 ${isCompleted ? 'text-green-600 line-through decoration-green-300' : isOverdue ? 'text-red-700' : 'text-slate-700'}`}>
+                      {d.duty_nm}
+                      <EyeIcon className="w-3 h-3 inline-block ml-1 -mt-0.5 text-slate-300 group-hover:text-blue-400 transition-colors" />
+                    </span>
+                    {assigneeNames && (
+                      <span className="text-[10px] text-slate-400 bg-slate-100 rounded px-1.5 py-0.5">{assigneeNames}</span>
+                    )}
+                    {isOverdue && (
+                      <Tag color="error" style={{ fontSize: 9, margin: 0, lineHeight: '14px', padding: '0 3px' }}>
+                        超時 {daysOverdue} 天
+                      </Tag>
+                    )}
+                  </div>
+                </div>
+
+                {/* Progress */}
+                <div className="flex items-center gap-2 flex-shrink-0 w-[120px]">
+                  {isCompleted ? (
+                    <span className="text-xs font-semibold text-green-600">完成</span>
+                  ) : (
+                    <>
+                      <Progress
+                        percent={d.progress}
+                        size="small"
+                        strokeColor={isOverdue ? '#f87171' : d.progress >= 80 ? '#16a34a' : '#2563eb'}
+                        trailColor="#e2e8f0"
+                        style={{ width: 70, marginBottom: 0 }}
+                        format={() => ''}
+                      />
+                      <span className={`text-[10px] font-semibold ${isOverdue ? 'text-red-500' : 'text-slate-500'}`}>{d.progress}%</span>
+                    </>
+                  )}
+                </div>
+
+                {/* Expected end date */}
+                <div className="flex-shrink-0 text-right w-[85px]">
+                  <Tooltip title="預計完成時間">
+                    <span className={`text-[10px] ${isOverdue ? 'text-red-500 font-semibold' : 'text-slate-400'}`}>
+                      {d.expected_end_date ?? '—'}
+                    </span>
+                  </Tooltip>
+                </div>
+
+                {/* Placeholder to align with TaskRow's note button column */}
+                <div className="flex-shrink-0 w-[24px]" />
               </div>
             )
           })}
@@ -953,19 +1049,27 @@ const ProjectCard: React.FC<{
   onResolveNote: (noteId: string) => void
   onDeleteNote: (noteId: string) => void
   duties?: TemporaryDuty[]
-}> = ({ project, originalProject, onWeekTagClick, expandedTaskId, onToggleTaskExpand, notes, onAddNote, onResolveNote, onDeleteNote, duties }) => {
+  onOpenDuty: (id: string) => void
+}> = ({ project, originalProject, onWeekTagClick, expandedTaskId, onToggleTaskExpand, notes, onAddNote, onResolveNote, onDeleteNote, duties, onOpenDuty }) => {
   const navigate = useNavigate()
 
   // Use ORIGINAL project data for summary stats to avoid filter distortion
-  const totalTasks = originalProject.functions.reduce((s, f) => s + f.tasks.length, 0)
-  const completedTasks = originalProject.functions.reduce((s, f) => s + f.tasks.filter((t) => t.status === 'completed').length, 0)
-  const overdueTasks = originalProject.functions.reduce((s, f) => s + f.tasks.filter((t) => !!t.is_overdue).length, 0)
-  const thisWeekTasks = originalProject.functions.reduce((s, f) => s + f.tasks.filter((t) => t.week_tag.includes('this_week')).length, 0)
-  const nextWeekTasks = originalProject.functions.reduce((s, f) => s + f.tasks.filter((t) => t.week_tag.includes('next_week')).length, 0)
+  const dutyList = (duties ?? []).filter((d) => d.status !== 8 && d.status !== 9)
+  const todayStr = dayjs().format('YYYY-MM-DD')
+  const twStart  = dayjs().startOf('isoWeek').format('YYYY-MM-DD')
+  const twEnd    = dayjs().endOf('isoWeek').format('YYYY-MM-DD')
+  const nwStart  = dayjs().add(1, 'week').startOf('isoWeek').format('YYYY-MM-DD')
+  const nwEnd    = dayjs().add(1, 'week').endOf('isoWeek').format('YYYY-MM-DD')
+  const totalTasks = originalProject.functions.reduce((s, f) => s + f.tasks.length, 0) + dutyList.length
+  const completedTasks = originalProject.functions.reduce((s, f) => s + f.tasks.filter((t) => t.status === 'completed').length, 0) + dutyList.filter((d) => d.status === 3).length
+  const overdueTasks = originalProject.functions.reduce((s, f) => s + f.tasks.filter((t) => !!t.is_overdue).length, 0) + dutyList.filter((d) => d.status !== 3 && !!d.expected_end_date && d.expected_end_date < todayStr).length
+  const thisWeekTasks = originalProject.functions.reduce((s, f) => s + f.tasks.filter((t) => t.week_tag.includes('this_week')).length, 0) + dutyList.filter((d) => !!d.expected_end_date && d.expected_end_date >= twStart && d.expected_end_date <= twEnd).length
+  const nextWeekTasks = originalProject.functions.reduce((s, f) => s + f.tasks.filter((t) => t.week_tag.includes('next_week')).length, 0) + dutyList.filter((d) => !!d.expected_end_date && d.expected_end_date >= nwStart && d.expected_end_date <= nwEnd).length
   const lastWeekCompleted = originalProject.functions.reduce((s, f) => s + f.tasks.filter((t) => t.week_tag.includes('last_week') && t.status === 'completed').length, 0)
 
   const filteredTaskCount = project.functions.reduce((s, f) => s + f.tasks.length, 0)
-  const isFiltered = filteredTaskCount !== totalTasks
+  const totalWbsTasks = originalProject.functions.reduce((s, f) => s + f.tasks.length, 0)
+  const isFiltered = filteredTaskCount !== totalWbsTasks
 
   const priorityColor = originalProject.priority >= 4 ? '#dc2626' : originalProject.priority >= 3 ? '#d97706' : originalProject.priority >= 2 ? '#2563eb' : '#94a3b8'
   const priorityLabel = originalProject.priority >= 4 ? '緊急' : originalProject.priority >= 3 ? '高' : originalProject.priority >= 2 ? '中' : '低'
@@ -1029,7 +1133,7 @@ const ProjectCard: React.FC<{
             )}
             {isFiltered && (
               <Tag style={{ fontSize: 9, margin: 0, lineHeight: '14px', padding: '0 4px' }} color="processing">
-                篩選中：顯示 {filteredTaskCount}/{totalTasks} 項
+                篩選中：顯示 {filteredTaskCount}/{totalWbsTasks} 項
               </Tag>
             )}
           </div>
@@ -1094,7 +1198,7 @@ const ProjectCard: React.FC<{
 
         {/* Temporary Duties Section */}
         {duties && duties.length > 0 && (
-          <DutiesSection duties={duties} />
+          <DutiesSection duties={duties} onOpenDuty={onOpenDuty} />
         )}
 
         {/* Meeting Notes Section — all notes (task-level + project-level) */}
@@ -1359,6 +1463,8 @@ const WbsOverviewPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<TaskStatus | 'all'>('all')
   const [searchKeyword, setSearchKeyword] = useState('')
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null)
+  const [selectedFuncTask, setSelectedFuncTask] = useState<{ projectId: string; functionId: string } | null>(null)
+  const [selectedDutyId, setSelectedDutyId] = useState<string | null>(null)
   const [meetingNotes, setMeetingNotes] = useState<Record<string, MeetingNote[]>>({})
   const [previewOpen, setPreviewOpen] = useState(false)
 
@@ -1413,7 +1519,19 @@ const WbsOverviewPage: React.FC = () => {
     })
   }, [wbsData])
 
+  // Build task lookup map so we can find project_id + function_id by task id
+  const taskMap = useMemo(() => {
+    const map = new Map<string, WbsTask>()
+    wbsData.forEach((p) => p.functions.forEach((f) => f.tasks.forEach((t) => map.set(t.id, t))))
+    return map
+  }, [wbsData])
+
   const handleToggleTaskExpand = (taskId: string) => {
+    const task = taskMap.get(taskId)
+    if (task?.project_id && task?.function_id) {
+      setSelectedFuncTask({ projectId: task.project_id, functionId: task.function_id })
+      return
+    }
     setExpandedTaskId((prev) => prev === taskId ? null : taskId)
   }
 
@@ -1481,34 +1599,60 @@ const WbsOverviewPage: React.FC = () => {
   // Summary stats — week filter applies to all except overdue (always full-data)
   const summary = useMemo(() => {
     const allTasks = wbsData.flatMap((p) => p.functions.flatMap((f) => f.tasks))
+    const allDuties = Object.values(projectDutiesMap).flat().filter((d) => d.status !== 8 && d.status !== 9)
+
+    const today = dayjs()
+    const thisWeekStart = today.startOf('isoWeek')
+    const thisWeekEnd   = today.endOf('isoWeek')
+    const lastWeekStart = thisWeekStart.subtract(1, 'week')
+    const lastWeekEnd   = thisWeekEnd.subtract(1, 'week')
+    const nextWeekStart = thisWeekStart.add(1, 'week')
+    const nextWeekEnd   = thisWeekEnd.add(1, 'week')
 
     // Apply week filter only (not status filter) so stats show status breakdown within the period
-    // overdue is excluded here and always counted from full data separately
     const matchesPeriod = (task: WbsTask) => {
       if (weekFilter === 'show_all') return true
       if (weekFilter === 'all') return task.week_tag.length > 0  // 近3週：上/本/下週任意
       return task.week_tag.includes(weekFilter as WeekTag)
     }
 
-    const periodTasks = allTasks.filter(matchesPeriod)
+    const dutyMatchesPeriod = (d: TemporaryDuty) => {
+      if (weekFilter === 'show_all') return true
+      const endDate = d.expected_end_date ? dayjs(d.expected_end_date) : null
+      if (!endDate) return d.status === 1 || d.status === 2  // in-progress duties without end date shown in 近3週
+      if (weekFilter === 'all') return (!endDate.isBefore(lastWeekStart) && !endDate.isAfter(nextWeekEnd)) || d.status === 1 || d.status === 2
+      if (weekFilter === 'this_week') return !endDate.isBefore(thisWeekStart) && !endDate.isAfter(thisWeekEnd)
+      if (weekFilter === 'last_week') return !endDate.isBefore(lastWeekStart) && !endDate.isAfter(lastWeekEnd)
+      if (weekFilter === 'next_week') return !endDate.isBefore(nextWeekStart) && !endDate.isAfter(nextWeekEnd)
+      return false
+    }
 
-    const periodProjectIds = new Set(
-      wbsData
+    const isDutyOverdue = (d: TemporaryDuty) =>
+      d.status !== 3 && !!d.expected_end_date && dayjs(d.expected_end_date).isBefore(today, 'day')
+
+    const periodTasks  = allTasks.filter(matchesPeriod)
+    const periodDuties = allDuties.filter(dutyMatchesPeriod)
+
+    const periodProjectIds = new Set([
+      ...wbsData
         .filter((p) => p.functions.some((f) => f.tasks.some(matchesPeriod)))
-        .map((p) => p.id)
-    )
+        .map((p) => p.id),
+      ...Object.entries(projectDutiesMap)
+        .filter(([, duties]) => duties.filter((d) => d.status !== 8 && d.status !== 9).some(dutyMatchesPeriod))
+        .map(([id]) => id),
+    ])
 
     return {
       totalProjects: periodProjectIds.size,
-      totalTasks:    periodTasks.length,
-      completed:     periodTasks.filter((t) => t.status === 'completed').length,
-      inProgress:    periodTasks.filter((t) => t.status === 'in_progress').length,
-      overdue:       allTasks.filter((t) => !!t.is_overdue).length,   // always full-data
-      notStarted:    periodTasks.filter((t) => t.status === 'not_started').length,
-      thisWeek:      allTasks.filter((t) => t.week_tag.includes('this_week')).length,
-      nextWeek:      allTasks.filter((t) => t.week_tag.includes('next_week')).length,
+      totalTasks:    periodTasks.length + periodDuties.length,
+      completed:     periodTasks.filter((t) => t.status === 'completed').length     + periodDuties.filter((d) => d.status === 3).length,
+      inProgress:    periodTasks.filter((t) => t.status === 'in_progress').length   + periodDuties.filter((d) => d.status === 1 || d.status === 2).length,
+      overdue:       allTasks.filter((t) => !!t.is_overdue).length + allDuties.filter(isDutyOverdue).length,   // always full-data
+      notStarted:    periodTasks.filter((t) => t.status === 'not_started').length   + periodDuties.filter((d) => d.status === 0).length,
+      thisWeek:      allTasks.filter((t) => t.week_tag.includes('this_week')).length + allDuties.filter((d) => !!d.expected_end_date && !dayjs(d.expected_end_date).isBefore(thisWeekStart) && !dayjs(d.expected_end_date).isAfter(thisWeekEnd)).length,
+      nextWeek:      allTasks.filter((t) => t.week_tag.includes('next_week')).length + allDuties.filter((d) => !!d.expected_end_date && !dayjs(d.expected_end_date).isBefore(nextWeekStart) && !dayjs(d.expected_end_date).isAfter(nextWeekEnd)).length,
     }
-  }, [wbsData, weekFilter])
+  }, [wbsData, weekFilter, projectDutiesMap])
 
   // Total pending notes across all projects (for header indicator)
   const totalPendingNotes = useMemo(() => {
@@ -1695,6 +1839,7 @@ const WbsOverviewPage: React.FC = () => {
             onResolveNote={(noteId) => handleResolveNote(p.id, noteId)}
             onDeleteNote={(noteId) => handleDeleteNote(p.id, noteId)}
             duties={projectDutiesMap[p.id]}
+            onOpenDuty={setSelectedDutyId}
           />
         ))
       )}
@@ -1703,6 +1848,21 @@ const WbsOverviewPage: React.FC = () => {
         open={previewOpen}
         projects={wbsData}
         onClose={() => setPreviewOpen(false)}
+      />
+
+      {selectedFuncTask && (
+        <FunctionDetailDrawer
+          open
+          projectId={selectedFuncTask.projectId}
+          functionId={selectedFuncTask.functionId}
+          onClose={() => setSelectedFuncTask(null)}
+        />
+      )}
+
+      <DutyDetailDrawer
+        open={selectedDutyId !== null}
+        dutyId={selectedDutyId}
+        onClose={() => setSelectedDutyId(null)}
       />
     </div>
   )

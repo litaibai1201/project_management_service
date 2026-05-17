@@ -2,10 +2,12 @@ import { createAsyncThunk, createSlice, PayloadAction } from '@reduxjs/toolkit'
 import { userApi, CreateUserPayload, QueryUsersParams } from '@/api/user.api'
 import { UserProfile } from '@/types/api.types'
 
+export interface DepartmentItem { id: string | null; name: string }
+
 interface UserState {
   list:        UserProfile[]
   totalCount:  number
-  departments: string[]
+  departments: DepartmentItem[]
   current:     UserProfile | null
   isLoading:   boolean
   isSaving:    boolean
@@ -88,7 +90,7 @@ const userSlice = createSlice({
       .addCase(fetchUserListThunk.rejected, (state, action) => {
         state.isLoading = false; state.error = action.payload as string
       })
-      .addCase(fetchDepartmentsThunk.fulfilled, (state, action: PayloadAction<string[]>) => {
+      .addCase(fetchDepartmentsThunk.fulfilled, (state, action: PayloadAction<DepartmentItem[]>) => {
         state.departments = Array.isArray(action.payload) ? action.payload : []
       })
       .addCase(fetchDepartmentsThunk.rejected, (state) => {

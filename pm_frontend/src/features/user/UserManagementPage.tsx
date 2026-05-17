@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { DepartmentItem } from '@/features/user/userSlice'
 import {
   Table, Button, Input, Select, AutoComplete, Space, Tooltip, Popconfirm, Modal, Form,
   Tabs, Tag, Avatar, Tree, Card, Row, Col,
@@ -66,15 +67,15 @@ function buildTree(rows: HierarchyRow[]): DataNode[] {
 
 // ─── DeptAutoComplete — 支持点击展开 + 输入过滤 ─────────────────────────────────
 const DeptAutoComplete: React.FC<{
-  departments: string[]
+  departments: DepartmentItem[]
   value?: string
   onChange?: (v: string) => void
 }> = ({ departments, value, onChange }) => {
-  const [options, setOptions] = useState(departments.map((d) => ({ value: d })))
+  const names = departments.map((d) => d.name)
+  const [options, setOptions] = useState(names.map((n) => ({ value: n })))
 
-  // 当 departments 列表更新时同步选项
   useEffect(() => {
-    setOptions(departments.map((d) => ({ value: d })))
+    setOptions(names.map((n) => ({ value: n })))
   }, [departments])
 
   return (
@@ -83,12 +84,12 @@ const DeptAutoComplete: React.FC<{
       onChange={onChange}
       placeholder="選擇或輸入部門"
       options={options}
-      onFocus={() => setOptions(departments.map((d) => ({ value: d })))}
+      onFocus={() => setOptions(names.map((n) => ({ value: n })))}
       onSearch={(text) =>
         setOptions(
-          departments
-            .filter((d) => !text || d.toLowerCase().includes(text.toLowerCase()))
-            .map((d) => ({ value: d }))
+          names
+            .filter((n) => !text || n.toLowerCase().includes(text.toLowerCase()))
+            .map((n) => ({ value: n }))
         )
       }
     />
@@ -654,7 +655,7 @@ const UserManagementPage: React.FC = () => {
                 allowClear
                 style={{ width: 180 }}
                 onChange={(v) => { setDeptFilter(v); setPage(1) }}
-                options={departments.map((d) => ({ value: d, label: d }))}
+                options={departments.map((d) => ({ value: d.name, label: d.name }))}
               />
             </div>
             {isSupervisor && (

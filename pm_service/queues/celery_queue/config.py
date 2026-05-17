@@ -44,28 +44,28 @@ from datetime import timedelta
 # 任务应该在业务代码中定义（如 tasks/ 目录）
 
 CELERY_BEAT_SCHEDULE = {
-    # ==================== 示例配置（请根据实际业务需求修改） ====================
+    # ── 通知相关定时任务 ──────────────────────────────────────────────────────
 
-    # 示例：每日凌晨 2 点执行清理任务
-    # 'cleanup-temp-files-daily': {
-    #     'task': 'tasks.cleanup.cleanup_temp_files',  # 任务路径
-    #     'schedule': crontab(hour=2, minute=0),
-    #     'options': {
-    #         'expires': 3600,  # 任务过期时间（秒）
-    #     }
-    # },
+    # #9 功能任务即将到期提醒（每天 09:00）
+    'notification-deadline-alert-daily': {
+        'task': 'tasks.notification.deadline_alert',
+        'schedule': crontab(hour=9, minute=0),
+        'options': {'expires': 3600},
+    },
 
-    # 示例：每小时执行健康检查
-    # 'health-check-hourly': {
-    #     'task': 'tasks.monitor.health_check',
-    #     'schedule': crontab(minute=0),  # 每小时的第 0 分钟
-    # },
+    # #10 功能任务逾期提醒（每天 09:00，与到期提醒同时运行）
+    'notification-overdue-alert-daily': {
+        'task': 'tasks.notification.overdue_alert',
+        'schedule': crontab(hour=9, minute=0),
+        'options': {'expires': 3600},
+    },
 
-    # 示例：每 30 秒执行一次
-    # 'quick-check': {
-    #     'task': 'tasks.monitor.quick_check',
-    #     'schedule': timedelta(seconds=30),
-    # },
+    # #11 日报提交提醒（每天 17:30）
+    'notification-daily-log-reminder': {
+        'task': 'tasks.notification.daily_log_reminder',
+        'schedule': crontab(hour=17, minute=30),
+        'options': {'expires': 3600},
+    },
 }
 
 

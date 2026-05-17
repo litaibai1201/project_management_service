@@ -1,12 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { Modal, Form, Input, Select, DatePicker, Button, InputNumber, Divider, Space } from 'antd'
+import { Modal, Form, Input, Select, AutoComplete, DatePicker, Button, InputNumber, Divider, Space, Spin } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
-import { useForm, Controller } from 'react-hook-form'
+import { ArrowsPointingOutIcon } from '@heroicons/react/24/outline'
+import { useForm, Controller, useWatch } from 'react-hook-form'
+import RichTextEditor from '@/components/common/RichTextEditor'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
 import { createProjectThunk, fetchProjectGroupsThunk } from './projectSlice'
+import { fetchDepartmentsThunk } from '@/features/user/userSlice'
 import { projectApi } from '@/api/project.api'
+import { userApi } from '@/api/user.api'
 import { showToast } from '@/utils/toast'
 
 // ─── Validation Schema ────────────────────────────────────────────────────────
@@ -22,7 +26,8 @@ const schema = z.object({
   group_id:           z.string().min(1, '請選擇專案分組'),
   code_url:           z.string().url('請輸入正確的代碼庫網址').optional().or(z.literal('')),
   expected_benefit:   z.string().optional(),
-  benefit_amount:     z.number().optional(),
+  benefit_amount:     z.number().min(0).optional(),
+  benefit_unit:       z.enum(['元/年', '人/年']).optional(),
 })
 
 type FormValues = z.infer<typeof schema>
@@ -45,6 +50,7 @@ const PRIORITY_OPTIONS = [
 const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ open, onClose, onSuccess }) => {
   const dispatch = useAppDispatch()
   const { groups, isSaving } = useAppSelector((s) => s.project)
+  const { departments } = useAppSelector((s) => s.user)
   const { isAdmin, isSupervisor } = useAppSelector((s) => s.auth)
   const canManageGroups = isAdmin || isSupervisor
 
@@ -52,17 +58,92 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ open, onClose, 
   const [creatingGroup, setCreatingGroup]     = useState(false)
   const newGroupInputRef = useRef<HTMLInputElement>(null)
 
-  const { control, handleSubmit, reset, formState: { errors } } = useForm<FormValues>({
+  // Department
+  const [newDeptName,  setNewDeptName]  = useState('')
+  const [creatingDept, setCreatingDept] = useState(false)
+  const newDeptInputRef = useRef<HTMLInputElement>(null)
+
+  const handleCreateDept = async (onChange: (v: string) => void) => {
+    const nm = newDeptName.trim()
+    if (!nm) return
+    setCreatingDept(true)
+    try {
+      await userApi.createDepartment(nm)
+      await dispatch(fetchDepartmentsThunk())
+      onChange(nm)
+      setNewDeptName('')
+      showToast.success(`部門「${nm}」已建立`)
+    } catch {
+      showToast.error('建立部門失敗')
+    } finally {
+      setCreatingDept(false)
+    }
+  }
+
+  // PM search (project_pm / product_pm)
+  const [pmOptions,   setPmOptions]   = useState<{ value: string; label: string }[]>([])
+  const [pmSearching, setPmSearching] = useState(false)
+  const pmTimerRef = useRef<ReturnType<typeof setTimeout>>()
+
+  const handlePmSearch = (keyword: string) => {
+    clearTimeout(pmTimerRef.current)
+    if (!keyword.trim()) { setPmOptions([]); return }
+    setPmSearching(true)
+    pmTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await userApi.list({ keyword, page: 1, size: 20 })
+        const list = (res.content as { data_list?: { work_no: string; name: string }[] }).data_list ?? []
+        setPmOptions(list.map((u) => ({ value: u.work_no, label: `${u.name}（${u.work_no}）` })))
+      } catch { setPmOptions([]) }
+      finally  { setPmSearching(false) }
+    }, 300)
+  }
+
+  const { control, handleSubmit, reset, setValue, formState: { errors } } = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: { priority: 2 },
   })
+  const describeValue = useWatch({ control, name: 'describe' })
+
+  // Expand-to-edit modal state
+  const [expandOpen,  setExpandOpen]  = useState(false)
+  const [expandDraft, setExpandDraft] = useState('')
+
+  // Detect if a value is HTML
+  const isHtml = (v: string) => /<[a-z][\s\S]*>/i.test(v)
+
+  // Strip HTML tags to plain text (for textarea display when value is HTML)
+  const stripHtml = (html: string) =>
+    html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+
+  const handleOpenExpand = () => {
+    const current = describeValue ?? ''
+    // If already HTML (from a previous expand edit), load as-is; otherwise wrap plain text in <p>
+    const html = isHtml(current)
+      ? current
+      : current.trim() ? `<p>${current.replace(/\n/g, '</p><p>')}</p>` : ''
+    setExpandDraft(html)
+    setExpandOpen(true)
+  }
+  const handleConfirmExpand = () => {
+    setValue('describe', expandDraft, { shouldDirty: true })
+    setExpandOpen(false)
+  }
+  const handleCancelExpand = () => {
+    setExpandOpen(false)
+  }
 
   useEffect(() => {
     if (open) {
       dispatch(fetchProjectGroupsThunk())
+      dispatch(fetchDepartmentsThunk())
     } else {
       reset()
       setNewGroupName('')
+      setNewDeptName('')
+      setPmOptions([])
+      setExpandOpen(false)
+      setExpandDraft('')
     }
   }, [open, dispatch, reset])
 
@@ -98,7 +179,7 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ open, onClose, 
       open={open}
       onCancel={onClose}
       footer={null}
-      width={600}
+      width={820}
       destroyOnClose
     >
       <Form layout="vertical" onFinish={handleSubmit(onSubmit)} className="mt-4">
@@ -119,7 +200,7 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ open, onClose, 
             />
           </Form.Item>
 
-          {/* 部門 */}
+          {/* 部門 — 選擇已有或新增 */}
           <Form.Item
             label="部門"
             validateStatus={errors.department ? 'error' : ''}
@@ -130,7 +211,41 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ open, onClose, 
               name="department"
               control={control}
               render={({ field }) => (
-                <Input {...field} placeholder="請輸入部門" />
+                <Select
+                  {...field}
+                  showSearch
+                  placeholder="輸入或選擇部門"
+                  filterOption={(input, opt) =>
+                    (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())
+                  }
+                  options={departments.map((d) => ({ value: d.name, label: d.name }))}
+                  popupRender={(menu) => (
+                    <>
+                      {menu}
+                      <Divider style={{ margin: '8px 0' }} />
+                      <Space style={{ padding: '0 8px 8px' }}>
+                        <input
+                          ref={newDeptInputRef}
+                          value={newDeptName}
+                          onChange={(e) => setNewDeptName(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCreateDept(field.onChange) } }}
+                          placeholder="輸入新部門名稱"
+                          style={{ flex: 1, padding: '4px 8px', border: '1px solid #d9d9d9', borderRadius: 6, fontSize: 13, outline: 'none' }}
+                        />
+                        <Button
+                          type="text"
+                          icon={<PlusOutlined />}
+                          size="small"
+                          loading={creatingDept}
+                          disabled={!newDeptName.trim()}
+                          onClick={() => handleCreateDept(field.onChange)}
+                        >
+                          新增部門
+                        </Button>
+                      </Space>
+                    </>
+                  )}
+                />
               )}
             />
           </Form.Item>
@@ -151,9 +266,9 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ open, onClose, 
             />
           </Form.Item>
 
-          {/* 專案PM */}
+          {/* 專案PM — 搜尋選擇 */}
           <Form.Item
-            label="專案PM（工號）"
+            label="專案PM"
             validateStatus={errors.project_pm ? 'error' : ''}
             help={errors.project_pm?.message}
             required
@@ -161,20 +276,48 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ open, onClose, 
             <Controller
               name="project_pm"
               control={control}
-              render={({ field }) => <Input {...field} placeholder="請輸入PM工號" onChange={(e) => field.onChange(e.target.value.toLowerCase())} />}
+              render={({ field }) => (
+                <Select
+                  showSearch
+                  placeholder="輸入工號或姓名搜索..."
+                  filterOption={false}
+                  onSearch={handlePmSearch}
+                  onChange={field.onChange}
+                  onBlur={field.onBlur}
+                  value={field.value || undefined}
+                  notFoundContent={pmSearching ? <Spin size="small" /> : '未找到用戶，請繼續輸入'}
+                  options={pmOptions}
+                  allowClear
+                  onClear={() => field.onChange('')}
+                />
+              )}
             />
           </Form.Item>
 
-          {/* 産品PM */}
+          {/* 産品PM — 搜尋選擇 */}
           <Form.Item
-            label="産品PM（工號）"
+            label="産品PM"
             validateStatus={errors.product_pm ? 'error' : ''}
             help={errors.product_pm?.message}
           >
             <Controller
               name="product_pm"
               control={control}
-              render={({ field }) => <Input {...field} placeholder="（可空，預設與建立人相同）" onChange={(e) => field.onChange(e.target.value.toLowerCase())} />}
+              render={({ field }) => (
+                <Select
+                  showSearch
+                  placeholder="輸入工號或姓名搜索（可留空）"
+                  filterOption={false}
+                  onSearch={handlePmSearch}
+                  onChange={field.onChange}
+                  onBlur={field.onBlur}
+                  value={field.value || undefined}
+                  notFoundContent={pmSearching ? <Spin size="small" /> : '未找到用戶，請繼續輸入'}
+                  options={pmOptions}
+                  allowClear
+                  onClear={() => field.onChange('')}
+                />
+              )}
             />
           </Form.Item>
 
@@ -260,7 +403,7 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ open, onClose, 
 
           {/* 預估效益 */}
           <Form.Item
-            label="預估效益金額"
+            label="預估效益數量"
             validateStatus={errors.benefit_amount ? 'error' : ''}
             help={errors.benefit_amount?.message}
           >
@@ -268,14 +411,32 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ open, onClose, 
               name="benefit_amount"
               control={control}
               render={({ field }) => (
-                <InputNumber
-                  {...field}
-                  style={{ width: '100%' }}
-                  placeholder="預估節省/產生的金額"
-                  formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                  parser={(v) => Number(v?.replace(/,/g, '') ?? 0)}
-                  addonAfter="元/年"
-                  min={0}
+                <Controller
+                  name="benefit_unit"
+                  control={control}
+                  defaultValue="元/年"
+                  render={({ field: unitField }) => (
+                    <InputNumber
+                      value={field.value}
+                      onChange={field.onChange}
+                      onBlur={field.onBlur}
+                      style={{ width: '100%' }}
+                      placeholder="請輸入數字（支援小數）"
+                      min={0}
+                      stringMode={false}
+                      addonAfter={
+                        <Select
+                          value={unitField.value ?? '元/年'}
+                          onChange={unitField.onChange}
+                          options={[
+                            { value: '元/年', label: '元/年' },
+                            { value: '人/年', label: '人/年' },
+                          ]}
+                          style={{ width: 80 }}
+                        />
+                      }
+                    />
+                  )}
                 />
               )}
             />
@@ -294,19 +455,43 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ open, onClose, 
             />
           </Form.Item>
 
-          {/* 描述 */}
-          <Form.Item
-            label="專案描述"
-            className="col-span-2"
-          >
+          {/* 描述 — 小輸入框 + 展開富文本編輯 */}
+          <div className="col-span-2 mb-4">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-sm text-slate-700">專案描述</span>
+              <button
+                type="button"
+                onClick={handleOpenExpand}
+                className="flex items-center gap-1 text-xs text-slate-500 hover:text-blue-600 border border-slate-200 rounded-md px-2 py-1 hover:border-blue-300 bg-white transition-colors"
+              >
+                <ArrowsPointingOutIcon className="w-3.5 h-3.5" />
+                展開富文本編輯
+              </button>
+            </div>
             <Controller
               name="describe"
               control={control}
-              render={({ field }) => (
-                <Input.TextArea {...field} rows={3} placeholder="請輸入專案描述" />
-              )}
+              render={({ field }) => {
+                // If value is HTML (set by the expand editor), display stripped plain text in textarea
+                const displayValue = field.value && isHtml(field.value)
+                  ? stripHtml(field.value)
+                  : (field.value ?? '')
+                return (
+                  <Input.TextArea
+                    value={displayValue}
+                    onChange={(e) => field.onChange(e.target.value)}
+                    onBlur={field.onBlur}
+                    rows={3}
+                    placeholder="請輸入專案描述，或點擊右上角展開富文本編輯器..."
+                    style={{ resize: 'none' }}
+                  />
+                )
+              }}
             />
-          </Form.Item>
+            {describeValue && isHtml(describeValue) && (
+              <p className="text-xs text-blue-500 mt-1">已套用富文本格式，點擊「展開富文本編輯」可繼續修改</p>
+            )}
+          </div>
         </div>
 
         <div className="flex justify-end gap-3 pt-2">
@@ -316,6 +501,30 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ open, onClose, 
           </Button>
         </div>
       </Form>
+
+      {/* 描述展開編輯 Modal */}
+      <Modal
+        open={expandOpen}
+        title="專案描述"
+        onCancel={handleCancelExpand}
+        width="80vw"
+        style={{ top: 40, maxWidth: 1100 }}
+        styles={{ body: { padding: '16px 24px 24px' } }}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button onClick={handleCancelExpand}>取消</Button>
+            <Button type="primary" onClick={handleConfirmExpand} style={{ background: '#2563eb' }}>完成</Button>
+          </div>
+        }
+        destroyOnClose
+      >
+        <RichTextEditor
+          value={expandDraft}
+          onChange={setExpandDraft}
+          placeholder="請輸入專案描述..."
+          minHeight={480}
+        />
+      </Modal>
     </Modal>
   )
 }

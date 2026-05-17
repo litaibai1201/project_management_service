@@ -165,6 +165,64 @@ mark {
   user-select: none;
 }
 
+/* ─── Rich Text Editor toolbar buttons ───────────────────────────────────── */
+.rte-content button, .rte-toolbar button {
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  background: transparent;
+}
+
+/* ─── Rich Text Editor (Tiptap / ProseMirror) ────────────────────────────── */
+.rte-content .ProseMirror {
+  outline: none;
+  padding: 10px 12px;
+  font-size: 14px;
+  line-height: 1.75;
+  color: #1e293b;
+}
+.rte-content .ProseMirror p { margin: 0 0 0.5em; }
+.rte-content .ProseMirror p:last-child { margin-bottom: 0; }
+.rte-content .ProseMirror h1 { font-size: 1.4em; font-weight: 700; margin: 0.6em 0 0.3em; color: #0f172a; }
+.rte-content .ProseMirror h2 { font-size: 1.2em; font-weight: 600; margin: 0.5em 0 0.25em; color: #0f172a; }
+.rte-content .ProseMirror h3 { font-size: 1.05em; font-weight: 600; margin: 0.4em 0 0.2em; color: #1e293b; }
+.rte-content .ProseMirror ul { list-style: disc; padding-left: 1.6em; margin: 0.3em 0; }
+.rte-content .ProseMirror ol { list-style: decimal; padding-left: 1.6em; margin: 0.3em 0; }
+.rte-content .ProseMirror li { margin: 0.15em 0; }
+.rte-content .ProseMirror ul[data-type="taskList"] { list-style: none; padding-left: 0.3em; }
+.rte-content .ProseMirror ul[data-type="taskList"] > li { display: flex; align-items: flex-start; gap: 0.5em; }
+.rte-content .ProseMirror ul[data-type="taskList"] > li > label { margin-top: 3px; flex-shrink: 0; }
+.rte-content .ProseMirror ul[data-type="taskList"] > li > div { flex: 1; }
+.rte-content .ProseMirror ul[data-type="taskList"] input[type="checkbox"] { width: 14px; height: 14px; cursor: pointer; accent-color: #2563eb; }
+.rte-content .ProseMirror code { background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 3px; padding: 0.1em 0.35em; font-family: ui-monospace, monospace; font-size: 0.88em; color: #0f172a; }
+.rte-content .ProseMirror blockquote { border-left: 3px solid #cbd5e1; margin: 0.5em 0; padding: 0.2em 0.8em; color: #64748b; font-style: italic; }
+.rte-content .ProseMirror mark { background: #fef08a; border-radius: 2px; padding: 0 2px; }
+.rte-content .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: #94a3b8;
+  pointer-events: none;
+  height: 0;
+}
+
+/* ─── Rich Text Display (read-only rendering) ─────────────────────────────── */
+.rte-display { font-size: 14px; line-height: 1.75; color: #334155; }
+.rte-display h1 { font-size: 1.4em; font-weight: 700; margin: 0.6em 0 0.3em; color: #0f172a; }
+.rte-display h2 { font-size: 1.2em; font-weight: 600; margin: 0.5em 0 0.25em; color: #0f172a; }
+.rte-display h3 { font-size: 1.05em; font-weight: 600; margin: 0.4em 0 0.2em; color: #1e293b; }
+.rte-display p { margin: 0 0 0.4em; }
+.rte-display p:last-child { margin: 0; }
+.rte-display ul { list-style: disc; padding-left: 1.6em; margin: 0.3em 0; }
+.rte-display ol { list-style: decimal; padding-left: 1.6em; margin: 0.3em 0; }
+.rte-display li { margin: 0.15em 0; }
+.rte-display ul[data-type="taskList"] { list-style: none; padding-left: 0.3em; }
+.rte-display ul[data-type="taskList"] > li { display: flex; align-items: flex-start; gap: 0.5em; }
+.rte-display ul[data-type="taskList"] input[type="checkbox"] { width: 14px; height: 14px; accent-color: #2563eb; }
+.rte-display code { background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 3px; padding: 0.1em 0.35em; font-family: ui-monospace, monospace; font-size: 0.88em; color: #0f172a; }
+.rte-display blockquote { border-left: 3px solid #cbd5e1; margin: 0.5em 0; padding: 0.2em 0.8em; color: #64748b; font-style: italic; }
+.rte-display mark { background: #fef08a; border-radius: 2px; padding: 0 2px; }
+.rte-display strong { font-weight: 600; }
+
 /* ─── Utilities ───────────────────────────────────────────────────────────── */
 @layer utilities {
   .truncate-2 {
