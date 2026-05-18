@@ -266,9 +266,28 @@ class UserController:
             }
 
         # 2. 普通用户登录
+        import os
+        use_ldap = os.environ.get("AUTH_USE_LDAP", "false").lower() in ("1", "true", "yes")
+
         user = db.session.query(UserProfileModel).filter_by(work_no=work_no, status=1).first()
-        if not user:
-            raise BusinessException(msg="用户不存在或已禁用", code="F20003")
+
+        if use_ldap:
+            # LDAP 模式：先验证身份，首次登录时自动创建用户
+            self._verify_ldap(work_no, password, location)
+            if not user:
+                real_name = self._fetch_ldap_name(work_no) or work_no
+                user = UserProfileModel(
+                    work_no=work_no,
+                    name=real_name,
+                    location=location,
+                )
+                db.session.add(user)
+                db.session.commit()
+        else:
+            if not user:
+                raise BusinessException(msg="用户不存在或已禁用", code="F20003")
+            if user.password != password:
+                raise BusinessException(msg="密码错误", code="F20003")
 
         role_info = self.get_user_role(work_no) or {"role_code": None, "role_name": None}
         is_supervisor = db.session.query(HierarchyModel).filter_by(
@@ -292,6 +311,57 @@ class UserController:
             "is_admin":     False,
             "is_supervisor": is_supervisor,
         }
+
+    def _verify_ldap(self, work_no: str, password: str, location: str = "") -> None:
+        """调用第三方 LDAP 接口验证身份；失败时抛出 BusinessException"""
+        import os
+        import requests
+        api_base = (os.environ.get("LDAP_API_BASE") or "").rstrip("/")
+        if not api_base:
+            raise BusinessException(msg="LDAP 服务未配置，无法登录", code="F20003")
+
+        payload = {
+            "service_name": os.environ.get("LDAP_SERVICE_NAME", ""),
+            "location":     location or os.environ.get("LDAP_LOCATION", "TW"),
+            "work_no":      work_no,
+            "password":     password,
+        }
+        try:
+            resp = requests.post(
+                f"{api_base}/api/ldaplogin",
+                json=payload,
+                timeout=10,
+            )
+            resp.raise_for_status()
+            result = resp.json()
+        except requests.exceptions.Timeout:
+            raise BusinessException(msg="LDAP 服务连接超时，请稍后重试", code="F20003")
+        except Exception as exc:
+            raise BusinessException(msg=f"LDAP 服务异常：{exc}", code="F20003")
+
+        if result.get("code") != "S10000":
+            raise BusinessException(msg="工号或密码错误", code="F20003")
+
+    def _fetch_ldap_name(self, work_no: str) -> str:
+        """调用第三方接口批量查询工号对应姓名，返回该工号的姓名；失败时返回空字符串"""
+        import os
+        import requests
+        api_base = (os.environ.get("LDAP_API_BASE") or "").rstrip("/")
+        if not api_base:
+            return ""
+        try:
+            resp = requests.post(
+                f"{api_base}/api/searchNameEmpid",
+                json={"empids": [work_no]},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            result = resp.json()
+            if result.get("code") == "S10000":
+                return result.get("content", {}).get(work_no, "")
+        except Exception:
+            pass
+        return ""
 
     def get_index_data(self, work_no: str) -> dict:
         """首页汇总统计"""

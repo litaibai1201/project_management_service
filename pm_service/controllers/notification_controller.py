@@ -9,27 +9,36 @@ from dbs.mysql_db.model_tables import NotificationModel
 def push_notification(recipients: list, title: str, desc: str = "",
                       link_type: str = "", link_id: str = "") -> None:
     """
-    批量写入通知记录（best-effort：异常不会影响主业务）。
+    批量写入平台通知记录，并异步触发钉钉推送（均为 best-effort）。
     须在主事务 commit 之后调用，以避免嵌套事务问题。
     """
+    clean = [str(wn).strip().lower() for wn in recipients if wn]
+    if not clean:
+        return
+
+    # ── 1. 写入平台通知表 ─────────────────────────────────────────────────
     try:
-        for wn in recipients:
-            if not wn:
-                continue
-            n = NotificationModel(
-                recipient=str(wn).strip().lower(),
+        for wn in clean:
+            db.session.add(NotificationModel(
+                recipient=wn,
                 title=title,
                 desc=desc,
                 link_type=link_type,
                 link_id=link_id or "",
-            )
-            db.session.add(n)
+            ))
         db.session.commit()
     except Exception:
         try:
             db.session.rollback()
         except Exception:
             pass
+
+    # ── 2. 异步推送钉钉消息 ───────────────────────────────────────────────
+    try:
+        from tasks.dingtalk_tasks import send_dingtalk_notification
+        send_dingtalk_notification.delay(clean, title, desc)
+    except Exception:
+        pass  # Celery 未启动或配置缺失时静默跳过
 
 
 # ─── Controller（REST 接口层调用）──────────────────────────────────────────────

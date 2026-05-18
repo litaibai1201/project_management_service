@@ -34,7 +34,9 @@
 
 # 导入所有任务模块以确保 Celery 能发现任务
 from tasks import notification_tasks  # noqa: F401
+from tasks import dingtalk_tasks      # noqa: F401
 
 __all__ = [
     'notification_tasks',
+    'dingtalk_tasks',
 ]

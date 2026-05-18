@@ -259,6 +259,19 @@ class BaseConfig:
             "pool_pre_ping": _get_bool("SHARDING_POOL_PRE_PING", "true"),
         }
 
+    # ==================== LDAP 认证配置 ====================
+    AUTH_USE_LDAP       = _get_bool("AUTH_USE_LDAP", "false")
+    LDAP_API_BASE       = os.environ.get("LDAP_API_BASE", "")
+    LDAP_SERVICE_NAME   = os.environ.get("LDAP_SERVICE_NAME", "")
+    LDAP_LOCATION       = os.environ.get("LDAP_LOCATION", "TW")
+
+    # ==================== 钉钉通知配置 ====================
+    DINGTALK_API_BASE           = os.environ.get("DINGTALK_API_BASE", "")
+    DINGTALK_SERVICE_NAME       = os.environ.get("DINGTALK_SERVICE_NAME", "")
+    DINGTALK_SERVICE_TYPE       = os.environ.get("DINGTALK_SERVICE_TYPE", "Web")
+    DINGTALK_TOKEN              = os.environ.get("DINGTALK_TOKEN", "")
+    DINGTALK_SAME_ALARM_INTER   = _get_int("DINGTALK_SAME_ALARM_INTER", 5)
+
     # ==================== Celery 配置 ====================
     # Broker 地址（消息代理，默认使用 Redis 的 DB 1）
     CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "")
