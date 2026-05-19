@@ -153,15 +153,6 @@ class BaseConfig:
             "region": os.environ.get("S3_REGION", "us-east-1"),
         }
 
-    # ==================== Elasticsearch 配置 ====================
-    @property
-    def ES_CONFIG(self):
-        return {
-            "host": os.environ.get("ES_HOST", "127.0.0.1"),
-            "port": _get_int("ES_PORT", 9200),
-            "station_nm": os.environ.get("ES_STATION_NM", "default"),
-        }
-
     # ==================== MongoDB 配置 ====================
     MONGO_URI = os.environ.get("MONGO_URI", "mongodb://127.0.0.1:27017")
     MONGO_DATABASE = os.environ.get("MONGO_DATABASE", "test")

@@ -189,7 +189,7 @@ const SearchPage: React.FC = () => {
   const dutyCount    = results.filter((r) => r.type === 'duty' || r.type === 'function').length
 
   return (
-    <div className="p-6 max-w-3xl mx-auto">
+    <div className="p-6">
       {/* Header */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-slate-800">全局搜索</h1>

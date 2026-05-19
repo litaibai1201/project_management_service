@@ -17,25 +17,30 @@ export interface GridLayout {
 export type DefaultLayoutMap = Record<string, Omit<GridLayout, 'i'>>
 
 export const DEFAULT_LAYOUTS: DefaultLayoutMap = {
-  // Personal
-  project_stats:      { x: 0,   y: 0,    w: 60,  h: 30,  minW: 25,  minH: 30  },
-  task_stats:         { x: 60,  y: 0,    w: 60,  h: 30,  minW: 30,  minH: 30  },
-  pending_review:     { x: 0,   y: 30,   w: 50,  h: 30,  minW: 20,  minH: 30  },
-  daily_log:          { x: 50,  y: 30,   w: 70,  h: 20,  minW: 40,  minH: 20  },
-  activity_chart:     { x: 0,   y: 60,   w: 80,  h: 70,  minW: 40,  minH: 50  },
-  my_projects:        { x: 0,   y: 130,  w: 80,  h: 90,  minW: 50,  minH: 53  },
-  my_tasks:           { x: 0,   y: 220,  w: 80,  h: 100, minW: 50,  minH: 53  },
-  my_pending_review:  { x: 80,  y: 130,  w: 40,  h: 90,  minW: 30,  minH: 40  },
-  monthly_attendance: { x: 80,  y: 60,   w: 40,  h: 110, minW: 30,  minH: 58  },
-  latest_news:        { x: 80,  y: 170,  w: 40,  h: 50,  minW: 30,  minH: 32  },
-  // Manager
-  team_project:          { x: 0,   y: 0,   w: 40,  h: 30,  minW: 25,  minH: 30 },
-  team_task:             { x: 40,  y: 0,   w: 40,  h: 30,  minW: 30,  minH: 30 },
-  team_pending:          { x: 80,  y: 0,   w: 40,  h: 30,  minW: 20,  minH: 30 },
-  team_size:             { x: 0,   y: 30,  w: 20,  h: 20,  minW: 18,  minH: 20 },
-  daily_report_status:   { x: 20,  y: 30,  w: 20,  h: 20,  minW: 18,  minH: 20 },
-  member_task_chart:     { x: 0,   y: 50,  w: 80,  h: 100, minW: 40,  minH: 35 },
-  member_detail:         { x: 80,  y: 30,  w: 40,  h: 120, minW: 30,  minH: 50 },
+  // Personal (layout from work_no 123445)
+  project_stats:      { x: 0,   y: 0,   w: 25,  h: 26,  minW: 12,  minH: 20  },
+  task_stats:         { x: 25,  y: 0,   w: 25,  h: 26,  minW: 12,  minH: 20  },
+  pending_review:     { x: 50,  y: 0,   w: 18,  h: 26,  minW: 12,  minH: 20  },
+  daily_log:          { x: 68,  y: 0,   w: 52,  h: 26,  minW: 12,  minH: 12  },
+  activity_chart:     { x: 0,   y: 26,  w: 32,  h: 53,  minW: 12,  minH: 20  },
+  my_projects:        { x: 32,  y: 26,  w: 48,  h: 53,  minW: 12,  minH: 20  },
+  my_tasks:           { x: 0,   y: 79,  w: 32,  h: 88,  minW: 12,  minH: 20  },
+  my_pending_review:  { x: 32,  y: 79,  w: 48,  h: 88,  minW: 12,  minH: 20  },
+  monthly_attendance: { x: 80,  y: 26,  w: 40,  h: 91,  minW: 12,  minH: 20  },
+  latest_news:        { x: 80,  y: 117, w: 40,  h: 50,  minW: 12,  minH: 20  },
+  // Manager (layout from work_no 123445)
+  team_project:          { x: 0,   y: 0,   w: 40,  h: 30,  minW: 12,  minH: 20 },
+  team_task:             { x: 40,  y: 0,   w: 40,  h: 30,  minW: 12,  minH: 20 },
+  team_pending:          { x: 80,  y: 0,   w: 40,  h: 30,  minW: 12,  minH: 20 },
+  team_size:             { x: 0,   y: 30,  w: 20,  h: 20,  minW: 12,  minH: 12 },
+  daily_report_status:   { x: 20,  y: 30,  w: 20,  h: 20,  minW: 12,  minH: 12 },
+  team_task_pie:         { x: 40,  y: 30,  w: 40,  h: 70,  minW: 12,  minH: 20 },
+  member_task_chart:     { x: 0,   y: 50,  w: 40,  h: 50,  minW: 12,  minH: 20 },
+  member_detail:         { x: 80,  y: 30,  w: 40,  h: 51,  minW: 12,  minH: 20 },
+  team_project_status:   { x: 0,   y: 100, w: 80,  h: 60,  minW: 12,  minH: 20 },
+  team_project_progress: { x: 80,  y: 81,  w: 40,  h: 77,  minW: 12,  minH: 20 },
+  team_log_today:        { x: 0,   y: 160, w: 80,  h: 60,  minW: 12,  minH: 20 },
+  team_review_types:     { x: 80,  y: 158, w: 40,  h: 63,  minW: 12,  minH: 20 },
 }
 
 // ── localStorage（使用 v2 key 避免與舊格式衝突） ─────────────────────────────
@@ -116,6 +121,7 @@ export interface UseDashboardConfigReturn {
   onLayoutChange: (layout: GridLayout[]) => void
   showWidget:     (widgetId: string) => Promise<void>
   hideWidget:     (widgetId: string) => Promise<void>
+  resetLayout:    () => Promise<void>
 }
 
 const DB_SAVE_DEBOUNCE = 800
@@ -203,12 +209,31 @@ export function useDashboardConfig(viewType: DashboardViewType): UseDashboardCon
     await dashboardConfigApi.saveConfig(viewType, [{ widget_id: widgetId, is_visible: false }])
   }, [viewType])
 
+  const resetLayout = useCallback(async () => {
+    // Clear localStorage
+    localStorage.removeItem(LAYOUT_KEY(viewType))
+    // Reset all widgets to default layout and visible
+    setAllWidgets((prev) =>
+      prev.map((w): WidgetEntry => {
+        const def = DEFAULT_LAYOUTS[w.widget_id] ?? { x: 0, y: 990, w: 40, h: 20 }
+        return { ...w, is_visible: true, layout: { ...def, i: w.widget_id } }
+      })
+    )
+    // Persist defaults to DB
+    const payload = Object.entries(DEFAULT_LAYOUTS).map(([widget_id, def]) => ({
+      widget_id,
+      is_visible: true,
+      layout: { x: def.x, y: def.y, w: def.w, h: def.h },
+    }))
+    await dashboardConfigApi.saveConfig(viewType, payload).catch(() => {})
+  }, [viewType])
+
   const visibleWidgets = allWidgets.filter((w) => w.is_visible)
   const gridLayout     = visibleWidgets.map((w) => w.layout)
 
   return {
     allWidgets, visibleWidgets, gridLayout,
     loading, isEditing, setIsEditing,
-    onLayoutChange, showWidget, hideWidget,
+    onLayoutChange, showWidget, hideWidget, resetLayout,
   }
 }

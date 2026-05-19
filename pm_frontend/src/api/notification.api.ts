@@ -1,4 +1,4 @@
-import { get, patch } from './httpClient'
+import { get, patch, post } from './httpClient'
 import { ApiResponse } from '@/types/api.types'
 
 export interface NotificationItem {
@@ -29,4 +29,8 @@ export const notificationApi = {
   /** PATCH /api/notification/read_all */
   markAllRead: (): Promise<ApiResponse<null>> =>
     patch('/notification/read_all'),
+
+  /** POST /api/notification/remind_daily_log */
+  remindDailyLog: (work_nos: string[]): Promise<ApiResponse<null>> =>
+    post('/notification/remind_daily_log', { work_nos }),
 }

@@ -1215,7 +1215,7 @@ const DailyLogPage: React.FC = () => {
 
   return (
     <Spin spinning={logsLoading} tip="載入中..." size="large">
-    <div className="p-6 max-w-5xl mx-auto">
+    <div className="p-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <div>
@@ -1675,7 +1675,7 @@ const DailyLogPage: React.FC = () => {
         open={modalOpen}
         onCancel={() => { setModalOpen(false); form.resetFields() }}
         footer={null}
-        width={560}
+        width="min(680px, 88vw)"
         destroyOnClose
       >
         <Form form={form} layout="vertical" onFinish={handleSaveEntry} className="mt-4">
@@ -1877,7 +1877,7 @@ const DailyLogPage: React.FC = () => {
         okText="導出 DOCX"
         cancelText="取消"
         confirmLoading={rangeExportLoading}
-        width={400}
+        width="min(440px, 88vw)"
       >
         <div className="py-4">
           <p className="text-sm text-slate-500 mb-3">今日（{dayjs().format('YYYY-MM-DD')}）的記錄將以黃色高亮顯示。</p>

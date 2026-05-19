@@ -1,18 +1,18 @@
 import React, { useEffect, useState } from 'react'
-import { Card, Progress, Tag, Avatar, Badge, Tooltip, Switch, Button, Empty } from 'antd'
+import { Card, Progress, Tag, Avatar, Badge, Tooltip, Switch, Button, Empty, Table, message } from 'antd'
 // @ts-ignore - @types/react-grid-layout lags behind v2 API
 import { GridLayout, useContainerWidth } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
 import {
   BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip as RTooltip,
-  Cell, LabelList,
+  Cell, LabelList, PieChart, Pie, Legend,
 } from 'recharts'
 import {
   FolderIcon, ClipboardDocumentListIcon, ClockIcon,
   FireIcon, ExclamationTriangleIcon, BellAlertIcon,
   ChevronDownIcon, ChevronRightIcon, UsersIcon, ChartBarIcon,
-  PencilSquareIcon, SunIcon, CalendarDaysIcon,
+  PencilSquareIcon, SunIcon, CalendarDaysIcon, BellIcon,
 } from '@heroicons/react/24/outline'
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
 import { fetchIndexThunk, setManagerView } from './authSlice'
@@ -24,6 +24,7 @@ import { projectApi } from '@/api/project.api'
 import { dutyApi } from '@/api/duty.api'
 import { authApi, type AlertTask, type WeeklyActivityItem, type NewsItem } from '@/api/auth.api'
 import { dailyLogApi, type BackendDailyLogSummary } from '@/api/daily_log.api'
+import { notificationApi } from '@/api/notification.api'
 import type { ProjectListItem, UserStatistical, TeamStatistical, TemporaryDuty, ApplyRecord } from '@/types/api.types'
 import { DUTY_STATUS_MAP } from '@/utils/status'
 import { useWorkNoToName } from '@/hooks/useWorkNoToName'
@@ -404,21 +405,31 @@ const DashboardPage: React.FC = () => {
   const {
     allWidgets, visibleWidgets, gridLayout,
     isEditing, setIsEditing,
-    onLayoutChange, showWidget, hideWidget,
+    onLayoutChange, showWidget, hideWidget, resetLayout,
   } = useDashboardConfig(viewType)
   const [addCardOpen,  setAddCardOpen]  = useState(false)
   const [refreshKey,   setRefreshKey]   = useState(0)
   const toName = useWorkNoToName()
   const [memberStats,      setMemberStats]      = useState<MemberWorkStat[]>([])
   const [myProjects,       setMyProjects]       = useState<ProjectListItem[]>([])
+  const [teamProjects,     setTeamProjects]     = useState<ProjectListItem[]>([])
   const [myDuties,         setMyDuties]         = useState<TemporaryDuty[]>([])
   const [pendingReviews,   setPendingReviews]   = useState<ApplyRecord[]>([])
+  const [allPendingReviews, setAllPendingReviews] = useState<ApplyRecord[]>([])
   const [todayLog,         setTodayLog]         = useState<BackendDailyLogSummary | null>(null)
   const [alertTasks,       setAlertTasks]       = useState<AlertTask[]>([])
   const [userStat,         setUserStat]         = useState<UserStatistical | null>(null)
   const [teamStat,         setTeamStat]         = useState<TeamStatistical | null>(null)
   const [weeklyActivity,   setWeeklyActivity]   = useState<WeeklyActivityItem[]>([])
   const [latestNews,       setLatestNews]       = useState<NewsItem[]>([])
+  const [logPeriod,        setLogPeriod]        = useState<'day' | 'week' | 'month' | 'quarter'>('day')
+  const [notifyingSet,     setNotifyingSet]     = useState<Set<string>>(new Set())
+  const [notifyingAll,     setNotifyingAll]     = useState(false)
+  const [logReportData,    setLogReportData]    = useState<Array<{
+    work_no: string; name: string; period_hours: number; updates_count: number
+    completed: unknown[]; overdue: unknown[]; daily_logs: Array<{ log_date: string; status: number }>
+  }>>([])
+  const [logLoading,       setLogLoading]       = useState(false)
 
   useEffect(() => { dispatch(fetchIndexThunk()) }, [dispatch])
 
@@ -475,6 +486,24 @@ const DashboardPage: React.FC = () => {
         .catch(() => {})
     }
 
+    if (visible.has('team_project_status') || visible.has('team_project_progress')) {
+      projectApi.list({ page: 1, size: 100, work_no: workNo ?? undefined, manager_view: true })
+        .then((res) => {
+          const list = (res as { content?: { project_list?: ProjectListItem[] } }).content?.project_list ?? []
+          setTeamProjects(list)
+        })
+        .catch(() => {})
+    }
+
+    if (visible.has('team_review_types')) {
+      projectApi.allReviews()
+        .then((res) => {
+          const list = (Array.isArray(res.content) ? res.content : []) as ApplyRecord[]
+          setAllPendingReviews(list.filter((r) => r.status === 1))
+        })
+        .catch(() => {})
+    }
+
     if (visible.has('daily_log')) {
       const today = dayjs().format('YYYY-MM-DD')
       dailyLogApi.list({ page: 1, size: 1, start_date: today, end_date: today })
@@ -506,6 +535,34 @@ const DashboardPage: React.FC = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewType, allWidgets.length, refreshKey])
 
+  // ── team_log_today 進度報告資料 ────────────────────────────────────────────
+  useEffect(() => {
+    const visible = allWidgets.some((w) => w.is_visible && w.widget_id === 'team_log_today')
+    if (!visible || !isManager) return
+    const today = dayjs()
+    let start: string, end: string
+    if (logPeriod === 'day') {
+      start = end = today.format('YYYY-MM-DD')
+    } else if (logPeriod === 'week') {
+      start = today.startOf('isoWeek').format('YYYY-MM-DD')
+      end   = today.endOf('isoWeek').format('YYYY-MM-DD')
+    } else if (logPeriod === 'month') {
+      start = today.startOf('month').format('YYYY-MM-DD')
+      end   = today.endOf('month').format('YYYY-MM-DD')
+    } else {
+      const q = Math.floor(today.month() / 3)
+      start = today.month(q * 3).startOf('month').format('YYYY-MM-DD')
+      end   = today.month(q * 3 + 2).endOf('month').format('YYYY-MM-DD')
+    }
+    setLogLoading(true)
+    ;(projectApi as unknown as { progressReport: (p: { start_date: string; end_date: string }) => Promise<{ content: unknown }> })
+      .progressReport({ start_date: start, end_date: end })
+      .then((res) => { if (Array.isArray(res.content)) setLogReportData(res.content) })
+      .catch(() => {})
+      .finally(() => setLogLoading(false))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [logPeriod, isManager, allWidgets.length, refreshKey])
+
   // ── 統計數據預計算 ─────────────────────────────────────────────────────────
   const taskInProg     = (indexData?.total_task_num?.doing_task   ?? 0) + (indexData?.total_task_num?.doing_duty    ?? 0)
   const taskUnstart    = (indexData?.total_task_num?.unstart_task ?? 0) + (indexData?.total_task_num?.unstart_duty  ?? 0)
@@ -521,7 +578,7 @@ const DashboardPage: React.FC = () => {
   })).sort((a, b) => (b.超時任務 + b.臨期任務) - (a.超時任務 + a.臨期任務))
 
   return (
-    <div className="p-6 max-w-[1400px] mx-auto">
+    <div className="p-6">
       {/* Greeting */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -536,6 +593,12 @@ const DashboardPage: React.FC = () => {
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50 transition-colors outline-none cursor-pointer"
               >
                 <span className="text-base leading-none">+</span> 添加卡片
+              </button>
+              <button
+                onClick={async () => { await resetLayout() }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border border-orange-200 text-orange-600 hover:bg-orange-50 transition-colors outline-none cursor-pointer"
+              >
+                重置佈局
               </button>
               <button
                 onClick={() => setIsEditing(false)}
@@ -762,6 +825,301 @@ const DashboardPage: React.FC = () => {
                 </div>
               </Card>
             )
+
+            // ── New Manager chart widgets ───────────────────────────────────
+
+            case 'team_task_pie': return !isManager ? null : (() => {
+              const t = teamStat?.team_task
+              const data = [
+                { name: '進行中', value: t?.in_progress ?? 0,  color: '#2563eb' },
+                { name: '未開始', value: t?.not_started ?? 0,  color: '#94a3b8' },
+                { name: '已完成', value: t?.completed   ?? 0,  color: '#16a34a' },
+                { name: '已超時', value: t?.overdue     ?? 0,  color: '#dc2626' },
+                { name: '臨期',   value: t?.urgent      ?? 0,  color: '#f59e0b' },
+              ].filter((d) => d.value > 0)
+              return (
+                <Card className="h-full" style={{ display: 'flex', flexDirection: 'column' }}
+                  title={<span className="text-sm font-semibold text-slate-600">任務狀態占比</span>}
+                  styles={{ body: { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '8px 12px', minHeight: 0 } }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={data} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius="70%" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false} fontSize={11}>
+                        {data.map((d, i) => <Cell key={i} fill={d.color} />)}
+                      </Pie>
+                      <RTooltip contentStyle={{ borderRadius: 10, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: 12 }} formatter={(v, name) => [`${v} 項`, name]} />
+                      <Legend iconSize={10} wrapperStyle={{ fontSize: 11 }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </Card>
+              )
+            })()
+
+            case 'team_project_status': return !isManager ? null : (() => {
+              const STATUS_LABEL_SHORT: Record<number, string> = { 1:'草稿',2:'立案審核',3:'規劃中',4:'規劃審核',5:'執行中',6:'完結審核',7:'已完結' }
+              const counts: Record<string, number> = {}
+              teamProjects.forEach((p) => {
+                const label = STATUS_LABEL_SHORT[p.status] ?? '其他'
+                counts[label] = (counts[label] ?? 0) + 1
+              })
+              const STATUS_COLORS: Record<string, string> = { '草稿':'#94a3b8','立案審核':'#93c5fd','規劃中':'#60a5fa','規劃審核':'#f59e0b','執行中':'#2563eb','完結審核':'#fb923c','已完結':'#22c55e' }
+              const data = Object.entries(counts).map(([name, value]) => ({ name, value, color: STATUS_COLORS[name] ?? '#94a3b8' }))
+              return (
+                <Card className="h-full" style={{ display: 'flex', flexDirection: 'column' }}
+                  title={<span className="text-sm font-semibold text-slate-600">專案狀態分佈</span>}
+                  extra={<span className="text-xs text-blue-500 cursor-pointer hover:underline" onClick={() => navigate('/projects')}>查看全部 →</span>}
+                  styles={{ body: { flex: 1, padding: '8px 16px', minHeight: 0, display: 'flex', flexDirection: 'column' } }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={data} margin={{ top: 4, right: 16, left: -20, bottom: 0 }}>
+                      <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                      <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                      <RTooltip contentStyle={{ borderRadius: 10, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: 12 }} formatter={(v, name) => [`${v} 個`, name]} cursor={{ fill: 'rgba(0,0,0,0.04)' }} />
+                      <Bar dataKey="value" name="專案數" radius={[4,4,0,0]} isAnimationActive={false}>
+                        {data.map((d, i) => <Cell key={i} fill={d.color} />)}
+                        <LabelList dataKey="value" position="top" style={{ fontSize: 11, fill: '#64748b', fontWeight: 600 }} />
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </Card>
+              )
+            })()
+
+            case 'team_project_progress': return !isManager ? null : (() => {
+              const sorted = [...teamProjects]
+                .filter((p) => p.status !== 7 && p.status !== 9)
+                .sort((a, b) => (b.progress ?? 0) - (a.progress ?? 0))
+                .slice(0, 10)
+              return (
+                <Card className="h-full" style={{ display: 'flex', flexDirection: 'column' }}
+                  title={<span className="text-sm font-semibold text-slate-600">專案進度排行（進行中）</span>}
+                  extra={<span className="text-xs text-blue-500 cursor-pointer hover:underline" onClick={() => navigate('/projects')}>查看全部 →</span>}
+                  styles={{ body: { flex: 1, padding: '8px 16px', minHeight: 0, overflowY: 'auto' } }}>
+                  <div className="space-y-2 pt-1">
+                    {sorted.length === 0
+                      ? <Empty description="暫無進行中專案" image={Empty.PRESENTED_IMAGE_SIMPLE} className="py-4" />
+                      : sorted.map((p) => (
+                        <div key={p.id} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 rounded-md px-1 py-0.5 transition-colors" onClick={() => navigate(`/projects/${p.id}`)}>
+                          <span className="text-xs text-slate-600 truncate flex-1" title={p.project_nm}>{p.project_nm}</span>
+                          <div className="flex items-center gap-1.5 flex-shrink-0 w-32">
+                            <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                              <div className="h-full rounded-full bg-blue-500 transition-all" style={{ width: `${p.progress ?? 0}%` }} />
+                            </div>
+                            <span className="text-[11px] font-semibold text-slate-500 w-8 text-right">{p.progress ?? 0}%</span>
+                          </div>
+                        </div>
+                      ))
+                    }
+                  </div>
+                </Card>
+              )
+            })()
+
+            case 'team_log_today': return !isManager ? null : (() => {
+              const todayStr = dayjs().format('YYYY-MM-DD')
+              const LOG_PERIODS = [
+                { key: 'day'     as const, label: '今日' },
+                { key: 'week'    as const, label: '本週' },
+                { key: 'month'   as const, label: '本月' },
+                { key: 'quarter' as const, label: '本季' },
+              ]
+              type LogRow = typeof logReportData[number]
+              const columns = [
+                {
+                  title: '成員', dataIndex: 'name', key: 'name',
+                  render: (name: string, record: LogRow) => (
+                    <div className="flex items-center gap-2">
+                      <Avatar size={24} style={{ background: '#eff6ff', color: '#2563eb', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{name[0]}</Avatar>
+                      <div>
+                        <div className="text-xs font-medium text-slate-700">{name}</div>
+                        <div className="text-[10px] text-slate-400">{record.work_no}</div>
+                      </div>
+                    </div>
+                  ),
+                },
+                {
+                  title: '工時', dataIndex: 'period_hours', key: 'period_hours',
+                  sorter: (a: LogRow, b: LogRow) => a.period_hours - b.period_hours,
+                  render: (h: number) => <span className="text-xs font-semibold text-blue-600">{Number(h).toFixed(1)}h</span>,
+                },
+                {
+                  title: '更新次數', dataIndex: 'updates_count', key: 'updates_count',
+                  sorter: (a: LogRow, b: LogRow) => a.updates_count - b.updates_count,
+                  render: (v: number) => <span className="text-xs text-slate-600">{v} 次</span>,
+                },
+                {
+                  title: '完成', key: 'completed',
+                  sorter: (a: LogRow, b: LogRow) => (a.completed?.length ?? 0) - (b.completed?.length ?? 0),
+                  render: (_: unknown, r: LogRow) => <span className="text-xs text-green-600">{r.completed?.length ?? 0}</span>,
+                },
+                {
+                  title: '超時', key: 'overdue',
+                  sorter: (a: LogRow, b: LogRow) => (a.overdue?.length ?? 0) - (b.overdue?.length ?? 0),
+                  render: (_: unknown, r: LogRow) => {
+                    const count = r.overdue?.length ?? 0
+                    return count > 0
+                      ? <Tag color="error" style={{ fontSize: 10, padding: '0 4px', margin: 0, lineHeight: '16px' }}>{count}</Tag>
+                      : <span className="text-xs text-slate-300">-</span>
+                  },
+                },
+                {
+                  title: '今日日報', key: 'daily_log',
+                  render: (_: unknown, r: LogRow) => {
+                    const todayLog = r.daily_logs?.find((l) => l.log_date === todayStr)
+                    const submitted = todayLog?.status === 2
+                    const isNotifying = notifyingSet.has(r.work_no)
+                    const handleNotify = async (e: React.MouseEvent) => {
+                      e.stopPropagation()
+                      setNotifyingSet((prev) => new Set(prev).add(r.work_no))
+                      try {
+                        await notificationApi.remindDailyLog([r.work_no])
+                        message.success(`已通知 ${r.name}`)
+                      } catch {
+                        message.error('通知發送失敗')
+                      } finally {
+                        setNotifyingSet((prev) => { const s = new Set(prev); s.delete(r.work_no); return s })
+                      }
+                    }
+                    return (
+                      <div className="flex items-center gap-1.5">
+                        <Tooltip title={submitted ? '已提交' : '未提交'}>
+                          <span className={`w-5 h-5 rounded-full inline-flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${submitted ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-500'}`}>
+                            {submitted ? '✓' : '✗'}
+                          </span>
+                        </Tooltip>
+                        {!submitted && (
+                          <Tooltip title="發送鼎+ 催報通知">
+                            <button
+                              onClick={handleNotify}
+                              disabled={isNotifying}
+                              className="w-5 h-5 rounded inline-flex items-center justify-center border-0 outline-none cursor-pointer transition-colors bg-orange-50 hover:bg-orange-100 text-orange-500 disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
+                            >
+                              <BellIcon className="w-3 h-3" />
+                            </button>
+                          </Tooltip>
+                        )}
+                      </div>
+                    )
+                  },
+                },
+              ]
+              const unsubmittedMembers = logReportData.filter((r) => {
+                const todayLog = r.daily_logs?.find((l) => l.log_date === todayStr)
+                return todayLog?.status !== 2
+              })
+              const handleNotifyAll = async () => {
+                if (unsubmittedMembers.length === 0) return
+                setNotifyingAll(true)
+                try {
+                  await notificationApi.remindDailyLog(unsubmittedMembers.map((r) => r.work_no))
+                  message.success(`已向 ${unsubmittedMembers.length} 位未提交成員發送通知`)
+                } catch {
+                  message.error('批量通知發送失敗')
+                } finally {
+                  setNotifyingAll(false)
+                }
+              }
+              return (
+                <Card className="h-full" style={{ display: 'flex', flexDirection: 'column' }}
+                  title={
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-semibold text-slate-600">成員工時明細</span>
+                      <div className="flex items-center gap-1">
+                        {LOG_PERIODS.map((p) => (
+                          <button
+                            key={p.key}
+                            onClick={() => setLogPeriod(p.key)}
+                            className={`px-2 py-0.5 rounded text-[11px] cursor-pointer border-0 outline-none transition-colors ${
+                              logPeriod === p.key ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                            }`}
+                          >
+                            {p.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  }
+                  extra={
+                    <div className="flex items-center gap-2">
+                      {unsubmittedMembers.length > 0 && (
+                        <Tooltip title={`向 ${unsubmittedMembers.length} 位未提交成員發送鼎+ 催報通知`}>
+                          <button
+                            onClick={handleNotifyAll}
+                            disabled={notifyingAll}
+                            className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] border border-orange-200 text-orange-500 bg-orange-50 hover:bg-orange-100 cursor-pointer outline-none transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            <BellIcon className="w-3 h-3" />
+                            全部通知 ({unsubmittedMembers.length})
+                          </button>
+                        </Tooltip>
+                      )}
+                      <span className="text-xs text-blue-500 cursor-pointer hover:underline" onClick={() => navigate(`/statistics?tab=report&period=${logPeriod}`)}>查看詳情 →</span>
+                    </div>
+                  }
+                  styles={{ body: { flex: 1, padding: '0 16px 8px', minHeight: 0, overflowY: 'auto' } }}>
+                  <Table
+                    dataSource={logReportData}
+                    columns={columns}
+                    rowKey="work_no"
+                    size="small"
+                    loading={logLoading}
+                    pagination={false}
+                    locale={{ emptyText: <Empty description="暫無數據" image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
+                    onRow={(r) => ({
+                      onClick: () => navigate(`/statistics?tab=report&period=${logPeriod}&member=${r.work_no}`),
+                      style: { cursor: 'pointer' },
+                    })}
+                  />
+                </Card>
+              )
+            })()
+
+            case 'team_review_types': return !isManager ? null : (() => {
+              const TYPE_LABEL: Record<string, string> = {
+                '立案審核': '立案', '規劃審核': '規劃', '完結審核': '完結',
+                '需求變更': '變更', '功能完結': '功能完結', '任務完結': '任務完結',
+              }
+              const counts: Record<string, number> = {}
+              allPendingReviews.forEach((r) => {
+                const key = r.apply_type || '其他'
+                counts[key] = (counts[key] ?? 0) + 1
+              })
+              const COLORS = ['#2563eb','#7c3aed','#0891b2','#059669','#d97706','#dc2626','#94a3b8']
+              const data = Object.entries(counts).map(([name, value], i) => ({
+                name: TYPE_LABEL[name] ?? name,
+                fullName: name,
+                value,
+                color: COLORS[i % COLORS.length],
+              }))
+              return (
+                <Card className="h-full" style={{ display: 'flex', flexDirection: 'column' }}
+                  title={
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-slate-600">待審批類型分佈</span>
+                      {allPendingReviews.length > 0 && (
+                        <span className="w-5 h-5 rounded-full bg-orange-500 text-white text-[10px] font-bold flex items-center justify-center">{allPendingReviews.length}</span>
+                      )}
+                    </div>
+                  }
+                  extra={<span className="text-xs text-blue-500 cursor-pointer hover:underline" onClick={() => navigate('/review')}>去審批 →</span>}
+                  styles={{ body: { flex: 1, padding: '8px 16px', minHeight: 0, display: 'flex', flexDirection: 'column' } }}>
+                  {data.length === 0
+                    ? <Empty description="暫無待審批項目" image={Empty.PRESENTED_IMAGE_SIMPLE} className="py-4" />
+                    : (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={data} layout="vertical" margin={{ left: 8, right: 36, top: 4, bottom: 0 }} barCategoryGap="30%">
+                          <XAxis type="number" hide allowDecimals={false} />
+                          <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} width={52} />
+                          <RTooltip contentStyle={{ borderRadius: 10, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: 12 }} formatter={(v, _n, props) => [`${v} 項`, props.payload?.fullName ?? _n]} cursor={{ fill: 'rgba(0,0,0,0.04)' }} />
+                          <Bar dataKey="value" name="待審批" radius={[0,4,4,0]}>
+                            {data.map((d, i) => <Cell key={i} fill={d.color} />)}
+                            <LabelList dataKey="value" position="right" style={{ fontSize: 11, fill: '#64748b', fontWeight: 600 }} />
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    )
+                  }
+                </Card>
+              )
+            })()
 
             // ── Personal widgets ────────────────────────────────────────────
             case 'project_stats': return isManager ? null : (

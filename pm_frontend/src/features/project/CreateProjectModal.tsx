@@ -179,7 +179,7 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ open, onClose, 
       open={open}
       onCancel={onClose}
       footer={null}
-      width={820}
+      width="min(960px, 90vw)"
       destroyOnClose
     >
       <Form layout="vertical" onFinish={handleSubmit(onSubmit)} className="mt-4">
@@ -483,7 +483,7 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ open, onClose, 
                     onBlur={field.onBlur}
                     rows={3}
                     placeholder="請輸入專案描述，或點擊右上角展開富文本編輯器..."
-                    style={{ resize: 'none' }}
+                    style={{ resize: 'vertical', minHeight: 80 }}
                   />
                 )
               }}

@@ -297,7 +297,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
     <Drawer
       open={open}
       onClose={onClose}
-      width={560}
+      width="min(680px, 88vw)"
       title={
         duty ? (
           <div className="flex items-center gap-2">
@@ -755,7 +755,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
         okText="儲存"
         cancelText="取消"
         okButtonProps={{ loading: isActing, style: { background: '#2563eb' } }}
-        width={560}
+        width="min(680px, 88vw)"
         destroyOnHidden
       >
         <Form form={editForm} layout="vertical" className="mt-3">

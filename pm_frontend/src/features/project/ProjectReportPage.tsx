@@ -357,7 +357,7 @@ const ProjectReportPage: React.FC = () => {
   ]
 
   return (
-    <div className="p-6 max-w-[1400px] mx-auto">
+    <div className="p-6">
       <div className="mb-5">
         <h1 className="text-xl font-bold text-slate-800">項目報表</h1>
         <p className="text-slate-400 text-sm mt-0.5">各項目 / 成員任務進度與延期狀況統計</p>

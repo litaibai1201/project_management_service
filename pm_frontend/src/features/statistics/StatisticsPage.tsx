@@ -181,10 +181,17 @@ function exportReportCSV(reports: ReportMember[], periodLabel: string) {
 }
 
 // ─── Report Member Card ────────────────────────────────────────────────────────
-const MemberReportCard: React.FC<{ report: ReportMember }> = ({ report }) => {
+const MemberReportCard: React.FC<{ report: ReportMember; initialExpanded?: boolean }> = ({ report, initialExpanded = false }) => {
   const [previewFile, setPreviewFile] = useState<{ url: string; name: string } | null>(null)
+  const cardRef = React.useRef<HTMLDivElement>(null)
   const avatarBg = report.overdue.length > 0 ? '#fef2f2' : '#eff6ff'
   const avatarColor = report.overdue.length > 0 ? '#dc2626' : '#2563eb'
+
+  React.useEffect(() => {
+    if (initialExpanded && cardRef.current) {
+      setTimeout(() => cardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 300)
+    }
+  }, [initialExpanded])
 
   const headerExtra = (
     <div className="flex items-center gap-2">
@@ -216,8 +223,9 @@ const MemberReportCard: React.FC<{ report: ReportMember }> = ({ report }) => {
 
   return (
     <>
+    <div ref={cardRef}>
     <Collapse
-      defaultActiveKey={[]}
+      defaultActiveKey={initialExpanded ? ['main'] : []}
       className="mb-3 bg-white border border-slate-100 rounded-xl overflow-hidden shadow-sm"
       expandIconPosition="end"
     >
@@ -387,6 +395,7 @@ const MemberReportCard: React.FC<{ report: ReportMember }> = ({ report }) => {
         </div>
       </Panel>
     </Collapse>
+    </div>
 
     {previewFile && (
       <FilePreviewModal
@@ -400,8 +409,8 @@ const MemberReportCard: React.FC<{ report: ReportMember }> = ({ report }) => {
 }
 
 // ─── Progress Report Tab ───────────────────────────────────────────────────────
-const ProgressReportTab: React.FC = () => {
-  const [period,      setPeriod]      = useState<PeriodKey>('week')
+const ProgressReportTab: React.FC<{ initialPeriod?: PeriodKey; initialMember?: string }> = ({ initialPeriod = 'week', initialMember }) => {
+  const [period,      setPeriod]      = useState<PeriodKey>(initialPeriod)
   const [customRange, setCustomRange] = useState<[Dayjs, Dayjs] | null>(null)
   const [reports,     setReports]     = useState<ReportMember[]>([])
 
@@ -519,7 +528,7 @@ const ProgressReportTab: React.FC = () => {
       ) : (
         [...reports]
           .sort((a, b) => b.updates_count - a.updates_count || b.period_hours - a.period_hours)
-          .map((r) => <MemberReportCard key={r.work_no} report={r} />)
+          .map((r) => <MemberReportCard key={r.work_no} report={r} initialExpanded={r.work_no === initialMember} />)
       )}
     </div>
   )
@@ -853,7 +862,9 @@ const StatisticsPage: React.FC = () => {
   const isManager = useAppSelector((s) => s.auth.isSupervisor)
   const myWorkNo  = useAppSelector((s) => s.auth.workNo) ?? ''
   const [searchParams] = useSearchParams()
-  const initialTab = searchParams.get('tab') ?? 'analysis'
+  const initialTab    = searchParams.get('tab')    ?? 'analysis'
+  const initialPeriod = (searchParams.get('period') ?? 'week') as PeriodKey
+  const initialMember = searchParams.get('member') ?? undefined
 
   const [stats,      setStats]      = useState<MemberWorkStat[]>([])
   const [teamSummary, setTeamSummary] = useState<{ total_hours: number; completed_tasks: number; in_progress_tasks: number; overdue_tasks: number } | null>(null)
@@ -1237,7 +1248,7 @@ const StatisticsPage: React.FC = () => {
           <DocumentTextIcon className="w-4 h-4" />進度報告
         </span>
       ),
-      children: <ProgressReportTab />,
+      children: <ProgressReportTab initialPeriod={initialPeriod} initialMember={initialMember} />,
     },
   ]
 
@@ -1254,7 +1265,7 @@ const StatisticsPage: React.FC = () => {
   const tabItems = isManager ? [...managerTabs, memberTab] : [managerTabs[0], memberTab]
 
   return (
-    <div className="p-6 max-w-[1400px] mx-auto">
+    <div className="p-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>

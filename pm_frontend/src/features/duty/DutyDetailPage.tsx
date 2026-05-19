@@ -116,7 +116,7 @@ const DutyDetailPage: React.FC = () => {
   const statusInfo    = DUTY_STATUS_MAP[current.status]
 
   return (
-    <div className="p-6 max-w-3xl mx-auto">
+    <div className="p-6">
       {/* Back + Title */}
       <div className="flex items-start gap-3 mb-5">
         <Button icon={<ArrowLeftIcon className="w-4 h-4" />} onClick={() => navigate(-1)} type="text" className="mt-1" />

@@ -44,3 +44,15 @@ class NotificationReadAllApi(MethodView):
         work_no = get_identity()
         ctrl.mark_all_read(work_no)
         return response_result()
+
+
+@blp.route("/remind_daily_log")
+class DailyLogRemindApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgRawSchema)
+    def post(self):
+        """向指定成員發送今日日報填寫提醒（支持批量）"""
+        data = request.get_json() or {}
+        work_nos = data.get("work_nos", [])
+        count = ctrl.send_daily_log_reminder(work_nos)
+        return response_result(msg=f"已向 {count} 位成員發送提醒")

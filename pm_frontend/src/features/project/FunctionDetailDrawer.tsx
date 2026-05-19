@@ -759,7 +759,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
       open={showEdit}
       onCancel={() => { setShowEdit(false); editForm.resetFields() }}
       footer={null}
-      width={640}
+      width="min(780px, 88vw)"
       destroyOnHidden
     >
       <Form form={editForm} layout="vertical" onFinish={handleEditSave} className="mt-4">
@@ -810,7 +810,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
                   onChange={(e) => editForm.setFieldValue('describe', e.target.value)}
                   rows={3}
                   placeholder="請描述功能需求，或點擊右上角展開富文本編輯器..."
-                  style={{ resize: 'none' }}
+                  style={{ resize: 'vertical', minHeight: 80 }}
                 />
                 <Form.Item name="describe" noStyle><input type="hidden" /></Form.Item>
                 {isHtml(v) && (

@@ -78,3 +78,16 @@ class NotificationController:
          .update({"is_read": True}))
         db.session.commit()
         return True
+
+    def send_daily_log_reminder(self, work_nos: list) -> int:
+        """向指定成員發送日報填寫提醒（平台通知 + 钉钉推送）"""
+        clean = [str(w).strip() for w in work_nos if w]
+        if not clean:
+            return 0
+        push_notification(
+            recipients=clean,
+            title="📋 請記得填寫今日工作日報",
+            desc="您今日尚未提交工作日報，請盡快前往系統填寫。",
+            link_type="daily_log",
+        )
+        return len(clean)

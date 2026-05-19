@@ -1535,7 +1535,7 @@ const ProjectDetailPage: React.FC = () => {
       {/* Add Function Modal */}
       <Modal title="新增功能任務" open={showAddFunc}
         onCancel={() => { setShowAddFunc(false); funcForm.resetFields() }}
-        footer={null} width={640} destroyOnHidden>
+        footer={null} width="min(780px, 88vw)" destroyOnHidden>
         <Form form={funcForm} layout="vertical" onFinish={handleAddFunction} className="mt-4">
           <Form.Item name="function_nm" label="功能名稱" rules={[{ required: true }]}>
             <Input placeholder="請輸入功能名稱" />
@@ -1589,7 +1589,7 @@ const ProjectDetailPage: React.FC = () => {
                     onChange={(e) => funcForm.setFieldValue('describe', e.target.value)}
                     rows={3}
                     placeholder="請描述功能需求，或點擊右上角展開富文本編輯器..."
-                    style={{ resize: 'none' }}
+                    style={{ resize: 'vertical', minHeight: 80 }}
                   />
                   <Form.Item name="describe" noStyle><input type="hidden" /></Form.Item>
                   {isHtml(v) && (
@@ -1655,7 +1655,7 @@ const ProjectDetailPage: React.FC = () => {
 
       {/* 編輯專案 Modal */}
       <Modal title="編輯專案" open={showEdit} onCancel={() => setShowEdit(false)}
-        footer={null} width={820} destroyOnHidden>
+        footer={null} width="min(960px, 90vw)" destroyOnHidden>
         <Form form={editForm} layout="vertical" onFinish={handleEditSave} className="mt-4">
           <div className="grid grid-cols-2 gap-x-4">
             <Form.Item name="project_nm" label="專案名稱" rules={[{ required: true }]} className="col-span-2">
@@ -1810,7 +1810,7 @@ const ProjectDetailPage: React.FC = () => {
                     onChange={(e) => editForm.setFieldValue('describe', e.target.value)}
                     rows={3}
                     placeholder="請輸入專案描述，或點擊右上角展開富文本編輯器..."
-                    style={{ resize: 'none' }}
+                    style={{ resize: 'vertical', minHeight: 80 }}
                   />
                   {/* Hidden Form.Item carries the value on submit */}
                   <Form.Item name="describe" noStyle><input type="hidden" /></Form.Item>
@@ -1959,7 +1959,7 @@ const ProjectDetailPage: React.FC = () => {
         okText="儲存"
         confirmLoading={funcEditSaving}
         okButtonProps={{ style: { background: '#2563eb' } }}
-        width={640}
+        width="min(780px, 88vw)"
         destroyOnHidden
       >
         {!funcEditData ? (
@@ -2006,7 +2006,7 @@ const ProjectDetailPage: React.FC = () => {
                       onChange={(e) => funcEditForm.setFieldValue('describe', e.target.value)}
                       rows={3}
                       placeholder="請描述功能需求，或點擊右上角展開富文本編輯器..."
-                      style={{ resize: 'none' }}
+                      style={{ resize: 'vertical', minHeight: 80 }}
                     />
                     <Form.Item name="describe" noStyle><input type="hidden" /></Form.Item>
                     {isHtml(v) && (

@@ -705,7 +705,7 @@ const DutyListPage: React.FC = () => {
       {/* Create Modal */}
       <Modal title="新建臨時任務" open={showCreate}
         onCancel={() => { setShowCreate(false); form.resetFields() }}
-        footer={null} width={640} destroyOnClose>
+        footer={null} width="min(720px, 88vw)" destroyOnClose>
         <Form form={form} layout="vertical" onFinish={handleCreate} className="mt-4">
           <Form.Item name="duty_nm" label="任務名稱" rules={[{ required: true }]}>
             <Input placeholder="請輸入任務名稱" />
@@ -771,7 +771,7 @@ const DutyListPage: React.FC = () => {
                     onChange={(e) => form.setFieldValue('describe', e.target.value)}
                     rows={3}
                     placeholder="請描述任務內容，或點擊右上角展開富文本編輯器..."
-                    style={{ resize: 'none' }}
+                    style={{ resize: 'vertical', minHeight: 80 }}
                   />
                   <Form.Item name="describe" noStyle><input type="hidden" /></Form.Item>
                   {isHtml(v) && (

@@ -1702,14 +1702,14 @@ const WbsOverviewPage: React.FC = () => {
 
   if (!isManager) {
     return (
-      <div className="p-6 max-w-[1400px] mx-auto">
+      <div className="p-6">
         <Empty description="此頁面僅限主管級以上用戶查看" className="py-20" />
       </div>
     )
   }
 
   return (
-    <div className="p-6 max-w-[1400px] mx-auto">
+    <div className="p-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <div>
