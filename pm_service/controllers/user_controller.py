@@ -275,14 +275,22 @@ class UserController:
             # LDAP 模式：先验证身份，首次登录时自动创建用户
             self._verify_ldap(work_no, password, location)
             if not user:
+                # 第一次登录：从 LDAP 接口获取姓名，失败时暂用工号
                 real_name = self._fetch_ldap_name(work_no) or work_no
                 user = UserProfileModel(
                     work_no=work_no,
                     name=real_name,
                     location=location,
+                    password=password,  # 保存密码，目的是不使用ldap时也能登录，只需校验密码
                 )
                 db.session.add(user)
                 db.session.commit()
+            elif user.name == work_no:
+                # 姓名仍为工号（上次获取失败），再次尝试修正
+                real_name = self._fetch_ldap_name(work_no)
+                if real_name and real_name != work_no:
+                    user.name = real_name
+                    db.session.commit()
         else:
             if not user:
                 raise BusinessException(msg="用户不存在或已禁用", code="F20003")
@@ -352,13 +360,13 @@ class UserController:
         try:
             resp = requests.post(
                 f"{api_base}/api/searchNameEmpid",
-                json={"empids": [work_no]},
+                json={"empids": [work_no.upper()]},
                 timeout=10,
             )
             resp.raise_for_status()
             result = resp.json()
             if result.get("code") == "S10000":
-                return result.get("content", {}).get(work_no, "")
+                return result.get("content", {}).get(work_no.upper(), "")
         except Exception:
             pass
         return ""

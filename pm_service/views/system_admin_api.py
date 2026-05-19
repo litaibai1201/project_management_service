@@ -79,6 +79,53 @@ class AdminUserResetPasswordApi(MethodView):
         return response_result()
 
 
+# ── 角色管理 ──────────────────────────────────────────────────────────────────
+
+@blp.route("/roles")
+class AdminRoleListApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgRawSchema)
+    def get(self):
+        """获取所有角色"""
+        _require_system_admin()
+        return response_result(content=ctrl.list_roles())
+
+
+@blp.route("/users/<string:work_no>/role")
+class AdminUserRoleApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def get(self, work_no):
+        """获取用户角色及下属"""
+        _require_system_admin()
+        return response_result(content=ctrl.get_user_role_detail(work_no))
+
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def put(self, work_no):
+        """设置/清除用户角色 (role_code=null 则清除)"""
+        _require_system_admin()
+        payload   = request.get_json() or {}
+        role_code = payload.get("role_code")  # None means clear
+        ctrl.set_user_role(work_no, role_code)
+        return response_result()
+
+
+@blp.route("/users/<string:work_no>/subordinates")
+class AdminUserSubordinatesApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def put(self, work_no):
+        """替换用户下属列表"""
+        _require_system_admin()
+        payload    = request.get_json() or {}
+        subs       = payload.get("subordinates", [])
+        if not isinstance(subs, list):
+            raise ValidationException(msg="subordinates 必须为列表")
+        ctrl.set_user_subordinates(work_no, subs)
+        return response_result()
+
+
 # ── 系统配置 ──────────────────────────────────────────────────────────────────
 
 @blp.route("/system_config")

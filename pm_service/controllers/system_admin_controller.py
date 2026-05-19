@@ -6,6 +6,7 @@ from dbs.mysql_db import db
 from dbs.mysql_db.model_tables import (
     AdminUserModel, SystemConfigModel, OperationLogModel,
     UserProfileModel, FunctionDataModel, TemporaryDutyModel,
+    RoleModel, UserRoleModel, HierarchyModel,
 )
 
 
@@ -76,10 +77,34 @@ class SystemAdminController:
             q = q.filter(UserProfileModel.status == status)
         total = q.count()
         users = q.order_by(UserProfileModel.created_at.desc()).offset((page - 1) * size).limit(size).all()
+
+        # batch-load roles
+        work_nos = [u.work_no for u in users]
+        role_rows = (
+            db.session.query(UserRoleModel, RoleModel)
+            .join(RoleModel, UserRoleModel.role_code == RoleModel.code)
+            .filter(UserRoleModel.work_no.in_(work_nos))
+            .all()
+        ) if work_nos else []
+        role_map = {ur.work_no: role for ur, role in role_rows}
+
+        # supervisors with at least one subordinate
+        sup_rows = db.session.query(HierarchyModel.supervisor_work_no).distinct().all()
+        supervisor_set = {r.supervisor_work_no for r in sup_rows}
+
+        data_list = []
+        for u in users:
+            d = u.to_dict()
+            role = role_map.get(u.work_no)
+            d["role_code"]     = role.code if role else None
+            d["role_name"]     = role.name if role else None
+            d["is_supervisor"] = u.work_no in supervisor_set
+            data_list.append(d)
+
         return {
             "total_count": total,
             "total_page":  (total + size - 1) // size,
-            "data_list":   [u.to_dict() for u in users],
+            "data_list":   data_list,
         }
 
     def set_user_status(self, work_no: str, status: int):
@@ -96,6 +121,60 @@ class SystemAdminController:
             raise ResourceNotFoundException(resource_type="用户")
         user.password = new_password
         user.update_at = CommonTools.get_now()
+        db.session.commit()
+
+    # ── 角色管理 ───────────────────────────────────────────────────────────────
+
+    def list_roles(self) -> list:
+        roles = db.session.query(RoleModel).order_by(RoleModel.created_at).all()
+        return [{"code": r.code, "name": r.name, "describe": r.describe or ""} for r in roles]
+
+    def get_user_role_detail(self, work_no: str) -> dict:
+        """返回用户的角色及下属列表"""
+        ur = db.session.query(UserRoleModel).filter_by(work_no=work_no).first()
+        role_code, role_name = None, None
+        if ur:
+            role = db.session.query(RoleModel).filter_by(code=ur.role_code).first()
+            role_code = ur.role_code
+            role_name = role.name if role else None
+
+        subs = db.session.query(HierarchyModel).filter_by(supervisor_work_no=work_no).all()
+        subordinates = [s.subordinate_work_no for s in subs]
+
+        return {"work_no": work_no, "role_code": role_code, "role_name": role_name,
+                "subordinates": subordinates}
+
+    def set_user_role(self, work_no: str, role_code: str | None):
+        """设置/清除用户角色"""
+        user = db.session.query(UserProfileModel).filter_by(work_no=work_no).first()
+        if not user:
+            raise ResourceNotFoundException(resource_type="用户")
+        ur = db.session.query(UserRoleModel).filter_by(work_no=work_no).first()
+        if role_code:
+            if not db.session.query(RoleModel).filter_by(code=role_code).first():
+                raise ResourceNotFoundException(resource_type="角色")
+            if ur:
+                ur.role_code = role_code
+            else:
+                db.session.add(UserRoleModel(work_no=work_no, role_code=role_code))
+        else:
+            if ur:
+                db.session.delete(ur)
+        db.session.commit()
+
+    def set_user_subordinates(self, supervisor_work_no: str, subordinate_work_nos: list):
+        """替换某主管的下属列表"""
+        user = db.session.query(UserProfileModel).filter_by(work_no=supervisor_work_no).first()
+        if not user:
+            raise ResourceNotFoundException(resource_type="用户")
+        # remove existing
+        db.session.query(HierarchyModel).filter_by(supervisor_work_no=supervisor_work_no).delete()
+        for sub in subordinate_work_nos:
+            if sub != supervisor_work_no:
+                db.session.add(HierarchyModel(
+                    supervisor_work_no=supervisor_work_no,
+                    subordinate_work_no=sub,
+                ))
         db.session.commit()
 
     # ── 系统配置 ───────────────────────────────────────────────────────────────

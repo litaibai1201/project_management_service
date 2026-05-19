@@ -12,13 +12,16 @@ export interface AdminDashboard {
 }
 
 export interface AdminUser {
-  work_no:    string
-  name:       string
-  department: string
-  position:   string
-  email:      string
-  status:     number
-  created_at: string
+  work_no:      string
+  name:         string
+  department:   string
+  position:     string
+  email:        string
+  status:       number
+  created_at:   string
+  role_code:    string | null
+  role_name:    string | null
+  is_supervisor: boolean
 }
 
 export interface SystemConfig {
@@ -44,6 +47,19 @@ export interface AdminAccount {
   status:     number
   last_login: string
   created_at: string
+}
+
+export interface Role {
+  code:     string
+  name:     string
+  describe: string
+}
+
+export interface UserRoleDetail {
+  work_no:      string
+  role_code:    string | null
+  role_name:    string | null
+  subordinates: string[]
 }
 
 export interface AdminUserListQuery {
@@ -89,6 +105,24 @@ export const sysAdminApi = {
   /** PUT /api/sys_admin/users/:work_no/reset_password */
   resetPassword: (work_no: string, new_password: string): Promise<ApiResponse<null>> =>
     put(`/sys_admin/users/${work_no}/reset_password`, { new_password }),
+
+  // ── 角色管理 ──────────────────────────────────────────────────────────────
+
+  /** GET /api/sys_admin/roles */
+  listRoles: (): Promise<ApiResponse<Role[]>> =>
+    get('/sys_admin/roles'),
+
+  /** GET /api/sys_admin/users/:work_no/role */
+  getUserRoleDetail: (work_no: string): Promise<ApiResponse<UserRoleDetail>> =>
+    get(`/sys_admin/users/${work_no}/role`),
+
+  /** PUT /api/sys_admin/users/:work_no/role */
+  setUserRole: (work_no: string, role_code: string | null): Promise<ApiResponse<null>> =>
+    put(`/sys_admin/users/${work_no}/role`, { role_code }),
+
+  /** PUT /api/sys_admin/users/:work_no/subordinates */
+  setUserSubordinates: (work_no: string, subordinates: string[]): Promise<ApiResponse<null>> =>
+    put(`/sys_admin/users/${work_no}/subordinates`, { subordinates }),
 
   // ── 系统配置 ──────────────────────────────────────────────────────────────
 
