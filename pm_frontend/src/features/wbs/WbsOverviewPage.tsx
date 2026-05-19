@@ -75,6 +75,7 @@ interface WbsTask {
   expected_end: string
   original_end?: string      // 原始預計完成時間（延期前）
   reschedule_count?: number  // 延期次數
+  reschedule_reason?: string // 最新延期原因
   actual_end?: string
   days_overdue?: number
   latest_update?: string
@@ -223,6 +224,7 @@ function buildProgressTextRuns(project: WbsProject): PptTextRun[] {
       const lineColor = task.status === 'completed' ? '00B050' : '000000'
       runs.push(_run(`${taskIdx}. `, { color: lineColor }))
       runs.push(..._statusRuns(task))
+      if (task.is_suspended) runs.push(_run('[搁置] ', { color: '6B7280', bold: true }))
       runs.push(_run(task.name, { color: lineColor }))
       const hasReschedule = (task.reschedule_count ?? 0) > 0 && !!task.original_end
       if (hasReschedule) {
@@ -247,7 +249,11 @@ function buildProgressTextRuns(project: WbsProject): PptTextRun[] {
       if (task.is_overdue && task.days_overdue && task.expected_end) {
         runs.push(_run(` [超時${task.days_overdue}天]`, { color: 'FF0000' }))
       }
-      if (task.latest_update && task.status !== 'completed') {
+      if (hasReschedule && task.reschedule_reason) {
+        runs.push({ text: '\n' })
+        runs.push(_run(`       ↳ 延期原因：${task.reschedule_reason}`, { color: 'D97706', fontSize: PPT_FONT_SIZE - 1 }))
+      }
+      if (task.latest_update && task.status !== 'completed' && !task.is_suspended) {
         runs.push({ text: '\n' })
         runs.push(_run(`       - ${task.latest_update}`, { color: '000000' }))
       }
@@ -1390,11 +1396,10 @@ const ReportPreviewModal: React.FC<{
                       {project.functions.flatMap((func) =>
                         func.tasks
                           .filter((task) => {
-                            if (task.is_suspended) return false
-                            // 三週範圍內（上週/本週/下週）的任務正常顯示
+                            // 三週範圍內的任務顯示（含搁置）
                             if (task.week_tag.length > 0) return true
-                            // 超時且未完成，無論週期始終統計進來
-                            if (task.is_overdue && task.status !== 'completed') return true
+                            // 超時且未完成，無論週期始終統計進來（搁置除外）
+                            if (task.is_overdue && task.status !== 'completed' && !task.is_suspended) return true
                             return false
                           })
                           .map((task) => {
@@ -1407,6 +1412,9 @@ const ReportPreviewModal: React.FC<{
                             <div key={task.id} style={{ marginTop: taskIdx > 1 ? 2 : 0, color: lineColor }}>
                               <span>{taskIdx}. </span>
                               <span style={{ color, fontWeight: 700 }}>({label})</span>
+                              {task.is_suspended && (
+                                <span style={{ color: '#6b7280', fontWeight: 700 }}>[搁置] </span>
+                              )}
                               <span>{task.name}</span>
                               <span>(</span>
                               {hasReschedule ? (
@@ -1428,7 +1436,12 @@ const ReportPreviewModal: React.FC<{
                               {task.is_overdue && task.days_overdue && (
                                 <span style={{ color: '#FF0000' }}> [超時{task.days_overdue}天]</span>
                               )}
-                              {task.latest_update && task.status !== 'completed' && (
+                              {hasReschedule && task.reschedule_reason && (
+                                <div style={{ paddingLeft: 20, color: '#d97706', fontSize: 11 }}>
+                                  ↳ 延期原因：{task.reschedule_reason}
+                                </div>
+                              )}
+                              {task.latest_update && task.status !== 'completed' && !task.is_suspended && (
                                 <div style={{ paddingLeft: 20, color: '#000' }}>- {task.latest_update}</div>
                               )}
                             </div>

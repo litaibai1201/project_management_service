@@ -1070,7 +1070,7 @@ class ProjectController:
 
         def _compute_week_tag(f: FunctionDataModel, status: str) -> list:
             tags = []
-            end_str = f.expected_end_date
+            end_str = f.latest_expected_end_date or f.expected_end_date  # 延期後用新日期
             actual_end_str = (f.end_time or "")[:10] if f.end_time else ""
 
             if end_str:
@@ -1127,6 +1127,14 @@ class ProjectController:
                     end_str = f.latest_expected_end_date or f.expected_end_date or ""  # 延期後用新日期
                     original_end_str = f.expected_end_date or ""
                     reschedule_count = f.reschedule_count or 0
+                    reschedule_reason = ""
+                    if f.reschedule_log:
+                        try:
+                            log_list = json.loads(f.reschedule_log)
+                            if log_list:
+                                reschedule_reason = log_list[-1].get("reason", "") or ""
+                        except (ValueError, TypeError):
+                            pass
                     actual_end = (f.end_time or "")[:10] if f.end_time else None
                     days_overdue = None
                     if is_overdue and end_str:
@@ -1175,6 +1183,7 @@ class ProjectController:
                         "expected_end":    end_str,
                         "original_end":    original_end_str,
                         "reschedule_count": reschedule_count,
+                        "reschedule_reason": reschedule_reason,
                         "actual_end":      actual_end,
                         "days_overdue":    days_overdue,
                         "latest_update":   latest.progress_record if latest else None,
