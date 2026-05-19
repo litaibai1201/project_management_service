@@ -95,6 +95,14 @@ def create_app(config_name=None):
     # 注册全局错误处理器
     register_error_handlers(app)
 
+    # 初始化 Celery（需在 Flask app 创建后调用）
+    try:
+        from queues.celery_queue import celery_app as _celery_mgr
+        _celery_mgr.init_app(app)
+        logger.info("✓ Celery 初始化成功")
+    except Exception as e:
+        logger.warning(f"Celery 初始化失败（任务队列不可用）: {e}")
+
     # 注册蓝图
     api = Api(app)
     # 增强 API 文档元信息并启用 JWT Bearer 在 swagger 中的展示

@@ -12,7 +12,7 @@ def push_notification(recipients: list, title: str, desc: str = "",
     批量写入平台通知记录，并异步触发钉钉推送（均为 best-effort）。
     须在主事务 commit 之后调用，以避免嵌套事务问题。
     """
-    clean = [str(wn).strip().lower() for wn in recipients if wn]
+    clean = [str(wn).strip().upper() for wn in recipients if wn]
     if not clean:
         return
 

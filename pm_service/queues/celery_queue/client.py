@@ -53,6 +53,9 @@ from kombu import Queue, Exchange
 from loggers import logger
 
 
+_flask_app = None  # 由 CeleryClientManager.init_app() 设置
+
+
 class FlaskTask(Task):
     """Flask 集成的 Celery Task 基类
 
@@ -61,10 +64,8 @@ class FlaskTask(Task):
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         """执行任务时自动推入 Flask 应用上下文"""
-        from flask import current_app
-
-        if hasattr(current_app, 'app_context'):
-            with current_app.app_context():
+        if _flask_app is not None:
+            with _flask_app.app_context():
                 return self.run(*args, **kwargs)
         return self.run(*args, **kwargs)
 
@@ -117,6 +118,8 @@ class CeleryClientManager:
 
         配置优先级: 环境变量 > .env 配置 > 默认值
         """
+        global _flask_app
+        _flask_app = app
         try:
             # 获取配置
             broker_url = (

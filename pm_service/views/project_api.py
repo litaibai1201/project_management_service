@@ -458,7 +458,7 @@ class MySubmittedReviewsApi(MethodView):
 @blp.route("/all_reviews")
 class AllReviewsApi(MethodView):
     @jwt_required()
-    @blp.response(200, RspMsgDictSchema)
+    @blp.response(200, RspMsgRawSchema)
     def get(self):
         """全部审核（项目+任务）"""
         work_no = get_identity()
