@@ -20,6 +20,24 @@ def _require_system_admin():
         raise PermissionException(msg="仅系统管理员可执行此操作")
 
 
+# ── 登录 ──────────────────────────────────────────────────────────────────────
+
+@blp.route("/login")
+class AdminLoginApi(MethodView):
+    @blp.response(200, RspMsgDictSchema)
+    def post(self):
+        """系统管理员登录"""
+        payload  = request.get_json() or {}
+        username = payload.get("username", "").strip()
+        password = payload.get("password", "").strip()
+        if not username or not password:
+            raise ValidationException(msg="账号和密码不能为空")
+        result = ctrl.login(username, password)
+        if result is None:
+            raise PermissionException(msg="账号不存在或无权限")
+        return response_result(content=result)
+
+
 # ── 仪表盘 ────────────────────────────────────────────────────────────────────
 
 @blp.route("/dashboard")

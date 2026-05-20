@@ -211,6 +211,9 @@ class ProjectController:
         return result
 
     def create_project(self, payload: dict, creator: str):
+        from utils.exceptions import ValidationException
+        if not payload.get("project_nm", "").strip():
+            raise ValidationException(msg="项目名称不能为空")
         p = ProjectDataModel(
             project_nm=payload["project_nm"],
             describe=payload.get("describe", ""),

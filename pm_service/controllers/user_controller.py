@@ -43,7 +43,10 @@ class UserController:
         return user.to_dict()
 
     def create_user(self, payload: dict):
+        from utils.exceptions import ValidationException
         work_no = (payload["work_no"] or "").strip().lower()
+        if not work_no:
+            raise ValidationException(msg="工号不能为空")
         if db.session.query(UserProfileModel).filter_by(work_no=work_no).first():
             raise ResourceExistsException(resource_type="工号")
         user = UserProfileModel(

@@ -3,7 +3,7 @@
 import json
 
 from utils.tools import CommonTools
-from utils.exceptions import ResourceNotFoundException, PermissionException, BusinessException
+from utils.exceptions import ResourceNotFoundException, PermissionException, BusinessException, ValidationException
 from dbs.mysql_db import db
 from dbs.mysql_db.model_tables import (
     TemporaryDutyModel, DutyProgressRecordModel, ReviewApplyModel, ProjectDataModel
@@ -61,6 +61,9 @@ class DutyController:
         return d.to_dict()
 
     def create_duty(self, payload: dict, creator: str):
+        from utils.exceptions import ValidationException
+        if not payload.get("duty_nm", "").strip():
+            raise ValidationException(msg="任务名称不能为空")
         resp = payload.get("responsible", [])
         if isinstance(resp, str):
             try:
@@ -131,6 +134,8 @@ class DutyController:
 
     def reschedule_duty(self, duty_id: str, new_end_date: str, reason: str, operator: str):
         """延期临时任务：建立人或责任人可操作，记录延期历史"""
+        if not new_end_date or not new_end_date.strip():
+            raise ValidationException(msg="new_end_date 不能为空")  # noqa
         d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
         if not d or d.duty_status == 9:
             raise ResourceNotFoundException(resource_type="临时任务")

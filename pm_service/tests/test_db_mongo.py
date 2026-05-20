@@ -289,6 +289,10 @@ class TestMongoOperationsAggregate(unittest.TestCase):
         self.mock_client = patcher.start()
         self.mock_client.get_collection.return_value = self.col_mock
         self.addCleanup(patcher.stop)
+        # Patch ObjectId in operations module so isinstance check works with _FakeObjectId
+        oid_patcher = patch("dbs.mongo_db.operations.ObjectId", _FakeObjectId)
+        oid_patcher.start()
+        self.addCleanup(oid_patcher.stop)
 
         from dbs.mongo_db.operations import MongoOperations
         self.ops = MongoOperations("test_col")
