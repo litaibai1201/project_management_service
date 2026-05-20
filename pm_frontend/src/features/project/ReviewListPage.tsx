@@ -11,6 +11,7 @@ import {
   ArrowDownTrayIcon, PlusIcon, MagnifyingGlassIcon, FunnelIcon,
 } from '@heroicons/react/24/outline'
 import { useLocation } from 'react-router-dom'
+import { useResizableColumns, tableComponents } from '@/hooks/useResizableColumns'
 import { projectApi } from '@/api/project.api'
 import { dutyApi } from '@/api/duty.api'
 import { userApi } from '@/api/user.api'
@@ -19,6 +20,7 @@ import { showToast } from '@/utils/toast'
 import FilePreviewModal from './FilePreviewModal'
 import { tokenStorage } from '@/api/httpClient'
 import { useWorkNoToName } from '@/hooks/useWorkNoToName'
+import RichTextContent from '@/components/common/RichTextContent'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -648,11 +650,17 @@ const ReviewDetailDrawer: React.FC<{
                   </tr>
                   <tr>
                     <td className="bg-slate-50 px-3 py-2.5 border border-slate-200 font-medium text-slate-500 whitespace-nowrap">專案描述</td>
-                    <td className="px-3 py-2.5 border border-slate-200 text-slate-700 leading-relaxed" colSpan={3}>{project.describe || '—'}</td>
+                    <td className="px-3 py-2.5 border border-slate-200 text-slate-700" colSpan={3}>
+                      <RichTextContent html={project.describe} />
+                    </td>
                   </tr>
                   <tr>
                     <td className="bg-slate-50 px-3 py-2.5 border border-slate-200 font-medium text-slate-500 whitespace-nowrap">預期效益</td>
-                    <td className="px-3 py-2.5 border border-slate-200 text-slate-700 leading-relaxed" colSpan={3}>{project.expected_benefit || '—'}</td>
+                    <td className="px-3 py-2.5 border border-slate-200 text-slate-700" colSpan={3}>
+                      {project.benefit_amount != null
+                        ? <>{project.benefit_amount} {project.benefit_unit ?? '元/年'}{project.expected_benefit ? <span className="text-slate-400 ml-2 text-xs">（{project.expected_benefit}）</span> : null}</>
+                        : project.expected_benefit || '—'}
+                    </td>
                   </tr>
                 </tbody>
               </table>
@@ -1154,7 +1162,7 @@ const ReviewListPage: React.FC = () => {
 
   // ─── Table Columns ─────────────────────────────────────────────────────────
 
-  const columns: ColumnsType<ApplyRecord> = [
+  const rawColumns: ColumnsType<ApplyRecord> = [
     {
       title: '申請類型', dataIndex: 'apply_type_code', width: 110,
       render: (_: string, r) => (
@@ -1284,6 +1292,8 @@ const ReviewListPage: React.FC = () => {
     },
   ]
 
+  const { mergeColumns: columns } = useResizableColumns(rawColumns)
+
   // ─── Render ────────────────────────────────────────────────────────────────
 
   const actionLabels = { approve: '通過', reject: '拒絕', return: '退回' }
@@ -1297,6 +1307,7 @@ const ReviewListPage: React.FC = () => {
       <Table
         rowKey="id"
         columns={columns}
+        components={tableComponents}
         dataSource={records}
         loading={false}
         pagination={{ pageSize: 20, showTotal: (t) => `共 ${t} 條` }}

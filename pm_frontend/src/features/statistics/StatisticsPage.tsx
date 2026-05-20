@@ -37,6 +37,7 @@ import { tokenStorage } from '@/api/httpClient'
 import FilePreviewModal from '@/features/project/FilePreviewModal'
 import { PROJECT_STATUS_MAP, DUTY_STATUS_MAP, PRIORITY_MAP } from '@/utils/status'
 import dayjs, { Dayjs } from 'dayjs'
+import { useResizableColumns, tableComponents } from '@/hooks/useResizableColumns'
 
 const { RangePicker } = DatePicker
 const { Panel } = Collapse
@@ -954,7 +955,7 @@ const StatisticsPage: React.FC = () => {
     [stats],
   )
 
-  const memberColumns: ColumnsType<MemberWorkStat> = [
+  const rawMemberColumns: ColumnsType<MemberWorkStat> = [
     {
       title: '成員', dataIndex: 'name', width: 120,
       render: (v: string, r) => (
@@ -994,6 +995,8 @@ const StatisticsPage: React.FC = () => {
       },
     },
   ]
+
+  const { mergeColumns: memberColumns } = useResizableColumns(rawMemberColumns)
 
   // ── Individual member work-hours detail (used in both manager drill-down and engineer self-view) ──
   const renderPersonalDetail = (workNo: string, memberName: string) => {
@@ -1212,7 +1215,7 @@ const StatisticsPage: React.FC = () => {
         bodyStyle={{ padding: 0 }}
       >
         <Table
-          rowKey="work_no" columns={memberColumns} dataSource={stats} loading={isLoading}
+          rowKey="work_no" columns={memberColumns} components={tableComponents} dataSource={stats} loading={isLoading}
           pagination={false} size="middle"
           expandable={{
             expandedRowKeys: selected ? [selected] : [],

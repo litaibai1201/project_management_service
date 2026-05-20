@@ -8,6 +8,7 @@ import {
 } from '@ant-design/icons'
 import { sysAdminApi, AdminDashboard, OperationLog } from '@/api/sys_admin.api'
 import { showToast } from '@/utils/toast'
+import { useResizableColumns, tableComponents } from '@/hooks/useResizableColumns'
 
 const AdminDashboardPage: React.FC = () => {
   const [data, setData]       = useState<AdminDashboard | null>(null)
@@ -20,7 +21,7 @@ const AdminDashboardPage: React.FC = () => {
       .finally(() => setLoading(false))
   }, [])
 
-  const logColumns = [
+  const rawLogColumns = [
     { title: '工号',     dataIndex: 'work_no',   key: 'work_no',   width: 120 },
     { title: '操作',     dataIndex: 'operation', key: 'operation' },
     { title: '详情',     dataIndex: 'detail',    key: 'detail',    ellipsis: true },
@@ -32,6 +33,7 @@ const AdminDashboardPage: React.FC = () => {
       render: (v: string) => v ? v.slice(0, 19).replace('T', ' ') : '-',
     },
   ]
+  const { mergeColumns: logColumns } = useResizableColumns(rawLogColumns)
 
   if (loading) {
     return (
@@ -93,6 +95,7 @@ const AdminDashboardPage: React.FC = () => {
           rowKey="id"
           dataSource={data?.recent_logs ?? []}
           columns={logColumns}
+          components={tableComponents}
           pagination={false}
           size="small"
         />

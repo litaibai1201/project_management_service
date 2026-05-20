@@ -32,6 +32,7 @@ import { useDashboardConfig } from '@/hooks/useDashboardConfig'
 import {
   AddCardModal, WidgetMenu,
 } from '@/components/common/DashboardCustomizeDrawer'
+import { useResizableColumns, tableComponents } from '@/hooks/useResizableColumns'
 
 
 // ─── Types for dashboard data ─────────────────────────────────────────────────
@@ -384,6 +385,188 @@ const MonthlyAttendanceCard: React.FC = () => {
         <div className="w-3 h-3 rounded-sm ring-1 ring-red-200 bg-slate-100" />
         <span className="text-[10px] text-red-400">缺報</span>
       </div>
+    </Card>
+  )
+}
+
+// ─── TeamLogCard ───────────────────────────────────────────────────────────────
+
+type LogRow = {
+  work_no: string; name: string; period_hours: number; updates_count: number
+  completed: unknown[]; overdue: unknown[]; daily_logs: Array<{ log_date: string; status: number }>
+}
+
+interface TeamLogCardProps {
+  logReportData: LogRow[]
+  logLoading: boolean
+  logPeriod: 'day' | 'week' | 'month' | 'quarter'
+  setLogPeriod: (p: 'day' | 'week' | 'month' | 'quarter') => void
+  notifyingSet: Set<string>
+  setNotifyingSet: React.Dispatch<React.SetStateAction<Set<string>>>
+  notifyingAll: boolean
+  setNotifyingAll: (v: boolean) => void
+  navigate: ReturnType<typeof useNavigate>
+}
+
+const TeamLogCard: React.FC<TeamLogCardProps> = ({
+  logReportData, logLoading, logPeriod, setLogPeriod,
+  notifyingSet, setNotifyingSet, notifyingAll, setNotifyingAll, navigate,
+}) => {
+  const todayStr = dayjs().format('YYYY-MM-DD')
+  const LOG_PERIODS = [
+    { key: 'day'     as const, label: '今日' },
+    { key: 'week'    as const, label: '本週' },
+    { key: 'month'   as const, label: '本月' },
+    { key: 'quarter' as const, label: '本季' },
+  ]
+  const unsubmittedMembers = logReportData.filter((r) => {
+    const todayLog = r.daily_logs?.find((l) => l.log_date === todayStr)
+    return todayLog?.status !== 2
+  })
+  const handleNotifyAll = async () => {
+    if (unsubmittedMembers.length === 0) return
+    setNotifyingAll(true)
+    try {
+      await notificationApi.remindDailyLog(unsubmittedMembers.map((r) => r.work_no))
+      message.success(`已向 ${unsubmittedMembers.length} 位未提交成員發送通知`)
+    } catch {
+      message.error('批量通知發送失敗')
+    } finally {
+      setNotifyingAll(false)
+    }
+  }
+  const rawColumns = [
+    {
+      title: '成員', dataIndex: 'name', key: 'name',
+      render: (name: string, record: LogRow) => (
+        <div className="flex items-center gap-2">
+          <Avatar size={24} style={{ background: '#eff6ff', color: '#2563eb', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{name[0]}</Avatar>
+          <div>
+            <div className="text-xs font-medium text-slate-700">{name}</div>
+            <div className="text-[10px] text-slate-400">{record.work_no}</div>
+          </div>
+        </div>
+      ),
+    },
+    {
+      title: '工時', dataIndex: 'period_hours', key: 'period_hours',
+      sorter: (a: LogRow, b: LogRow) => a.period_hours - b.period_hours,
+      render: (h: number) => <span className="text-xs font-semibold text-blue-600">{Number(h).toFixed(1)}h</span>,
+    },
+    {
+      title: '更新次數', dataIndex: 'updates_count', key: 'updates_count',
+      sorter: (a: LogRow, b: LogRow) => a.updates_count - b.updates_count,
+      render: (v: number) => <span className="text-xs text-slate-600">{v} 次</span>,
+    },
+    {
+      title: '完成', key: 'completed',
+      sorter: (a: LogRow, b: LogRow) => (a.completed?.length ?? 0) - (b.completed?.length ?? 0),
+      render: (_: unknown, r: LogRow) => <span className="text-xs text-green-600">{r.completed?.length ?? 0}</span>,
+    },
+    {
+      title: '超時', key: 'overdue',
+      sorter: (a: LogRow, b: LogRow) => (a.overdue?.length ?? 0) - (b.overdue?.length ?? 0),
+      render: (_: unknown, r: LogRow) => {
+        const count = r.overdue?.length ?? 0
+        return count > 0
+          ? <Tag color="error" style={{ fontSize: 10, padding: '0 4px', margin: 0, lineHeight: '16px' }}>{count}</Tag>
+          : <span className="text-xs text-slate-300">-</span>
+      },
+    },
+    {
+      title: '今日日報', key: 'daily_log',
+      render: (_: unknown, r: LogRow) => {
+        const todayLog = r.daily_logs?.find((l) => l.log_date === todayStr)
+        const submitted = todayLog?.status === 2
+        const isNotifying = notifyingSet.has(r.work_no)
+        const handleNotify = async (e: React.MouseEvent) => {
+          e.stopPropagation()
+          setNotifyingSet((prev) => new Set(prev).add(r.work_no))
+          try {
+            await notificationApi.remindDailyLog([r.work_no])
+            message.success(`已通知 ${r.name}`)
+          } catch {
+            message.error('通知發送失敗')
+          } finally {
+            setNotifyingSet((prev) => { const s = new Set(prev); s.delete(r.work_no); return s })
+          }
+        }
+        return (
+          <div className="flex items-center gap-1.5">
+            <Tooltip title={submitted ? '已提交' : '未提交'}>
+              <span className={`w-5 h-5 rounded-full inline-flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${submitted ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-500'}`}>
+                {submitted ? '✓' : '✗'}
+              </span>
+            </Tooltip>
+            {!submitted && (
+              <Tooltip title="發送鼎+ 催報通知">
+                <button
+                  onClick={handleNotify}
+                  disabled={isNotifying}
+                  className="w-5 h-5 rounded inline-flex items-center justify-center border-0 outline-none cursor-pointer transition-colors bg-orange-50 hover:bg-orange-100 text-orange-500 disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
+                >
+                  <BellIcon className="w-3 h-3" />
+                </button>
+              </Tooltip>
+            )}
+          </div>
+        )
+      },
+    },
+  ]
+  const { mergeColumns: columns } = useResizableColumns(rawColumns)
+  return (
+    <Card className="h-full" style={{ display: 'flex', flexDirection: 'column' }}
+      title={
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-sm font-semibold text-slate-600">成員工時明細</span>
+          <div className="flex items-center gap-1">
+            {LOG_PERIODS.map((p) => (
+              <button
+                key={p.key}
+                onClick={() => setLogPeriod(p.key)}
+                className={`px-2 py-0.5 rounded text-[11px] cursor-pointer border-0 outline-none transition-colors ${
+                  logPeriod === p.key ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      }
+      extra={
+        <div className="flex items-center gap-2">
+          {unsubmittedMembers.length > 0 && (
+            <Tooltip title={`向 ${unsubmittedMembers.length} 位未提交成員發送鼎+ 催報通知`}>
+              <button
+                onClick={handleNotifyAll}
+                disabled={notifyingAll}
+                className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] border border-orange-200 text-orange-500 bg-orange-50 hover:bg-orange-100 cursor-pointer outline-none transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <BellIcon className="w-3 h-3" />
+                全部通知 ({unsubmittedMembers.length})
+              </button>
+            </Tooltip>
+          )}
+          <span className="text-xs text-blue-500 cursor-pointer hover:underline" onClick={() => navigate(`/statistics?tab=report&period=${logPeriod}`)}>查看詳情 →</span>
+        </div>
+      }
+      styles={{ body: { flex: 1, padding: '0 16px 8px', minHeight: 0, overflowY: 'auto' } }}>
+      <Table
+        dataSource={logReportData}
+        columns={columns}
+        components={tableComponents}
+        rowKey="work_no"
+        size="small"
+        loading={logLoading}
+        pagination={false}
+        locale={{ emptyText: <Empty description="暫無數據" image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
+        onRow={(r) => ({
+          onClick: () => navigate(`/statistics?tab=report&period=${logPeriod}&member=${r.work_no}`),
+          style: { cursor: 'pointer' },
+        })}
+      />
     </Card>
   )
 }
@@ -913,164 +1096,19 @@ const DashboardPage: React.FC = () => {
               )
             })()
 
-            case 'team_log_today': return !isManager ? null : (() => {
-              const todayStr = dayjs().format('YYYY-MM-DD')
-              const LOG_PERIODS = [
-                { key: 'day'     as const, label: '今日' },
-                { key: 'week'    as const, label: '本週' },
-                { key: 'month'   as const, label: '本月' },
-                { key: 'quarter' as const, label: '本季' },
-              ]
-              type LogRow = typeof logReportData[number]
-              const columns = [
-                {
-                  title: '成員', dataIndex: 'name', key: 'name',
-                  render: (name: string, record: LogRow) => (
-                    <div className="flex items-center gap-2">
-                      <Avatar size={24} style={{ background: '#eff6ff', color: '#2563eb', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{name[0]}</Avatar>
-                      <div>
-                        <div className="text-xs font-medium text-slate-700">{name}</div>
-                        <div className="text-[10px] text-slate-400">{record.work_no}</div>
-                      </div>
-                    </div>
-                  ),
-                },
-                {
-                  title: '工時', dataIndex: 'period_hours', key: 'period_hours',
-                  sorter: (a: LogRow, b: LogRow) => a.period_hours - b.period_hours,
-                  render: (h: number) => <span className="text-xs font-semibold text-blue-600">{Number(h).toFixed(1)}h</span>,
-                },
-                {
-                  title: '更新次數', dataIndex: 'updates_count', key: 'updates_count',
-                  sorter: (a: LogRow, b: LogRow) => a.updates_count - b.updates_count,
-                  render: (v: number) => <span className="text-xs text-slate-600">{v} 次</span>,
-                },
-                {
-                  title: '完成', key: 'completed',
-                  sorter: (a: LogRow, b: LogRow) => (a.completed?.length ?? 0) - (b.completed?.length ?? 0),
-                  render: (_: unknown, r: LogRow) => <span className="text-xs text-green-600">{r.completed?.length ?? 0}</span>,
-                },
-                {
-                  title: '超時', key: 'overdue',
-                  sorter: (a: LogRow, b: LogRow) => (a.overdue?.length ?? 0) - (b.overdue?.length ?? 0),
-                  render: (_: unknown, r: LogRow) => {
-                    const count = r.overdue?.length ?? 0
-                    return count > 0
-                      ? <Tag color="error" style={{ fontSize: 10, padding: '0 4px', margin: 0, lineHeight: '16px' }}>{count}</Tag>
-                      : <span className="text-xs text-slate-300">-</span>
-                  },
-                },
-                {
-                  title: '今日日報', key: 'daily_log',
-                  render: (_: unknown, r: LogRow) => {
-                    const todayLog = r.daily_logs?.find((l) => l.log_date === todayStr)
-                    const submitted = todayLog?.status === 2
-                    const isNotifying = notifyingSet.has(r.work_no)
-                    const handleNotify = async (e: React.MouseEvent) => {
-                      e.stopPropagation()
-                      setNotifyingSet((prev) => new Set(prev).add(r.work_no))
-                      try {
-                        await notificationApi.remindDailyLog([r.work_no])
-                        message.success(`已通知 ${r.name}`)
-                      } catch {
-                        message.error('通知發送失敗')
-                      } finally {
-                        setNotifyingSet((prev) => { const s = new Set(prev); s.delete(r.work_no); return s })
-                      }
-                    }
-                    return (
-                      <div className="flex items-center gap-1.5">
-                        <Tooltip title={submitted ? '已提交' : '未提交'}>
-                          <span className={`w-5 h-5 rounded-full inline-flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${submitted ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-500'}`}>
-                            {submitted ? '✓' : '✗'}
-                          </span>
-                        </Tooltip>
-                        {!submitted && (
-                          <Tooltip title="發送鼎+ 催報通知">
-                            <button
-                              onClick={handleNotify}
-                              disabled={isNotifying}
-                              className="w-5 h-5 rounded inline-flex items-center justify-center border-0 outline-none cursor-pointer transition-colors bg-orange-50 hover:bg-orange-100 text-orange-500 disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
-                            >
-                              <BellIcon className="w-3 h-3" />
-                            </button>
-                          </Tooltip>
-                        )}
-                      </div>
-                    )
-                  },
-                },
-              ]
-              const unsubmittedMembers = logReportData.filter((r) => {
-                const todayLog = r.daily_logs?.find((l) => l.log_date === todayStr)
-                return todayLog?.status !== 2
-              })
-              const handleNotifyAll = async () => {
-                if (unsubmittedMembers.length === 0) return
-                setNotifyingAll(true)
-                try {
-                  await notificationApi.remindDailyLog(unsubmittedMembers.map((r) => r.work_no))
-                  message.success(`已向 ${unsubmittedMembers.length} 位未提交成員發送通知`)
-                } catch {
-                  message.error('批量通知發送失敗')
-                } finally {
-                  setNotifyingAll(false)
-                }
-              }
-              return (
-                <Card className="h-full" style={{ display: 'flex', flexDirection: 'column' }}
-                  title={
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-semibold text-slate-600">成員工時明細</span>
-                      <div className="flex items-center gap-1">
-                        {LOG_PERIODS.map((p) => (
-                          <button
-                            key={p.key}
-                            onClick={() => setLogPeriod(p.key)}
-                            className={`px-2 py-0.5 rounded text-[11px] cursor-pointer border-0 outline-none transition-colors ${
-                              logPeriod === p.key ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-                            }`}
-                          >
-                            {p.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  }
-                  extra={
-                    <div className="flex items-center gap-2">
-                      {unsubmittedMembers.length > 0 && (
-                        <Tooltip title={`向 ${unsubmittedMembers.length} 位未提交成員發送鼎+ 催報通知`}>
-                          <button
-                            onClick={handleNotifyAll}
-                            disabled={notifyingAll}
-                            className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] border border-orange-200 text-orange-500 bg-orange-50 hover:bg-orange-100 cursor-pointer outline-none transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                          >
-                            <BellIcon className="w-3 h-3" />
-                            全部通知 ({unsubmittedMembers.length})
-                          </button>
-                        </Tooltip>
-                      )}
-                      <span className="text-xs text-blue-500 cursor-pointer hover:underline" onClick={() => navigate(`/statistics?tab=report&period=${logPeriod}`)}>查看詳情 →</span>
-                    </div>
-                  }
-                  styles={{ body: { flex: 1, padding: '0 16px 8px', minHeight: 0, overflowY: 'auto' } }}>
-                  <Table
-                    dataSource={logReportData}
-                    columns={columns}
-                    rowKey="work_no"
-                    size="small"
-                    loading={logLoading}
-                    pagination={false}
-                    locale={{ emptyText: <Empty description="暫無數據" image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
-                    onRow={(r) => ({
-                      onClick: () => navigate(`/statistics?tab=report&period=${logPeriod}&member=${r.work_no}`),
-                      style: { cursor: 'pointer' },
-                    })}
-                  />
-                </Card>
-              )
-            })()
+            case 'team_log_today': return !isManager ? null : (
+              <TeamLogCard
+                logReportData={logReportData}
+                logLoading={logLoading}
+                logPeriod={logPeriod}
+                setLogPeriod={setLogPeriod}
+                notifyingSet={notifyingSet}
+                setNotifyingSet={setNotifyingSet}
+                notifyingAll={notifyingAll}
+                setNotifyingAll={setNotifyingAll}
+                navigate={navigate}
+              />
+            )
 
             case 'team_review_types': return !isManager ? null : (() => {
               const TYPE_LABEL: Record<string, string> = {

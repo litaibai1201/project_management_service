@@ -32,6 +32,7 @@ import { TemporaryDuty } from '@/types/api.types'
 import { DUTY_STATUS_MAP } from '@/utils/status'
 import RichTextEditor from '@/components/common/RichTextEditor'
 import RichTextContent from '@/components/common/RichTextContent'
+import { useResizableColumns, tableComponents } from '@/hooks/useResizableColumns'
 
 // ─── Office Preview Sub-components ────────────────────────────────────────────
 
@@ -685,7 +686,7 @@ const ProjectDetailPage: React.FC = () => {
     }))
   }, [displayedFunctions])
 
-  const funcColumnsGrouped: ColumnsType<ProjectFunction> = [
+  const rawFuncColumnsGrouped: ColumnsType<ProjectFunction> = [
     {
       title: '功能名稱', dataIndex: 'function_nm', width: 200, ellipsis: true,
       render: (name: string, r) => (
@@ -818,13 +819,13 @@ const ProjectDetailPage: React.FC = () => {
     },
   ]
 
-  const funcColumnsFlat: ColumnsType<ProjectFunction> = [
-    funcColumnsGrouped[0], // 功能名稱
+  const rawFuncColumnsFlat: ColumnsType<ProjectFunction> = [
+    rawFuncColumnsGrouped[0], // 功能名稱
     { title: '分組', dataIndex: 'group1', width: 100, render: (v: string) => <Tag style={{ fontSize: 10 }}>{v || '未分組'}</Tag> },
-    ...funcColumnsGrouped.slice(1), // 狀態, 優先級, 進度, 負責人, 預計完成, 實際完成, 操作
+    ...rawFuncColumnsGrouped.slice(1), // 狀態, 優先級, 進度, 負責人, 預計完成, 實際完成, 操作
   ]
 
-  const dutyTableColumns: ColumnsType<TemporaryDuty> = [
+  const rawDutyTableColumns: ColumnsType<TemporaryDuty> = [
     {
       title: '任務名稱', dataIndex: 'duty_nm', width: 200, ellipsis: true,
       render: (v: string, r) => (
@@ -906,6 +907,88 @@ const ProjectDetailPage: React.FC = () => {
       render: (v: string) => <span className="text-sm text-slate-500">{toName(v)}</span>,
     },
   ]
+
+  const rawFileColumns: ColumnsType<ProjectFile> = [
+    {
+      title: '文件名',
+      dataIndex: 'file_nm',
+      render: (name: string, record) => {
+        const ext = record.file_ext.toLowerCase()
+        const canPreview = PREVIEWABLE.has(ext)
+        return (
+          <div className="flex items-center gap-2">
+            {canPreview ? (
+              <Button type="link" style={{ padding: 0 }}
+                onClick={() => setPreviewFile(record)}>
+                {name}
+              </Button>
+            ) : (
+              <span className="text-slate-700 text-sm">{name}</span>
+            )}
+          </div>
+        )
+      },
+    },
+    {
+      title: '分類',
+      dataIndex: 'file_category',
+      width: 90,
+      render: (v: string) => {
+        const cat = FILE_CATEGORIES.find(c => c.value === v)
+        return <Tag color={cat?.color} style={{ fontSize: 11 }}>{cat?.label ?? '其他'}</Tag>
+      },
+    },
+    {
+      title: '類型',
+      dataIndex: 'file_ext',
+      width: 65,
+      render: (v: string) => <Tag style={{ fontSize: 11 }}>{v.toUpperCase()}</Tag>,
+    },
+    {
+      title: '大小',
+      dataIndex: 'file_size',
+      width: 85,
+      render: (v: number) => {
+        if (v >= 1024 * 1024) return `${(v / 1024 / 1024).toFixed(1)} MB`
+        if (v >= 1024) return `${(v / 1024).toFixed(1)} KB`
+        return `${v} B`
+      },
+    },
+    { title: '上傳人', dataIndex: 'uploader', width: 90 },
+    { title: '上傳時間', dataIndex: 'created_at', width: 140 },
+    {
+      title: '操作',
+      width: 90,
+      render: (_: unknown, record) => (
+        <Space size={0}>
+          <Tooltip title="下載">
+            <a href={projectApi.getFileDownloadUrl(id!, record.id)}
+              target="_blank" rel="noreferrer">
+              <Button type="text" size="small"
+                icon={<EyeIcon className="w-4 h-4" />} />
+            </a>
+          </Tooltip>
+          {current?.can_manage_files && canDeleteCategory(record.file_category) && (
+            <Popconfirm
+              title="確認刪除此附件？"
+              onConfirm={() => handleDeleteFile(record.id)}
+              okText="確認" cancelText="取消"
+            >
+              <Tooltip title="刪除">
+                <Button type="text" size="small" danger
+                  icon={<TrashIcon className="w-4 h-4" />} />
+              </Tooltip>
+            </Popconfirm>
+          )}
+        </Space>
+      ),
+    },
+  ]
+
+  const { mergeColumns: funcColumnsGrouped } = useResizableColumns(rawFuncColumnsGrouped)
+  const { mergeColumns: funcColumnsFlat }    = useResizableColumns(rawFuncColumnsFlat)
+  const { mergeColumns: dutyTableColumns }   = useResizableColumns(rawDutyTableColumns)
+  const { mergeColumns: fileColumns }        = useResizableColumns(rawFileColumns)
 
   if (isLoading) return <div className="flex items-center justify-center h-64"><Spin size="large" /></div>
   if (!current)  return <Empty description="專案不存在" className="mt-20" />
@@ -1097,6 +1180,7 @@ const ProjectDetailPage: React.FC = () => {
                 {funcGroupMode === 'flat' ? (
                   <>
                     <Table rowKey="id" columns={funcColumnsFlat} dataSource={displayedFunctions}
+                      components={tableComponents}
                       loading={funcLoading} size="middle" scroll={{ x: 900 }}
                       pagination={{
                         current: funcPage,
@@ -1128,6 +1212,7 @@ const ProjectDetailPage: React.FC = () => {
                           scroll={{ x: 1000 }}
                           showHeader={true}
                           columns={dutyTableColumns}
+                          components={tableComponents}
                         />
                       </div>
                     )}
@@ -1166,6 +1251,7 @@ const ProjectDetailPage: React.FC = () => {
                             }
                           >
                             <Table rowKey="id" columns={funcColumnsGrouped} dataSource={g.items}
+                              components={tableComponents}
                               pagination={false} size="small" scroll={{ x: 800 }} />
                           </Collapse.Panel>
                         ))}
@@ -1186,6 +1272,7 @@ const ProjectDetailPage: React.FC = () => {
                             }
                           >
                             <Table rowKey="id" size="small" dataSource={displayedDuties}
+                              components={tableComponents}
                               pagination={false} scroll={{ x: 1000 }} columns={dutyTableColumns} />
                           </Collapse.Panel>
                         )}
@@ -1356,82 +1443,8 @@ const ProjectDetailPage: React.FC = () => {
                     dataSource={files.filter(f => fileCategoryFilter === 'all' || f.file_category === fileCategoryFilter)}
                     size="small"
                     pagination={false}
-                    columns={[
-                      {
-                        title: '文件名',
-                        dataIndex: 'file_nm',
-                        render: (name: string, record) => {
-                          const ext = record.file_ext.toLowerCase()
-                          const canPreview = PREVIEWABLE.has(ext)
-                          return (
-                            <div className="flex items-center gap-2">
-                              {canPreview ? (
-                                <Button type="link" style={{ padding: 0 }}
-                                  onClick={() => setPreviewFile(record)}>
-                                  {name}
-                                </Button>
-                              ) : (
-                                <span className="text-slate-700 text-sm">{name}</span>
-                              )}
-                            </div>
-                          )
-                        },
-                      },
-                      {
-                        title: '分類',
-                        dataIndex: 'file_category',
-                        width: 90,
-                        render: (v: string) => {
-                          const cat = FILE_CATEGORIES.find(c => c.value === v)
-                          return <Tag color={cat?.color} style={{ fontSize: 11 }}>{cat?.label ?? '其他'}</Tag>
-                        },
-                      },
-                      {
-                        title: '類型',
-                        dataIndex: 'file_ext',
-                        width: 65,
-                        render: (v: string) => <Tag style={{ fontSize: 11 }}>{v.toUpperCase()}</Tag>,
-                      },
-                      {
-                        title: '大小',
-                        dataIndex: 'file_size',
-                        width: 85,
-                        render: (v: number) => {
-                          if (v >= 1024 * 1024) return `${(v / 1024 / 1024).toFixed(1)} MB`
-                          if (v >= 1024) return `${(v / 1024).toFixed(1)} KB`
-                          return `${v} B`
-                        },
-                      },
-                      { title: '上傳人', dataIndex: 'uploader', width: 90 },
-                      { title: '上傳時間', dataIndex: 'created_at', width: 140 },
-                      {
-                        title: '操作',
-                        width: 90,
-                        render: (_: unknown, record) => (
-                          <Space size={0}>
-                            <Tooltip title="下載">
-                              <a href={projectApi.getFileDownloadUrl(id!, record.id)}
-                                target="_blank" rel="noreferrer">
-                                <Button type="text" size="small"
-                                  icon={<EyeIcon className="w-4 h-4" />} />
-                              </a>
-                            </Tooltip>
-                            {current.can_manage_files && canDeleteCategory(record.file_category) && (
-                              <Popconfirm
-                                title="確認刪除此附件？"
-                                onConfirm={() => handleDeleteFile(record.id)}
-                                okText="確認" cancelText="取消"
-                              >
-                                <Tooltip title="刪除">
-                                  <Button type="text" size="small" danger
-                                    icon={<TrashIcon className="w-4 h-4" />} />
-                                </Tooltip>
-                              </Popconfirm>
-                            )}
-                          </Space>
-                        ),
-                      },
-                    ]}
+                    components={tableComponents}
+                    columns={fileColumns}
                   />
                 )}
               </Card>

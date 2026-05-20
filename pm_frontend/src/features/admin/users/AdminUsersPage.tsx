@@ -5,6 +5,7 @@ import {
 import { SearchOutlined, ReloadOutlined, SettingOutlined } from '@ant-design/icons'
 import { sysAdminApi, AdminUser, Role, UserRoleDetail } from '@/api/sys_admin.api'
 import { showToast } from '@/utils/toast'
+import { useResizableColumns, tableComponents } from '@/hooks/useResizableColumns'
 
 const { Option } = Select
 
@@ -101,12 +102,14 @@ const AdminUsersPage: React.FC = () => {
     }
   }
 
+  const { mergeColumns: columns } = useResizableColumns(rawColumns)
+
   // transfer data source: all users except self
   const transferSource = users
     .filter((u) => u.work_no !== roleTarget?.work_no)
     .map((u) => ({ key: u.work_no, title: `${u.name} (${u.work_no})`, description: u.department }))
 
-  const columns = [
+  const rawColumns = [
     { title: '工号',   dataIndex: 'work_no',    key: 'work_no',    width: 110 },
     { title: '姓名',   dataIndex: 'name',        key: 'name',        width: 110 },
     { title: '部门',   dataIndex: 'department',  key: 'department' },
@@ -197,6 +200,7 @@ const AdminUsersPage: React.FC = () => {
           rowKey="work_no"
           dataSource={users}
           columns={columns}
+          components={tableComponents}
           loading={loading}
           pagination={{
             current: page,

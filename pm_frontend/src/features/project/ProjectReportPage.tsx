@@ -8,6 +8,7 @@ import { ArrowDownTrayIcon } from '@heroicons/react/24/outline'
 import { projectApi, type ProjectReportStat, type MemberReportStat } from '@/api/project.api'
 import { PROJECT_STATUS_MAP } from '@/utils/status'
 import dayjs from 'dayjs'
+import { useResizableColumns, tableComponents } from '@/hooks/useResizableColumns'
 
 // ─── Summary stat card ────────────────────────────────────────────────────────
 
@@ -74,7 +75,7 @@ const ProjectProgressTab: React.FC<{ data: ProjectReportStat[] }> = ({ data }) =
       rows, '項目進度報表', [20, 12, 10, 10, 10, 10, 12])
   }
 
-  const columns: ColumnsType<ProjectReportStat> = [
+  const rawColumns: ColumnsType<ProjectReportStat> = [
     { title: '項目', dataIndex: 'project_nm', width: 160, ellipsis: true },
     { title: '項目狀態', dataIndex: 'status', width: 110,
       render: (s: number) => { const m = PROJECT_STATUS_MAP[s]; return m ? <Tag color={m.color}>{m.label}</Tag> : <Tag>{s}</Tag> } },
@@ -86,14 +87,15 @@ const ProjectProgressTab: React.FC<{ data: ProjectReportStat[] }> = ({ data }) =
       render: (v: number) => <span className={v > 0 ? 'text-orange-500 font-medium' : 'text-slate-400'}>{v}</span> },
     { title: '已完成', dataIndex: 'completed', width: 90, align: 'center',
       render: (v: number) => <span className={v > 0 ? 'text-green-600 font-medium' : 'text-slate-400'}>{v}</span> },
-    { title: '完成率', dataIndex: 'completion_rate', width: 200, align: 'right',
+    { title: '完成率', dataIndex: 'completion_rate', width: 200, align: 'center',
       render: (r: number) => (
-        <div className="flex items-center gap-2 justify-end">
+        <div className="flex items-center gap-2 justify-center">
           <Progress percent={r} size="small" showInfo={false} strokeColor="#16a34a" trailColor="#e2e8f0" style={{ width: 100, marginBottom: 0 }} />
-          <span className="text-xs text-slate-500 w-10 text-right">{r}%</span>
+          <span className="text-xs text-slate-500 w-10 text-center">{r}%</span>
         </div>
       ) },
   ]
+  const { mergeColumns: columns } = useResizableColumns(rawColumns)
 
   return (
     <>
@@ -109,7 +111,7 @@ const ProjectProgressTab: React.FC<{ data: ProjectReportStat[] }> = ({ data }) =
         </div>
       </div>
       <div className="bg-white border border-slate-100 rounded-xl overflow-hidden">
-        <Table rowKey="project_id" columns={columns} dataSource={data} pagination={false} size="middle" />
+        <Table rowKey="project_id" columns={columns} components={tableComponents} dataSource={data} pagination={false} size="middle" />
       </div>
     </>
   )
@@ -138,7 +140,7 @@ const ProjectOverdueTab: React.FC<{ data: ProjectReportStat[] }> = ({ data }) =>
       rows, '項目延期報表', [20, 12, 12, 10, 10, 12, 12, 12])
   }
 
-  const columns: ColumnsType<ProjectReportStat> = [
+  const rawColumns: ColumnsType<ProjectReportStat> = [
     { title: '項目', dataIndex: 'project_nm', width: 160, ellipsis: true },
     { title: '項目狀態', dataIndex: 'status', width: 110,
       render: (s: number) => { const m = PROJECT_STATUS_MAP[s]; return m ? <Tag color={m.color}>{m.label}</Tag> : <Tag>{s}</Tag> } },
@@ -152,14 +154,15 @@ const ProjectOverdueTab: React.FC<{ data: ProjectReportStat[] }> = ({ data }) =>
       render: (v: number) => <span className={v > 0 ? 'text-red-500 font-semibold' : 'text-slate-400'}>{v}</span> },
     { title: '延期已完成', dataIndex: 'overdue_complete', width: 110, align: 'center',
       render: (v: number) => <span className={v > 0 ? 'text-orange-400 font-medium' : 'text-slate-400'}>{v}</span> },
-    { title: '延期率', dataIndex: 'overdue_rate', width: 180, align: 'right',
+    { title: '延期率', dataIndex: 'overdue_rate', width: 180, align: 'center',
       render: (r: number) => (
-        <div className="flex items-center gap-2 justify-end">
+        <div className="flex items-center gap-2 justify-center">
           <Progress percent={r} size="small" showInfo={false} strokeColor="#ef4444" trailColor="#e2e8f0" style={{ width: 80, marginBottom: 0 }} />
-          <span className="text-xs text-slate-500 w-10 text-right">{r}%</span>
+          <span className="text-xs text-slate-500 w-10 text-center">{r}%</span>
         </div>
       ) },
   ]
+  const { mergeColumns: columns } = useResizableColumns(rawColumns)
 
   return (
     <>
@@ -175,7 +178,7 @@ const ProjectOverdueTab: React.FC<{ data: ProjectReportStat[] }> = ({ data }) =>
         </div>
       </div>
       <div className="bg-white border border-slate-100 rounded-xl overflow-hidden">
-        <Table rowKey="project_id" columns={columns} dataSource={data} pagination={false} size="middle" />
+        <Table rowKey="project_id" columns={columns} components={tableComponents} dataSource={data} pagination={false} size="middle" />
       </div>
     </>
   )
@@ -201,7 +204,7 @@ const MemberProgressTab: React.FC<{ data: MemberReportStat[] }> = ({ data }) => 
       rows, '成員進度報表', [16, 10, 10, 10, 10, 12])
   }
 
-  const columns: ColumnsType<MemberReportStat> = [
+  const rawColumns: ColumnsType<MemberReportStat> = [
     { title: '成員', dataIndex: 'name', width: 160,
       render: (name: string) => (
         <div className="flex items-center gap-2">
@@ -211,20 +214,21 @@ const MemberProgressTab: React.FC<{ data: MemberReportStat[] }> = ({ data }) => 
       ) },
     { title: '總任務', dataIndex: 'total', width: 100, align: 'center',
       render: (v: number) => <span className="text-blue-500 font-medium">{v}</span> },
-    { title: '未開始', dataIndex: 'not_started', align: 'center',
+    { title: '未開始', dataIndex: 'not_started', width: 90, align: 'center',
       render: (v: number) => <span className="text-blue-400">{v}</span> },
-    { title: '進行中', dataIndex: 'in_progress', align: 'center',
+    { title: '進行中', dataIndex: 'in_progress', width: 90, align: 'center',
       render: (v: number) => <span className={v > 0 ? 'text-orange-500 font-medium' : 'text-slate-400'}>{v}</span> },
-    { title: '已完成', dataIndex: 'completed', align: 'center',
+    { title: '已完成', dataIndex: 'completed', width: 90, align: 'center',
       render: (v: number) => <span className={v > 0 ? 'text-green-600 font-medium' : 'text-slate-400'}>{v}</span> },
-    { title: '完成率', dataIndex: 'completion_rate', align: 'right',
+    { title: '完成率', dataIndex: 'completion_rate', width: 200, align: 'center',
       render: (r: number) => (
-        <div className="flex items-center gap-2 justify-end">
+        <div className="flex items-center gap-2 justify-center">
           <Progress percent={r} size="small" showInfo={false} strokeColor="#16a34a" trailColor="#e2e8f0" style={{ width: 100, marginBottom: 0 }} />
-          <span className="text-xs text-slate-500 w-10 text-right">{r}%</span>
+          <span className="text-xs text-slate-500 w-10 text-center">{r}%</span>
         </div>
       ) },
   ]
+  const { mergeColumns: columns } = useResizableColumns(rawColumns)
 
   return (
     <>
@@ -240,7 +244,7 @@ const MemberProgressTab: React.FC<{ data: MemberReportStat[] }> = ({ data }) => 
         </div>
       </div>
       <div className="bg-white border border-slate-100 rounded-xl overflow-hidden">
-        <Table rowKey="work_no" columns={columns} dataSource={data} pagination={false} size="middle" />
+        <Table rowKey="work_no" columns={columns} components={tableComponents} dataSource={data} pagination={false} size="middle" />
       </div>
     </>
   )
@@ -269,7 +273,7 @@ const MemberOverdueTab: React.FC<{ data: MemberReportStat[] }> = ({ data }) => {
       rows, '成員延期報表', [16, 12, 10, 10, 12, 12, 12])
   }
 
-  const columns: ColumnsType<MemberReportStat> = [
+  const rawColumns: ColumnsType<MemberReportStat> = [
     { title: '成員', dataIndex: 'name', width: 160,
       render: (name: string) => (
         <div className="flex items-center gap-2">
@@ -279,22 +283,23 @@ const MemberOverdueTab: React.FC<{ data: MemberReportStat[] }> = ({ data }) => {
       ) },
     { title: '待處理任務', dataIndex: 'pending', width: 110, align: 'center',
       render: (v: number) => <span className="text-blue-500 font-medium">{v}</span> },
-    { title: '未開始', dataIndex: 'not_started', align: 'center',
+    { title: '未開始', dataIndex: 'not_started', width: 90, align: 'center',
       render: (v: number) => <span className="text-blue-400">{v}</span> },
-    { title: '進行中', dataIndex: 'in_progress', align: 'center',
+    { title: '進行中', dataIndex: 'in_progress', width: 90, align: 'center',
       render: (v: number) => <span className={v > 0 ? 'text-orange-500 font-medium' : 'text-slate-400'}>{v}</span> },
-    { title: '延期未完成', dataIndex: 'overdue_incomplete', align: 'center',
+    { title: '延期未完成', dataIndex: 'overdue_incomplete', width: 110, align: 'center',
       render: (v: number) => <span className={v > 0 ? 'text-red-500 font-semibold' : 'text-slate-400'}>{v}</span> },
-    { title: '延期已完成', dataIndex: 'overdue_complete', align: 'center',
+    { title: '延期已完成', dataIndex: 'overdue_complete', width: 110, align: 'center',
       render: (v: number) => <span className={v > 0 ? 'text-orange-400 font-medium' : 'text-slate-400'}>{v}</span> },
-    { title: '延期率', dataIndex: 'overdue_rate', align: 'right',
+    { title: '延期率', dataIndex: 'overdue_rate', width: 180, align: 'center',
       render: (r: number) => (
-        <div className="flex items-center gap-2 justify-end">
+        <div className="flex items-center gap-2 justify-center">
           <Progress percent={r} size="small" showInfo={false} strokeColor="#ef4444" trailColor="#e2e8f0" style={{ width: 80, marginBottom: 0 }} />
-          <span className="text-xs text-slate-500 w-10 text-right">{r}%</span>
+          <span className="text-xs text-slate-500 w-10 text-center">{r}%</span>
         </div>
       ) },
   ]
+  const { mergeColumns: columns } = useResizableColumns(rawColumns)
 
   return (
     <>
@@ -310,7 +315,7 @@ const MemberOverdueTab: React.FC<{ data: MemberReportStat[] }> = ({ data }) => {
         </div>
       </div>
       <div className="bg-white border border-slate-100 rounded-xl overflow-hidden">
-        <Table rowKey="work_no" columns={columns} dataSource={data} pagination={false} size="middle" />
+        <Table rowKey="work_no" columns={columns} components={tableComponents} dataSource={data} pagination={false} size="middle" />
       </div>
     </>
   )

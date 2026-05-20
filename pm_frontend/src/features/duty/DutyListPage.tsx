@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useCallback } from 'react'
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Table, Button, Input, Select, Space, Tooltip, Popconfirm,
@@ -6,6 +6,7 @@ import {
 } from 'antd'
 import RichTextEditor from '@/components/common/RichTextEditor'
 import type { ColumnsType } from 'antd/es/table'
+import { useResizableColumns, tableComponents } from '@/hooks/useResizableColumns'
 import { PlusIcon, MagnifyingGlassIcon, TrashIcon, EyeIcon, FolderIcon, ArrowsPointingOutIcon } from '@heroicons/react/24/outline'
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
 import { fetchDutyListThunk, deleteDutyThunk, setDutyQuery, createDutyThunk } from './dutySlice'
@@ -275,7 +276,7 @@ const DutyListPage: React.FC = () => {
   }
 
   // ── 專案任務 columns ──────────────────────────────────────────────────────
-  const funcColumns: ColumnsType<MyFunction> = [
+  const rawFuncColumns: ColumnsType<MyFunction> = [
     {
       title: '任務名稱', dataIndex: 'function_nm', ellipsis: true,
       render: (name: string, r) => {
@@ -348,7 +349,7 @@ const DutyListPage: React.FC = () => {
     },
   ]
 
-  const columns: ColumnsType<TemporaryDuty> = [
+  const rawColumns: ColumnsType<TemporaryDuty> = [
     {
       title: '任務名稱', dataIndex: 'duty_nm', ellipsis: true,
       render: (name: string, record) => (
@@ -428,6 +429,8 @@ const DutyListPage: React.FC = () => {
     },
   ]
 
+  const { mergeColumns: funcColumns } = useResizableColumns(rawFuncColumns)
+  const { mergeColumns: columns } = useResizableColumns(rawColumns)
   // In grouped mode, hide the group column since it's shown as the panel header
   const groupedColumns = columns.filter((c) => (c as { dataIndex?: string }).dataIndex !== 'group')
 
@@ -511,6 +514,7 @@ const DutyListPage: React.FC = () => {
                   <Table
                     rowKey="id"
                     columns={funcColumns}
+                    components={tableComponents}
                     dataSource={filteredMyFunctions}
                     loading={myFuncLoading}
                     size="middle"
@@ -553,7 +557,7 @@ const DutyListPage: React.FC = () => {
                           }
                         >
                           <Table rowKey="id" columns={funcColumns.filter((c) => (c as { key?: string }).key !== 'group')}
-                            dataSource={g.items} pagination={false} size="small" scroll={{ x: 860 }} />
+                            components={tableComponents} dataSource={g.items} pagination={false} size="small" scroll={{ x: 860 }} />
                         </Collapse.Panel>
                       ))}
                     </Collapse>
@@ -648,7 +652,7 @@ const DutyListPage: React.FC = () => {
       {groupMode === 'flat' ? (
         <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-1">
           <Table
-            rowKey="id" columns={columns} dataSource={hideCompleted ? displayedList.filter((d) => d.status !== 3) : displayedList} loading={isLoading}
+            rowKey="id" columns={columns} components={tableComponents} dataSource={hideCompleted ? displayedList.filter((d) => d.status !== 3) : displayedList} loading={isLoading}
             pagination={{
               current: query.page, pageSize: query.size ?? 10,
               total: (hideCompleted ? displayedList.filter((d) => d.status !== 3) : displayedList).length,
@@ -693,7 +697,7 @@ const DutyListPage: React.FC = () => {
                     </div>
                   }
                 >
-                  <Table rowKey="id" columns={groupedColumns} dataSource={g.items}
+                  <Table rowKey="id" columns={groupedColumns} components={tableComponents} dataSource={g.items}
                     pagination={false} size="small" scroll={{ x: 820 }} />
                 </Collapse.Panel>
               ))}

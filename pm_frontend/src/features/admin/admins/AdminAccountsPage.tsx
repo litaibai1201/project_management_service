@@ -3,6 +3,7 @@ import { Card, Table, Button, Modal, Form, Input, Popconfirm, Space, Tag } from 
 import { PlusOutlined } from '@ant-design/icons'
 import { sysAdminApi, AdminAccount } from '@/api/sys_admin.api'
 import { showToast } from '@/utils/toast'
+import { useResizableColumns, tableComponents } from '@/hooks/useResizableColumns'
 
 interface CreateForm {
   username: string
@@ -54,7 +55,7 @@ const AdminAccountsPage: React.FC = () => {
       .catch(() => showToast.error('删除失败'))
   }
 
-  const columns = [
+  const rawColumns = [
     { title: '账号',   dataIndex: 'username',   key: 'username',   width: 140 },
     { title: '显示名', dataIndex: 'name',        key: 'name',        width: 140 },
     {
@@ -92,6 +93,7 @@ const AdminAccountsPage: React.FC = () => {
       ),
     },
   ]
+  const { mergeColumns: columns } = useResizableColumns(rawColumns)
 
   return (
     <div>
@@ -107,6 +109,7 @@ const AdminAccountsPage: React.FC = () => {
           rowKey="id"
           dataSource={admins}
           columns={columns}
+          components={tableComponents}
           loading={loading}
           pagination={{
             current: page,

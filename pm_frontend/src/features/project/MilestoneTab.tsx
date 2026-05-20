@@ -16,6 +16,7 @@ import { projectApi } from '@/api/project.api'
 import { Milestone, ProjectFunction } from '@/types/api.types'
 import { showToast } from '@/utils/toast'
 import dayjs from 'dayjs'
+import { useResizableColumns, tableComponents } from '@/hooks/useResizableColumns'
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
 const MS_STATUS_CONFIG = {
@@ -105,7 +106,7 @@ const MilestoneTab: React.FC<Props> = ({ projectId, functions, canManage = false
   const overdue  = milestones.filter((m) => m.status === 'overdue').length
   const pending  = milestones.filter((m) => m.status === 'pending').length
 
-  const columns: ColumnsType<Milestone> = [
+  const rawColumns: ColumnsType<Milestone> = [
     {
       title: '里程碑名稱', dataIndex: 'name',
       render: (name: string, r) => (
@@ -179,6 +180,7 @@ const MilestoneTab: React.FC<Props> = ({ projectId, functions, canManage = false
       ),
     }] : []),
   ]
+  const { mergeColumns: columns } = useResizableColumns(rawColumns)
 
   return (
     <div>
@@ -212,7 +214,7 @@ const MilestoneTab: React.FC<Props> = ({ projectId, functions, canManage = false
 
       {/* Table */}
       <Table
-        rowKey="id" columns={columns} dataSource={milestones} loading={isLoading}
+        rowKey="id" columns={columns} components={tableComponents} dataSource={milestones} loading={isLoading}
         pagination={false} size="middle" scroll={{ x: 800 }}
         rowClassName={(r) => r.status === 'overdue' ? 'bg-red-50/40' : r.status === 'achieved' ? 'bg-green-50/30' : ''}
       />

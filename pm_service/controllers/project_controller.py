@@ -1464,7 +1464,11 @@ class FunctionController:
                       "expected_end_date", "priority", "group1", "group2"):
             if field in payload and payload[field] is not None:
                 setattr(f, field, payload[field])
-        new_resp = None
+        new_resp = []
+        removed_resp = []
+        old_resp_snap = []
+        full_resp = []
+        resp_changed = False
         if "responsible" in payload and payload["responsible"] is not None:
             resp = payload["responsible"]
             if isinstance(resp, str):
@@ -1474,22 +1478,57 @@ class FunctionController:
                 except (json.JSONDecodeError, ValueError):
                     resp = [resp] if resp else []
             resp = [str(w).strip().lower() for w in (resp if isinstance(resp, list) else [resp]) if w]
-            # 找出新增的负责人
-            old_resp = json.loads(f.responsible) if f.responsible else []
-            new_resp = [w for w in resp if w not in old_resp]
+            old_resp_snap = json.loads(f.responsible) if f.responsible else []
+            new_resp = [w for w in resp if w not in old_resp_snap]
+            removed_resp = [w for w in old_resp_snap if w not in resp]
+            full_resp = resp
+            resp_changed = True
             f.responsible = json.dumps(resp, ensure_ascii=False)
         f.update_at = CommonTools.get_now()
         db.session.commit()
-        # 通知新增负责人
-        if new_resp:
+        if resp_changed and (new_resp or removed_resp):
             from controllers.notification_controller import push_notification
-            push_notification(
-                recipients=new_resp,
-                title="您已被指派為功能任務負責人",
-                desc=f"任務「{f.function_nm}」已指派您為負責人，請及時跟進。",
-                link_type="project",
-                link_id=f.project_id,
-            )
+            project = db.session.query(ProjectDataModel).filter_by(id=f.project_id).first()
+            project_nm = project.project_nm if project else ""
+            project_pm = (project.project_pm or "").strip().lower() if project else ""
+            # 通知新增负责人
+            if new_resp:
+                push_notification(
+                    recipients=new_resp,
+                    title="您已被指派為功能任務負責人",
+                    desc=f"【{project_nm}】任務「{f.function_nm}」已指派您為負責人，請及時跟進。",
+                    link_type="project",
+                    link_id=f.project_id,
+                )
+            # 通知已有负责人（有新成员加入时）
+            existing_resp = [w for w in full_resp if w in old_resp_snap]
+            if new_resp and existing_resp:
+                push_notification(
+                    recipients=existing_resp,
+                    title="您負責的任務新增了負責人",
+                    desc=f"【{project_nm}】任務「{f.function_nm}」加入了新的負責人，請注意協作。",
+                    link_type="project",
+                    link_id=f.project_id,
+                )
+            # 通知被移除的负责人
+            if removed_resp:
+                push_notification(
+                    recipients=removed_resp,
+                    title="您已被移除功能任務負責人",
+                    desc=f"【{project_nm}】任務「{f.function_nm}」已將您從負責人名單中移除。",
+                    link_type="project",
+                    link_id=f.project_id,
+                )
+            # 通知专案PM（若PM不在变动名单中）
+            changed_wns = set(new_resp + removed_resp)
+            if project_pm and project_pm not in changed_wns:
+                push_notification(
+                    recipients=[project_pm],
+                    title="功能任務負責人已調整",
+                    desc=f"【{project_nm}】任務「{f.function_nm}」的負責人已更新。",
+                    link_type="project",
+                    link_id=f.project_id,
+                )
 
     def reschedule_function(self, function_id: str, new_end_date: str, reason: str, operator: str):
         """
@@ -1529,6 +1568,17 @@ class FunctionController:
         f.reschedule_log = json.dumps(history, ensure_ascii=False)
         f.update_at = CommonTools.get_now()
         db.session.commit()
+        # 通知所有责任人任务已延期
+        resp = json.loads(f.responsible) if f.responsible else []
+        if resp:
+            from controllers.notification_controller import push_notification
+            push_notification(
+                recipients=resp,
+                title="您負責的任務已延期",
+                desc=f"【{project.project_nm}】任務「{f.function_nm}」已延期至 {new_end_date}，原因：{reason}",
+                link_type="project",
+                link_id=f.project_id,
+            )
         return f.to_dict()
 
     def delete_function(self, function_id: str):
@@ -1570,6 +1620,7 @@ class FunctionController:
 
         if submitter.strip().lower() == project_pm:
             # 专案 PM 直接完结
+            resp_snap = json.loads(f.responsible) if f.responsible else []
             f.function_status = 4
             f.end_time = now[:10]
             f.update_at = now
@@ -1581,6 +1632,17 @@ class FunctionController:
                 project.progress = sum(fn.progress or 0 for fn in active_funcs) // len(active_funcs)
                 project.update_at = now
             db.session.commit()
+            # 通知所有责任人任务已完结
+            notif_targets = [w for w in resp_snap if w != project_pm]
+            if notif_targets:
+                from controllers.notification_controller import push_notification
+                push_notification(
+                    recipients=notif_targets,
+                    title="您負責的任務已完結",
+                    desc=f"【{project.project_nm}】任務「{f.function_nm}」已由專案PM標記為完結。",
+                    link_type="project",
+                    link_id=project_id,
+                )
             return {"direct_complete": True}
         else:
             # 创建审核记录，等待 PM 审批
@@ -1628,6 +1690,7 @@ class FunctionController:
         resp = payload.get("responsible", [])
         resp = [w.strip().lower() for w in (resp if isinstance(resp, list) else [resp]) if w]
         new_resp = [w for w in resp if w not in old_resp]
+        removed_resp = [w for w in old_resp if w not in resp]
         f.responsible = json.dumps(resp, ensure_ascii=False)
         if payload.get("expected_start_date"):
             f.expected_start_date = payload["expected_start_date"]
@@ -1635,15 +1698,38 @@ class FunctionController:
             f.expected_end_date = payload["expected_end_date"]
         f.update_at = CommonTools.get_now()
         db.session.commit()
-        if new_resp:
+        if new_resp or removed_resp:
             from controllers.notification_controller import push_notification
-            push_notification(
-                recipients=new_resp,
-                title="您已被指派為功能任務負責人",
-                desc=f"任務「{f.function_nm}」已指派您為負責人，請及時跟進。",
-                link_type="project",
-                link_id=f.project_id,
-            )
+            project = db.session.query(ProjectDataModel).filter_by(id=f.project_id).first()
+            project_nm = project.project_nm if project else ""
+            # 通知新增负责人
+            if new_resp:
+                push_notification(
+                    recipients=new_resp,
+                    title="您已被指派為功能任務負責人",
+                    desc=f"【{project_nm}】任務「{f.function_nm}」已指派您為負責人，請及時跟進。",
+                    link_type="project",
+                    link_id=f.project_id,
+                )
+            # 通知已有负责人（有新成员加入时）
+            existing_resp = [w for w in resp if w in old_resp]
+            if new_resp and existing_resp:
+                push_notification(
+                    recipients=existing_resp,
+                    title="您負責的任務新增了負責人",
+                    desc=f"【{project_nm}】任務「{f.function_nm}」加入了新的負責人，請注意協作。",
+                    link_type="project",
+                    link_id=f.project_id,
+                )
+            # 通知被移除的负责人
+            if removed_resp:
+                push_notification(
+                    recipients=removed_resp,
+                    title="您已被移除功能任務負責人",
+                    desc=f"【{project_nm}】任務「{f.function_nm}」已將您從負責人名單中移除。",
+                    link_type="project",
+                    link_id=f.project_id,
+                )
 
     def my_functions(self, work_no: str, page: int = 1, size: int = 20, status: int = None, scope: str = 'all') -> dict:
         """查询功能任务。scope='mine' 仅负责任务；scope='all' 所属专案全部；scope='supervisor' 下属专案全部"""

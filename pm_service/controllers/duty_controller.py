@@ -86,12 +86,15 @@ class DutyController:
         db.session.commit()
         # 通知非建立人的負責人
         from controllers.notification_controller import push_notification
+        from dbs.mysql_db.model_tables import UserProfileModel
+        creator_user = db.session.query(UserProfileModel).filter_by(work_no=creator).first()
+        creator_display = f"{creator_user.name}({creator})" if creator_user else creator
         notif_targets = [w for w in resp if w != creator]
         if notif_targets:
             push_notification(
                 notif_targets,
                 title="您被指定為臨時任務負責人",
-                desc=f"「{d.duty_nm}」，建立人：{creator}",
+                desc=f"「{d.duty_nm}」，建立人：{creator_display}",
                 link_type="duty",
                 link_id=d.id,
             )
@@ -107,7 +110,11 @@ class DutyController:
                       "expected_start_date", "expected_end_date"):
             if field in payload and payload[field] is not None:
                 setattr(d, field, payload[field])
-        new_resp = None
+        new_resp = []
+        removed_resp = []
+        old_resp_snap = []
+        full_resp = []
+        resp_changed = False
         if "responsible" in payload and payload["responsible"] is not None:
             resp = payload["responsible"]
             if isinstance(resp, str):
@@ -116,21 +123,55 @@ class DutyController:
                 except Exception:
                     resp = [resp] if resp else []
             resp = [w.strip().lower() for w in (resp if isinstance(resp, list) else [resp]) if w]
-            old_resp = json.loads(d.responsible) if d.responsible else []
-            new_resp = [w for w in resp if w not in old_resp]
+            old_resp_snap = json.loads(d.responsible) if d.responsible else []
+            new_resp = [w for w in resp if w not in old_resp_snap]
+            removed_resp = [w for w in old_resp_snap if w not in resp]
+            full_resp = resp
+            resp_changed = True
             d.responsible = json.dumps(resp, ensure_ascii=False)
         d.update_at = CommonTools.get_now()
         db.session.commit()
-        # 通知新增负责人
-        if new_resp:
+        if resp_changed and (new_resp or removed_resp):
             from controllers.notification_controller import push_notification
-            push_notification(
-                recipients=new_resp,
-                title="您已被指定為臨時任務負責人",
-                desc=f"「{d.duty_nm}」已指派您為負責人，請及時跟進。",
-                link_type="duty",
-                link_id=d.id,
-            )
+            creator = d.creator
+            # 通知新增负责人
+            if new_resp:
+                push_notification(
+                    recipients=new_resp,
+                    title="您已被指定為臨時任務負責人",
+                    desc=f"「{d.duty_nm}」已指派您為負責人，請及時跟進。",
+                    link_type="duty",
+                    link_id=d.id,
+                )
+            # 通知已有负责人（有新成员加入时）
+            existing_resp = [w for w in full_resp if w in old_resp_snap]
+            if new_resp and existing_resp:
+                push_notification(
+                    recipients=existing_resp,
+                    title="您負責的任務新增了負責人",
+                    desc=f"「{d.duty_nm}」加入了新的負責人，請注意協作。",
+                    link_type="duty",
+                    link_id=d.id,
+                )
+            # 通知被移除的负责人
+            if removed_resp:
+                push_notification(
+                    recipients=removed_resp,
+                    title="您已被移除臨時任務負責人",
+                    desc=f"「{d.duty_nm}」已將您從負責人名單中移除。",
+                    link_type="duty",
+                    link_id=d.id,
+                )
+            # 通知建立人（若建立人不在变动名单中）
+            changed_wns = set(new_resp + removed_resp)
+            if creator and creator not in changed_wns:
+                push_notification(
+                    recipients=[creator],
+                    title="臨時任務負責人已調整",
+                    desc=f"「{d.duty_nm}」的負責人已更新。",
+                    link_type="duty",
+                    link_id=d.id,
+                )
 
     def reschedule_duty(self, duty_id: str, new_end_date: str, reason: str, operator: str):
         """延期临时任务：建立人或责任人可操作，记录延期历史"""
@@ -173,6 +214,24 @@ class DutyController:
         d.reschedule_log = json.dumps(history, ensure_ascii=False)
         d.update_at = CommonTools.get_now()
         db.session.commit()
+        # 延期通知：责任人操作 → 通知建立人 + 其他责任人；建立人操作 → 通知所有责任人
+        from controllers.notification_controller import push_notification
+        notif_msg = f"「{d.duty_nm}」已延期至 {new_end_date}，原因：{reason}"
+        if is_responsible and not is_creator:
+            # 责任人操作：通知建立人 + 其他责任人
+            notif_targets = [d.creator] + [w for w in responsible if w.lower() != operator.lower()]
+            notif_targets = list(dict.fromkeys(notif_targets))  # 去重保序
+        else:
+            # 建立人操作：通知所有责任人
+            notif_targets = responsible
+        if notif_targets:
+            push_notification(
+                recipients=notif_targets,
+                title="臨時任務已延期",
+                desc=notif_msg,
+                link_type="duty",
+                link_id=d.id,
+            )
         return d.to_dict()
 
     def delete_duty(self, duty_id: str, work_no: str = None):
@@ -296,11 +355,17 @@ class DutyController:
         db.session.commit()
         # 通知第一位審核人
         from controllers.notification_controller import push_notification
+        from dbs.mysql_db.model_tables import UserProfileModel
         first_reviewers = [n["approver_work_no"] for n in nodes if n.get("order") == 1]
+        if submitter_name:
+            submitter_display = submitter_name
+        else:
+            submitter_user = db.session.query(UserProfileModel).filter_by(work_no=work_no).first()
+            submitter_display = f"{submitter_user.name}({work_no})" if submitter_user else work_no
         push_notification(
             first_reviewers,
             title="您有新的審核申請待處理",
-            desc=f"「{d.duty_nm}」臨時任務完結審核，提交人：{submitter_name or work_no}",
+            desc=f"「{d.duty_nm}」臨時任務完結審核，提交人：{submitter_display}",
             link_type="review",
             link_id=review.id,
         )
@@ -311,10 +376,13 @@ class DutyController:
         if not d:
             raise ResourceNotFoundException(resource_type="临时任务")
         new_resp = []
+        removed_resp = []
+        old_resp_snap = []
         if payload.get("responsible"):
-            old_resp = json.loads(d.responsible) if d.responsible else []
+            old_resp_snap = json.loads(d.responsible) if d.responsible else []
             new_resp_list = payload["responsible"]
-            new_resp = [w for w in new_resp_list if w not in old_resp]
+            new_resp = [w for w in new_resp_list if w not in old_resp_snap]
+            removed_resp = [w for w in old_resp_snap if w not in new_resp_list]
             d.responsible = json.dumps(new_resp_list, ensure_ascii=False)
         if payload.get("expected_start_date"):
             d.expected_start_date = payload["expected_start_date"]
@@ -323,16 +391,36 @@ class DutyController:
             d.latest_expected_end_date = payload["expected_end_date"]
         d.update_at = CommonTools.get_now()
         db.session.commit()
-        # 通知新增负责人
-        if new_resp:
+        if new_resp or removed_resp:
             from controllers.notification_controller import push_notification
-            push_notification(
-                recipients=new_resp,
-                title="您已被指定為臨時任務負責人",
-                desc=f"「{d.duty_nm}」已指派您為負責人，請及時跟進。",
-                link_type="duty",
-                link_id=d.id,
-            )
+            # 通知新增负责人
+            if new_resp:
+                push_notification(
+                    recipients=new_resp,
+                    title="您已被指定為臨時任務負責人",
+                    desc=f"「{d.duty_nm}」已指派您為負責人，請及時跟進。",
+                    link_type="duty",
+                    link_id=d.id,
+                )
+            # 通知已有负责人（有新成员加入时）
+            existing_resp = [w for w in (payload.get("responsible") or []) if w in old_resp_snap]
+            if new_resp and existing_resp:
+                push_notification(
+                    recipients=existing_resp,
+                    title="您負責的任務新增了負責人",
+                    desc=f"「{d.duty_nm}」加入了新的負責人，請注意協作。",
+                    link_type="duty",
+                    link_id=d.id,
+                )
+            # 通知被移除的负责人
+            if removed_resp:
+                push_notification(
+                    recipients=removed_resp,
+                    title="您已被移除臨時任務負責人",
+                    desc=f"「{d.duty_nm}」已將您從負責人名單中移除。",
+                    link_type="duty",
+                    link_id=d.id,
+                )
 
     def set_status(self, duty_id: str, status: int):
         d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()

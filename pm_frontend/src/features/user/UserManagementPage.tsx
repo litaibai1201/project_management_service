@@ -16,6 +16,7 @@ import { userApi, HierarchyRelation } from '@/api/user.api'
 import { groupApi } from '@/api/group.api'
 import { UserProfile } from '@/types/api.types'
 import { showToast } from '@/utils/toast'
+import { useResizableColumns, tableComponents } from '@/hooks/useResizableColumns'
 
 const { Search } = Input
 
@@ -184,7 +185,7 @@ const HierarchyTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor }) => 
     }
   }
 
-  const columns: ColumnsType<HierarchyRow> = [
+  const rawHierarchyColumns: ColumnsType<HierarchyRow> = [
     { title: '工號',     dataIndex: 'work_no',       width: 90  },
     { title: '姓名',     dataIndex: 'name',           width: 80  },
     { title: '部門',     dataIndex: 'department',     width: 100 },
@@ -210,6 +211,7 @@ const HierarchyTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor }) => 
       ),
     }] : []),
   ]
+  const { mergeColumns: hierarchyColumns } = useResizableColumns(rawHierarchyColumns)
 
   return (
     <div>
@@ -239,7 +241,8 @@ const HierarchyTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor }) => 
           >
             <Table
               rowKey="work_no"
-              columns={columns}
+              columns={hierarchyColumns}
+              components={tableComponents}
               dataSource={hierarchy}
               pagination={false}
               size="small"
@@ -559,7 +562,7 @@ const UserManagementPage: React.FC = () => {
     editForm.setFieldsValue(user)
   }
 
-  const columns: ColumnsType<UserProfile> = [
+  const rawUserColumns: ColumnsType<UserProfile> = [
     { title: '工號',   dataIndex: 'work_no',    width: 100 },
     { title: '姓名',   dataIndex: 'name',        width: 100 },
     { title: '部門',   dataIndex: 'department',  width: 140 },
@@ -584,6 +587,7 @@ const UserManagementPage: React.FC = () => {
       ),
     }] : []),
   ]
+  const { mergeColumns: userColumns } = useResizableColumns(rawUserColumns)
 
   const userFormItems = (isEdit = false) => (
     <>
@@ -667,7 +671,8 @@ const UserManagementPage: React.FC = () => {
           <div className="bg-white rounded-lg shadow-sm">
             <Table
               rowKey="work_no"
-              columns={columns}
+              columns={userColumns}
+              components={tableComponents}
               dataSource={list}
               loading={isLoading}
               pagination={{

@@ -19,6 +19,7 @@ import { PROJECT_STATUS_MAP, PRIORITY_MAP } from '@/utils/status'
 import CreateProjectModal from './CreateProjectModal'
 import { showToast } from '@/utils/toast'
 import dayjs from 'dayjs'
+import { useResizableColumns, tableComponents } from '@/hooks/useResizableColumns'
 
 const { Search } = Input
 
@@ -160,9 +161,9 @@ const ProjectListPage: React.FC = () => {
     } catch { showToast.error('刪除失敗') }
   }
 
-  const columns: ColumnsType<ProjectListItem> = [
+  const rawColumns: ColumnsType<ProjectListItem> = [
     {
-      title: '專案名稱', dataIndex: 'project_nm', ellipsis: true,
+      title: '專案名稱', dataIndex: 'project_nm', ellipsis: true, width: 220,
       render: (name: string, record) => (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ width: 3, height: 28, borderRadius: 2, flexShrink: 0, background: PRIORITY_COLORS[record.priority] }} />
@@ -173,7 +174,10 @@ const ProjectListPage: React.FC = () => {
         </div>
       ),
     },
-    { title: '部門', dataIndex: 'department', width: 110, render: (v: string) => <span className="text-slate-500 text-sm">{v}</span> },
+    {
+      title: '部門', dataIndex: 'department', width: 110,
+      render: (v: string) => <span className="text-slate-500 text-sm">{v}</span>,
+    },
     {
       title: '狀態', dataIndex: 'status', width: 120,
       render: (v: number) => <StatusDot status={v} />,
@@ -210,7 +214,7 @@ const ProjectListPage: React.FC = () => {
       sorter: true,
     },
     {
-      title: '操作', key: 'action', width: 80, fixed: 'right',
+      title: '操作', key: 'action', fixed: 'right', width: 80,
       render: (_: unknown, record) => (
         <Space size={0}>
           <Tooltip title="查看詳情">
@@ -224,6 +228,8 @@ const ProjectListPage: React.FC = () => {
       ),
     },
   ]
+  const { mergeColumns } = useResizableColumns(rawColumns)
+  const columns = mergeColumns
 
   return (
     <div className="p-6">
@@ -282,6 +288,7 @@ const ProjectListPage: React.FC = () => {
         ) : (
           <Table
             rowKey="id" columns={columns} dataSource={list} loading={isLoading}
+            components={tableComponents}
             pagination={{
               current: query.page, pageSize: query.size ?? 10, total: totalCount,
               showSizeChanger: true, showTotal: (t) => `共 ${t} 條`,

@@ -237,3 +237,12 @@ mark {
     -webkit-text-fill-color: transparent;
   }
 }
+
+/* ─── 隐藏 react-resizable 默认图标，只保留拖拽光标 ─── */
+.react-resizable-handle {
+  background-image: none !important;
+  padding: 0 !important;
+}
+.react-resizable-handle::after {
+  display: none !important;
+}
