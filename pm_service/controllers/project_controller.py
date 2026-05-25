@@ -256,7 +256,7 @@ class ProjectController:
         WN_FIELDS = {"product_pm", "project_pm"}
         fields = ("project_nm", "describe", "department", "product_pm", "project_pm",
                   "expected_start_date", "expected_end_date", "priority", "group_id", "code_url",
-                  "expected_benefit", "benefit_amount", "benefit_unit")
+                  "expected_benefit", "benefit_amount", "benefit_unit", "actual_benefit_amount")
         for f in fields:
             if f in payload and payload[f] is not None:
                 v = (payload[f] or "").strip().lower() if f in WN_FIELDS else payload[f]

@@ -21,13 +21,14 @@ import { useResizableColumns, tableComponents } from '@/hooks/useResizableColumn
 const { Search } = Input
 
 // ─── Hierarchy data (loaded from API) ────────────────────────────────────────
+interface SupervisorEntry { supervisor_no: string; supervisor_nm: string; relation_id: string }
+
 interface HierarchyRow {
   work_no: string; name: string; department: string; position: string
-  supervisor_no: string | null; supervisor_nm: string | null
-  relation_id: string | null
+  supervisors: SupervisorEntry[]
 }
 
-// Build tree data from hierarchy list
+// Build tree data — use first supervisor as primary parent to keep tree structure valid
 function buildTree(rows: HierarchyRow[]): DataNode[] {
   const map = new Map<string, DataNode & { work_no: string }>()
   rows.forEach((r) => {
@@ -52,10 +53,11 @@ function buildTree(rows: HierarchyRow[]): DataNode[] {
   const roots: DataNode[] = []
   rows.forEach((r) => {
     const node = map.get(r.work_no)!
-    if (!r.supervisor_no) {
+    const primary = r.supervisors[0]
+    if (!primary) {
       roots.push(node)
     } else {
-      const parent = map.get(r.supervisor_no)
+      const parent = map.get(primary.supervisor_no)
       if (parent) {
         ;(parent.children as DataNode[]).push(node)
       } else {
@@ -109,7 +111,7 @@ const HierarchyTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor }) => 
   const [editForm] = Form.useForm()
   const treeData = buildTree(hierarchy)
 
-  useEffect(() => {
+  const loadHierarchy = () => {
     Promise.all([
       userApi.list({ size: 200 }),
       userApi.listRelations(),
@@ -117,67 +119,53 @@ const HierarchyTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor }) => 
       const users = (usersRes as { content?: { data_list?: { work_no: string; name: string; department: string; position?: string }[] } }).content?.data_list ?? []
       const rels: HierarchyRelation[] = (relsRes as { content?: HierarchyRelation[] }).content ?? []
 
-      // Build supervisor map: subordinate_work_no → relation info
-      const supMap = new Map<string, { supervisor_no: string; supervisor_nm: string; relation_id: string }>()
+      // Build supervisor map: subordinate_work_no → [ ...supervisors ]
+      const supMap = new Map<string, SupervisorEntry[]>()
       rels.forEach((r) => {
-        supMap.set(r.subordinate_work_no, {
+        if (!supMap.has(r.subordinate_work_no)) supMap.set(r.subordinate_work_no, [])
+        supMap.get(r.subordinate_work_no)!.push({
           supervisor_no: r.supervisor_work_no,
           supervisor_nm: r.supervisor_name,
           relation_id: r.id,
         })
       })
 
-      const rows: HierarchyRow[] = users.map((u) => {
-        const sup = supMap.get(u.work_no)
-        return {
-          work_no: u.work_no,
-          name: u.name,
-          department: u.department,
-          position: u.position ?? '',
-          supervisor_no: sup?.supervisor_no ?? null,
-          supervisor_nm: sup?.supervisor_nm ?? null,
-          relation_id: sup?.relation_id ?? null,
-        }
-      })
+      const rows: HierarchyRow[] = users.map((u) => ({
+        work_no: u.work_no,
+        name: u.name,
+        department: u.department,
+        position: u.position ?? '',
+        supervisors: supMap.get(u.work_no) ?? [],
+      }))
       setHierarchy(rows)
     }).catch(() => {})
-  }, [])
+  }
 
-  const handleSave = async (values: { supervisor_no: string | null }) => {
+  useEffect(() => { loadHierarchy() }, [])
+
+  const handleSave = async (values: { supervisor_nos: string[] }) => {
     if (!editTarget) return
     setIsSavingHierarchy(true)
     try {
-      if (values.supervisor_no) {
-        // 先移除旧关系（如存在）
-        if (editTarget.relation_id) {
-          await userApi.removeRelation(editTarget.relation_id)
+      const newSet = new Set(values.supervisor_nos ?? [])
+      const oldMap = new Map(editTarget.supervisors.map((s) => [s.supervisor_no, s.relation_id]))
+
+      // Remove relations no longer selected
+      for (const [supNo, relId] of oldMap.entries()) {
+        if (!newSet.has(supNo)) {
+          await userApi.removeRelation(relId)
         }
-        // 建立新关系
-        const res = await userApi.setRelation(values.supervisor_no, editTarget.work_no)
-        const rel = (res as { content?: HierarchyRelation }).content
-        const supervisorRow = hierarchy.find((r) => r.work_no === values.supervisor_no) ?? null
-        setHierarchy((prev) =>
-          prev.map((r) =>
-            r.work_no === editTarget.work_no
-              ? { ...r, supervisor_no: values.supervisor_no ?? null, supervisor_nm: supervisorRow?.name ?? null, relation_id: rel?.id ?? null }
-              : r
-          )
-        )
-      } else {
-        // 清除关系
-        if (editTarget.relation_id) {
-          await userApi.removeRelation(editTarget.relation_id)
-        }
-        setHierarchy((prev) =>
-          prev.map((r) =>
-            r.work_no === editTarget.work_no
-              ? { ...r, supervisor_no: null, supervisor_nm: null, relation_id: null }
-              : r
-          )
-        )
       }
+      // Add newly selected relations
+      for (const supNo of newSet) {
+        if (!oldMap.has(supNo)) {
+          await userApi.setRelation(supNo, editTarget.work_no)
+        }
+      }
+
       showToast.success(`已更新 ${editTarget.name} 的直屬主管`)
       setEditTarget(null)
+      loadHierarchy()
     } catch {
       showToast.error('更新失敗，請稍後再試')
     } finally {
@@ -186,15 +174,18 @@ const HierarchyTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor }) => 
   }
 
   const rawHierarchyColumns: ColumnsType<HierarchyRow> = [
-    { title: '工號',     dataIndex: 'work_no',       width: 90  },
-    { title: '姓名',     dataIndex: 'name',           width: 80  },
-    { title: '部門',     dataIndex: 'department',     width: 100 },
-    { title: '職稱',     dataIndex: 'position',       ellipsis: true },
+    { title: '工號',  dataIndex: 'work_no',   width: 90  },
+    { title: '姓名',  dataIndex: 'name',       width: 80  },
+    { title: '部門',  dataIndex: 'department', width: 100 },
+    { title: '職稱',  dataIndex: 'position',   ellipsis: true },
     {
-      title: '直屬主管', dataIndex: 'supervisor_nm', width: 120,
-      render: (v?: string | null) => v
-        ? <span className="text-blue-600">{v}</span>
-        : <span className="text-slate-300">（無）</span>,
+      title: '直屬主管', dataIndex: 'supervisors', width: 180,
+      render: (supervisors: SupervisorEntry[]) =>
+        supervisors.length === 0
+          ? <span className="text-slate-300">（無）</span>
+          : supervisors.map((s) => (
+            <Tag key={s.relation_id} color="blue" style={{ marginBottom: 2 }}>{s.supervisor_nm}</Tag>
+          )),
     },
     ...(isSupervisor ? [{
       title: '操作', key: 'action', width: 80,
@@ -204,7 +195,7 @@ const HierarchyTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor }) => 
             icon={<PencilIcon className="w-4 h-4" />} size="small" type="text"
             onClick={() => {
               setEditTarget(record)
-              editForm.setFieldsValue({ supervisor_no: record.supervisor_no ?? undefined })
+              editForm.setFieldsValue({ supervisor_nos: record.supervisors.map((s) => s.supervisor_no) })
             }}
           />
         </Tooltip>
@@ -220,7 +211,7 @@ const HierarchyTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor }) => 
         <Col xs={24} lg={10}>
           <Card
             bordered={false} className="shadow-sm"
-            title={<span className="text-sm font-semibold text-slate-700">組織層級樹</span>}
+            title={<span className="text-sm font-semibold text-slate-700">組織層級樹（以第一主管為準）</span>}
             bodyStyle={{ padding: '8px 16px 16px' }}
           >
             <Tree
@@ -258,14 +249,16 @@ const HierarchyTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor }) => 
         open={!!editTarget}
         onCancel={() => setEditTarget(null)}
         footer={null}
-        width={400}
+        width={440}
         destroyOnClose
       >
         <Form form={editForm} layout="vertical" onFinish={handleSave} className="mt-4">
-          <Form.Item name="supervisor_no" label="直屬主管">
+          <Form.Item name="supervisor_nos" label="直屬主管（可多選）">
             <Select
+              mode="multiple"
               allowClear
               placeholder="選擇直屬主管（留空表示頂層）"
+              optionFilterProp="label"
               options={hierarchy
                 .filter((r) => r.work_no !== editTarget?.work_no)
                 .map((r) => ({ value: r.work_no, label: `${r.name}（${r.position}）` }))
@@ -274,7 +267,7 @@ const HierarchyTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor }) => 
           </Form.Item>
           <div className="flex justify-end gap-3">
             <Button onClick={() => setEditTarget(null)}>取消</Button>
-            <Button type="primary" htmlType="submit" loading={isSavingHierarchy} className="bg-blue-600">保存</Button>
+            <Button type="primary" htmlType="submit" loading={isSavingHierarchy}>保存</Button>
           </div>
         </Form>
       </Modal>

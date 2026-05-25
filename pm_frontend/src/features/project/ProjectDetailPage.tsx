@@ -427,9 +427,9 @@ const ProjectDetailPage: React.FC = () => {
       group_id:          current.group_id,
       expected_end_date: current.expected_end_date,
       code_url:          current.code_url,
-      expected_benefit:  current.expected_benefit,
-      benefit_amount:    current.benefit_amount,
-      benefit_unit:      current.benefit_unit ?? '元/年',
+      expected_benefit:       current.expected_benefit,
+      benefit_amount:         current.benefit_amount,
+      benefit_unit:           current.benefit_unit ?? '元/年',
       describe:          current.describe,
     })
     setNewGroupName('')
@@ -1124,12 +1124,13 @@ const ProjectDetailPage: React.FC = () => {
                   <Descriptions.Item label="預計完成">{current.expected_end_date ?? '—'}</Descriptions.Item>
                   <Descriptions.Item label="建立時間">{current.created_at}</Descriptions.Item>
                   <Descriptions.Item label="描述" span={2}><RichTextContent html={current.describe} /></Descriptions.Item>
-                  <Descriptions.Item label="預估效益" span={2}>
+                  <Descriptions.Item label="預估效益">
                     {current.benefit_amount != null
                       ? <>{current.benefit_amount} {current.benefit_unit ?? '元/年'}{current.expected_benefit ? <span className="text-slate-400 ml-2 text-xs">（{current.expected_benefit}）</span> : null}</>
                       : current.expected_benefit || '—'
                     }
                   </Descriptions.Item>
+
                 </Descriptions>
               </Card>
             ),
@@ -1785,6 +1786,7 @@ const ProjectDetailPage: React.FC = () => {
                         options={[
                           { value: '元/年', label: '元/年' },
                           { value: '人/年', label: '人/年' },
+                          { value: '工時/年', label: '工時/年' },
                         ]}
                         style={{ width: 80 }}
                       />
@@ -1793,6 +1795,8 @@ const ProjectDetailPage: React.FC = () => {
                 />
               </Form.Item>
             </Form.Item>
+
+
 
             <Form.Item name="expected_benefit" label="效益說明">
               <Input.TextArea rows={2} placeholder="例：預計減少人工作業30%，每年節省約50萬元" />

@@ -25,7 +25,7 @@ import { dutyApi } from '@/api/duty.api'
 import { authApi, type AlertTask, type WeeklyActivityItem, type NewsItem } from '@/api/auth.api'
 import { dailyLogApi, type BackendDailyLogSummary } from '@/api/daily_log.api'
 import { notificationApi } from '@/api/notification.api'
-import type { ProjectListItem, UserStatistical, TeamStatistical, TemporaryDuty, ApplyRecord } from '@/types/api.types'
+import type { ProjectListItem, UserStatistical, TeamStatistical, TeamBenefitGroup, TemporaryDuty, ApplyRecord } from '@/types/api.types'
 import { DUTY_STATUS_MAP } from '@/utils/status'
 import { useWorkNoToName } from '@/hooks/useWorkNoToName'
 import { useDashboardConfig } from '@/hooks/useDashboardConfig'
@@ -395,6 +395,118 @@ type LogRow = {
   work_no: string; name: string; period_hours: number; updates_count: number
   completed: unknown[]; overdue: unknown[]; daily_logs: Array<{ log_date: string; status: number }>
 }
+
+// ── BenefitCard sub-component ─────────────────────────────────────────────────
+
+const _fmtBenefitNum = (n: number) => {
+  if (n >= 100_000_000) return `${(n / 100_000_000).toFixed(2)} 億`
+  if (n >= 10_000) return `${(n / 10_000).toFixed(2)} 萬`
+  return n.toFixed(2)
+}
+
+interface BenefitCardProps {
+  benefit: TeamBenefitGroup[]
+}
+
+const BenefitCard: React.FC<BenefitCardProps> = ({ benefit }) => (
+  <Card className="h-full"
+    title={
+      <div className="flex items-center gap-2">
+        <div className="w-5 h-5 rounded bg-blue-100 flex items-center justify-center">
+          <span className="text-[10px] text-blue-600 font-bold">¥</span>
+        </div>
+        <span className="text-sm font-semibold text-slate-600">年度效益統計</span>
+      </div>
+    }
+    styles={{ body: { padding: 0, height: 'calc(100% - 57px)', display: 'flex', flexDirection: 'column' } }}>
+    {benefit.length === 0
+      ? <Empty description="暫無效益數據" image={Empty.PRESENTED_IMAGE_SIMPLE} className="py-4 px-4" />
+      : benefit.map((group, idx) => (
+        <div key={group.unit} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderTop: idx > 0 ? '1px solid #f1f5f9' : 'none', padding: '8px 16px' }}>
+          <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full mb-1">
+            {group.unit}
+          </span>
+          <div className="text-[11px] text-slate-400 mb-1">{group.count} 個專案</div>
+          <div className="tabular-nums font-black text-blue-600 text-center leading-none" style={{ fontSize: 'clamp(16px, 3.5vh, 36px)' }}>
+            {_fmtBenefitNum(group.expected)}
+          </div>
+          <div className="text-[11px] text-slate-400 mt-1">預計年度效益</div>
+        </div>
+      ))
+    }
+  </Card>
+)
+
+// ── BenefitDetailCard sub-component ───────────────────────────────────────────
+
+interface BenefitDetailCardProps {
+  benefit: TeamBenefitGroup[]
+  navigate: (path: string) => void
+}
+
+const BenefitDetailCard: React.FC<BenefitDetailCardProps> = ({ benefit, navigate }) => {
+  const statusLabel = (s: number) => {
+    const m: Record<number, [string, string]> = {
+      5: ['執行中', '#2563eb'], 7: ['已完結', '#16a34a'], 8: ['擱置', '#94a3b8'],
+    }
+    const [label, color] = m[s] ?? ['其他', '#94a3b8']
+    return (
+      <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0"
+        style={{ background: `${color}18`, color }}>{label}</span>
+    )
+  }
+
+  return (
+    <Card className="h-full"
+      title={
+        <div className="flex items-center gap-2">
+          <div className="w-5 h-5 rounded bg-blue-100 flex items-center justify-center">
+            <span className="text-[10px] text-blue-600 font-bold">¥</span>
+          </div>
+          <span className="text-sm font-semibold text-slate-600">效益專案明細</span>
+        </div>
+      }
+      styles={{ body: { padding: '12px 16px', overflow: 'auto', height: 'calc(100% - 57px)' } }}>
+      {benefit.length === 0
+        ? <Empty description="暫無效益數據" image={Empty.PRESENTED_IMAGE_SIMPLE} className="py-4" />
+        : benefit.map((group, idx) => (
+          <div key={group.unit}>
+            {idx > 0 && <div className="border-t border-slate-100 my-3" />}
+            {/* 分组标题 */}
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-xs font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                {group.unit}
+              </span>
+              <span className="text-[11px] text-slate-400">{group.count} 個專案</span>
+              <span className="ml-auto text-xs font-semibold text-blue-600 tabular-nums">
+                共 {_fmtBenefitNum(group.expected)} {group.unit}
+              </span>
+            </div>
+            {/* 专案列表 */}
+            <div className="flex flex-col gap-1.5">
+              {group.projects.map((proj) => (
+                <div key={proj.id}
+                  className="rounded-lg bg-slate-50 px-3 py-2 hover:bg-slate-100 transition-colors cursor-pointer"
+                  onClick={() => navigate(`/projects/${proj.id}`)}>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-slate-700 truncate flex-1">{proj.name}</span>
+                    {statusLabel(proj.status)}
+                    <span className="font-semibold text-blue-600 tabular-nums text-xs flex-shrink-0">
+                      {_fmtBenefitNum(proj.expected)}
+                      <span className="text-[10px] font-normal text-slate-400 ml-0.5">{group.unit}</span>
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))
+      }
+    </Card>
+  )
+}
+
+// ── TeamLogCard sub-component ─────────────────────────────────────────────────
 
 interface TeamLogCardProps {
   logReportData: LogRow[]
@@ -1158,6 +1270,14 @@ const DashboardPage: React.FC = () => {
                 </Card>
               )
             })()
+
+            case 'team_benefit': return !isManager ? null : (
+              <BenefitCard benefit={teamStat?.team_benefit ?? []} />
+            )
+
+            case 'team_benefit_detail': return !isManager ? null : (
+              <BenefitDetailCard benefit={teamStat?.team_benefit ?? []} navigate={navigate} />
+            )
 
             // ── Personal widgets ────────────────────────────────────────────
             case 'project_stats': return isManager ? null : (

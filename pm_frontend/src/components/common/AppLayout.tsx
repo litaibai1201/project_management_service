@@ -379,7 +379,7 @@ const AppLayout: React.FC = () => {
                 setNotifOpen(open)
                 if (open) loadNotifications()
               }}
-              overlayInnerStyle={{ borderRadius: 12, padding: '12px 12px 8px', boxShadow: '0 8px 24px rgba(0,0,0,0.1)' }}
+              styles={{ body: { borderRadius: 12, padding: '12px 12px 8px', boxShadow: '0 8px 24px rgba(0,0,0,0.1)' } }}
             >
               <Button type="text" size="small" style={{ display: 'flex', alignItems: 'center' }}>
                 <Badge count={unreadCount} size="small" offset={[-2, 2]}>

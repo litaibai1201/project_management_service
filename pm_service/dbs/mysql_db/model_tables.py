@@ -211,9 +211,10 @@ class ProjectDataModel(BaseMixinModel):
     end_time = db.Column(db.String(19), comment="实际结束时间")
     code_url = db.Column(db.String(255), comment="代码仓库地址")
     group_id = db.Column(db.String(32), db.ForeignKey("project_group_form.id"), comment="分组ID")
-    expected_benefit = db.Column(db.Text, comment="预期效益描述")
-    benefit_amount   = db.Column(db.Float,       comment="效益金额/数量")
-    benefit_unit     = db.Column(db.String(10),  default="元/年", comment="效益单位(元/年|人/年)")
+    expected_benefit       = db.Column(db.Text, comment="预期效益描述")
+    benefit_amount         = db.Column(db.Float,      comment="预计效益金额/数量")
+    benefit_unit           = db.Column(db.String(10), default="元/年", comment="效益单位(元/年|人/年)")
+    actual_benefit_amount  = db.Column(db.Float,      comment="实际效益金额/数量（与benefit_unit同单位）")
     progress = db.Column(db.Integer, default=0, comment="完成进度(0-100)")
 
     def to_dict(self):
@@ -228,6 +229,7 @@ class ProjectDataModel(BaseMixinModel):
             "expected_benefit": self.expected_benefit or "",
             "benefit_amount": self.benefit_amount,
             "benefit_unit": self.benefit_unit or "元/年",
+            "actual_benefit_amount": self.actual_benefit_amount,
             "progress": self.progress,
             "created_at": self.created_at, "updated_at": self.update_at or "",
         }

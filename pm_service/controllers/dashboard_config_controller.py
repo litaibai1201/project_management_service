@@ -34,6 +34,8 @@ WIDGET_CATALOG = {
         {"widget_id": "team_project_progress", "label": "專案進度排行",   "removable": True},
         {"widget_id": "team_log_today",        "label": "成員工時明細",   "removable": True},
         {"widget_id": "team_review_types",     "label": "審批類型分佈",   "removable": True},
+        {"widget_id": "team_benefit",          "label": "年度效益統計",   "removable": True},
+        {"widget_id": "team_benefit_detail",   "label": "效益專案明細",   "removable": True},
     ],
 }
 

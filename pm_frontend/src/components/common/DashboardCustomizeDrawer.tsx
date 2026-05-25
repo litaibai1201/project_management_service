@@ -89,6 +89,14 @@ const WIDGET_CATEGORIES: Record<DashboardViewType, Category[]> = {
         { id: 'member_detail',       title: '成員明細',      desc: '展示成員任務詳情列表',    color: '#64748b' },
       ],
     },
+    {
+      key: 'benefit',
+      label: '效益',
+      widgets: [
+        { id: 'team_benefit',        title: '年度效益統計', desc: '按單位匯總團隊專案預計年度效益', color: '#3b82f6' },
+        { id: 'team_benefit_detail', title: '效益專案明細', desc: '列出各專案預計效益及狀態', color: '#3b82f6' },
+      ],
+    },
   ],
 }
 

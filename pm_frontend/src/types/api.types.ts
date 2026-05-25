@@ -57,6 +57,22 @@ export interface UserIndexContent {
   }
 }
 
+export interface TeamBenefitProject {
+  id:       string
+  name:     string
+  status:   number
+  expected: number
+  actual:   number | null
+}
+
+export interface TeamBenefitGroup {
+  unit:     string
+  expected: number
+  actual:   number
+  count:    number
+  projects: TeamBenefitProject[]
+}
+
 export interface TeamStatistical {
   team_project: { total: number; in_progress: number; completed: number }
   team_task: {
@@ -65,6 +81,7 @@ export interface TeamStatistical {
   }
   pending: { review: number; progress_update: number }
   team_size: number
+  team_benefit: TeamBenefitGroup[]
 }
 
 export interface UserStatistical {
@@ -99,6 +116,7 @@ export interface Project {
   expected_benefit?: string
   benefit_amount?: number | null
   benefit_unit?: string
+  actual_benefit_amount?: number | null
   created_at: string
   updated_at?: string
   progress?: number

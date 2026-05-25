@@ -27,7 +27,7 @@ const schema = z.object({
   code_url:           z.string().url('請輸入正確的代碼庫網址').optional().or(z.literal('')),
   expected_benefit:   z.string().optional(),
   benefit_amount:     z.number().min(0).optional(),
-  benefit_unit:       z.enum(['元/年', '人/年']).optional(),
+  benefit_unit:       z.enum(['元/年', '人/年', '工時/年']).optional(),
 })
 
 type FormValues = z.infer<typeof schema>
@@ -431,6 +431,7 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ open, onClose, 
                           options={[
                             { value: '元/年', label: '元/年' },
                             { value: '人/年', label: '人/年' },
+                            { value: '工時/年', label: '工時/年' },
                           ]}
                           style={{ width: 80 }}
                         />

@@ -590,6 +590,8 @@ const DailyLogPage: React.FC = () => {
   const watchedFunctionId = Form.useWatch('function_id',   form) as string | undefined
   const watchedDutyId     = Form.useWatch('duty_id',       form) as string | undefined
   const watchedProgress   = Form.useWatch('progress',      form) as number | null | undefined
+  const watchedIsOvertime = Form.useWatch('is_overtime',   form) as boolean | undefined
+  const watchedHours      = Form.useWatch('hours',         form) as number | undefined
   const [syncProgress, setSyncProgress] = useState(true)
   const [fileList, setFileList] = useState<UploadFile[]>([])
   // Files already saved on the entry (non-progress source) — user can delete individual ones
@@ -866,6 +868,7 @@ const DailyLogPage: React.FC = () => {
         description: entry.description,
         hours: entry.hours,
         is_overtime: entry.is_overtime,
+        overtime_hours: entry.is_overtime ? (entry.overtime_hours ?? entry.hours) : entry.hours,
         progress: entry.progress,
       })
     } else {
@@ -927,7 +930,7 @@ const DailyLogPage: React.FC = () => {
         description: values.description as string,
         hours: values.hours as number,
         is_overtime: (values.is_overtime as boolean) ?? false,
-        overtime_hours: (values.is_overtime as boolean) ? (values.hours as number) : 0,
+        overtime_hours: (values.is_overtime as boolean) ? ((values.overtime_hours as number) ?? (values.hours as number)) : 0,
         source: (!editingEntry || editingEntry.source === 'manual') ? 'manual' : 'updated',
         suggest_id: editingEntry?.suggest_id,
         progress: values.progress as number | undefined,
@@ -977,7 +980,7 @@ const DailyLogPage: React.FC = () => {
       description: values.description as string,
       hours: values.hours as number,
       is_overtime: (values.is_overtime as boolean) ?? false,
-      overtime_hours: (values.is_overtime as boolean) ? (values.hours as number) : 0,
+      overtime_hours: (values.is_overtime as boolean) ? ((values.overtime_hours as number) ?? (values.hours as number)) : 0,
       source: (!editingEntry || editingEntry.source === 'manual') ? 'manual' : 'updated',
       suggest_id: editingEntry?.suggest_id,
       progress: values.progress as number | undefined,
@@ -1804,8 +1807,28 @@ const DailyLogPage: React.FC = () => {
           </Form.Item>
 
           <Form.Item name="is_overtime" label="是否加班" valuePropName="checked">
-            <Switch checkedChildren="加班" unCheckedChildren="正常" />
+            <Switch
+              checkedChildren="加班"
+              unCheckedChildren="正常"
+              onChange={(checked) => {
+                if (checked) {
+                  // 默认加班时数 = 当前耗时
+                  form.setFieldValue('overtime_hours', watchedHours ?? undefined)
+                }
+              }}
+            />
           </Form.Item>
+
+          {watchedIsOvertime && (
+            <Form.Item
+              name="overtime_hours"
+              label="加班時數 (h)"
+              rules={[{ required: true, message: '請輸入加班時數' }]}
+              extra="默認與耗時相同，可手動調整實際加班時數"
+            >
+              <InputNumber min={0.01} max={24} step={0.5} precision={2} style={{ width: '100%' }} addonAfter="h" />
+            </Form.Item>
+          )}
 
           {/* Attachments from progress record (read-only) */}
           {editingEntry?.source === 'progress' && editingEntry.files && editingEntry.files.length > 0 && (

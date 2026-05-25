@@ -583,6 +583,41 @@ class UserController:
             ReviewApplyModel.apply_status == 1,
         ).count()
 
+        # ── 效益统计（按单位分组，仅统计当年完结专案）────────────────────────
+        current_year = str(CommonTools.get_now("datetime").year)
+        team_projects_for_benefit = db.session.query(ProjectDataModel).filter(
+            proj_filter,
+            ProjectDataModel.project_status == 7,
+            ProjectDataModel.benefit_amount.isnot(None),
+            ProjectDataModel.end_time.like(f"{current_year}%"),
+        ).all()
+        benefit_map: dict = {}  # { unit: {expected, actual, count, projects[]} }
+        for proj in team_projects_for_benefit:
+            unit = (proj.benefit_unit or "元/年").strip()
+            if unit not in benefit_map:
+                benefit_map[unit] = {"expected": 0.0, "actual": 0.0, "count": 0, "projects": []}
+            benefit_map[unit]["expected"] += proj.benefit_amount or 0
+            benefit_map[unit]["count"]    += 1
+            if proj.actual_benefit_amount is not None:
+                benefit_map[unit]["actual"] += proj.actual_benefit_amount
+            benefit_map[unit]["projects"].append({
+                "id":       proj.id,
+                "name":     proj.project_nm,
+                "status":   proj.project_status,
+                "expected": round(proj.benefit_amount or 0, 2),
+                "actual":   round(proj.actual_benefit_amount, 2) if proj.actual_benefit_amount is not None else None,
+            })
+        team_benefit = [
+            {
+                "unit":     unit,
+                "expected": round(v["expected"], 2),
+                "actual":   round(v["actual"],   2),
+                "count":    v["count"],
+                "projects": v["projects"],
+            }
+            for unit, v in benefit_map.items()
+        ]
+
         return {
             "team_project": {
                 "total":       team_project_total,
@@ -602,6 +637,7 @@ class UserController:
                 "progress_update":  0,
             },
             "team_size": len(sub_work_nos),
+            "team_benefit": team_benefit,
         }
 
     def get_alert_tasks(self, work_no: str) -> list:
