@@ -71,9 +71,20 @@ class BaseConfig:
     # ==================== 文件上传配置 ====================
     MAX_CONTENT_LENGTH = _get_int("MAX_CONTENT_LENGTH", 50 * 1024 * 1024)
     UPLOAD_ALLOWED_EXTENSIONS = {
-        "png", "jpg", "jpeg", "gif", "webp",
+        # 圖片
+        "png", "jpg", "jpeg", "gif", "webp", "bmp", "svg",
+        # Office 文件
         "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
+        # 文字 / 設定
         "txt", "md", "yaml", "yml", "csv", "html", "htm",
+        "json", "xml", "toml", "ini", "cfg", "conf", "env",
+        "gitignore", "dockerignore", "editorconfig",
+        # 壓縮包
+        "zip", "rar", "7z", "tar", "gz", "bz2",
+        # 程式碼 / 腳本
+        "py", "js", "ts", "jsx", "tsx", "java", "c", "cpp", "h",
+        "cs", "go", "rs", "rb", "php", "sh", "bat", "ps1",
+        "sql", "log",
     }
     UPLOAD_DIR = os.environ.get("UPLOAD_DIR", os.path.join(os.path.dirname(__file__), "..", "..", "uploads"))
 
