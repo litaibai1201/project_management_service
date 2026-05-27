@@ -138,6 +138,10 @@ export interface ProjectFile {
   file_category: 'requirement' | 'design' | 'progress' | 'other'
   uploader:      string
   created_at:    string
+  // 需求附件专用字段
+  source?:       'requirement_attachment'
+  req_id?:       string
+  req_nm?:       string
 }
 
 export interface ProjectListItem {
@@ -179,8 +183,8 @@ export interface ProjectListQuery {
 
 // ─── Function / Task ─────────────────────────────────────────────────────────
 
-export type FunctionStatus = 1 | 2 | 3 | 4 | 8 | 9
-// 1=待開始 2=進行中 3=完結審核 4=已完結 8=擱置 9=刪除
+export type FunctionStatus = 0 | 1 | 2 | 3 | 4 | 8 | 9
+// 0=草稿(待審核) 1=待開始 2=進行中 3=完結審核 4=已完結 8=擱置 9=刪除
 
 export interface ProjectFunction {
   id: string
@@ -198,8 +202,9 @@ export interface ProjectFunction {
   reschedule_history?: { from: string; to: string; reason: string; date: string; operator: string }[]
   start_time?: string
   end_time?: string
-  group1: string
+  group1?: string
   group2?: string
+  requirement_id?: string
 }
 
 export interface AddFunctionPayload {
@@ -209,9 +214,10 @@ export interface AddFunctionPayload {
   expected_start_date?: string
   expected_end_date?: string
   priority: number
-  group1: string
+  group1?: string
   group2?: string
   reviewer?: string[]
+  requirement_id?: string
 }
 
 export interface FunctionAllocationPayload {
@@ -246,6 +252,7 @@ export interface FileInfo {
   name: string
   url: string
   size?: number
+  file_id?: string
 }
 
 // ─── Temporary Duty ───────────────────────────────────────────────────────────
@@ -301,6 +308,9 @@ export interface ApplyRecord {
   project_id?: string
   function_id?: string
   duty_id?: string
+  requirement_id?: string
+  requirement_ids?: string[]
+  function_ids?: string[]
   apply_type: string
   apply_type_code: string
   submitter: string
@@ -343,12 +353,12 @@ export interface SearchPayload {
   keyword: string
   page?: number
   size?: number
-  type?: 'project' | 'function' | 'duty'
+  type?: 'project' | 'requirement' | 'function' | 'duty'
 }
 
 export interface SearchResult {
   id: string
-  type: 'project' | 'function' | 'duty'
+  type: 'project' | 'requirement' | 'function' | 'duty'
   title: string
   status: number
   priority?: number
@@ -356,7 +366,7 @@ export interface SearchResult {
   department?: string
   expected_end_date?: string
   progress?: number
-  project_id?: string   // function 类型专用：所属专案 ID
+  project_id?: string   // requirement / function 类型专用：所属专案 ID
   created_at: string
 }
 
@@ -425,6 +435,39 @@ export interface ApprovalNode {
 export interface CountersignPayload {
   approver_name:    string
   approver_work_no: string
+}
+
+// ─── Requirement ──────────────────────────────────────────────────────────────
+
+export type RequirementStatus = 0 | 1 | 2 | 3 | 8 | 9
+// 0=草稿 1=審核中 2=已通過 3=已拒絕 8=搁置 9=已刪除
+
+export interface Requirement {
+  id: string
+  project_id: string
+  req_nm: string
+  describe?: string
+  priority: number
+  status: RequirementStatus
+  creator: string
+  creator_nm?: string
+  expected_benefit?: string
+  benefit_amount?: number | null
+  benefit_unit?: string
+  files?: FileInfo[]
+  expected_end_date?: string
+  created_at: string
+  updated_at?: string
+}
+
+export interface CreateRequirementPayload {
+  req_nm: string
+  describe?: string
+  priority: number
+  expected_benefit?: string
+  benefit_amount?: number
+  benefit_unit?: string
+  expected_end_date?: string
 }
 
 // ─── Daily Log ────────────────────────────────────────────────────────────────

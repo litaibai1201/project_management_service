@@ -16,6 +16,7 @@ export const PROJECT_STATUS_MAP: Record<number, { label: string; color: string; 
 }
 
 export const FUNCTION_STATUS_MAP: Record<number, { label: string; color: string; dot: string }> = {
+  0: { label: '草稿',     color: 'default',    dot: '#94a3b8' },
   1: { label: '待開始',   color: 'default',    dot: '#94a3b8' },
   2: { label: '進行中',   color: 'processing', dot: '#2563eb' },
   3: { label: '完結審核', color: 'orange',     dot: '#d97706' },

@@ -18,6 +18,8 @@ import {
   Milestone,
   CreateMilestonePayload,
   MemberWorkStat,
+  Requirement,
+  CreateRequirementPayload,
   ProjectFile,
 } from '@/types/api.types'
 
@@ -192,6 +194,10 @@ export const projectApi = {
   allocateFunction: (pid: string, fid: string, payload: FunctionAllocationPayload): Promise<ApiResponse<null>> =>
     put(`/project/${pid}/function/${fid}/allocation`, payload),
 
+  /** POST /api/project/:pid/functions/task_addition_review — 提交執行階段新增任務的審核 */
+  submitTaskAdditionReview: (pid: string, functionIds: string[], reviewer: string[]): Promise<ApiResponse<{ apply_id: string }>> =>
+    post(`/project/${pid}/functions/task_addition_review`, { function_ids: functionIds, reviewer }),
+
   /** POST /api/project/:pid/function_list */
   functionList: (pid: string, payload: { page: number; size?: number; keyword?: string; status?: number }) =>
     post(`/project/${pid}/function_list`, payload),
@@ -326,4 +332,53 @@ export const projectApi = {
   /** GET /api/statistics/anomalies */
   anomalies: (): Promise<ApiResponse<unknown[]>> =>
     get('/statistics/anomalies'),
+}
+
+// ─── Requirement API ──────────────────────────────────────────────────────────
+
+export const requirementApi = {
+  list: (projectId: string): Promise<ApiResponse<Requirement[]>> =>
+    get(`/project/${projectId}/requirements`),
+
+  create: (projectId: string, payload: CreateRequirementPayload): Promise<ApiResponse<Requirement>> =>
+    post(`/project/${projectId}/requirements`, payload),
+
+  update: (projectId: string, reqId: string, payload: Partial<CreateRequirementPayload>): Promise<ApiResponse<Requirement>> =>
+    put(`/project/${projectId}/requirements/${reqId}`, payload),
+
+  delete: (projectId: string, reqId: string): Promise<ApiResponse<unknown>> =>
+    del(`/project/${projectId}/requirements/${reqId}`),
+
+  submitReview: (projectId: string, reqId: string, reviewer: string[]): Promise<ApiResponse<unknown>> =>
+    post(`/project/${projectId}/requirements/${reqId}/submit_review`, { reviewer }),
+
+  batchSubmitReview: (projectId: string, requirementIds: string[], reviewer: string[]): Promise<ApiResponse<unknown>> =>
+    post(`/project/${projectId}/requirements/batch_review`, { requirement_ids: requirementIds, reviewer }),
+
+  submitShelve: (projectId: string, reqId: string, reviewer: string[]): Promise<ApiResponse<unknown>> =>
+    post(`/project/${projectId}/requirements/${reqId}/shelve`, { reviewer }),
+
+  uploadFile: (projectId: string, reqId: string, file: File): Promise<ApiResponse<{ files: { name: string; url: string; size: number }[] }>> => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return postForm(`/project/${projectId}/requirements/${reqId}/files`, fd)
+  },
+
+  deleteFile: (projectId: string, reqId: string, url: string): Promise<ApiResponse<unknown>> =>
+    del(`/project/${projectId}/requirements/${reqId}/files`, { data: { url } }),
+
+  getFilePreviewUrl: (projectId: string, reqId: string, fileId: string): string =>
+    `/api/project/${projectId}/requirements/${reqId}/files/${fileId}/preview`,
+
+  getFileDownloadUrl: (projectId: string, reqId: string, fileId: string): string =>
+    `/api/project/${projectId}/requirements/${reqId}/files/${fileId}/download`,
+
+  previewFileAsBlob: (projectId: string, reqId: string, fileId: string): Promise<string> =>
+    fetchBlob(`/project/${projectId}/requirements/${reqId}/files/${fileId}/preview`).then((b) => URL.createObjectURL(b)),
+
+  previewFileRawBlob: (projectId: string, reqId: string, fileId: string): Promise<Blob> =>
+    fetchBlob(`/project/${projectId}/requirements/${reqId}/files/${fileId}/preview`),
+
+  previewFileAsText: (projectId: string, reqId: string, fileId: string): Promise<string> =>
+    fetchText(`/project/${projectId}/requirements/${reqId}/files/${fileId}/preview`),
 }

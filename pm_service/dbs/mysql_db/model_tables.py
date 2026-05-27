@@ -272,6 +272,49 @@ class ProjectFileModel(db.Model):
         }
 
 
+class RequirementModel(BaseMixinModel):
+    """专案需求"""
+    __tablename__ = "requirement_form"
+
+    id            = db.Column(db.String(32), primary_key=True, default=generate_uuid)
+    project_id    = db.Column(db.String(32), db.ForeignKey("project_data_form.id"), nullable=False, index=True)
+    req_nm        = db.Column(db.String(128), nullable=False, comment="需求名称")
+    describe      = db.Column(db.Text, comment="需求描述")
+    priority      = db.Column(db.Integer, default=2, comment="优先级(1低2中3高4紧急)")
+    # 0=草稿 1=审核中 2=已通过 3=已拒绝 9=已删除
+    req_status    = db.Column(db.Integer, default=0, comment="需求状态")
+    creator       = db.Column(db.String(32), comment="创建人工号")
+    expected_benefit  = db.Column(db.Text,      comment="效益描述")
+    benefit_amount    = db.Column(db.Float,      comment="预计效益数量")
+    benefit_unit      = db.Column(db.String(10), default="元/年", comment="效益单位")
+    files_json            = db.Column(db.Text,       comment="附件列表(JSON数组 [{name,url,size}])")
+    expected_end_date     = db.Column(db.String(10), comment="预计结束日期")
+
+    def to_dict(self):
+        files = []
+        if self.files_json:
+            try:
+                files = json.loads(self.files_json)
+            except Exception:
+                pass
+        return {
+            "id":                   self.id,
+            "project_id":           self.project_id,
+            "req_nm":               self.req_nm,
+            "describe":             self.describe or "",
+            "priority":             self.priority,
+            "status":               self.req_status,
+            "creator":              self.creator or "",
+            "expected_benefit":     self.expected_benefit or "",
+            "benefit_amount":       self.benefit_amount,
+            "benefit_unit":         self.benefit_unit or "元/年",
+            "files":                files,
+            "expected_end_date":    self.expected_end_date or "",
+            "created_at":           self.created_at,
+            "updated_at":           self.update_at or "",
+        }
+
+
 class FunctionDataModel(BaseMixinModel):
     """项目功能任务"""
     __tablename__ = "function_data_form"
@@ -282,7 +325,7 @@ class FunctionDataModel(BaseMixinModel):
     project_id = db.Column(db.String(32), db.ForeignKey("project_data_form.id"), nullable=False, index=True)
     responsible = db.Column(db.Text, comment="负责人工号列表(JSON数组)")
     priority = db.Column(db.Integer, default=2)
-    # 1=待开始 2=进行中 3=完结审核 4=已完结 8=搁置 9=删除
+    # 0=草稿(待審核) 1=待开始 2=进行中 3=完结审核 4=已完结 8=搁置 9=删除
     function_status = db.Column(db.Integer, default=1)
     progress = db.Column(db.Integer, default=0)
     expected_start_date = db.Column(db.String(10))
@@ -294,6 +337,7 @@ class FunctionDataModel(BaseMixinModel):
     end_time = db.Column(db.String(19))
     group1 = db.Column(db.String(64), comment="功能分组1")
     group2 = db.Column(db.String(64), comment="功能分组2")
+    requirement_id = db.Column(db.String(32), db.ForeignKey("requirement_form.id"), nullable=True, index=True, comment="所属需求ID（可选）")
 
     def to_dict(self):
         reschedule_history = []
@@ -315,6 +359,7 @@ class FunctionDataModel(BaseMixinModel):
             "reschedule_history": reschedule_history,
             "start_time": self.start_time or "", "end_time": self.end_time or "",
             "group1": self.group1 or "", "group2": self.group2 or "",
+            "requirement_id": self.requirement_id or "",
             "created_at": self.created_at,
         }
 
@@ -392,9 +437,12 @@ class ReviewApplyModel(BaseMixinModel):
     __tablename__ = "review_apply_form"
 
     id = db.Column(db.String(32), primary_key=True, default=generate_uuid)
-    project_id = db.Column(db.String(32), comment="关联项目ID")
-    function_id = db.Column(db.String(32), comment="关联功能ID")
-    duty_id = db.Column(db.String(32), comment="关联任务ID")
+    project_id     = db.Column(db.String(32), comment="关联项目ID")
+    function_id    = db.Column(db.String(32), comment="关联功能ID")
+    duty_id        = db.Column(db.String(32), comment="关联任务ID")
+    requirement_id      = db.Column(db.String(32), comment="关联需求ID（单条）")
+    requirement_ids_json = db.Column(db.Text, nullable=True, comment="批量关联需求ID列表（JSON）")
+    function_ids_json   = db.Column(db.Text, nullable=True, comment="批量关联任务ID列表（JSON）")
     apply_type = db.Column(db.String(64), comment="申请类型(中文)")
     apply_type_code = db.Column(db.String(32), comment="申请类型编码")
     submitter = db.Column(db.String(32), nullable=False, comment="提交人工号")
@@ -422,6 +470,9 @@ class ReviewApplyModel(BaseMixinModel):
         return {
             "id": self.id, "project_id": self.project_id or "",
             "function_id": self.function_id or "", "duty_id": self.duty_id or "",
+            "requirement_id": self.requirement_id or "",
+            "requirement_ids": json.loads(self.requirement_ids_json) if self.requirement_ids_json else [],
+            "function_ids": json.loads(self.function_ids_json) if self.function_ids_json else [],
             "apply_type": self.apply_type or "", "apply_type_code": self.apply_type_code or "",
             "submitter": self.submitter, "submitter_name": self.submitter_name or "",
             "reviewer": reviewers, "status": self.apply_status, "priority": self.priority,

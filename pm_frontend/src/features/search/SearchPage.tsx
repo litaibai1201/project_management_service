@@ -6,7 +6,7 @@
  * - 搜索建议（初始状态）
  */
 import React, { useState, useCallback } from 'react'
-import { Input, Tag, Progress, Empty, Spin, Tabs } from 'antd'
+import { Input, Tag, Progress, Empty, Spin, Tabs, Pagination } from 'antd'
 import {
   MagnifyingGlassIcon, FolderIcon, ClipboardDocumentListIcon,
   UserCircleIcon, CalendarDaysIcon, ArrowRightIcon,
@@ -15,6 +15,14 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { searchApi } from '@/api/search.api'
 import { SearchResult } from '@/types/api.types'
 import { PROJECT_STATUS_MAP, DUTY_STATUS_MAP, FUNCTION_STATUS_MAP, PRIORITY_MAP } from '@/utils/status'
+
+const REQ_STATUS_MAP: Record<number, { label: string; dot: string }> = {
+  0: { label: '草稿',   dot: '#94a3b8' },
+  1: { label: '審核中', dot: '#3b82f6' },
+  2: { label: '已通過', dot: '#16a34a' },
+  3: { label: '已拒絕', dot: '#ef4444' },
+  8: { label: '搁置',   dot: '#f59e0b' },
+}
 
 const { Search } = Input
 
@@ -44,12 +52,33 @@ const DaysTag: React.FC<{ date?: string }> = ({ date }) => {
 }
 
 // ─── Result Card ─────────────────────────────────────────────────────────────
+const TYPE_META: Record<string, { label: string; tagColor: string; bgColor: string; iconColor: string }> = {
+  project:     { label: '專案',   tagColor: 'blue',   bgColor: 'bg-blue-50',   iconColor: 'text-blue-500'   },
+  requirement: { label: '需求',   tagColor: 'cyan',   bgColor: 'bg-cyan-50',   iconColor: 'text-cyan-500'   },
+  function:    { label: '功能任務', tagColor: 'green', bgColor: 'bg-green-50',  iconColor: 'text-green-500'  },
+  duty:        { label: '臨時任務', tagColor: 'purple', bgColor: 'bg-purple-50', iconColor: 'text-purple-500' },
+}
+
 const ResultCard: React.FC<{ item: SearchResult; keyword: string; onClick: () => void }> = ({ item, keyword, onClick }) => {
-  const isProject  = item.type === 'project'
-  const isFunction = item.type === 'function'
-  const statusMap  = isProject ? PROJECT_STATUS_MAP : isFunction ? FUNCTION_STATUS_MAP : DUTY_STATUS_MAP
-  const statusInfo = statusMap[item.status]
-  const priority   = item.priority ? PRIORITY_MAP[item.priority] : null
+  const meta = TYPE_META[item.type] ?? TYPE_META.duty
+  const isProject = item.type === 'project'
+
+  let statusDot: string | undefined
+  let statusLabel: string | undefined
+  if (item.type === 'project') {
+    const s = PROJECT_STATUS_MAP[item.status]
+    statusDot = s?.dot; statusLabel = s?.label
+  } else if (item.type === 'requirement') {
+    const s = REQ_STATUS_MAP[item.status]
+    statusDot = s?.dot; statusLabel = s?.label
+  } else if (item.type === 'function') {
+    const s = FUNCTION_STATUS_MAP[item.status]
+    statusDot = s?.dot; statusLabel = s?.label
+  } else {
+    const s = DUTY_STATUS_MAP[item.status]
+    statusDot = s?.dot; statusLabel = s?.label
+  }
+  const priority = item.priority ? PRIORITY_MAP[item.priority] : null
 
   return (
     <div
@@ -57,12 +86,10 @@ const ResultCard: React.FC<{ item: SearchResult; keyword: string; onClick: () =>
       className="group bg-white rounded-xl border border-slate-100 shadow-sm hover:shadow-md hover:border-blue-200 cursor-pointer transition-all p-4 flex items-start gap-4"
     >
       {/* Icon */}
-      <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${isProject ? 'bg-blue-50' : isFunction ? 'bg-green-50' : 'bg-purple-50'}`}>
-        {isProject
-          ? <FolderIcon className="w-5 h-5 text-blue-500" />
-          : isFunction
-            ? <ClipboardDocumentListIcon className="w-5 h-5 text-green-500" />
-            : <ClipboardDocumentListIcon className="w-5 h-5 text-purple-500" />
+      <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${meta.bgColor}`}>
+        {item.type === 'project'
+          ? <FolderIcon className={`w-5 h-5 ${meta.iconColor}`} />
+          : <ClipboardDocumentListIcon className={`w-5 h-5 ${meta.iconColor}`} />
         }
       </div>
 
@@ -71,10 +98,10 @@ const ResultCard: React.FC<{ item: SearchResult; keyword: string; onClick: () =>
         {/* Title row */}
         <div className="flex items-center gap-2 flex-wrap mb-1.5">
           <Tag
-            color={isProject ? 'blue' : isFunction ? 'green' : 'purple'}
+            color={meta.tagColor}
             style={{ fontSize: 10, lineHeight: '16px', padding: '0 5px', margin: 0 }}
           >
-            {isProject ? '專案' : isFunction ? '功能任務' : '臨時任務'}
+            {meta.label}
           </Tag>
           <span className="font-semibold text-slate-800 text-sm">
             <Highlight text={item.title} keyword={keyword} />
@@ -84,13 +111,13 @@ const ResultCard: React.FC<{ item: SearchResult; keyword: string; onClick: () =>
               {priority.label}
             </Tag>
           )}
-          {statusInfo && (
+          {statusLabel && (
             <span className="text-xs text-slate-400 flex items-center gap-1">
               <span style={{
                 display: 'inline-block', width: 6, height: 6, borderRadius: '50%',
-                background: statusInfo.dot ?? '#94a3b8', flexShrink: 0,
+                background: statusDot ?? '#94a3b8', flexShrink: 0,
               }} />
-              {statusInfo.label}
+              {statusLabel}
             </span>
           )}
         </div>
@@ -150,16 +177,19 @@ const SearchPage: React.FC = () => {
   const [total,     setTotal]     = useState(0)
   const [isLoading, setIsLoading] = useState(false)
   const [keyword,   setKeyword]   = useState(initialQ)
-  const [activeTab, setActiveTab] = useState<'all' | 'project' | 'duty'>('all')
+  const [activeTab, setActiveTab] = useState<'all' | 'project' | 'requirement' | 'task'>('all')
   const [hasSearched, setHasSearched] = useState(!!initialQ)
+  const [page, setPage] = useState(1)
+  const PAGE_SIZE = 10
 
   const doSearch = useCallback(async (value: string) => {
     if (!value.trim()) return
     setKeyword(value)
     setHasSearched(true)
     setIsLoading(true)
+    setPage(1)
     try {
-      const res = await searchApi.search({ keyword: value, page: 1, size: 50 })
+      const res = await searchApi.search({ keyword: value, page: 1, size: 200 })
       const content = res.content as { project_list?: SearchResult[]; data_list?: SearchResult[]; total_count?: number }
       const all = (content.project_list ?? content.data_list ?? []) as SearchResult[]
       setResults(all)
@@ -176,17 +206,35 @@ const SearchPage: React.FC = () => {
 
   const handleNavigate = (item: SearchResult) => {
     if (item.type === 'project') navigate(`/projects/${item.id}`)
+    else if (item.type === 'requirement') navigate(`/projects/${item.project_id}?tab=requirement`)
     else if (item.type === 'function') navigate(`/projects/${item.project_id}?fid=${item.id}`)
     else navigate(`/duties?dutyId=${item.id}&tab=duty`)
   }
 
-  const displayed = results.filter((r) =>
+  const allFiltered = results.filter((r) =>
     activeTab === 'all' ||
     (activeTab === 'project' && r.type === 'project') ||
-    (activeTab === 'duty' && (r.type === 'duty' || r.type === 'function'))
+    (activeTab === 'requirement' && r.type === 'requirement') ||
+    (activeTab === 'task' && (r.type === 'duty' || r.type === 'function'))
   )
-  const projectCount = results.filter((r) => r.type === 'project').length
-  const dutyCount    = results.filter((r) => r.type === 'duty' || r.type === 'function').length
+  const projectCount     = results.filter((r) => r.type === 'project').length
+  const requirementCount = results.filter((r) => r.type === 'requirement').length
+  const taskCount        = results.filter((r) => r.type === 'duty' || r.type === 'function').length
+
+  // For non-"all" tabs: paginate the filtered list
+  const pagedDisplayed = allFiltered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+
+  // Group results by type for "全部" view (paginated per group)
+  const groupedAll = activeTab === 'all' ? [
+    { key: 'project',     label: '專案', items: results.filter((r) => r.type === 'project')     },
+    { key: 'requirement', label: '需求', items: results.filter((r) => r.type === 'requirement') },
+    { key: 'task',        label: '任務', items: results.filter((r) => r.type === 'duty' || r.type === 'function') },
+  ].filter((g) => g.items.length > 0) : []
+
+  const handleTabChange = (k: string) => {
+    setActiveTab(k as 'all' | 'project' | 'requirement' | 'task')
+    setPage(1)
+  }
 
   return (
     <div className="p-6">
@@ -258,25 +306,74 @@ const SearchPage: React.FC = () => {
           </div>
           <Tabs
             activeKey={activeTab}
-            onChange={(k) => setActiveTab(k as 'all' | 'project' | 'duty')}
+            onChange={handleTabChange}
             size="small"
             className="mb-4"
             items={[
-              { key: 'all',     label: `全部 (${results.length})`   },
-              { key: 'project', label: `專案 (${projectCount})`     },
-              { key: 'duty',    label: `任務 (${dutyCount})`        },
+              { key: 'all',         label: `全部 (${results.length})`   },
+              { key: 'project',     label: `專案 (${projectCount})`     },
+              { key: 'requirement', label: `需求 (${requirementCount})` },
+              { key: 'task',        label: `任務 (${taskCount})`        },
             ]}
           />
-          <div className="flex flex-col gap-3">
-            {displayed.map((item) => (
-              <ResultCard
-                key={item.id}
-                item={item}
-                keyword={keyword}
-                onClick={() => handleNavigate(item)}
-              />
-            ))}
-          </div>
+          {activeTab === 'all' ? (
+            <div className="flex flex-col gap-6">
+              {groupedAll.map((group) => {
+                const groupPaged = group.items.slice(0, PAGE_SIZE)
+                return (
+                  <div key={group.key}>
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="text-sm font-semibold text-slate-600">{group.label}</span>
+                      <span className="text-xs text-slate-400 bg-slate-100 rounded-full px-2 py-0.5">{group.items.length}</span>
+                      {group.items.length > PAGE_SIZE && (
+                        <span
+                          className="text-xs text-blue-500 cursor-pointer hover:underline ml-1"
+                          onClick={() => handleTabChange(group.key)}
+                        >
+                          查看全部 →
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex flex-col gap-3">
+                      {groupPaged.map((item) => (
+                        <ResultCard
+                          key={item.id}
+                          item={item}
+                          keyword={keyword}
+                          onClick={() => handleNavigate(item)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <>
+              <div className="flex flex-col gap-3">
+                {pagedDisplayed.map((item) => (
+                  <ResultCard
+                    key={item.id}
+                    item={item}
+                    keyword={keyword}
+                    onClick={() => handleNavigate(item)}
+                  />
+                ))}
+              </div>
+              {allFiltered.length > PAGE_SIZE && (
+                <div className="flex justify-center mt-6">
+                  <Pagination
+                    current={page}
+                    pageSize={PAGE_SIZE}
+                    total={allFiltered.length}
+                    onChange={(p) => setPage(p)}
+                    showSizeChanger={false}
+                    showTotal={(t) => `共 ${t} 條`}
+                  />
+                </div>
+              )}
+            </>
+          )}
         </>
       ) : (
         /* Initial empty state */

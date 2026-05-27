@@ -18,9 +18,11 @@ import { useAppDispatch, useAppSelector } from '@/hooks/redux'
 import { useWorkNoToName } from '@/hooks/useWorkNoToName'
 import { fetchProjectThunk, clearCurrent, fetchProjectGroupsThunk } from './projectSlice'
 import { fetchDepartmentsThunk } from '@/features/user/userSlice'
-import { projectApi } from '@/api/project.api'
+import { projectApi, requirementApi } from '@/api/project.api'
+import { tokenStorage } from '@/api/httpClient'
+import AttachmentPreview from '@/components/ui/AttachmentPreview'
 import { userApi } from '@/api/user.api'
-import { ProjectFunction, Milestone, ProjectFile, UserProfile } from '@/types/api.types'
+import { ProjectFunction, Milestone, ProjectFile, UserProfile, Requirement } from '@/types/api.types'
 import { FUNCTION_STATUS_MAP, PRIORITY_MAP } from '@/utils/status'
 import { showToast } from '@/utils/toast'
 import FunctionDetailDrawer from './FunctionDetailDrawer'
@@ -41,6 +43,14 @@ const PRIORITY_OPTIONS = [
   { value: 1, label: '低' }, { value: 2, label: '中' },
   { value: 3, label: '高' }, { value: 4, label: '緊急' },
 ]
+
+const REQ_STATUS_MAP: Record<number, { label: string; color: string }> = {
+  0: { label: '草稿',   color: 'default'    },
+  1: { label: '審核中', color: 'processing' },
+  2: { label: '已通過', color: 'success'    },
+  3: { label: '已拒絕', color: 'error'      },
+  8: { label: '搁置',   color: 'warning'    },
+}
 
 const PRIORITY_COLORS = ['', '#22c55e', '#f59e0b', '#ef4444', '#7c3aed']
 
@@ -74,6 +84,7 @@ const ProjectDetailPage: React.FC = () => {
   const workNo = useAppSelector((s) => s.auth.workNo) ?? ''
   const { isAdmin, isSupervisor } = useAppSelector((s) => s.auth)
   const toName = useWorkNoToName()
+  const withToken = (url: string) => { const t = tokenStorage.get(); return t ? `${url}?token=${t}` : url }
   const isPm = (current?.project_pm?.toLowerCase() ?? '') === workNo.toLowerCase() && !!workNo
   // 完結審核中，除系統管理員外任何人不得操作
   const isProjectLocked = current?.status === 6 && !isAdmin
@@ -81,7 +92,7 @@ const ProjectDetailPage: React.FC = () => {
 
   const [functions,          setFunctions]          = useState<ProjectFunction[]>([])
   const [funcView,           setFuncView]           = useState<'all' | 'mine'>('all')
-  const [funcGroupMode,      setFuncGroupMode]      = useState<'flat' | 'grouped'>('grouped')
+  const [funcGroupMode,      setFuncGroupMode]      = useState<'flat' | 'grouped' | 'by_req'>('by_req')
   const [funcLoading,        setFuncLoading]        = useState(false)
   const [funcPage,           setFuncPage]           = useState(1)
   const [funcPageSize,       setFuncPageSize]       = useState(100)
@@ -107,6 +118,32 @@ const ProjectDetailPage: React.FC = () => {
   const [showAddFunc,     setShowAddFunc]      = useState(false)
   const [addFuncLoading,  setAddFuncLoading]   = useState(false)
   const [funcForm]                             = Form.useForm()
+
+  // ── 需求管理 ──────────────────────────────────────────────────────────────
+  const [requirements,       setRequirements]       = useState<Requirement[]>([])
+  const [reqLoading,         setReqLoading]         = useState(false)
+  const [showAddReq,         setShowAddReq]         = useState(false)
+  const [reqSaving,          setReqSaving]          = useState(false)
+  const [editReq,            setEditReq]            = useState<Requirement | null>(null)
+  const [reqForm]                                   = Form.useForm()
+  const [showReqReview,          setShowReqReview]          = useState(false)
+  const [reviewReqId,            setReviewReqId]            = useState<string | null>(null)
+  const [reqReviewSaving,        setReqReviewSaving]        = useState(false)
+  const [reqPreviewFile,         setReqPreviewFile]         = useState<import('@/types/api.types').FileInfo | null>(null)
+  const [reqUploading,           setReqUploading]           = useState(false)
+  const [showReqShelve,          setShowReqShelve]          = useState(false)
+  const [shelveReqId,            setShelveReqId]            = useState<string | null>(null)
+  const [reqShelveSaving,        setReqShelveSaving]        = useState(false)
+  const [reqShelveForm]                                     = Form.useForm()
+  const [selectedReqIds,         setSelectedReqIds]         = useState<string[]>([])
+  const [showBatchReview,        setShowBatchReview]        = useState(false)
+  const [batchReviewSaving,      setBatchReviewSaving]      = useState(false)
+  // Shared reviewer chain state for both single & batch req review modals
+  const [reqModalReviewers,      setReqModalReviewers]      = useState<UserProfile[]>([])
+  const [reqModalReviewersLoading, setReqModalReviewersLoading] = useState(false)
+  const [reqModalSearch,         setReqModalSearch]         = useState('')
+  const [reqModalSearchResults,  setReqModalSearchResults]  = useState<UserProfile[]>([])
+  const [reqModalSearchLoading,  setReqModalSearchLoading]  = useState(false)
 
   // ── 编辑专案 ──────────────────────────────────────────────────────────────
   const [showEdit,        setShowEdit]        = useState(false)
@@ -161,6 +198,16 @@ const ProjectDetailPage: React.FC = () => {
   const [searchLoading,     setSearchLoading]     = useState(false)
   const [isCompletionSubmit, setIsCompletionSubmit] = useState(false)  // distinguish completion from other reviews
 
+  // ── 執行階段草稿任務審核 ────────────────────────────────────────────────────
+  const [selectedDraftFuncIds,    setSelectedDraftFuncIds]    = useState<string[]>([])
+  const [showDraftReview,         setShowDraftReview]         = useState(false)
+  const [draftReviewSaving,       setDraftReviewSaving]       = useState(false)
+  const [draftReviewers,          setDraftReviewers]          = useState<UserProfile[]>([])
+  const [draftReviewersLoading,   setDraftReviewersLoading]   = useState(false)
+  const [draftReviewSearch,       setDraftReviewSearch]       = useState('')
+  const [draftReviewSearchResults, setDraftReviewSearchResults] = useState<UserProfile[]>([])
+  const [draftReviewSearchLoading, setDraftReviewSearchLoading] = useState(false)
+
   useEffect(() => {
     if (id) {
       dispatch(fetchProjectThunk(id))
@@ -168,6 +215,7 @@ const ProjectDetailPage: React.FC = () => {
       loadDynamics(id)
       loadMilestones(id)
       loadFiles(id)
+      loadRequirements(id)
     }
     return () => { dispatch(clearCurrent()) }
   }, [id, dispatch])
@@ -231,6 +279,206 @@ const ProjectDetailPage: React.FC = () => {
       setFiles(Array.isArray(res.content) ? (res.content as ProjectFile[]) : [])
     } catch { /* global */ }
     finally { setFilesLoading(false) }
+  }
+
+  const loadRequirements = async (pid: string) => {
+    setReqLoading(true)
+    try {
+      const res = await requirementApi.list(pid)
+      setRequirements(Array.isArray(res.content) ? (res.content as Requirement[]) : [])
+    } catch { /* global */ }
+    finally { setReqLoading(false) }
+  }
+
+  const handleSaveRequirement = async (values: Record<string, unknown>) => {
+    if (!id) return
+    setReqSaving(true)
+    try {
+      if (editReq) {
+        await requirementApi.update(id, editReq.id, values as Parameters<typeof requirementApi.update>[2])
+        showToast.success('需求已更新')
+      } else {
+        await requirementApi.create(id, values as Parameters<typeof requirementApi.create>[1])
+        showToast.success('需求已新增')
+      }
+      setShowAddReq(false)
+      setEditReq(null)
+      reqForm.resetFields()
+      loadRequirements(id)
+    } catch { /* global */ }
+    finally { setReqSaving(false) }
+  }
+
+  const handleDeleteReq = async (reqId: string) => {
+    if (!id) return
+    try {
+      await requirementApi.delete(id, reqId)
+      showToast.success('需求已刪除')
+      loadRequirements(id)
+      loadFiles(id)
+    } catch { /* global */ }
+  }
+
+  const handleSubmitReqReview = async () => {
+    if (!id || !reviewReqId || reqModalReviewers.length === 0) return
+    setReqReviewSaving(true)
+    try {
+      await requirementApi.submitReview(id, reviewReqId, reqModalReviewers.map((r) => r.work_no))
+      showToast.success('已提交審核')
+      setShowReqReview(false)
+      setReviewReqId(null)
+      loadRequirements(id)
+    } catch { /* global */ }
+    finally { setReqReviewSaving(false) }
+  }
+
+  const openReqReviewModal = async (reqId: string) => {
+    setReviewReqId(reqId)
+    setReqModalReviewers([])
+    setReqModalSearch('')
+    setReqModalSearchResults([])
+    setShowReqReview(true)
+    setReqModalReviewersLoading(true)
+    try {
+      const res = await userApi.getSupervisors(workNo)
+      const list = (Array.isArray(res.content) ? res.content : []) as UserProfile[]
+      setReqModalReviewers(list)
+    } catch { /* ignore */ }
+    finally { setReqModalReviewersLoading(false) }
+  }
+
+  const openBatchReviewModal = async () => {
+    setReqModalReviewers([])
+    setReqModalSearch('')
+    setReqModalSearchResults([])
+    setShowBatchReview(true)
+    setReqModalReviewersLoading(true)
+    try {
+      const res = await userApi.getSupervisors(workNo)
+      const list = (Array.isArray(res.content) ? res.content : []) as UserProfile[]
+      setReqModalReviewers(list)
+    } catch { /* ignore */ }
+    finally { setReqModalReviewersLoading(false) }
+  }
+
+  const addReqReviewer = (user: UserProfile) => {
+    if (reqModalReviewers.some((r) => r.work_no === user.work_no)) return
+    setReqModalReviewers((prev) => [...prev, user])
+    setReqModalSearch('')
+    setReqModalSearchResults([])
+  }
+
+  const removeReqReviewer = (wn: string) => {
+    setReqModalReviewers((prev) => prev.filter((r) => r.work_no !== wn))
+  }
+
+  const moveReqReviewer = (index: number, dir: -1 | 1) => {
+    const next = index + dir
+    if (next < 0 || next >= reqModalReviewers.length) return
+    setReqModalReviewers((prev) => {
+      const arr = [...prev];
+      [arr[index], arr[next]] = [arr[next], arr[index]]
+      return arr
+    })
+  }
+
+  const handleSearchReqReviewer = async (keyword: string) => {
+    setReqModalSearch(keyword)
+    if (!keyword.trim()) { setReqModalSearchResults([]); return }
+    setReqModalSearchLoading(true)
+    try {
+      const res = await userApi.list({ keyword, size: 10 })
+      const c = res.content as { data_list?: UserProfile[] }
+      setReqModalSearchResults(c.data_list ?? [])
+    } catch { /* ignore */ }
+    finally { setReqModalSearchLoading(false) }
+  }
+
+  const handleBatchSubmitReview = async () => {
+    if (!id || selectedReqIds.length === 0 || reqModalReviewers.length === 0) return
+    setBatchReviewSaving(true)
+    try {
+      await requirementApi.batchSubmitReview(id, selectedReqIds, reqModalReviewers.map((r) => r.work_no))
+      showToast.success(`已批量提交 ${selectedReqIds.length} 筆需求審核（單一審核單）`)
+      setShowBatchReview(false)
+      setSelectedReqIds([])
+      loadRequirements(id)
+    } catch { /* global */ }
+    finally { setBatchReviewSaving(false) }
+  }
+
+  const openDraftReviewModal = async () => {
+    setDraftReviewers([])
+    setDraftReviewSearch('')
+    setDraftReviewSearchResults([])
+    setShowDraftReview(true)
+    setDraftReviewersLoading(true)
+    try {
+      const res = await userApi.getSupervisors(workNo)
+      const list = (Array.isArray(res.content) ? res.content : []) as UserProfile[]
+      setDraftReviewers(list)
+    } catch { /* ignore */ }
+    finally { setDraftReviewersLoading(false) }
+  }
+
+  const addDraftReviewer = (user: UserProfile) => {
+    if (draftReviewers.some((r) => r.work_no === user.work_no)) return
+    setDraftReviewers((prev) => [...prev, user])
+    setDraftReviewSearch('')
+    setDraftReviewSearchResults([])
+  }
+
+  const removeDraftReviewer = (wn: string) => {
+    setDraftReviewers((prev) => prev.filter((r) => r.work_no !== wn))
+  }
+
+  const moveDraftReviewer = (index: number, dir: -1 | 1) => {
+    const next = index + dir
+    if (next < 0 || next >= draftReviewers.length) return
+    setDraftReviewers((prev) => {
+      const arr = [...prev];
+      [arr[index], arr[next]] = [arr[next], arr[index]]
+      return arr
+    })
+  }
+
+  const handleSearchDraftReviewer = async (keyword: string) => {
+    setDraftReviewSearch(keyword)
+    if (!keyword.trim()) { setDraftReviewSearchResults([]); return }
+    setDraftReviewSearchLoading(true)
+    try {
+      const res = await userApi.list({ keyword, size: 10 })
+      const c = res.content as { data_list?: UserProfile[] }
+      setDraftReviewSearchResults(c.data_list ?? [])
+    } catch { /* ignore */ }
+    finally { setDraftReviewSearchLoading(false) }
+  }
+
+  const handleSubmitDraftReview = async () => {
+    if (!id || selectedDraftFuncIds.length === 0 || draftReviewers.length === 0) return
+    setDraftReviewSaving(true)
+    try {
+      await projectApi.submitTaskAdditionReview(id, selectedDraftFuncIds, draftReviewers.map((r) => r.work_no))
+      showToast.success(`已提交 ${selectedDraftFuncIds.length} 個新增任務的審核申請`)
+      setShowDraftReview(false)
+      setSelectedDraftFuncIds([])
+      if (id) loadFunctions(id)
+    } catch { /* global */ }
+    finally { setDraftReviewSaving(false) }
+  }
+
+  const handleSubmitReqShelve = async (values: { reviewer: string[] }) => {
+    if (!id || !shelveReqId) return
+    setReqShelveSaving(true)
+    try {
+      await requirementApi.submitShelve(id, shelveReqId, values.reviewer)
+      showToast.success('搁置申請已提交')
+      setShowReqShelve(false)
+      setShelveReqId(null)
+      reqShelveForm.resetFields()
+      loadRequirements(id)
+    } catch { /* global */ }
+    finally { setReqShelveSaving(false) }
   }
 
   const handleUploadFile = async (file: File, category: string) => {
@@ -319,13 +567,14 @@ const ProjectDetailPage: React.FC = () => {
     setAddFuncLoading(true)
     try {
       await projectApi.addFunction(id, {
-        function_nm:  values.function_nm as string,
-        describe:     values.describe as string | undefined,
-        responsible:  (values.responsible as string[] | undefined)?.length ? values.responsible as string[] : undefined,
-        priority:     values.priority as number,
-        group1:       values.group1 as string,
-        expected_start_date: values.expected_start_date as string | undefined,
-        expected_end_date:   values.expected_end_date as string | undefined,
+        function_nm:    values.function_nm as string,
+        describe:       values.describe as string | undefined,
+        responsible:    (values.responsible as string[] | undefined)?.length ? values.responsible as string[] : undefined,
+        priority:       values.priority as number,
+        group1:         values.group1 as string,
+        expected_start_date:  values.expected_start_date as string | undefined,
+        expected_end_date:    values.expected_end_date as string | undefined,
+        requirement_id: values.requirement_id as string | undefined,
       })
       showToast.success('功能新增成功')
       setShowAddFunc(false)
@@ -686,15 +935,68 @@ const ProjectDetailPage: React.FC = () => {
     }))
   }, [displayedFunctions])
 
+  const groupedByRequirement = useMemo(() => {
+    const map = new Map<string, { reqNm: string; expectedEndDate: string; items: ProjectFunction[] }>()
+    displayedFunctions.forEach((f) => {
+      const key = f.requirement_id || '__none__'
+      if (!map.has(key)) {
+        const req = f.requirement_id ? requirements.find((r) => r.id === f.requirement_id) : undefined
+        map.set(key, { reqNm: req ? req.req_nm : '未關聯需求', expectedEndDate: req?.expected_end_date ?? '', items: [] })
+      }
+      map.get(key)!.items.push(f)
+    })
+    return [...map.entries()]
+      .sort(([a, av], [b, bv]) => {
+        if (a === '__none__') return 1
+        if (b === '__none__') return -1
+        // sort by requirement expected_end_date ascending; no date → last
+        const da = av.expectedEndDate, db = bv.expectedEndDate
+        if (!da && !db) return 0
+        if (!da) return 1
+        if (!db) return -1
+        return da < db ? -1 : da > db ? 1 : 0
+      })
+      .map(([key, { reqNm, expectedEndDate, items }]) => {
+        const groupMap = new Map<string, ProjectFunction[]>()
+        items.forEach((f) => {
+          const g = f.group1 || '未分組'
+          if (!groupMap.has(g)) groupMap.set(g, [])
+          groupMap.get(g)!.push(f)
+        })
+        const subGroups = [...groupMap.entries()].map(([gName, gItems]) => ({
+          name: gName,
+          items: gItems,
+          count: gItems.length,
+          avgProgress: gItems.length ? Math.round(gItems.reduce((s, f) => s + (f.progress ?? 0), 0) / gItems.length) : 0,
+          overdueCount: gItems.filter((f) => f.expected_end_date && new Date(f.expected_end_date) < new Date() && f.status !== 4).length,
+        }))
+        return {
+          key,
+          reqNm,
+          expectedEndDate,
+          subGroups,
+          count: items.length,
+          avgProgress: items.length ? Math.round(items.reduce((s, f) => s + (f.progress ?? 0), 0) / items.length) : 0,
+          overdueCount: items.filter((f) => f.expected_end_date && new Date(f.expected_end_date) < new Date() && f.status !== 4).length,
+        }
+      })
+  }, [displayedFunctions, requirements])
+
   const rawFuncColumnsGrouped: ColumnsType<ProjectFunction> = [
     {
-      title: '功能名稱', dataIndex: 'function_nm', width: 200, ellipsis: true,
-      render: (name: string, r) => (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-          <div style={{ width: 3, height: 24, borderRadius: 2, flexShrink: 0, background: PRIORITY_COLORS[r.priority] }} />
-          <Button type="link" style={{ padding: 0, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%' }} onClick={() => setSelectedFid(r.id)}>{name}</Button>
-        </div>
-      ),
+      title: '功能名稱', dataIndex: 'function_nm', width: 220, ellipsis: true,
+      render: (name: string, r) => {
+        const req = r.requirement_id ? requirements.find((x) => x.id === r.requirement_id) : null
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+            <div style={{ width: 3, height: 24, borderRadius: 2, flexShrink: 0, background: PRIORITY_COLORS[r.priority] }} />
+            <div style={{ minWidth: 0 }}>
+              <Button type="link" style={{ padding: 0, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%' }} onClick={() => setSelectedFid(r.id)}>{name}</Button>
+              {req && <div style={{ fontSize: 10, color: '#6366f1', marginTop: 1, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>需求: {req.req_nm}</div>}
+            </div>
+          </div>
+        )
+      },
     },
     {
       title: '狀態', dataIndex: 'status', width: 110,
@@ -915,15 +1217,27 @@ const ProjectDetailPage: React.FC = () => {
       render: (name: string, record) => {
         const ext = record.file_ext.toLowerCase()
         const canPreview = PREVIEWABLE.has(ext)
+        const isReqFile = record.source === 'requirement_attachment'
         return (
-          <div className="flex items-center gap-2">
-            {canPreview ? (
-              <Button type="link" style={{ padding: 0 }}
-                onClick={() => setPreviewFile(record)}>
-                {name}
-              </Button>
-            ) : (
-              <span className="text-slate-700 text-sm">{name}</span>
+          <div className="flex flex-col gap-0.5">
+            <div className="flex items-center gap-2">
+              {canPreview ? (
+                <Button type="link" style={{ padding: 0 }}
+                  onClick={() => {
+                    if (isReqFile && record.req_id) {
+                      setReqPreviewFile({ name, url: withToken(requirementApi.getFilePreviewUrl(id!, record.req_id, record.id)) })
+                    } else {
+                      setPreviewFile(record)
+                    }
+                  }}>
+                  {name}
+                </Button>
+              ) : (
+                <span className="text-slate-700 text-sm">{name}</span>
+              )}
+            </div>
+            {isReqFile && record.req_nm && (
+              <span className="text-[11px] text-slate-400">來自需求：{record.req_nm}</span>
             )}
           </div>
         )
@@ -959,16 +1273,21 @@ const ProjectDetailPage: React.FC = () => {
     {
       title: '操作',
       width: 90,
-      render: (_: unknown, record) => (
+      render: (_: unknown, record) => {
+        const isReqFile = record.source === 'requirement_attachment'
+        const downloadUrl = isReqFile && record.req_id
+          ? withToken(requirementApi.getFileDownloadUrl(id!, record.req_id, record.id))
+          : projectApi.getFileDownloadUrl(id!, record.id)
+        return (
         <Space size={0}>
           <Tooltip title="下載">
-            <a href={projectApi.getFileDownloadUrl(id!, record.id)}
+            <a href={downloadUrl}
               target="_blank" rel="noreferrer">
               <Button type="text" size="small"
                 icon={<EyeIcon className="w-4 h-4" />} />
             </a>
           </Tooltip>
-          {current?.can_manage_files && canDeleteCategory(record.file_category) && (
+          {!isReqFile && current?.can_manage_files && canDeleteCategory(record.file_category) && (
             <Popconfirm
               title="確認刪除此附件？"
               onConfirm={() => handleDeleteFile(record.id)}
@@ -981,7 +1300,8 @@ const ProjectDetailPage: React.FC = () => {
             </Popconfirm>
           )}
         </Space>
-      ),
+        )
+      },
     },
   ]
 
@@ -989,6 +1309,23 @@ const ProjectDetailPage: React.FC = () => {
   const { mergeColumns: funcColumnsFlat }    = useResizableColumns(rawFuncColumnsFlat)
   const { mergeColumns: dutyTableColumns }   = useResizableColumns(rawDutyTableColumns)
   const { mergeColumns: fileColumns }        = useResizableColumns(rawFileColumns)
+
+  // rowSelection for draft tasks — per-table, merges selections across sub-tables
+  const makeDraftRowSelection = React.useCallback((tableItems: ProjectFunction[]) => {
+    if (!isPm || current?.status !== 5) return undefined
+    if (!tableItems.some((f) => f.status === 0)) return undefined
+    const tableIds = new Set(tableItems.map((f) => f.id))
+    return {
+      selectedRowKeys: selectedDraftFuncIds.filter((id) => tableIds.has(id)),
+      onChange: (keys: React.Key[]) => {
+        setSelectedDraftFuncIds((prev) => [
+          ...prev.filter((id) => !tableIds.has(id)),
+          ...(keys as string[]),
+        ])
+      },
+      getCheckboxProps: (f: ProjectFunction) => ({ disabled: f.status !== 0 }),
+    }
+  }, [isPm, current?.status, selectedDraftFuncIds])
 
   if (isLoading) return <div className="flex items-center justify-center h-64"><Spin size="large" /></div>
   if (!current)  return <Empty description="專案不存在" className="mt-20" />
@@ -1104,6 +1441,9 @@ const ProjectDetailPage: React.FC = () => {
               .catch(() => {})
               .finally(() => setDutyLoading(false))
           }
+          if (key === 'requirements' && id && !reqLoading) {
+            loadRequirements(id)
+          }
         }}
         items={[
           {
@@ -1136,6 +1476,163 @@ const ProjectDetailPage: React.FC = () => {
             ),
           },
           {
+            key: 'requirements',
+            label: `需求 (${requirements.length})`,
+            children: (
+              <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: 0 } }}>
+                <div className="flex justify-between items-center px-4 py-3 border-b border-slate-100">
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm font-medium text-slate-600">需求列表</span>
+                    {selectedReqIds.length > 0 && current?.status === 5 && (
+                      <Button size="small" type="primary" ghost
+                        onClick={() => openBatchReviewModal()}>
+                        批量提交審核（{selectedReqIds.length}）
+                      </Button>
+                    )}
+                  </div>
+                  {workNo.toLowerCase() === (current?.product_pm ?? '').toLowerCase() &&
+                    [1, 5].includes(current?.status ?? 0) && !isProjectLocked && (
+                    <Button type="primary" icon={<PlusIcon className="w-4 h-4" />}
+                      size="small" style={{ background: '#2563eb' }}
+                      onClick={() => { setEditReq(null); reqForm.resetFields(); setShowAddReq(true) }}>
+                      新增需求
+                    </Button>
+                  )}
+                </div>
+                <Table
+                  rowKey="id"
+                  loading={reqLoading}
+                  dataSource={requirements}
+                  size="small"
+                  pagination={false}
+                  rowSelection={current?.status === 5 && workNo.toLowerCase() === (current?.product_pm ?? '').toLowerCase() ? {
+                    selectedRowKeys: selectedReqIds,
+                    onChange: (keys) => setSelectedReqIds(keys as string[]),
+                    getCheckboxProps: (req: Requirement) => ({ disabled: req.status !== 0 }),
+                  } : undefined}
+                  locale={{ emptyText: <Empty description="暫無需求" className="py-8" /> }}
+                  expandable={{
+                    expandRowByClick: true,
+                    expandedRowRender: (req: Requirement) => (
+                      <div className="bg-slate-50 px-6 py-4 grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
+                        <div className="col-span-2">
+                          <span className="text-xs text-slate-400 mr-2">需求描述</span>
+                          <span className="text-slate-700">{req.describe || '—'}</span>
+                        </div>
+                        <div>
+                          <span className="text-xs text-slate-400 mr-2">期望完成</span>
+                          <span className="text-slate-700">{req.expected_end_date || '—'}</span>
+                        </div>
+                        {(req.expected_benefit || req.benefit_amount != null) && (
+                          <div className="col-span-2">
+                            <span className="text-xs text-slate-400 mr-2">效益說明</span>
+                            <span className="text-emerald-600">
+                              {req.benefit_amount != null ? `${req.benefit_amount} ${req.benefit_unit ?? '元/年'}` : ''}
+                              {req.expected_benefit ? `  ${req.expected_benefit}` : ''}
+                            </span>
+                          </div>
+                        )}
+                        {(req.files?.length ?? 0) > 0 && (
+                          <div className="col-span-2">
+                            <span className="text-xs text-slate-400 mr-2">附件</span>
+                            <div className="mt-1">
+                              <AttachmentPreview
+                                files={req.files!.map((f) => ({ ...f, url: withToken(f.file_id ? requirementApi.getFilePreviewUrl(id!, req.id, f.file_id) : f.url) }))}
+                                onPreview={(f) => setReqPreviewFile(f)}
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ),
+                  }}
+                  columns={[
+                    {
+                      title: '需求名稱', dataIndex: 'req_nm', ellipsis: true,
+                      render: (name: string) => <span className="font-medium text-slate-800">{name}</span>,
+                    },
+                    {
+                      title: '狀態', dataIndex: 'status', width: 90,
+                      render: (v: number) => {
+                        const st = REQ_STATUS_MAP[v] ?? { label: String(v), color: 'default' }
+                        return <Tag color={st.color} style={{ fontSize: 11 }}>{st.label}</Tag>
+                      },
+                    },
+                    {
+                      title: '優先級', dataIndex: 'priority', width: 72,
+                      render: (v: number) => { const p = PRIORITY_MAP[v]; return p ? <Tag color={p.color} style={{ fontSize: 11 }}>{p.label}</Tag> : v },
+                    },
+                    {
+                      title: '期望完成', dataIndex: 'expected_end_date', width: 100,
+                      render: (v: string) => <span className="text-xs text-slate-500">{v || '—'}</span>,
+                    },
+                    {
+                      title: '預估效益', width: 140, ellipsis: true,
+                      render: (_: unknown, req: Requirement) => req.benefit_amount != null
+                        ? <span className="text-xs text-emerald-600">{req.benefit_amount} {req.benefit_unit ?? '元/年'}</span>
+                        : <span className="text-xs text-slate-300">—</span>,
+                    },
+                    {
+                      title: '操作', width: 148, align: 'center' as const,
+                      render: (_: unknown, req: Requirement) => {
+                        const isProductPm = workNo.toLowerCase() === (current?.product_pm ?? '').toLowerCase()
+                        const canEdit = isProductPm && req.status === 0 && [1, 5].includes(current?.status ?? 0)
+                        const canDelete = isProductPm && req.status === 0 && [1, 5].includes(current?.status ?? 0)
+                        const canSubmitReview = isProductPm && req.status === 0 && current?.status === 5
+                        const canShelve = isProductPm && req.status === 2
+                        return (
+                          <Space size={4}>
+                            {canSubmitReview && (
+                              <Button size="small"
+                                onClick={(e) => { e.stopPropagation(); openReqReviewModal(req.id) }}>
+                                提交審核
+                              </Button>
+                            )}
+                            {canEdit && (
+                              <Tooltip title="編輯">
+                                <Button size="small" icon={<EditIcon className="w-3.5 h-3.5" />}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setEditReq(req)
+                                    reqForm.setFieldsValue({
+                                      req_nm:           req.req_nm,
+                                      describe:         req.describe,
+                                      priority:         req.priority,
+                                      expected_benefit: req.expected_benefit,
+                                      benefit_amount:   req.benefit_amount,
+                                      benefit_unit:     req.benefit_unit ?? '元/年',
+                                      expected_end_date: req.expected_end_date,
+                                    })
+                                    setShowAddReq(true)
+                                  }}
+                                />
+                              </Tooltip>
+                            )}
+                            {canShelve && (
+                              <Button size="small"
+                                onClick={(e) => { e.stopPropagation(); setShelveReqId(req.id); setShowReqShelve(true) }}>
+                                搁置
+                              </Button>
+                            )}
+                            {canDelete && (
+                              <Popconfirm title="確認刪除此需求？" onConfirm={() => handleDeleteReq(req.id)} okText="刪除" cancelText="取消"
+                                onPopupClick={(e) => e.stopPropagation()}>
+                                <Tooltip title="刪除">
+                                  <Button size="small" danger icon={<TrashIcon className="w-3.5 h-3.5" />}
+                                    onClick={(e) => e.stopPropagation()} />
+                                </Tooltip>
+                              </Popconfirm>
+                            )}
+                          </Space>
+                        )
+                      },
+                    },
+                  ]}
+                />
+              </Card>
+            ),
+          },
+          {
             key: 'functions',
             label: `功能任務 (${functions.length + projectDuties.filter((d) => d.status !== 3).length})`,
             children: (
@@ -1155,27 +1652,39 @@ const ProjectDetailPage: React.FC = () => {
                     <Segmented
                       size="small"
                       value={funcGroupMode}
-                      onChange={(v) => setFuncGroupMode(v as 'flat' | 'grouped')}
+                      onChange={(v) => setFuncGroupMode(v as 'flat' | 'grouped' | 'by_req')}
                       options={[
-                        { label: '分組', value: 'grouped' },
-                        { label: '平面', value: 'flat'    },
+                        { label: '按需求', value: 'by_req'  },
+                        { label: '分組',   value: 'grouped' },
+                        { label: '平面',   value: 'flat'    },
                       ]}
                     />
                   </div>
-                  {isPm && [3, 10].includes(current?.status ?? 0) && !isProjectLocked && (
-                    <Button type="primary" icon={<PlusIcon className="w-4 h-4" />}
-                      onClick={() => {
-                        setShowAddFunc(true)
-                        if (funcModalUserOptions.length === 0) {
-                          userApi.list({ page: 1, size: 2000 }).then((res) => {
-                            const data = (res.content as { data_list?: { work_no: string; name: string }[] }).data_list ?? []
-                            setFuncModalUserOptions(data.map((u) => ({ value: u.work_no, label: `${u.name}（${u.work_no}）` })))
-                          }).catch(() => {})
-                        }
-                      }} size="small" style={{ background: '#2563eb' }}>
-                      新增功能
-                    </Button>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {isPm && current?.status === 5 && selectedDraftFuncIds.length > 0 && (
+                      <Button size="small" type="primary" ghost
+                        onClick={() => openDraftReviewModal()}>
+                        提交新增任務審核（{selectedDraftFuncIds.length}）
+                      </Button>
+                    )}
+                    {isPm && ([3, 5, 10].includes(current?.status ?? 0)) && !isProjectLocked && (
+                      <Button type="primary" icon={<PlusIcon className="w-4 h-4" />}
+                        onClick={() => {
+                          setShowAddFunc(true)
+                          if (funcModalUserOptions.length === 0) {
+                            userApi.list({ page: 1, size: 2000 }).then((res) => {
+                              const data = (res.content as { data_list?: { work_no: string; name: string }[] }).data_list ?? []
+                              setFuncModalUserOptions(data.map((u) => ({ value: u.work_no, label: `${u.name}（${u.work_no}）` })))
+                            }).catch(() => {})
+                          }
+                          if (id && requirements.length === 0 && !reqLoading) {
+                            loadRequirements(id)
+                          }
+                        }} size="small" style={{ background: '#2563eb' }}>
+                        新增功能
+                      </Button>
+                    )}
+                  </div>
                 </div>
 
                 {funcGroupMode === 'flat' ? (
@@ -1183,6 +1692,7 @@ const ProjectDetailPage: React.FC = () => {
                     <Table rowKey="id" columns={funcColumnsFlat} dataSource={displayedFunctions}
                       components={tableComponents}
                       loading={funcLoading} size="middle" scroll={{ x: 900 }}
+                      rowSelection={makeDraftRowSelection(displayedFunctions)}
                       pagination={{
                         current: funcPage,
                         pageSize: funcPageSize,
@@ -1218,6 +1728,79 @@ const ProjectDetailPage: React.FC = () => {
                       </div>
                     )}
                   </>
+                ) : funcGroupMode === 'by_req' ? (
+                  <div className="px-2 py-2">
+                    {funcLoading ? (
+                      <div className="flex justify-center py-8"><Spin /></div>
+                    ) : groupedByRequirement.length === 0 ? (
+                      <Empty description="暫無功能任務" className="py-8" />
+                    ) : (() => {
+                      const reqGroups  = groupedByRequirement.filter((g) => g.key !== '__none__')
+                      const noReqGroup = groupedByRequirement.find((g) => g.key === '__none__')
+                      const renderSubGroups = (g: typeof groupedByRequirement[0], prefix: string) =>
+                        g.subGroups.length === 1 && g.subGroups[0].name === '未分組' ? (
+                          <Table key={prefix} rowKey="id" columns={funcColumnsGrouped} dataSource={g.subGroups[0].items}
+                            components={tableComponents} pagination={false} size="small" scroll={{ x: 800 }}
+                            rowSelection={makeDraftRowSelection(g.subGroups[0].items)} />
+                        ) : (
+                          <Collapse key={prefix} defaultActiveKey={[]}
+                            className="bg-transparent border-0" expandIconPosition="start" size="small">
+                            {g.subGroups.map((sg) => (
+                              <Collapse.Panel key={`${prefix}__${sg.name}`}
+                                header={
+                                  <div className="flex items-center gap-2">
+                                    <FolderIcon className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
+                                    <span className="font-medium text-slate-600 text-xs">{sg.name}</span>
+                                    <Tag color="blue" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>{sg.count} 項</Tag>
+                                    <Progress percent={sg.avgProgress} size="small" showInfo={false}
+                                      style={{ width: 60 }} strokeColor="#2563eb" trailColor="#e2e8f0" />
+                                    <span className="text-xs text-slate-400">{sg.avgProgress}%</span>
+                                    {sg.overdueCount > 0 && (
+                                      <Tag color="error" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>超時 {sg.overdueCount}</Tag>
+                                    )}
+                                  </div>
+                                }
+                              >
+                                <Table rowKey="id" columns={funcColumnsGrouped} dataSource={sg.items}
+                                  components={tableComponents} pagination={false} size="small" scroll={{ x: 800 }}
+                                  rowSelection={makeDraftRowSelection(sg.items)} />
+                              </Collapse.Panel>
+                            ))}
+                          </Collapse>
+                        )
+                      return (
+                        <>
+                          {reqGroups.length > 0 && (
+                            <Collapse defaultActiveKey={[]}
+                              className="bg-transparent border-0" expandIconPosition="start">
+                              {reqGroups.map((g) => (
+                                <Collapse.Panel key={g.key}
+                                  header={
+                                    <div className="flex items-center gap-3">
+                                      <span className="font-semibold text-slate-700">{g.reqNm}</span>
+                                      <Tag color="purple" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>{g.count} 項</Tag>
+                                      {g.expectedEndDate && (
+                                        <span className="text-xs text-slate-400">期望完成 {g.expectedEndDate}</span>
+                                      )}
+                                      <Progress percent={g.avgProgress} size="small" showInfo={false}
+                                        style={{ width: 80 }} strokeColor="#7c3aed" trailColor="#e2e8f0" />
+                                      <span className="text-xs text-slate-400">{g.avgProgress}%</span>
+                                      {g.overdueCount > 0 && (
+                                        <Tag color="error" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>超時 {g.overdueCount}</Tag>
+                                      )}
+                                    </div>
+                                  }
+                                >
+                                  {renderSubGroups(g, g.key)}
+                                </Collapse.Panel>
+                              ))}
+                            </Collapse>
+                          )}
+                          {noReqGroup && renderSubGroups(noReqGroup, '__none__')}
+                        </>
+                      )
+                    })()}
+                  </div>
                 ) : (
                   <div className="px-2 py-2">
                     {funcLoading ? (
@@ -1226,7 +1809,7 @@ const ProjectDetailPage: React.FC = () => {
                       <Empty description="暫無功能任務" className="py-8" />
                     ) : (
                       <Collapse
-                        defaultActiveKey={groupedFunctions.map((g) => g.name)}
+                        defaultActiveKey={[]}
                         className="bg-transparent border-0"
                         expandIconPosition="start"
                       >
@@ -1253,7 +1836,8 @@ const ProjectDetailPage: React.FC = () => {
                           >
                             <Table rowKey="id" columns={funcColumnsGrouped} dataSource={g.items}
                               components={tableComponents}
-                              pagination={false} size="small" scroll={{ x: 800 }} />
+                              pagination={false} size="small" scroll={{ x: 800 }}
+                              rowSelection={makeDraftRowSelection(g.items)} />
                           </Collapse.Panel>
                         ))}
                         {displayedDuties.length > 0 && (
@@ -1333,7 +1917,7 @@ const ProjectDetailPage: React.FC = () => {
             label: '甘特圖',
             children: (
               <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: 16 } }}>
-                <GanttChart functions={functions} milestones={milestones} />
+                <GanttChart functions={functions} milestones={milestones} requirements={requirements} />
               </Card>
             ),
           },
@@ -1540,11 +2124,346 @@ const ProjectDetailPage: React.FC = () => {
         </Form>
       </Modal>
 
+      {reqPreviewFile && (
+        <FilePreviewModal
+          directUrl={reqPreviewFile.url}
+          filename={reqPreviewFile.name}
+          onClose={() => setReqPreviewFile(null)}
+        />
+      )}
+
       <FilePreviewModal
         file={previewFile}
         projectId={id ?? ''}
         onClose={() => setPreviewFile(null)}
       />
+
+      {/* 新增/編輯需求 Modal */}
+      <Modal
+        title={editReq ? '編輯需求' : '新增需求'}
+        open={showAddReq}
+        onCancel={() => { setShowAddReq(false); setEditReq(null); reqForm.resetFields() }}
+        onOk={() => reqForm.submit()}
+        okText={editReq ? '儲存' : '新增'}
+        cancelText="取消"
+        confirmLoading={reqSaving}
+        okButtonProps={{ style: { background: '#2563eb' } }}
+        width={520}
+        destroyOnHidden
+      >
+        <Form form={reqForm} layout="vertical" onFinish={handleSaveRequirement} className="mt-4">
+          <Form.Item name="req_nm" label="需求名稱" rules={[{ required: true, message: '請輸入需求名稱' }]}>
+            <Input placeholder="請輸入需求名稱" />
+          </Form.Item>
+          <Form.Item name="describe" label="需求描述">
+            <Input.TextArea rows={3} placeholder="描述需求背景和目標（選填）" />
+          </Form.Item>
+          <div className="grid grid-cols-2 gap-x-4">
+            <Form.Item name="priority" label="優先級" initialValue={2} rules={[{ required: true }]}>
+              <Select options={PRIORITY_OPTIONS} />
+            </Form.Item>
+            <Form.Item name="expected_end_date" label="期望完成">
+              <Input type="date" />
+            </Form.Item>
+          </div>
+          <Form.Item label="效益數量" style={{ marginBottom: 8 }}>
+            <Form.Item name="benefit_amount" noStyle>
+              <InputNumber
+                style={{ width: '60%' }}
+                placeholder="數字（選填）"
+                addonAfter={
+                  <Form.Item name="benefit_unit" noStyle initialValue="元/年">
+                    <Select style={{ width: 100 }} options={[
+                      { value: '元/年', label: '元/年' },
+                      { value: '人/年', label: '人/年' },
+                      { value: '工時/年', label: '工時/年' },
+                    ]} />
+                  </Form.Item>
+                }
+              />
+            </Form.Item>
+          </Form.Item>
+          <Form.Item name="expected_benefit" label="效益說明">
+            <Input.TextArea rows={3} placeholder="文字說明（選填）" />
+          </Form.Item>
+          {/* 附件上傳（僅編輯已存在需求時顯示） */}
+          {editReq && (
+            <div className="mt-1">
+              <div className="text-sm text-slate-600 mb-2">附件</div>
+              {(editReq.files?.length ?? 0) > 0 && (
+                <div className="mb-2">
+                  <AttachmentPreview
+                    files={editReq.files!.map((f) => ({ ...f, url: withToken(f.file_id ? requirementApi.getFilePreviewUrl(id!, editReq.id, f.file_id) : f.url) }))}
+                    onPreview={(f) => setReqPreviewFile(f)}
+                  />
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {editReq.files!.map((f) => (
+                      <Popconfirm key={f.url} title="確認刪除此附件？"
+                        onConfirm={async () => {
+                          try {
+                            await requirementApi.deleteFile(id!, editReq.id, f.url)
+                            setEditReq((prev) => prev ? { ...prev, files: prev.files?.filter((x) => x.url !== f.url) } : null)
+                            loadRequirements(id!)
+                            loadFiles(id!)
+                          } catch { /* global */ }
+                        }}
+                        okText="刪除" cancelText="取消">
+                        <button className="text-xs text-red-400 hover:text-red-600 border border-red-200 bg-white rounded px-1.5 py-0.5 cursor-pointer">
+                          刪除「{f.name}」
+                        </button>
+                      </Popconfirm>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <Upload
+                showUploadList={false}
+                beforeUpload={async (file) => {
+                  setReqUploading(true)
+                  try {
+                    const res = await requirementApi.uploadFile(id!, editReq.id, file)
+                    const updated = (res.content as { files?: import('@/types/api.types').FileInfo[] }).files ?? []
+                    setEditReq((prev) => prev ? { ...prev, files: updated } : null)
+                    loadRequirements(id!)
+                    loadFiles(id!)
+                    showToast.success('上傳成功')
+                  } catch { showToast.error('上傳失敗') }
+                  finally { setReqUploading(false) }
+                  return false
+                }}
+                accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.gif,.zip,.rar,.txt,.md"
+                disabled={reqUploading}
+              >
+                <Button size="small" icon={<PlusIcon className="w-3.5 h-3.5" />} loading={reqUploading}>上傳附件</Button>
+              </Upload>
+            </div>
+          )}
+        </Form>
+      </Modal>
+
+      {/* 需求提交審核 Modal */}
+      <Modal title="提交需求審核" open={showReqReview}
+        onCancel={() => { setShowReqReview(false); setReviewReqId(null) }}
+        footer={null} width={520} destroyOnHidden>
+        <div className="mt-4 space-y-4">
+          <div className="text-xs text-slate-400">審核人將依列表順序逐一審核（OA流程），可拖動或上下移動調整順序。</div>
+          <div>
+            <div className="text-sm font-medium text-slate-600 mb-2">審核流程</div>
+            {reqModalReviewersLoading ? (
+              <div className="flex justify-center py-4"><Spin size="small" /></div>
+            ) : reqModalReviewers.length === 0 ? (
+              <div className="border border-dashed border-slate-300 rounded-lg py-5 text-center text-slate-400 text-sm">尚未添加審核人，請搜尋並加入</div>
+            ) : (
+              <div className="border border-slate-200 rounded-lg overflow-hidden">
+                {reqModalReviewers.map((r, i) => (
+                  <div key={r.work_no} className="flex items-center gap-3 px-3 py-2.5 border-b border-slate-100 last:border-b-0 bg-white hover:bg-slate-50 transition-colors">
+                    <div className="w-6 h-6 rounded-full bg-blue-600 text-white text-xs flex items-center justify-center flex-shrink-0 font-semibold">{i + 1}</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-slate-800">{r.name}</div>
+                      <div className="text-xs text-slate-400 truncate">{r.department}{r.position ? ` · ${r.position}` : ''} · {r.work_no}</div>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <Button size="small" type="text" disabled={i === 0} onClick={() => moveReqReviewer(i, -1)} style={{ padding: '0 4px', fontSize: 12, color: i === 0 ? '#cbd5e1' : '#64748b' }}>↑</Button>
+                      <Button size="small" type="text" disabled={i === reqModalReviewers.length - 1} onClick={() => moveReqReviewer(i, 1)} style={{ padding: '0 4px', fontSize: 12, color: i === reqModalReviewers.length - 1 ? '#cbd5e1' : '#64748b' }}>↓</Button>
+                      <Button size="small" type="text" danger icon={<TrashIcon className="w-3.5 h-3.5" />} onClick={() => removeReqReviewer(r.work_no)} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div>
+            <div className="text-sm font-medium text-slate-600 mb-2">加簽審核人</div>
+            <div className="relative">
+              <Input placeholder="輸入姓名或工號搜尋" value={reqModalSearch}
+                onChange={(e) => handleSearchReqReviewer(e.target.value)}
+                prefix={reqModalSearchLoading ? <Spin size="small" /> : undefined} allowClear />
+              {reqModalSearchResults.length > 0 && (
+                <div className="absolute z-50 top-full left-0 right-0 mt-1 border border-slate-200 rounded-lg bg-white shadow-lg overflow-hidden">
+                  {reqModalSearchResults.map((u) => {
+                    const already = reqModalReviewers.some((r) => r.work_no === u.work_no)
+                    return (
+                      <div key={u.work_no}
+                        className={`flex items-center gap-3 px-3 py-2 border-b border-slate-50 last:border-b-0 transition-colors ${already ? 'opacity-40 cursor-not-allowed' : 'hover:bg-blue-50 cursor-pointer'}`}
+                        onClick={() => !already && addReqReviewer(u)}>
+                        <div className="w-7 h-7 rounded-full bg-slate-200 flex items-center justify-center text-xs font-semibold text-slate-600 flex-shrink-0">{u.name.charAt(0)}</div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium text-slate-800">{u.name}</div>
+                          <div className="text-xs text-slate-400">{u.department}{u.position ? ` · ${u.position}` : ''} · {u.work_no}</div>
+                        </div>
+                        {already && <span className="text-xs text-slate-400">已添加</span>}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+          <Divider style={{ margin: '8px 0' }} />
+          <div className="flex justify-end gap-3">
+            <Button onClick={() => { setShowReqReview(false); setReviewReqId(null) }}>取消</Button>
+            <Button type="primary" loading={reqReviewSaving} disabled={reqModalReviewers.length === 0}
+              style={{ background: '#2563eb' }} onClick={handleSubmitReqReview}>提交審核</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* 批量提交需求審核 Modal */}
+      <Modal title={`批量提交需求審核（共 ${selectedReqIds.length} 筆）`} open={showBatchReview}
+        onCancel={() => setShowBatchReview(false)}
+        footer={null} width={520} destroyOnHidden>
+        <div className="mt-4 space-y-4">
+          <div className="text-xs text-slate-400">以下 {selectedReqIds.length} 筆草稿需求將使用相同的審核人依序提交。審核人將逐一審核（OA流程），可調整順序。</div>
+          <div>
+            <div className="text-sm font-medium text-slate-600 mb-2">審核流程</div>
+            {reqModalReviewersLoading ? (
+              <div className="flex justify-center py-4"><Spin size="small" /></div>
+            ) : reqModalReviewers.length === 0 ? (
+              <div className="border border-dashed border-slate-300 rounded-lg py-5 text-center text-slate-400 text-sm">尚未添加審核人，請搜尋並加入</div>
+            ) : (
+              <div className="border border-slate-200 rounded-lg overflow-hidden">
+                {reqModalReviewers.map((r, i) => (
+                  <div key={r.work_no} className="flex items-center gap-3 px-3 py-2.5 border-b border-slate-100 last:border-b-0 bg-white hover:bg-slate-50 transition-colors">
+                    <div className="w-6 h-6 rounded-full bg-blue-600 text-white text-xs flex items-center justify-center flex-shrink-0 font-semibold">{i + 1}</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-slate-800">{r.name}</div>
+                      <div className="text-xs text-slate-400 truncate">{r.department}{r.position ? ` · ${r.position}` : ''} · {r.work_no}</div>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <Button size="small" type="text" disabled={i === 0} onClick={() => moveReqReviewer(i, -1)} style={{ padding: '0 4px', fontSize: 12, color: i === 0 ? '#cbd5e1' : '#64748b' }}>↑</Button>
+                      <Button size="small" type="text" disabled={i === reqModalReviewers.length - 1} onClick={() => moveReqReviewer(i, 1)} style={{ padding: '0 4px', fontSize: 12, color: i === reqModalReviewers.length - 1 ? '#cbd5e1' : '#64748b' }}>↓</Button>
+                      <Button size="small" type="text" danger icon={<TrashIcon className="w-3.5 h-3.5" />} onClick={() => removeReqReviewer(r.work_no)} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div>
+            <div className="text-sm font-medium text-slate-600 mb-2">加簽審核人</div>
+            <div className="relative">
+              <Input placeholder="輸入姓名或工號搜尋" value={reqModalSearch}
+                onChange={(e) => handleSearchReqReviewer(e.target.value)}
+                prefix={reqModalSearchLoading ? <Spin size="small" /> : undefined} allowClear />
+              {reqModalSearchResults.length > 0 && (
+                <div className="absolute z-50 top-full left-0 right-0 mt-1 border border-slate-200 rounded-lg bg-white shadow-lg overflow-hidden">
+                  {reqModalSearchResults.map((u) => {
+                    const already = reqModalReviewers.some((r) => r.work_no === u.work_no)
+                    return (
+                      <div key={u.work_no}
+                        className={`flex items-center gap-3 px-3 py-2 border-b border-slate-50 last:border-b-0 transition-colors ${already ? 'opacity-40 cursor-not-allowed' : 'hover:bg-blue-50 cursor-pointer'}`}
+                        onClick={() => !already && addReqReviewer(u)}>
+                        <div className="w-7 h-7 rounded-full bg-slate-200 flex items-center justify-center text-xs font-semibold text-slate-600 flex-shrink-0">{u.name.charAt(0)}</div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium text-slate-800">{u.name}</div>
+                          <div className="text-xs text-slate-400">{u.department}{u.position ? ` · ${u.position}` : ''} · {u.work_no}</div>
+                        </div>
+                        {already && <span className="text-xs text-slate-400">已添加</span>}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+          <Divider style={{ margin: '8px 0' }} />
+          <div className="flex justify-end gap-3">
+            <Button onClick={() => setShowBatchReview(false)}>取消</Button>
+            <Button type="primary" loading={batchReviewSaving} disabled={reqModalReviewers.length === 0}
+              style={{ background: '#2563eb' }} onClick={handleBatchSubmitReview}>提交審核</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* 提交新增任務審核 Modal */}
+      <Modal title={`提交新增任務審核（共 ${selectedDraftFuncIds.length} 個草稿任務）`} open={showDraftReview}
+        onCancel={() => setShowDraftReview(false)}
+        footer={null} width={520} destroyOnHidden>
+        <div className="mt-4 space-y-4">
+          <div className="text-xs text-amber-600 bg-amber-50 rounded px-3 py-2">
+            以下 {selectedDraftFuncIds.length} 個草稿任務將在審核通過後正式啟動（狀態改為「待開始」）。
+          </div>
+          <div>
+            <div className="text-sm font-medium text-slate-600 mb-2">審核流程</div>
+            {draftReviewersLoading ? (
+              <div className="flex justify-center py-4"><Spin size="small" /></div>
+            ) : draftReviewers.length === 0 ? (
+              <div className="border border-dashed border-slate-300 rounded-lg py-5 text-center text-slate-400 text-sm">尚未添加審核人，請搜尋並加入</div>
+            ) : (
+              <div className="border border-slate-200 rounded-lg overflow-hidden">
+                {draftReviewers.map((r, i) => (
+                  <div key={r.work_no} className="flex items-center gap-3 px-3 py-2.5 border-b border-slate-100 last:border-b-0 bg-white hover:bg-slate-50 transition-colors">
+                    <div className="w-6 h-6 rounded-full bg-blue-600 text-white text-xs flex items-center justify-center flex-shrink-0 font-semibold">{i + 1}</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-slate-800">{r.name}</div>
+                      <div className="text-xs text-slate-400 truncate">{r.department}{r.position ? ` · ${r.position}` : ''} · {r.work_no}</div>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <Button size="small" type="text" disabled={i === 0} onClick={() => moveDraftReviewer(i, -1)} style={{ padding: '0 4px', fontSize: 12, color: i === 0 ? '#cbd5e1' : '#64748b' }}>↑</Button>
+                      <Button size="small" type="text" disabled={i === draftReviewers.length - 1} onClick={() => moveDraftReviewer(i, 1)} style={{ padding: '0 4px', fontSize: 12, color: i === draftReviewers.length - 1 ? '#cbd5e1' : '#64748b' }}>↓</Button>
+                      <Button size="small" type="text" danger icon={<TrashIcon className="w-3.5 h-3.5" />} onClick={() => removeDraftReviewer(r.work_no)} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div>
+            <div className="text-sm font-medium text-slate-600 mb-2">加簽審核人</div>
+            <div className="relative">
+              <Input placeholder="輸入姓名或工號搜尋" value={draftReviewSearch}
+                onChange={(e) => handleSearchDraftReviewer(e.target.value)}
+                prefix={draftReviewSearchLoading ? <Spin size="small" /> : undefined} allowClear />
+              {draftReviewSearchResults.length > 0 && (
+                <div className="absolute z-50 top-full left-0 right-0 mt-1 border border-slate-200 rounded-lg bg-white shadow-lg overflow-hidden">
+                  {draftReviewSearchResults.map((u) => {
+                    const already = draftReviewers.some((r) => r.work_no === u.work_no)
+                    return (
+                      <div key={u.work_no}
+                        className={`flex items-center gap-3 px-3 py-2 border-b border-slate-50 last:border-b-0 transition-colors ${already ? 'opacity-40 cursor-not-allowed' : 'hover:bg-blue-50 cursor-pointer'}`}
+                        onClick={() => !already && addDraftReviewer(u)}>
+                        <div className="w-7 h-7 rounded-full bg-slate-200 flex items-center justify-center text-xs font-semibold text-slate-600 flex-shrink-0">{u.name.charAt(0)}</div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium text-slate-800">{u.name}</div>
+                          <div className="text-xs text-slate-400">{u.department}{u.position ? ` · ${u.position}` : ''} · {u.work_no}</div>
+                        </div>
+                        {already && <span className="text-xs text-slate-400">已添加</span>}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+          <Divider style={{ margin: '8px 0' }} />
+          <div className="flex justify-end gap-3">
+            <Button onClick={() => setShowDraftReview(false)}>取消</Button>
+            <Button type="primary" loading={draftReviewSaving} disabled={draftReviewers.length === 0}
+              style={{ background: '#2563eb' }} onClick={handleSubmitDraftReview}>提交審核</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* 需求搁置審核 Modal */}
+      <Modal
+        title="申請搁置需求"
+        open={showReqShelve}
+        onCancel={() => { setShowReqShelve(false); setShelveReqId(null); reqShelveForm.resetFields() }}
+        onOk={() => reqShelveForm.submit()}
+        okText="提交申請"
+        cancelText="取消"
+        confirmLoading={reqShelveSaving}
+        destroyOnHidden
+      >
+        <Form form={reqShelveForm} layout="vertical" onFinish={handleSubmitReqShelve} className="mt-4">
+          <div className="text-sm text-amber-600 bg-amber-50 rounded px-3 py-2 mb-4">
+            搁置後需求將不再參與排程規劃，如需重新啟用請聯繫管理員。
+          </div>
+          <Form.Item name="reviewer" label="審核人工號" rules={[{ required: true, message: '請填寫至少一位審核人' }]}>
+            <Select mode="tags" placeholder="輸入工號，按 Enter 確認" tokenSeparators={[',']} />
+          </Form.Item>
+        </Form>
+      </Modal>
 
       {/* Add Function Modal */}
       <Modal title="新增功能任務" open={showAddFunc}
@@ -1558,16 +2477,28 @@ const ProjectDetailPage: React.FC = () => {
             <Form.Item name="priority" label="優先級" rules={[{ required: true }]} initialValue={2}>
               <Select options={[{value:1,label:'低'},{value:2,label:'中'},{value:3,label:'高'},{value:4,label:'緊急'}]} />
             </Form.Item>
-            <Form.Item name="group1" label="任務分組" rules={[{ required: true }]}>
+            <Form.Item name="group1" label="任務分組">
               <AutoComplete
                 options={groupAutoOptions}
-                placeholder="選擇或輸入分組名稱"
+                placeholder="選擇或輸入分組名稱（選填）"
                 filterOption={(input, option) => (option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
+                allowClear
               />
             </Form.Item>
             <Form.Item name="expected_start_date" label="預計開始"><Input type="date" /></Form.Item>
             <Form.Item name="expected_end_date"   label="預計結束"><Input type="date" /></Form.Item>
           </div>
+
+          <Form.Item name="requirement_id" label="關聯需求（選填）">
+            <Select
+              allowClear
+              placeholder={reqLoading ? '載入中…' : requirements.length === 0 ? '暫無需求' : '選擇關聯需求（可不選）'}
+              loading={reqLoading}
+              disabled={reqLoading}
+              options={requirements.filter((r) => r.status === 2).map((r) => ({ value: r.id, label: r.req_nm }))}
+              notFoundContent={reqLoading ? '載入中…' : '暫無已通過審核的需求'}
+            />
+          </Form.Item>
 
           <Form.Item name="responsible" label="負責人">
             <Select
@@ -1990,10 +2921,10 @@ const ProjectDetailPage: React.FC = () => {
               <Form.Item name="priority" label="優先級" rules={[{ required: true }]}>
                 <Select options={[{value:1,label:'低'},{value:2,label:'中'},{value:3,label:'高'},{value:4,label:'緊急'}]} />
               </Form.Item>
-              <Form.Item name="group1" label="任務分組" rules={[{ required: true }]}>
+              <Form.Item name="group1" label="任務分組">
                 <AutoComplete
                   options={groupAutoOptions}
-                  placeholder="選擇或輸入分組名稱"
+                  placeholder="選擇或輸入分組名稱（選填）"
                   filterOption={(input, option) => (option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
                 />
               </Form.Item>

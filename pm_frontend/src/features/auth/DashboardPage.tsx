@@ -25,8 +25,8 @@ import { dutyApi } from '@/api/duty.api'
 import { authApi, type AlertTask, type WeeklyActivityItem, type NewsItem } from '@/api/auth.api'
 import { dailyLogApi, type BackendDailyLogSummary } from '@/api/daily_log.api'
 import { notificationApi } from '@/api/notification.api'
-import type { ProjectListItem, UserStatistical, TeamStatistical, TeamBenefitGroup, TemporaryDuty, ApplyRecord } from '@/types/api.types'
-import { DUTY_STATUS_MAP } from '@/utils/status'
+import type { ProjectListItem, UserStatistical, TeamStatistical, TeamBenefitGroup, TemporaryDuty, ApplyRecord, ProjectFunction } from '@/types/api.types'
+import { DUTY_STATUS_MAP, FUNCTION_STATUS_MAP } from '@/utils/status'
 import { useWorkNoToName } from '@/hooks/useWorkNoToName'
 import { useDashboardConfig } from '@/hooks/useDashboardConfig'
 import {
@@ -709,6 +709,7 @@ const DashboardPage: React.FC = () => {
   const [myProjects,       setMyProjects]       = useState<ProjectListItem[]>([])
   const [teamProjects,     setTeamProjects]     = useState<ProjectListItem[]>([])
   const [myDuties,         setMyDuties]         = useState<TemporaryDuty[]>([])
+  const [myFuncTasks,      setMyFuncTasks]      = useState<(ProjectFunction & { project_nm: string })[]>([])
   const [pendingReviews,   setPendingReviews]   = useState<ApplyRecord[]>([])
   const [allPendingReviews, setAllPendingReviews] = useState<ApplyRecord[]>([])
   const [todayLog,         setTodayLog]         = useState<BackendDailyLogSummary | null>(null)
@@ -748,7 +749,7 @@ const DashboardPage: React.FC = () => {
         .catch(() => {})
     }
 
-    if (visible.has('team_project') || visible.has('team_task') || visible.has('team_pending')) {
+    if (visible.has('team_project') || visible.has('team_task') || visible.has('team_pending') || visible.has('team_benefit') || visible.has('team_benefit_detail') || visible.has('team_task_pie') || visible.has('team_progress_bar')) {
       authApi.getTeamStatistical()
         .then((res) => { if (res.content) setTeamStat(res.content) })
         .catch(() => {})
@@ -764,10 +765,11 @@ const DashboardPage: React.FC = () => {
     }
 
     if (visible.has('my_tasks')) {
-      dutyApi.list({ page: 1, size: 20, responsible: workNo ?? undefined })
+      projectApi.myFunctions({ page: 1, size: 200, scope: 'mine' })
         .then((res) => {
-          const list = (res as { content?: { data_list?: TemporaryDuty[] } }).content?.data_list ?? []
-          setMyDuties(list)
+          const c = res.content as { data_list?: (ProjectFunction & { project_nm: string })[] }
+          const all = c.data_list ?? []
+          setMyFuncTasks(all.filter((f) => f.status !== 4))
         })
         .catch(() => {})
     }
@@ -1336,28 +1338,39 @@ const DashboardPage: React.FC = () => {
               <DailyLogCard canDismiss={isSupervisor} todayLog={todayLog} onDismiss={() => hideWidget('daily_log')} />
             )
 
-            case 'activity_chart': return isManager ? null : (
-              <Card
-                className="h-full"
-                title={<span className="font-semibold text-slate-700 text-sm">本週活動概覽</span>}
-                extra={<span className="text-xs text-slate-400">{dayjs().startOf('isoWeek').format('MM/DD')} – {dayjs().endOf('isoWeek').format('MM/DD')}</span>}
-                styles={{ body: { paddingTop: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '100%' } }}
-              >
-                <ResponsiveContainer width="100%" height="70%">
-                  <BarChart data={weeklyActivity} barCategoryGap="35%">
-                    <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                    <YAxis hide />
-                    <RTooltip contentStyle={{ borderRadius: 10, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: 12 }} cursor={{ fill: '#f8fafc' }} />
-                    <Bar dataKey="project" name="功能任務進度" fill="#bfdbfe" radius={[4,4,0,0]} />
-                    <Bar dataKey="duty"    name="臨時任務進度" fill="#2563eb" radius={[4,4,0,0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-                <div className="flex gap-4 mt-1">
-                  <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-[#bfdbfe]" /><span className="text-xs text-slate-400">功能任務進度</span></div>
-                  <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-[#2563eb]" /><span className="text-xs text-slate-400">臨時任務進度</span></div>
-                </div>
-              </Card>
-            )
+            case 'activity_chart': return isManager ? null : (() => {
+              const hasActivity = weeklyActivity.some((d) => d.project > 0 || d.duty > 0)
+              return (
+                <Card
+                  className="h-full"
+                  title={<span className="font-semibold text-slate-700 text-sm">本週活動概覽</span>}
+                  extra={<span className="text-xs text-slate-400">{dayjs().startOf('isoWeek').format('MM/DD')} – {dayjs().endOf('isoWeek').format('MM/DD')}</span>}
+                  styles={{ body: { paddingTop: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '100%' } }}
+                >
+                  {weeklyActivity.length === 0 || !hasActivity ? (
+                    <div className="flex-1 flex flex-col items-center justify-center gap-2 text-slate-400">
+                      <Empty description="本週尚無活動記錄" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                    </div>
+                  ) : (
+                    <>
+                      <ResponsiveContainer width="100%" height="70%">
+                        <BarChart data={weeklyActivity} barCategoryGap="35%">
+                          <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                          <YAxis hide />
+                          <RTooltip contentStyle={{ borderRadius: 10, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: 12 }} cursor={{ fill: '#f8fafc' }} />
+                          <Bar dataKey="project" name="功能任務進度" fill="#bfdbfe" radius={[4,4,0,0]} />
+                          <Bar dataKey="duty"    name="臨時任務進度" fill="#2563eb" radius={[4,4,0,0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                      <div className="flex gap-4 mt-1">
+                        <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-[#bfdbfe]" /><span className="text-xs text-slate-400">功能任務進度</span></div>
+                        <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-[#2563eb]" /><span className="text-xs text-slate-400">臨時任務進度</span></div>
+                      </div>
+                    </>
+                  )}
+                </Card>
+              )
+            })()
 
             case 'my_projects': return isManager ? null : (
               <Card
@@ -1407,28 +1420,28 @@ const DashboardPage: React.FC = () => {
                 title={
                   <div>
                     <div className="text-sm font-semibold text-slate-700">我負責的任務</div>
-                    <div className="text-xs text-slate-400 font-normal mt-0.5">全部 · {myDuties.length} 個任務</div>
+                    <div className="text-xs text-slate-400 font-normal mt-0.5">全部 · {myFuncTasks.length} 個任務</div>
                   </div>
                 }
               >
-                {myDuties.length === 0
+                {myFuncTasks.length === 0
                   ? <Empty description="暫無相關任務" className="py-6" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-                  : myDuties.map((d) => {
-                    const st = DUTY_STATUS_MAP[d.status]
+                  : myFuncTasks.map((f) => {
+                    const st = FUNCTION_STATUS_MAP[f.status]
                     return (
                       <div
-                        key={d.id}
+                        key={f.id}
                         className="flex items-center gap-3 px-5 py-3 border-b border-slate-100 last:border-0 hover:bg-slate-50 cursor-pointer transition-colors"
-                        onClick={() => navigate(`/duties/${d.id}`)}
+                        onClick={() => navigate(`/projects/${f.project_id}?fid=${f.id}`)}
                       >
                         <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: st?.dot ?? '#94a3b8' }} />
-                        <span className="flex-1 text-sm text-slate-700 truncate">{d.duty_nm}</span>
+                        <span className="flex-1 text-sm text-slate-700 truncate">{f.function_nm}</span>
                         {st && <Tag color={st.color} style={{ fontSize: 11, padding: '0 6px', margin: 0 }}>{st.label}</Tag>}
                         <span className="text-xs text-slate-300 w-14 text-right flex-shrink-0">
-                          {d.expected_end_date ? dayjs(d.expected_end_date).format('MM/DD') : '-'}
+                          {f.expected_end_date ? dayjs(f.expected_end_date).format('MM/DD') : '-'}
                         </span>
                         <span className="text-xs text-slate-400 w-20 text-right flex-shrink-0 truncate">
-                          {d.project_nm || d.group || '-'}
+                          {f.project_nm || '-'}
                         </span>
                       </div>
                     )

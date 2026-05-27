@@ -6,12 +6,14 @@ from flask_smorest import Blueprint
 from utils.auth import jwt_required, get_identity
 from utils.response import response_result
 from controllers.project_controller import ProjectController, FunctionController, MilestoneController
+from controllers.requirement_controller import RequirementController
 from serializes.response_serialize import RspMsgDictSchema, RspMsgRawSchema
 
 blp = Blueprint("project_api", __name__, description="项目管理接口")
 proj_ctrl = ProjectController()
 func_ctrl = FunctionController()
 mile_ctrl = MilestoneController()
+req_ctrl  = RequirementController()
 
 
 # ─── Project ─────────────────────────────────────────────────────────────────
@@ -532,3 +534,149 @@ class MilestoneDetailApi(MethodView):
         """删除里程碑"""
         mile_ctrl.delete_milestone(milestone_id)
         return response_result()
+
+
+# ─── Requirements ─────────────────────────────────────────────────────────────
+
+@blp.route("/<string:project_id>/requirements")
+class RequirementListApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgRawSchema)
+    def get(self, project_id):
+        """获取专案需求列表"""
+        return response_result(content=req_ctrl.get_requirements(project_id))
+
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def post(self, project_id):
+        """新增需求"""
+        work_no = get_identity()
+        payload = request.get_json() or {}
+        return response_result(content=req_ctrl.create_requirement(project_id, payload, creator=work_no))
+
+
+@blp.route("/<string:project_id>/requirements/<string:req_id>")
+class RequirementDetailApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def get(self, project_id, req_id):
+        """获取需求详情"""
+        return response_result(content=req_ctrl.get_requirement(req_id))
+
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def put(self, project_id, req_id):
+        """更新需求"""
+        work_no = get_identity()
+        payload = request.get_json() or {}
+        return response_result(content=req_ctrl.update_requirement(req_id, payload, operator=work_no))
+
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def delete(self, project_id, req_id):
+        """删除需求"""
+        work_no = get_identity()
+        req_ctrl.delete_requirement(req_id, operator=work_no)
+        return response_result()
+
+
+@blp.route("/<string:project_id>/requirements/<string:req_id>/submit_review")
+class RequirementSubmitReviewApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def post(self, project_id, req_id):
+        """提交需求审核"""
+        work_no = get_identity()
+        payload = request.get_json() or {}
+        reviewer = payload.get("reviewer", [])
+        return response_result(content=req_ctrl.submit_review(req_id, reviewer=reviewer, operator=work_no))
+
+
+@blp.route("/<string:project_id>/requirements/batch_review")
+class RequirementBatchReviewApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def post(self, project_id):
+        """批量提交需求审核（创建单一审核单）"""
+        work_no = get_identity()
+        payload = request.get_json() or {}
+        requirement_ids = payload.get("requirement_ids", [])
+        reviewer = payload.get("reviewer", [])
+        return response_result(content=req_ctrl.batch_submit_review(
+            project_id, requirement_ids=requirement_ids, reviewer=reviewer, operator=work_no
+        ))
+
+
+@blp.route("/<string:project_id>/functions/task_addition_review")
+class TaskAdditionReviewApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def post(self, project_id):
+        """提交執行階段新增任務的審核（批量，創建單一審核單）"""
+        work_no = get_identity()
+        payload = request.get_json() or {}
+        function_ids = payload.get("function_ids", [])
+        reviewer = payload.get("reviewer", [])
+        return response_result(content=func_ctrl.submit_task_review(
+            project_id, function_ids=function_ids, reviewer=reviewer, operator=work_no
+        ))
+
+
+@blp.route("/<string:project_id>/requirements/<string:req_id>/shelve")
+class RequirementShelveApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def post(self, project_id, req_id):
+        """提交需求搁置审核"""
+        work_no = get_identity()
+        payload = request.get_json() or {}
+        reviewer = payload.get("reviewer", [])
+        return response_result(content=req_ctrl.submit_shelve(req_id, reviewer=reviewer, operator=work_no))
+
+
+@blp.route("/<string:project_id>/requirements/<string:req_id>/files")
+class RequirementFilesApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def post(self, project_id, req_id):
+        """上传需求附件"""
+        work_no = get_identity()
+        file = request.files.get("file")
+        if not file or not file.filename:
+            from utils.exceptions import ValidationException
+            raise ValidationException(msg="请选择要上传的文件")
+        return response_result(content=req_ctrl.upload_file(req_id, file, uploader=work_no))
+
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def delete(self, project_id, req_id):
+        """删除需求附件记录"""
+        payload = request.get_json() or {}
+        file_url = payload.get("url", "")
+        files = req_ctrl.remove_file(req_id, file_url)
+        return response_result(content={"files": files})
+
+
+@blp.route("/<string:project_id>/requirements/<string:req_id>/files/<string:file_id>/preview")
+class RequirementFilePreviewApi(MethodView):
+    @jwt_required()
+    def get(self, project_id, req_id, file_id):
+        """預覽需求附件"""
+        import mimetypes
+        abs_path, original_name = req_ctrl.get_req_file_path(req_id, file_id)
+        ext = original_name.rsplit(".", 1)[-1].lower() if "." in original_name else ""
+        if ext in ("jpg", "jpeg", "png", "gif", "webp", "bmp"):
+            mime_type = f"image/{ext.replace('jpg', 'jpeg')}"
+        else:
+            mime_type, _ = mimetypes.guess_type(original_name)
+            mime_type = mime_type or "application/octet-stream"
+        return send_file(abs_path, mimetype=mime_type, as_attachment=False, download_name=original_name)
+
+
+@blp.route("/<string:project_id>/requirements/<string:req_id>/files/<string:file_id>/download")
+class RequirementFileDownloadApi(MethodView):
+    @jwt_required()
+    def get(self, project_id, req_id, file_id):
+        """下載需求附件"""
+        abs_path, original_name = req_ctrl.get_req_file_path(req_id, file_id)
+        return send_file(abs_path, as_attachment=True, download_name=original_name)

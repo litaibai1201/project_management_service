@@ -191,7 +191,7 @@ interface Props {
   // Project file mode
   file?: ProjectFile | null
   projectId?: string
-  // Direct URL mode (for progress attachments — token already in URL)
+  // Direct URL mode (for progress/requirement attachments — token already in URL)
   directUrl?: string | null
   filename?: string
   onClose: () => void
@@ -251,13 +251,15 @@ const FilePreviewModal: React.FC<Props> = ({ file, projectId, directUrl, filenam
   if (!file && !directUrl) return null
 
   const title = file ? file.file_nm : (filename ?? '')
-  const ext   = file ? file.file_ext.toLowerCase() : (filename?.split('.').pop()?.toLowerCase() ?? '')
+  const ext = file
+    ? file.file_ext.toLowerCase()
+    : (filename?.split('.').pop()?.toLowerCase() ?? '')
   const isWide = PDF_EXTS.has(ext) || HTML_EXTS.has(ext) || DOCX_EXTS.has(ext) || XLSX_EXTS.has(ext) || PPTX_EXTS.has(ext) || CSV_EXTS.has(ext)
 
   const footerBtn = file && projectId
     ? <a href={projectApi.getFileDownloadUrl(projectId, file.id)} target="_blank" rel="noreferrer"><Button>下載</Button></a>
     : directUrl
-      ? <a href={directUrl} target="_blank" rel="noreferrer"><Button>下載</Button></a>
+      ? <a href={directUrl.replace('/preview', '/download')} target="_blank" rel="noreferrer"><Button>下載</Button></a>
       : null
 
   return (

@@ -244,11 +244,11 @@ const AppLayout: React.FC = () => {
       </div>
       {notifLoading && notifications.length === 0 ? (
         <div className="flex justify-center py-8"><Spin size="small" /></div>
-      ) : notifications.length === 0 ? (
-        <Empty description="暫無通知" className="py-6" />
+      ) : notifications.filter((n) => !n.is_read).length === 0 ? (
+        <Empty description="暫無未讀通知" className="py-6" />
       ) : (
         <List
-          dataSource={notifications}
+          dataSource={notifications.filter((n) => !n.is_read)}
           style={{ maxHeight: 400, overflowY: 'auto' }}
           renderItem={(n) => (
             <List.Item

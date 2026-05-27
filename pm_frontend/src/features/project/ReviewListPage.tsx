@@ -12,10 +12,10 @@ import {
 } from '@heroicons/react/24/outline'
 import { useLocation } from 'react-router-dom'
 import { useResizableColumns, tableComponents } from '@/hooks/useResizableColumns'
-import { projectApi } from '@/api/project.api'
+import { projectApi, requirementApi } from '@/api/project.api'
 import { dutyApi } from '@/api/duty.api'
 import { userApi } from '@/api/user.api'
-import { ApplyRecord, Project, ProjectFile, ProjectFunction, ProgressRecord, FileInfo, ReviewPayload } from '@/types/api.types'
+import { ApplyRecord, Project, ProjectFile, ProjectFunction, ProgressRecord, FileInfo, ReviewPayload, Requirement } from '@/types/api.types'
 import { showToast } from '@/utils/toast'
 import FilePreviewModal from './FilePreviewModal'
 import { tokenStorage } from '@/api/httpClient'
@@ -48,6 +48,10 @@ const APPLY_TYPE_COLOR: Record<string, string> = {
   duty_complete:       'volcano',
   duty_completion:     'volcano',  // 兼容旧记录
   requirement_change:  'orange',
+  requirement_review:       'purple',
+  requirement_batch_review: 'purple',
+  requirement_shelve:       'gold',
+  task_addition_review:     'cyan',
 }
 
 // 每種申請類型的詳細說明：告訴審核人這是什麼、通過後會發生什麼
@@ -99,39 +103,76 @@ const APPLY_TYPE_META: Record<string, {
     reject:  '拒絕後，需求變更申請關閉，文件鎖定狀態不變',
     icon:    '📝',
   },
+  requirement_review: {
+    what:    '產品PM提交了新需求，申請審核通過後方可建立關聯任務',
+    approve: '通過後，需求狀態變為「已通過」，可建立關聯此需求的功能任務',
+    reject:  '拒絕後，需求退回草稿狀態，產品PM可修改後重新提交',
+    icon:    '📋',
+  },
+  requirement_batch_review: {
+    what:    '產品PM批量提交了多條需求，申請一次審核通過所有需求',
+    approve: '通過後，所有需求狀態變為「已通過」，可建立關聯任務',
+    reject:  '拒絕後，所有需求退回草稿狀態，產品PM可修改後重新提交',
+    icon:    '📋',
+  },
+  task_addition_review: {
+    what:    '專案PM在執行階段新增了功能任務，申請審核後方可正式啟動任務',
+    approve: '通過後，所有草稿任務狀態變為「待開始」，負責人可開始執行',
+    reject:  '拒絕後，任務保持草稿狀態，專案PM可修改後重新提交',
+    icon:    '🆕',
+  },
+  requirement_shelve: {
+    what:    '申請人希望將此需求搁置，暫不納入排程規劃',
+    approve: '通過後，需求狀態變為「搁置」，不再參與後續排程',
+    reject:  '拒絕後，需求保持原有狀態不變',
+    icon:    '🗂️',
+  },
 }
+
+// 一個頁籤 key 可能對應多個 apply_type_code（如需求審核 = 單條 + 批量）
+const TAB_CODES: Record<string, string[]> = {
+  requirement_review: ['requirement_review', 'requirement_batch_review'],
+}
+const tabMatchesCodes = (tabKey: string, code: string) =>
+  TAB_CODES[tabKey] ? TAB_CODES[tabKey].includes(code) : code === tabKey
 
 // 待我審核（只看待處理）
 const REVIEWER_TABS = [
-  { key: 'all',               label: '全部待審'    },
-  { key: 'initiate',          label: '立案申請'    },
-  { key: 'plan',              label: '規劃審核'    },
-  { key: 'schedule',          label: '排程審核'    },
-  { key: 'function_complete', label: '功能完結審核' },
-  { key: 'project_complete',  label: '專案完結'    },
-  { key: 'duty_complete',     label: '臨時任務'    },
+  { key: 'all',                label: '全部待審'    },
+  { key: 'initiate',           label: '立案申請'    },
+  { key: 'plan',               label: '規劃審核'    },
+  { key: 'schedule',           label: '排程審核'    },
+  { key: 'function_complete',  label: '功能完結審核' },
+  { key: 'project_complete',   label: '專案完結'    },
+  { key: 'duty_complete',      label: '臨時任務'    },
+  { key: 'requirement_review', label: '需求審核'    },
+  { key: 'task_addition_review', label: '新增任務審核' },
 ]
 
 // 我的審核（已審核過的記錄，按類型分）
 const REVIEWED_TABS = [
-  { key: 'all',               label: '全部'        },
-  { key: 'initiate',          label: '立案申請'    },
-  { key: 'plan',              label: '規劃審核'    },
-  { key: 'schedule',          label: '排程審核'    },
-  { key: 'function_complete', label: '功能完結審核' },
-  { key: 'project_complete',  label: '專案完結'    },
-  { key: 'duty_complete',     label: '臨時任務'    },
+  { key: 'all',                label: '全部'        },
+  { key: 'initiate',           label: '立案申請'    },
+  { key: 'plan',               label: '規劃審核'    },
+  { key: 'schedule',           label: '排程審核'    },
+  { key: 'function_complete',  label: '功能完結審核' },
+  { key: 'project_complete',   label: '專案完結'    },
+  { key: 'duty_complete',      label: '臨時任務'    },
+  { key: 'requirement_review', label: '需求審核'    },
+  { key: 'task_addition_review', label: '新增任務審核' },
 ]
 
 // 我的提交
 const SUBMITTER_TABS = [
-  { key: 'all',               label: '全部'        },
-  { key: 'initiate',          label: '立案申請'    },
-  { key: 'plan',              label: '規劃審核'    },
-  { key: 'schedule',          label: '排程審核'    },
-  { key: 'function_complete', label: '功能完結審核' },
-  { key: 'project_complete',  label: '專案完結'    },
-  { key: 'duty_complete',     label: '臨時任務'    },
+  { key: 'all',                label: '全部'        },
+  { key: 'initiate',           label: '立案申請'    },
+  { key: 'plan',               label: '規劃審核'    },
+  { key: 'schedule',           label: '排程審核'    },
+  { key: 'function_complete',  label: '功能完結審核' },
+  { key: 'project_complete',   label: '專案完結'    },
+  { key: 'duty_complete',      label: '臨時任務'    },
+  { key: 'requirement_review', label: '需求審核'    },
+  { key: 'task_addition_review', label: '新增任務審核' },
 ]
 
 // ─── 每種審批類型需要展示的附件分類 ──────────────────────────────────────────────
@@ -249,59 +290,123 @@ const FUNC_STATUS_LABEL: Record<number, { label: string; color: string }> = {
   8: { label: '擱置',    color: '#6b7280' },
 }
 
-const WbsTable: React.FC<{ functions: ProjectFunction[]; toName: (workNo: string) => string }> = ({ functions, toName }) => {
-  // Build ordered groups
-  const groups = useMemo(() => {
-    const map: Record<string, ProjectFunction[]> = {}
+const WbsTable: React.FC<{
+  functions: ProjectFunction[]
+  toName: (workNo: string) => string
+  requirements?: Requirement[]
+}> = ({ functions, toName, requirements = [] }) => {
+  const COLS = '24px 2fr 1fr 1fr 1fr 1fr 1fr'
+
+  const reqNameMap = useMemo(() => {
+    const m: Record<string, string> = {}
+    requirements.forEach((r) => { m[r.id] = r.req_nm })
+    return m
+  }, [requirements])
+
+  // Build 3-level structure: requirement → group1 → tasks
+  const structure = useMemo(() => {
+    const hasReq = functions.some((f) => !!f.requirement_id)
+
+    const byReq = new Map<string, ProjectFunction[]>()
     functions.forEach((f) => {
-      const g = f.group1 || '未分組'
-      if (!map[g]) map[g] = []
-      map[g].push(f)
+      const key = f.requirement_id || '__none__'
+      if (!byReq.has(key)) byReq.set(key, [])
+      byReq.get(key)!.push(f)
     })
-    return Object.entries(map) // [groupName, tasks][]
-  }, [functions])
 
-  // Default: all collapsed
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set(groups.map(([g]) => g)))
+    const buildSubGroups = (tasks: ProjectFunction[]) => {
+      const map = new Map<string, ProjectFunction[]>()
+      tasks.forEach((t) => {
+        const g = t.group1 || '__nogroup__'
+        if (!map.has(g)) map.set(g, [])
+        map.get(g)!.push(t)
+      })
+      return [...map.entries()].map(([g, items]) => ({ name: g === '__nogroup__' ? '未分組' : g, key: g, items }))
+    }
 
-  const allCollapsed = collapsed.size === groups.length
-  const toggleAll   = () => setCollapsed(allCollapsed ? new Set() : new Set(groups.map(([g]) => g)))
-  const toggle      = (g: string) => setCollapsed((prev) => {
-    const next = new Set(prev)
-    next.has(g) ? next.delete(g) : next.add(g)
-    return next
+    return [...byReq.entries()]
+      .sort(([a], [b]) => (a === '__none__' ? 1 : b === '__none__' ? -1 : 0))
+      .map(([reqKey, tasks]) => ({
+        reqKey,
+        reqNm: reqKey === '__none__' ? null : (reqNameMap[reqKey] || reqKey),
+        hasReqLevel: hasReq && reqKey !== '__none__',
+        subGroups: buildSubGroups(tasks),
+        allTasks: tasks,
+      }))
+  }, [functions, reqNameMap])
+
+  // Collapsed state: keys are `req:${reqKey}` or `grp:${reqKey}::${gKey}`
+  const allHeaderKeys = useMemo(() => {
+    const keys: string[] = []
+    structure.forEach((r) => {
+      if (r.hasReqLevel) keys.push(`req:${r.reqKey}`)
+      const showGroups = r.subGroups.length > 1 || (r.subGroups.length === 1 && r.subGroups[0].key !== '__nogroup__')
+      if (showGroups) r.subGroups.forEach((g) => keys.push(`grp:${r.reqKey}::${g.key}`))
+    })
+    return keys
+  }, [structure])
+
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set(allHeaderKeys))
+
+  const allCollapsed = allHeaderKeys.length > 0 && allHeaderKeys.every((k) => collapsed.has(k))
+  const toggleAll = () => setCollapsed(allCollapsed ? new Set() : new Set(allHeaderKeys))
+  const toggle = (key: string) => setCollapsed((prev) => {
+    const next = new Set(prev); next.has(key) ? next.delete(key) : next.add(key); return next
   })
 
-  // Compute date range for a group
   const groupRange = (tasks: ProjectFunction[]) => {
     const starts = tasks.map((t) => t.expected_start_date).filter(Boolean) as string[]
     const ends   = tasks.map((t) => t.expected_end_date).filter(Boolean) as string[]
-    const start  = starts.length ? starts.sort()[0] : null
-    const end    = ends.length   ? ends.sort().at(-1)! : null
-    return { start, end }
+    return { start: starts.length ? starts.sort()[0] : null, end: ends.length ? ends.sort().at(-1)! : null }
   }
-
-  // Collect unique responsible persons across all tasks in a group
   const groupResponsible = (tasks: ProjectFunction[]) => {
     const seen = new Set<string>()
     tasks.forEach((t) => (t.responsible ?? []).forEach((r) => seen.add(r)))
     return [...seen]
   }
 
+  const renderTaskRows = (tasks: ProjectFunction[], indent = false) =>
+    tasks.map((task, ti) => (
+      <div key={task.id}
+        className={`grid border-b border-slate-100 last:border-b-0 hover:bg-slate-50 transition-colors ${ti % 2 === 1 ? 'bg-slate-50/40' : ''}`}
+        style={{ gridTemplateColumns: COLS }}>
+        <div />
+        <div className={`${indent ? 'pl-5' : 'px-2'} pr-2 py-2 text-slate-700 flex items-center gap-1.5`}>
+          <span className="truncate">{task.function_nm}</span>
+        </div>
+        <div className="px-2 py-2 text-slate-600 truncate">
+          {task.responsible && task.responsible.length > 0
+            ? task.responsible.map((r) => toName(r) || r).join('、')
+            : <span className="text-slate-300">—</span>}
+        </div>
+        <div className="px-2 py-2">
+          {PRIORITY_LABEL[task.priority]
+            ? <span className="font-medium" style={{ color: PRIORITY_LABEL[task.priority].color }}>{PRIORITY_LABEL[task.priority].label}</span>
+            : '—'}
+        </div>
+        <div className="px-2 py-2 text-slate-500 tabular-nums">{task.expected_start_date || '—'}</div>
+        <div className="px-2 py-2 text-slate-500 tabular-nums">{task.expected_end_date || '—'}</div>
+        <div className="px-2 py-2">
+          {FUNC_STATUS_LABEL[task.status]
+            ? <span style={{ color: FUNC_STATUS_LABEL[task.status].color }}>{FUNC_STATUS_LABEL[task.status].label}</span>
+            : '—'}
+        </div>
+      </div>
+    ))
 
   return (
     <div className="border border-slate-200 rounded-lg overflow-hidden text-xs">
       {/* Column header */}
       <div className="grid bg-slate-100 border-b border-slate-200 font-semibold text-slate-500"
-        style={{ gridTemplateColumns: '24px 2fr 1fr 1fr 1fr 1fr 1fr' }}>
+        style={{ gridTemplateColumns: COLS }}>
         <div className="flex items-center justify-center py-2">
-          <button
-            onClick={toggleAll}
-            className="w-4 h-4 rounded border border-slate-300 hover:border-violet-400 hover:text-violet-600 text-slate-400 bg-white hover:bg-violet-50 transition-colors cursor-pointer flex items-center justify-center text-[10px] font-bold leading-none"
-            title={allCollapsed ? '展開全部' : '折疊全部'}
-          >
-            {allCollapsed ? '+' : '−'}
-          </button>
+          {allHeaderKeys.length > 0 && (
+            <button onClick={toggleAll}
+              className="w-4 h-4 rounded border border-slate-300 hover:border-violet-400 hover:text-violet-600 text-slate-400 bg-white hover:bg-violet-50 transition-colors cursor-pointer flex items-center justify-center text-[10px] font-bold leading-none"
+              title={allCollapsed ? '展開全部' : '折疊全部'}>
+              {allCollapsed ? '+' : '−'}
+            </button>
+          )}
         </div>
         <div className="px-2 py-2">任務名稱</div>
         <div className="px-2 py-2">負責人</div>
@@ -311,76 +416,80 @@ const WbsTable: React.FC<{ functions: ProjectFunction[]; toName: (workNo: string
         <div className="px-2 py-2">狀態</div>
       </div>
 
-      {groups.map(([groupName, tasks], gi) => {
-        const isCollapsed  = collapsed.has(groupName)
-        const { start, end } = groupRange(tasks)
-        const responsible  = groupResponsible(tasks)
+      {structure.map((reqGroup) => {
+        const reqColKey  = `req:${reqGroup.reqKey}`
+        const reqOpen    = !collapsed.has(reqColKey)
+        const singleUnnamedGroup = reqGroup.subGroups.length === 1 && reqGroup.subGroups[0].key === '__nogroup__'
+        const showGroups = !singleUnnamedGroup
 
         return (
-          <div key={groupName}>
-            {/* Group header row */}
-            <div
-              className="grid items-center border-b border-slate-200 bg-violet-50 hover:bg-violet-100 cursor-pointer select-none transition-colors"
-              style={{ gridTemplateColumns: '24px 2fr 1fr 1fr 1fr 1fr 1fr' }}
-              onClick={() => toggle(groupName)}
-            >
-              {/* Toggle icon */}
-              <div className="flex items-center justify-center py-2">
-                <span className="w-4 h-4 rounded border border-violet-300 text-violet-500 bg-white flex items-center justify-center text-[10px] font-bold leading-none flex-shrink-0">
-                  {isCollapsed ? '+' : '−'}
-                </span>
+          <div key={reqGroup.reqKey}>
+            {/* ── Requirement header (purple) — only when tasks have requirements ── */}
+            {reqGroup.hasReqLevel && (
+              <div
+                className="grid items-center border-b border-slate-200 bg-purple-50 hover:bg-purple-100 cursor-pointer select-none transition-colors"
+                style={{ gridTemplateColumns: COLS }}
+                onClick={() => toggle(reqColKey)}
+              >
+                <div className="flex items-center justify-center py-2">
+                  <span className="w-4 h-4 rounded border border-purple-300 text-purple-500 bg-white flex items-center justify-center text-[10px] font-bold leading-none flex-shrink-0">
+                    {reqOpen ? '−' : '+'}
+                  </span>
+                </div>
+                <div className="px-2 py-2 font-semibold text-purple-700 flex items-center gap-1.5 col-span-6">
+                  <span className="truncate">{reqGroup.reqNm}</span>
+                  <span className="font-normal text-purple-400 text-[11px] flex-shrink-0">（{reqGroup.allTasks.length} 項）</span>
+                </div>
               </div>
-              {/* Group name */}
-              <div className="px-2 py-2 font-semibold text-violet-700 flex items-center gap-1.5">
-                <span className="w-4 h-4 rounded-sm bg-violet-200 text-violet-700 text-[10px] font-bold flex items-center justify-center flex-shrink-0">{gi + 1}</span>
-                <span className="truncate">{groupName}</span>
-                <span className="font-normal text-violet-400 text-[11px] flex-shrink-0">（{tasks.length} 項）</span>
-              </div>
-              {/* When collapsed: show date range summary across remaining columns */}
-              {isCollapsed ? (
-                <>
-                  <div className="px-2 py-2 text-violet-500 truncate">
-                    {responsible.length > 0 ? responsible.map((r) => toName(r) || r).join('、') : <span className="text-violet-300">—</span>}
-                  </div>
-                  <div className="px-2 py-2" />{/* 優先級 */}
-                  <div className="px-2 py-2 text-violet-500 tabular-nums">{start ?? '—'}</div>{/* 預計開始 */}
-                  <div className="px-2 py-2 text-violet-500 tabular-nums">{end ?? '—'}</div>{/* 預計完成 */}
-                  <div className="px-2 py-2" />{/* 狀態 */}
-                </>
-              ) : (
-                <div className="col-span-5" />
-              )}
-            </div>
+            )}
 
-            {/* Task rows */}
-            {!isCollapsed && tasks.map((task, ti) => (
-              <div key={task.id}
-                className={`grid border-b border-slate-100 last:border-b-0 hover:bg-slate-50 transition-colors ${ti % 2 === 1 ? 'bg-slate-50/40' : ''}`}
-                style={{ gridTemplateColumns: '24px 2fr 1fr 1fr 1fr 1fr 1fr' }}>
-                <div />
-                <div className="px-2 py-2 text-slate-700 flex items-center gap-1.5">
-                  <span className="text-slate-300 flex-shrink-0 tabular-nums">{gi + 1}.{ti + 1}</span>
-                  <span className="truncate">{task.function_nm}</span>
-                </div>
-                <div className="px-2 py-2 text-slate-600 truncate">
-                  {task.responsible && task.responsible.length > 0
-                    ? task.responsible.map((r) => toName(r) || r).join('、')
-                    : <span className="text-slate-300">—</span>}
-                </div>
-                <div className="px-2 py-2">
-                  {PRIORITY_LABEL[task.priority]
-                    ? <span className="font-medium" style={{ color: PRIORITY_LABEL[task.priority].color }}>{PRIORITY_LABEL[task.priority].label}</span>
-                    : '—'}
-                </div>
-                <div className="px-2 py-2 text-slate-500 tabular-nums">{task.expected_start_date || '—'}</div>
-                <div className="px-2 py-2 text-slate-500 tabular-nums">{task.expected_end_date || '—'}</div>
-                <div className="px-2 py-2">
-                  {FUNC_STATUS_LABEL[task.status]
-                    ? <span style={{ color: FUNC_STATUS_LABEL[task.status].color }}>{FUNC_STATUS_LABEL[task.status].label}</span>
-                    : '—'}
-                </div>
-              </div>
-            ))}
+            {/* ── Content under requirement (or top-level if no requirement) ── */}
+            {(!reqGroup.hasReqLevel || reqOpen) && (
+              showGroups ? (
+                /* ── Group headers (violet) ── */
+                reqGroup.subGroups.map((sg, gi) => {
+                  const grpColKey = `grp:${reqGroup.reqKey}::${sg.key}`
+                  const grpOpen   = !collapsed.has(grpColKey)
+                  const { start, end } = groupRange(sg.items)
+                  const responsible    = groupResponsible(sg.items)
+                  return (
+                    <div key={sg.key}>
+                      <div
+                        className="grid items-center border-b border-slate-200 bg-violet-50 hover:bg-violet-100 cursor-pointer select-none transition-colors"
+                        style={{ gridTemplateColumns: COLS }}
+                        onClick={() => toggle(grpColKey)}
+                      >
+                        <div className="flex items-center justify-center py-2">
+                          <span className="w-4 h-4 rounded border border-violet-300 text-violet-500 bg-white flex items-center justify-center text-[10px] font-bold leading-none flex-shrink-0">
+                            {grpOpen ? '−' : '+'}
+                          </span>
+                        </div>
+                        <div className={`${reqGroup.hasReqLevel ? 'pl-4' : 'px-2'} pr-2 py-2 font-semibold text-violet-700 flex items-center gap-1.5`}>
+                          <span className="w-4 h-4 rounded-sm bg-violet-200 text-violet-700 text-[10px] font-bold flex items-center justify-center flex-shrink-0">{gi + 1}</span>
+                          <span className="truncate">{sg.name}</span>
+                          <span className="font-normal text-violet-400 text-[11px] flex-shrink-0">（{sg.items.length} 項）</span>
+                        </div>
+                        {!grpOpen ? (
+                          <>
+                            <div className="px-2 py-2 text-violet-500 truncate">
+                              {responsible.length > 0 ? responsible.map((r) => toName(r) || r).join('、') : <span className="text-violet-300">—</span>}
+                            </div>
+                            <div className="px-2 py-2" />
+                            <div className="px-2 py-2 text-violet-500 tabular-nums">{start ?? '—'}</div>
+                            <div className="px-2 py-2 text-violet-500 tabular-nums">{end ?? '—'}</div>
+                            <div className="px-2 py-2" />
+                          </>
+                        ) : <div className="col-span-5" />}
+                      </div>
+                      {grpOpen && renderTaskRows(sg.items, reqGroup.hasReqLevel)}
+                    </div>
+                  )
+                })
+              ) : (
+                /* ── No group: tasks directly ── */
+                renderTaskRows(reqGroup.allTasks, reqGroup.hasReqLevel)
+              )
+            )}
           </div>
         )
       })}
@@ -403,6 +512,7 @@ const ReviewDetailDrawer: React.FC<{
   const [project,              setProject]              = useState<Project | null>(null)
   const [files,                setFiles]                = useState<ProjectFile[]>([])
   const [functions,            setFunctions]            = useState<ProjectFunction[]>([])
+  const [requirements,         setRequirements]         = useState<Requirement[]>([])
   const [funcDetail,           setFuncDetail]           = useState<ProjectFunction | null>(null)
   const [progressRecords,      setProgressRecords]      = useState<ProgressRecord[]>([])
   const [progressPage,         setProgressPage]         = useState(1)
@@ -413,6 +523,8 @@ const ReviewDetailDrawer: React.FC<{
   const [previewFile,          setPreviewFile]          = useState<ProjectFile | null>(null)
   const [previewDirect,        setPreviewDirect]        = useState<FileInfo | null>(null)
   const [countersignPeople,    setCountersignPeople]    = useState<ChainPerson[]>([])
+  const [reqListCollapsed,     setReqListCollapsed]     = useState(false)
+  const [expandedReqs,         setExpandedReqs]         = useState<Set<string>>(new Set())
 
   useEffect(() => {
     setCountersignPeople([])
@@ -421,6 +533,8 @@ const ReviewDetailDrawer: React.FC<{
     setProgressRecords([])
     setProgressPage(1)
     setProgressHasMore(false)
+    setReqListCollapsed(false)
+    setExpandedReqs(new Set())
   }, [record?.id])
 
   const addToken = (items: FileInfo[] | undefined): FileInfo[] => {
@@ -446,7 +560,7 @@ const ReviewDetailDrawer: React.FC<{
   useEffect(() => {
     if (!record?.project_id) {
       setProject(null); setFiles([]); setFunctions([])
-      setFuncDetail(null); setProgressRecords([])
+      setRequirements([]); setFuncDetail(null); setProgressRecords([])
       return
     }
     setProjectLoading(true)
@@ -454,11 +568,22 @@ const ReviewDetailDrawer: React.FC<{
       projectApi.get(record.project_id),
       projectApi.listFiles(record.project_id),
     ]
-    if (record.apply_type_code === 'schedule') {
+    if (record.apply_type_code === 'schedule' || record.apply_type_code === 'project_complete') {
       reqs.push(projectApi.functionList(record.project_id, { page: 1, size: 200 }))
+      reqs.push(requirementApi.list(record.project_id))
     }
     if (record.apply_type_code === 'function_complete' && record.function_id) {
       reqs.push(projectApi.getFunction(record.project_id, record.function_id))
+    }
+    if (record.apply_type_code === 'initiate') {
+      reqs.push(requirementApi.list(record.project_id))
+    }
+    if (['requirement_review', 'requirement_shelve', 'requirement_batch_review'].includes(record.apply_type_code)) {
+      reqs.push(requirementApi.list(record.project_id))
+    }
+    if (record.apply_type_code === 'task_addition_review') {
+      reqs.push(projectApi.functionList(record.project_id, { page: 1, size: 200 }))
+      reqs.push(requirementApi.list(record.project_id))
     }
     Promise.all(reqs).then((results) => {
       const [pRes, fRes, extra1] = results as [
@@ -469,12 +594,30 @@ const ReviewDetailDrawer: React.FC<{
       setProject(pRes.content as Project)
       setFiles(Array.isArray((fRes as { content: unknown }).content) ? ((fRes as { content: ProjectFile[] }).content) : [])
 
-      if (record.apply_type_code === 'schedule' && extra1) {
+      if ((record.apply_type_code === 'schedule' || record.apply_type_code === 'project_complete') && extra1) {
         const c = (extra1 as { content: { data_list?: ProjectFunction[] } }).content
         setFunctions(c.data_list ?? [])
+        const extra2 = results[3]
+        if (extra2) {
+          setRequirements(Array.isArray((extra2 as { content: unknown }).content) ? (extra2 as { content: Requirement[] }).content : [])
+        }
       }
       if (record.apply_type_code === 'function_complete' && extra1) {
         setFuncDetail((extra1 as { content: ProjectFunction }).content)
+      }
+      if (record.apply_type_code === 'initiate' && extra1) {
+        setRequirements(Array.isArray((extra1 as { content: unknown }).content) ? (extra1 as { content: Requirement[] }).content : [])
+      }
+      if (['requirement_review', 'requirement_shelve', 'requirement_batch_review'].includes(record.apply_type_code) && extra1) {
+        setRequirements(Array.isArray((extra1 as { content: unknown }).content) ? (extra1 as { content: Requirement[] }).content : [])
+      }
+      if (record.apply_type_code === 'task_addition_review' && extra1) {
+        const c = (extra1 as { content: { data_list?: ProjectFunction[] } }).content
+        setFunctions(c.data_list ?? [])
+        const extra2 = results[3]
+        if (extra2) {
+          setRequirements(Array.isArray((extra2 as { content: unknown }).content) ? (extra2 as { content: Requirement[] }).content : [])
+        }
       }
     }).catch(() => {}).finally(() => setProjectLoading(false))
 
@@ -495,7 +638,7 @@ const ReviewDetailDrawer: React.FC<{
 
   // 本次審批需要展示的附件分類
   const relevantCategories = STAGE_FILES[record.apply_type_code] ?? []
-  const relevantFiles = files.filter((f) => relevantCategories.includes(f.file_category))
+  const relevantFiles = files.filter((f) => relevantCategories.includes(f.file_category) && f.source !== 'requirement_attachment')
 
   return (
     <Drawer
@@ -512,7 +655,7 @@ const ReviewDetailDrawer: React.FC<{
       }
       open={open}
       onClose={onClose}
-      width={record?.apply_type_code === 'schedule' ? 900 : record?.apply_type_code === 'function_complete' ? 780 : 720}
+      width={record?.apply_type_code === 'schedule' || record?.apply_type_code === 'project_complete' ? 900 : record?.apply_type_code === 'function_complete' ? 780 : 720}
       footer={
         record.is_my_turn ? (
           <div className="flex flex-col gap-3">
@@ -569,11 +712,20 @@ const ReviewDetailDrawer: React.FC<{
           <>
             <div className="text-slate-300 text-lg">→</div>
             <div className="flex flex-col items-center gap-1">
-              <Avatar size={36} style={{ background: '#2563eb', fontSize: 14, fontWeight: 600 }}>
-                {nodes.find((n) => n.status === 0)?.approver?.[0]?.toUpperCase()}
-              </Avatar>
-              <div className="text-xs font-medium text-slate-700">{nodes.find((n) => n.status === 0)?.approver}</div>
-              <div className="text-[11px] text-slate-400">當前審批人</div>
+              {(() => {
+                const node = nodes.find((n) => n.status === 0)!
+                const wn = node.approver_work_no || node.approver
+                const name = toName(wn) || wn
+                return (
+                  <>
+                    <Avatar size={36} style={{ background: '#2563eb', fontSize: 14, fontWeight: 600 }}>
+                      {name?.[0]?.toUpperCase()}
+                    </Avatar>
+                    <div className="text-xs font-medium text-slate-700">{name}</div>
+                    <div className="text-[11px] text-slate-400">當前審批人</div>
+                  </>
+                )
+              })()}
             </div>
           </>
         )}
@@ -779,11 +931,11 @@ const ReviewDetailDrawer: React.FC<{
         </div>
       )}
 
-      {/* ─── ④-c WBS 任務表（排程審核專用） ─── */}
-      {record.apply_type_code === 'schedule' && (
+      {/* ─── ④-c WBS 任務表（排程審核 / 專案完結審核） ─── */}
+      {(record.apply_type_code === 'schedule' || record.apply_type_code === 'project_complete') && (
         <div className="mb-5">
           <div className="text-sm font-semibold text-slate-700 mb-2 flex items-center gap-1.5">
-            🗓️ 任務排程（WBS）
+            {record.apply_type_code === 'project_complete' ? '✅ 任務完成情況（WBS）' : '🗓️ 任務排程（WBS）'}
             <span className="font-normal text-xs text-slate-400">共 {functions.length} 項任務</span>
           </div>
           {projectLoading ? (
@@ -791,10 +943,262 @@ const ReviewDetailDrawer: React.FC<{
           ) : functions.length === 0 ? (
             <div className="text-xs text-slate-400 py-4 text-center border border-dashed border-slate-200 rounded-lg">暫無任務資料</div>
           ) : (
-            <WbsTable functions={functions} toName={toName} />
+            <WbsTable functions={functions} toName={toName} requirements={requirements} />
           )}
         </div>
       )}
+
+      {/* ─── ④-d 需求列表（立案審核專用） ─── */}
+      {record.apply_type_code === 'initiate' && (
+        <div className="mb-5">
+          <button
+            type="button"
+            className="flex items-center gap-1.5 text-sm font-semibold text-slate-700 mb-2 hover:text-blue-600 transition-colors cursor-pointer select-none border-0 bg-transparent outline-none focus:outline-none p-0"
+            onClick={() => setReqListCollapsed((v) => !v)}
+          >
+            <span className="text-[10px] text-slate-400 font-normal">
+              {reqListCollapsed ? '展開' : '收起'}
+            </span>
+            📋 需求列表
+            <span className="font-normal text-xs text-slate-400">共 {requirements.length} 項</span>
+          </button>
+          {!reqListCollapsed && (
+            projectLoading ? (
+              <div className="flex justify-center py-6"><Spin size="small" /></div>
+            ) : requirements.length === 0 ? (
+              <div className="text-xs text-slate-400 py-4 text-center border border-dashed border-slate-200 rounded-lg">暫無需求資料</div>
+            ) : (
+              <div className="border border-slate-200 rounded-lg overflow-hidden text-xs">
+                {/* Header */}
+                <div className="grid bg-slate-100 border-b border-slate-200 font-semibold text-slate-500"
+                  style={{ gridTemplateColumns: '24px 2fr 1fr 1fr 100px 2fr' }}>
+                  <div />
+                  <div className="px-3 py-2">需求名稱</div>
+                  <div className="px-3 py-2">優先級</div>
+                  <div className="px-3 py-2">預計效益</div>
+                  <div className="px-3 py-2">期望完成</div>
+                  <div className="px-3 py-2">需求描述</div>
+                </div>
+                {requirements.map((req, i) => {
+                  const isExpanded = expandedReqs.has(req.id)
+                  const hasFiles = (req.files ?? []).length > 0
+                  const descLong = (req.describe ?? '').length > 30
+                  const canExpand = hasFiles || descLong
+                  const token = tokenStorage.get()
+                  return (
+                    <div key={req.id} className={`border-b border-slate-100 last:border-b-0 ${i % 2 === 1 ? 'bg-slate-50/40' : 'bg-white'}`}>
+                      {/* Main row */}
+                      <div className="grid items-center" style={{ gridTemplateColumns: '24px 2fr 1fr 1fr 100px 2fr' }}>
+                        <div className="flex items-center justify-center py-2.5">
+                          {canExpand && (
+                            <button
+                              type="button"
+                              onClick={() => setExpandedReqs((prev) => {
+                                const next = new Set(prev)
+                                next.has(req.id) ? next.delete(req.id) : next.add(req.id)
+                                return next
+                              })}
+                              className="w-4 h-4 rounded border border-slate-300 hover:border-blue-400 hover:text-blue-500 text-slate-400 bg-white hover:bg-blue-50 transition-colors flex items-center justify-center text-[10px] font-bold leading-none"
+                              title={isExpanded ? '收起' : '展開詳情'}
+                            >
+                              {isExpanded ? '−' : '+'}
+                            </button>
+                          )}
+                        </div>
+                        <div className="px-3 py-2.5 text-slate-800 font-medium truncate flex items-center gap-1">
+                          {req.req_nm}
+                          {hasFiles && (
+                            <span className="text-[10px] text-slate-400 font-normal flex-shrink-0">
+                              （{(req.files ?? []).length} 個附件）
+                            </span>
+                          )}
+                        </div>
+                        <div className="px-3 py-2.5">
+                          {PRIORITY_LABEL[req.priority]
+                            ? <span className="font-medium" style={{ color: PRIORITY_LABEL[req.priority].color }}>{PRIORITY_LABEL[req.priority].label}</span>
+                            : '—'}
+                        </div>
+                        <div className="px-3 py-2.5 text-slate-600">
+                          {req.benefit_amount != null
+                            ? <>{req.benefit_amount} {req.benefit_unit ?? '元/年'}</>
+                            : req.expected_benefit || '—'}
+                        </div>
+                        <div className="px-3 py-2.5 text-slate-500 tabular-nums">
+                          {req.expected_end_date || '—'}
+                        </div>
+                        <div className="px-3 py-2.5 text-slate-500">
+                          {req.describe
+                            ? (req.describe.length > 30 ? req.describe.slice(0, 30) + '…' : req.describe)
+                            : '—'}
+                        </div>
+                      </div>
+                      {/* Expanded: full description + attachments */}
+                      {isExpanded && canExpand && (
+                        <div className="px-3 pb-2.5 border-t border-slate-100 bg-blue-50/30">
+                          {descLong && (
+                            <div className="pt-2 pb-1.5 text-[11px] text-slate-600 leading-relaxed whitespace-pre-wrap">{req.describe}</div>
+                          )}
+                          {hasFiles && (
+                            <>
+                              <div className={`${descLong ? 'pt-1.5 border-t border-slate-100' : 'pt-2'} pb-0.5 text-[11px] text-slate-400 font-medium`}>需求附件</div>
+                          <div className="flex flex-wrap gap-1.5 pt-1">
+                            {(req.files ?? []).map((f, fi) => {
+                              const previewUrl = f.file_id
+                                ? requirementApi.getFilePreviewUrl(record.project_id!, req.id, f.file_id)
+                                : f.url
+                              const tokenUrl = token ? `${previewUrl}?token=${token}` : previewUrl
+                              return (
+                                <button
+                                  key={fi}
+                                  type="button"
+                                  onClick={() => setPreviewDirect({ name: f.name, url: tokenUrl })}
+                                  className="flex items-center gap-1 bg-white border border-slate-200 rounded px-2 py-1 text-[11px] text-blue-600 hover:bg-blue-50 hover:border-blue-300 transition-colors cursor-pointer"
+                                >
+                                  <PaperClipIcon className="w-3 h-3 flex-shrink-0" />
+                                  <span className="truncate max-w-[180px]">{f.name}</span>
+                                </button>
+                              )
+                            })}
+                          </div>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )
+          )}
+        </div>
+      )}
+
+      {/* ─── ④-e 需求詳情（需求審核 / 需求搁置專用） ─── */}
+      {['requirement_review', 'requirement_shelve', 'requirement_batch_review'].includes(record.apply_type_code) && (() => {
+        const batchIds = record.requirement_ids ?? []
+        const displayReqs = batchIds.length > 0
+          ? requirements.filter((r) => batchIds.includes(r.id))
+          : requirements.filter((r) => r.id === record.requirement_id)
+        return (
+          <div className="mb-5">
+            <button
+              type="button"
+              className="flex items-center gap-1.5 text-sm font-semibold text-slate-700 mb-2 hover:text-blue-600 transition-colors cursor-pointer select-none border-0 bg-transparent outline-none focus:outline-none p-0"
+              onClick={() => setReqListCollapsed((v) => !v)}
+            >
+              <span className="text-[10px] text-slate-400 font-normal">{reqListCollapsed ? '展開' : '收起'}</span>
+              📋 需求詳情
+              <span className="font-normal text-xs text-slate-400">共 {displayReqs.length} 項</span>
+            </button>
+            {!reqListCollapsed && (
+              projectLoading ? (
+                <div className="flex justify-center py-6"><Spin size="small" /></div>
+              ) : displayReqs.length === 0 ? (
+                <div className="text-xs text-slate-400 py-4 text-center border border-dashed border-slate-200 rounded-lg">暫無需求資料</div>
+              ) : (
+                <div className="border border-slate-200 rounded-lg overflow-hidden text-xs">
+                  <div className="grid bg-slate-100 border-b border-slate-200 font-semibold text-slate-500"
+                    style={{ gridTemplateColumns: '24px 2fr 1fr 1fr 100px 2fr' }}>
+                    <div />
+                    <div className="px-3 py-2">需求名稱</div>
+                    <div className="px-3 py-2">優先級</div>
+                    <div className="px-3 py-2">預計效益</div>
+                    <div className="px-3 py-2">期望完成</div>
+                    <div className="px-3 py-2">需求描述</div>
+                  </div>
+                  {displayReqs.map((req, i) => {
+                    const isExpanded = expandedReqs.has(req.id)
+                    const hasFiles = (req.files ?? []).length > 0
+                    const descLong = (req.describe ?? '').length > 30
+                    const canExpand = hasFiles || descLong
+                    const token = tokenStorage.get()
+                    return (
+                      <div key={req.id} className={`border-b border-slate-100 last:border-b-0 ${i % 2 === 1 ? 'bg-slate-50/40' : 'bg-white'}`}>
+                        <div className="grid items-center" style={{ gridTemplateColumns: '24px 2fr 1fr 1fr 100px 2fr' }}>
+                          <div className="flex items-center justify-center py-2.5">
+                            {canExpand && (
+                              <button type="button"
+                                onClick={() => setExpandedReqs((prev) => { const next = new Set(prev); next.has(req.id) ? next.delete(req.id) : next.add(req.id); return next })}
+                                className="w-4 h-4 rounded border border-slate-300 hover:border-blue-400 hover:text-blue-500 text-slate-400 bg-white hover:bg-blue-50 transition-colors flex items-center justify-center text-[10px] font-bold leading-none"
+                                title={isExpanded ? '收起' : '展開詳情'}
+                              >{isExpanded ? '−' : '+'}</button>
+                            )}
+                          </div>
+                          <div className="px-3 py-2.5 text-slate-800 font-medium truncate flex items-center gap-1">
+                            {req.req_nm}
+                            {hasFiles && <span className="text-[10px] text-slate-400 font-normal flex-shrink-0">（{(req.files ?? []).length} 個附件）</span>}
+                          </div>
+                          <div className="px-3 py-2.5">
+                            {PRIORITY_LABEL[req.priority]
+                              ? <span className="font-medium" style={{ color: PRIORITY_LABEL[req.priority].color }}>{PRIORITY_LABEL[req.priority].label}</span>
+                              : '—'}
+                          </div>
+                          <div className="px-3 py-2.5 text-slate-600">
+                            {req.benefit_amount != null ? <>{req.benefit_amount} {req.benefit_unit ?? '元/年'}</> : req.expected_benefit || '—'}
+                          </div>
+                          <div className="px-3 py-2.5 text-slate-500 tabular-nums">
+                            {req.expected_end_date || '—'}
+                          </div>
+                          <div className="px-3 py-2.5 text-slate-500">
+                            {req.describe ? (req.describe.length > 30 ? req.describe.slice(0, 30) + '…' : req.describe) : '—'}
+                          </div>
+                        </div>
+                        {isExpanded && canExpand && (
+                          <div className="px-3 pb-2.5 border-t border-slate-100 bg-blue-50/30">
+                            {descLong && <div className="pt-2 pb-1.5 text-[11px] text-slate-600 leading-relaxed whitespace-pre-wrap">{req.describe}</div>}
+                            {hasFiles && (
+                              <>
+                                <div className={`${descLong ? 'pt-1.5 border-t border-slate-100' : 'pt-2'} pb-0.5 text-[11px] text-slate-400 font-medium`}>需求附件</div>
+                                <div className="flex flex-wrap gap-1.5 pt-1">
+                                  {(req.files ?? []).map((f, fi) => {
+                                    const previewUrl = f.file_id ? requirementApi.getFilePreviewUrl(record.project_id!, req.id, f.file_id) : f.url
+                                    const tokenUrl = token ? `${previewUrl}?token=${token}` : previewUrl
+                                    return (
+                                      <button key={fi} type="button"
+                                        onClick={() => setPreviewDirect({ name: f.name, url: tokenUrl })}
+                                        className="flex items-center gap-1 bg-white border border-slate-200 rounded px-2 py-1 text-[11px] text-blue-600 hover:bg-blue-50 hover:border-blue-300 transition-colors cursor-pointer">
+                                        <PaperClipIcon className="w-3 h-3 flex-shrink-0" />
+                                        <span className="truncate max-w-[180px]">{f.name}</span>
+                                      </button>
+                                    )
+                                  })}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            )}
+          </div>
+        )
+      })()}
+
+      {/* ─── ④-f 新增任務詳情（task_addition_review 專用） ─── */}
+      {record.apply_type_code === 'task_addition_review' && (() => {
+        const funcIds = record.function_ids ?? []
+        const displayFuncs = funcIds.length > 0
+          ? functions.filter((f) => funcIds.includes(f.id))
+          : []
+        return (
+          <div className="mb-5">
+            <div className="text-sm font-semibold text-slate-700 mb-2 flex items-center gap-1.5">
+              🆕 新增任務詳情
+              <span className="font-normal text-xs text-slate-400">共 {displayFuncs.length} 項</span>
+            </div>
+            {projectLoading ? (
+              <div className="flex justify-center py-6"><Spin size="small" /></div>
+            ) : displayFuncs.length === 0 ? (
+              <div className="text-xs text-slate-400 py-4 text-center border border-dashed border-slate-200 rounded-lg">暫無任務資料</div>
+            ) : (
+              <WbsTable functions={displayFuncs} toName={toName} requirements={requirements} />
+            )}
+          </div>
+        )
+      })()}
 
       {/* ─── ⑤ 相關附件 ─── */}
       {relevantCategories.length > 0 && project && (
@@ -881,7 +1285,7 @@ const ReviewDetailDrawer: React.FC<{
                           fontSize: 15, fontWeight: 600,
                           opacity: node.status === 0 ? 0.55 : 1,
                         }}>
-                          {node.approver?.[0]?.toUpperCase()}
+                          {(toName(node.approver_work_no || node.approver) || node.approver)?.[0]?.toUpperCase()}
                         </Avatar>
                         <div className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-white flex items-center justify-center"
                           style={{ background: dotColor }}>
@@ -891,7 +1295,7 @@ const ReviewDetailDrawer: React.FC<{
                             : <div className="w-1.5 h-1.5 rounded-full bg-white" />}
                         </div>
                       </div>
-                      <div className="text-[11px] font-medium text-slate-700 text-center leading-tight mt-1">{node.approver}</div>
+                      <div className="text-[11px] font-medium text-slate-700 text-center leading-tight mt-1">{toName(node.approver_work_no || node.approver) || node.approver}</div>
                       <div className="flex flex-col items-center gap-0.5">
                         <span className="text-[10px]" style={{ color: dotColor }}>{actionLabels[node.status] ?? '—'}</span>
                         {node.is_countersign && (
@@ -959,9 +1363,9 @@ const ReviewDetailDrawer: React.FC<{
                             background: node.is_countersign ? '#8b5cf6' : '#2563eb',
                             fontSize: 10, fontWeight: 600,
                           }}>
-                            {node.approver?.[0]?.toUpperCase()}
+                            {(toName(node.approver_work_no || node.approver) || node.approver)?.[0]?.toUpperCase()}
                           </Avatar>
-                          <span className="text-xs text-slate-700">{node.approver}</span>
+                          <span className="text-xs text-slate-700">{toName(node.approver_work_no || node.approver) || node.approver}</span>
                           {node.is_countersign && (
                             <Tag style={{ margin: 0, fontSize: 9, padding: '0 3px', lineHeight: '14px' }} color="purple">加簽</Tag>
                           )}
@@ -1110,19 +1514,19 @@ const ReviewListPage: React.FC = () => {
 
   // 待我審核 - 依子標籤過濾（只有待處理）
   const reviewerRecords = useMemo(() => {
-    const base = reviewerTab === 'all' ? pendingAll : pendingAll.filter((r) => r.apply_type_code === reviewerTab)
+    const base = reviewerTab === 'all' ? pendingAll : pendingAll.filter((r) => tabMatchesCodes(reviewerTab, r.apply_type_code))
     return applyFilters(base)
   }, [pendingAll, reviewerTab, keyword, dateRange])
 
   // 我的審核 - 依子標籤過濾（已審核）
   const reviewedRecords = useMemo(() => {
-    const base = reviewedTab === 'all' ? doneAll : doneAll.filter((r) => r.apply_type_code === reviewedTab)
+    const base = reviewedTab === 'all' ? doneAll : doneAll.filter((r) => tabMatchesCodes(reviewedTab, r.apply_type_code))
     return applyFilters(base)
   }, [doneAll, reviewedTab, keyword, dateRange])
 
   // 我的提交 - 依子標籤過濾
   const submitterRecords = useMemo(() => {
-    const base = submitterTab === 'all' ? myRecords : myRecords.filter((r) => r.apply_type_code === submitterTab)
+    const base = submitterTab === 'all' ? myRecords : myRecords.filter((r) => tabMatchesCodes(submitterTab, r.apply_type_code))
     return applyFilters(base)
   }, [myRecords, submitterTab, keyword, dateRange])
 
@@ -1382,7 +1786,7 @@ const ReviewListPage: React.FC = () => {
             items={REVIEWER_TABS.map((tab) => {
               const count = tab.key === 'all'
                 ? pendingCount
-                : pendingAll.filter((r) => r.apply_type_code === tab.key).length
+                : pendingAll.filter((r) => tabMatchesCodes(tab.key, r.apply_type_code)).length
               return {
                 key: tab.key,
                 label: count > 0
@@ -1403,7 +1807,7 @@ const ReviewListPage: React.FC = () => {
             items={REVIEWED_TABS.map((tab) => {
               const count = tab.key === 'all'
                 ? doneCount
-                : doneAll.filter((r) => r.apply_type_code === tab.key).length
+                : doneAll.filter((r) => tabMatchesCodes(tab.key, r.apply_type_code)).length
               return {
                 key: tab.key,
                 label: count > 0
@@ -1424,7 +1828,7 @@ const ReviewListPage: React.FC = () => {
             items={SUBMITTER_TABS.map((tab) => {
               const count = tab.key === 'all'
                 ? myRecords.length
-                : myRecords.filter((r) => r.apply_type_code === tab.key).length
+                : myRecords.filter((r) => tabMatchesCodes(tab.key, r.apply_type_code)).length
               return {
                 key: tab.key,
                 label: count > 0

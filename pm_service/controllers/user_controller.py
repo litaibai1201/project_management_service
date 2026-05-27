@@ -713,20 +713,26 @@ class UserController:
         week_start = mon.strftime("%Y-%m-%d")
         week_end   = (mon + datetime.timedelta(days=6)).strftime("%Y-%m-%d")
 
-        # 查询本周该用户提交的功能进度记录
+        # 查询本周该用户提交或作为合作者的功能进度记录
         proj_recs = (
             db.session.query(ProgressRecordDataModel)
             .filter(
-                ProgressRecordDataModel.submitter == work_no,
+                db.or_(
+                    ProgressRecordDataModel.submitter == work_no,
+                    ProgressRecordDataModel.cooperator.like(f'%"{work_no}"%'),
+                ),
                 ProgressRecordDataModel.created_at >= week_start,
                 ProgressRecordDataModel.created_at <= week_end + " 23:59:59",
             ).all()
         )
-        # 查询本周该用户提交的任务进度记录
+        # 查询本周该用户提交或作为合作者的任务进度记录
         duty_recs = (
             db.session.query(DutyProgressRecordModel)
             .filter(
-                DutyProgressRecordModel.submitter == work_no,
+                db.or_(
+                    DutyProgressRecordModel.submitter == work_no,
+                    DutyProgressRecordModel.cooperator.like(f'%"{work_no}"%'),
+                ),
                 DutyProgressRecordModel.created_at >= week_start,
                 DutyProgressRecordModel.created_at <= week_end + " 23:59:59",
             ).all()

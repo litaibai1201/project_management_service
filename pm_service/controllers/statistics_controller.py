@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from dbs.mysql_db import db
 from dbs.mysql_db.model_tables import (
     UserProfileModel, FunctionDataModel, TemporaryDutyModel,
+    ProgressRecordDataModel, DutyProgressRecordModel,
 )
 
 
@@ -373,6 +374,35 @@ class StatisticsController:
         for user in users:
             wn = user.work_no
 
+            # ── 进度记录（MySQL）：工时 + 更新次数（含合作者） ──────
+            prog_q = db.session.query(ProgressRecordDataModel).filter(
+                db.or_(
+                    ProgressRecordDataModel.submitter == wn,
+                    ProgressRecordDataModel.cooperator.like(f'%"{wn}"%'),
+                ),
+            )
+            duty_prog_q = db.session.query(DutyProgressRecordModel).filter(
+                db.or_(
+                    DutyProgressRecordModel.submitter == wn,
+                    DutyProgressRecordModel.cooperator.like(f'%"{wn}"%'),
+                ),
+            )
+            if start_date:
+                prog_q      = prog_q.filter(ProgressRecordDataModel.created_at >= start_date)
+                duty_prog_q = duty_prog_q.filter(DutyProgressRecordModel.created_at >= start_date)
+            if end_date:
+                prog_q      = prog_q.filter(ProgressRecordDataModel.created_at <= end_date + " 23:59:59")
+                duty_prog_q = duty_prog_q.filter(DutyProgressRecordModel.created_at <= end_date + " 23:59:59")
+            prog_recs      = prog_q.all()
+            duty_prog_recs  = duty_prog_q.all()
+
+            updates_count = len(prog_recs) + len(duty_prog_recs)
+            period_hours  = round(
+                sum(float(r.time_consum or 0) for r in prog_recs) +
+                sum(float(r.time_consum or 0) for r in duty_prog_recs),
+                1,
+            )
+
             # ── 日报原始数据（MongoDB） ─────────────────────────────
             log_query: dict = {"work_no": wn, "status": 1}
             if start_date or end_date:
@@ -383,15 +413,11 @@ class StatisticsController:
                     log_query["log_date"]["$lte"] = end_date
             logs = list(col.find(log_query).sort("log_date", -1))
 
-            period_hours = round(sum(float(lg.get("total_hours") or 0) for lg in logs), 1)
-
             # 返回原始日报详情列表（与 daily_log API 的 _to_detail 格式一致）
             daily_logs = []
-            updates_count = 0
             for lg in logs:
                 task_items = lg.get("task_items") or []
                 free_items = lg.get("free_items") or []
-                updates_count += len(task_items) + len(free_items)
                 daily_logs.append({
                     "log_id":      lg.get("log_id", ""),
                     "work_no":     wn,

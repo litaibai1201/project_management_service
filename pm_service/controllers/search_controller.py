@@ -3,7 +3,7 @@
 import json
 from dbs.mysql_db import db
 from dbs.mysql_db.model_tables import (
-    ProjectDataModel, FunctionDataModel, TemporaryDutyModel,
+    ProjectDataModel, FunctionDataModel, TemporaryDutyModel, RequirementModel,
 )
 
 
@@ -16,6 +16,10 @@ class SearchController:
         if not search_type or search_type == "project":
             projects = self._search_projects(keyword)
             results.extend(projects)
+
+        if not search_type or search_type == "requirement":
+            requirements = self._search_requirements(keyword)
+            results.extend(requirements)
 
         if not search_type or search_type == "function":
             functions = self._search_functions(keyword)
@@ -54,6 +58,29 @@ class SearchController:
                 "created_at": str(p.created_at) if p.created_at else None,
             }
             for p in q
+        ]
+
+    def _search_requirements(self, keyword: str):
+        q = db.session.query(RequirementModel).filter(
+            RequirementModel.req_status != 9,
+            db.or_(
+                RequirementModel.req_nm.like(f"%{keyword}%"),
+                RequirementModel.describe.like(f"%{keyword}%"),
+            ),
+        ).limit(50).all()
+        return [
+            {
+                "id": r.id,
+                "type": "requirement",
+                "title": r.req_nm,
+                "description": r.describe,
+                "status": r.req_status,
+                "priority": r.priority,
+                "project_id": r.project_id,
+                "expected_end_date": r.expected_end_date or None,
+                "created_at": str(r.created_at) if r.created_at else None,
+            }
+            for r in q
         ]
 
     def _search_functions(self, keyword: str):

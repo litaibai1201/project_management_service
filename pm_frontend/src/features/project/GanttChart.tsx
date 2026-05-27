@@ -5,7 +5,7 @@
 import React, { useMemo, useRef, useEffect, useState, useCallback } from 'react'
 import { Segmented, Tooltip, Empty, Select } from 'antd'
 import { FunnelIcon, FolderIcon, ChevronRightIcon, ChevronDownIcon } from '@heroicons/react/24/outline'
-import { ProjectFunction, Milestone } from '@/types/api.types'
+import { ProjectFunction, Milestone, Requirement } from '@/types/api.types'
 import { useWorkNoToName } from '@/hooks/useWorkNoToName'
 import dayjs, { Dayjs } from 'dayjs'
 import isBetween from 'dayjs/plugin/isBetween'
@@ -83,13 +83,14 @@ function dateToOffset(date: Dayjs, start: Dayjs, mode: ViewMode): number {
 interface GanttChartProps {
   functions: ProjectFunction[]
   milestones?: Milestone[]
+  requirements?: Requirement[]
 }
 
-const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [] }) => {
+const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [], requirements = [] }) => {
   const [mode, setMode]              = useState<ViewMode>('week')
   const [filterGroup, setFilterGroup] = useState<string | null>(null)
   const [filterDev,   setFilterDev]   = useState<string | null>(null)
-  const [groupView,   setGroupView]   = useState<'flat' | 'grouped'>('grouped')
+  const [groupView,   setGroupView]   = useState<'flat' | 'grouped' | 'by_req'>('by_req')
   const [collapsed,   setCollapsed]   = useState<Set<string>>(new Set())
   const toName = useWorkNoToName()
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -101,6 +102,13 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [] }) =
       return next
     })
   }, [])
+
+  // Requirement name map
+  const reqNameMap = useMemo(() => {
+    const m: Record<string, string> = {}
+    requirements.forEach((r) => { m[r.id] = r.req_nm })
+    return m
+  }, [requirements])
 
   // Build unique group & developer options from functions
   const groupOptions = useMemo(() => {
@@ -125,9 +133,9 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [] }) =
     })
   }, [functions, filterGroup, filterDev])
 
-  // Group data
+  // Group data (only for 'grouped' mode)
   const groups: GroupData[] = useMemo(() => {
-    if (groupView === 'flat') return []
+    if (groupView !== 'grouped') return []
     const map = new Map<string, ProjectFunction[]>()
     visibleFunctions.forEach((f) => {
       const g = f.group1 || '未分組'
@@ -156,23 +164,115 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [] }) =
 
   // Build flat row list for rendering (group header + tasks, respecting collapse)
   type RowItem =
-    | { type: 'group'; group: GroupData; colorIdx: number }
-    | { type: 'task'; func: ProjectFunction; oddRow: boolean }
+    | { type: 'req'; reqKey: string; reqNm: string; taskCount: number; minDate: Dayjs | null; maxDate: Dayjs | null; actualStart: Dayjs | null; actualEnd: Dayjs | null; avgProgress: number }
+    | { type: 'group'; group: GroupData; colorIdx: number; insideReq: boolean; toggleKey: string }
+    | { type: 'task'; func: ProjectFunction; oddRow: boolean; paddingLeft: number }
+
+  const buildGroupData = (name: string, items: ProjectFunction[]): GroupData => {
+    const dates = items.flatMap((f) => [
+      f.expected_start_date ? dayjs(f.expected_start_date) : null,
+      f.expected_end_date   ? dayjs(f.expected_end_date)   : null,
+    ]).filter(Boolean) as Dayjs[]
+    const startTimes = items.map((f) => f.start_time ? dayjs(f.start_time) : null).filter(Boolean) as Dayjs[]
+    const allDone    = items.every((f) => f.status === 4)
+    const endTimes   = allDone ? items.map((f) => f.end_time ? dayjs(f.end_time) : null).filter(Boolean) as Dayjs[] : []
+    return {
+      name,
+      items,
+      minDate:      dates.length      ? dates.reduce((a, b) => (a.isBefore(b) ? a : b))      : null,
+      maxDate:      dates.length      ? dates.reduce((a, b) => (a.isAfter(b)  ? a : b))      : null,
+      actualStart:  startTimes.length ? startTimes.reduce((a, b) => (a.isBefore(b) ? a : b)) : null,
+      actualEnd:    endTimes.length   ? endTimes.reduce((a, b) => (a.isAfter(b)  ? a : b))   : null,
+      avgProgress:  Math.round(items.reduce((s, f) => s + (f.progress ?? 0), 0) / items.length),
+    }
+  }
+
   const rows: RowItem[] = useMemo(() => {
     if (groupView === 'flat') {
-      return visibleFunctions.map((f, idx) => ({ type: 'task' as const, func: f, oddRow: idx % 2 === 1 }))
+      return visibleFunctions.map((f, idx) => ({ type: 'task' as const, func: f, oddRow: idx % 2 === 1, paddingLeft: 12 }))
     }
+    if (groupView === 'grouped') {
+      const result: RowItem[] = []
+      groups.forEach((g, gi) => {
+        result.push({ type: 'group', group: g, colorIdx: gi, insideReq: false, toggleKey: g.name })
+        if (!collapsed.has(g.name)) {
+          g.items.forEach((f, fi) => {
+            result.push({ type: 'task', func: f, oddRow: fi % 2 === 1, paddingLeft: 28 })
+          })
+        }
+      })
+      return result
+    }
+
+    // ── by_req mode ───────────────────────────────────────────────────────────
     const result: RowItem[] = []
-    groups.forEach((g, gi) => {
-      result.push({ type: 'group', group: g, colorIdx: gi })
-      if (!collapsed.has(g.name)) {
-        g.items.forEach((f, fi) => {
-          result.push({ type: 'task', func: f, oddRow: fi % 2 === 1 })
+    const byReqMap = new Map<string, ProjectFunction[]>()
+    visibleFunctions.forEach((f) => {
+      const k = f.requirement_id || '__none__'
+      if (!byReqMap.has(k)) byReqMap.set(k, [])
+      byReqMap.get(k)!.push(f)
+    })
+    const hasAnyReq   = [...byReqMap.keys()].some((k) => k !== '__none__')
+    const reqKeys     = [...byReqMap.keys()].sort((a, b) => (a === '__none__' ? 1 : b === '__none__' ? -1 : 0))
+    let colorIdx = 0
+
+    reqKeys.forEach((reqKey) => {
+      const tasks      = byReqMap.get(reqKey)!
+      const isReqGroup = hasAnyReq && reqKey !== '__none__'
+
+      // Requirement header row
+      if (isReqGroup) {
+        const gd = buildGroupData(reqKey, tasks)
+        result.push({
+          type: 'req', reqKey,
+          reqNm:       reqNameMap[reqKey] || reqKey,
+          taskCount:   tasks.length,
+          minDate:     gd.minDate,
+          maxDate:     gd.maxDate,
+          actualStart: gd.actualStart,
+          actualEnd:   gd.actualEnd,
+          avgProgress: gd.avgProgress,
+        })
+        if (collapsed.has(`r:${reqKey}`)) return
+      }
+
+      // Sub-group by group1
+      const byGroupMap = new Map<string, ProjectFunction[]>()
+      tasks.forEach((f) => {
+        const g = f.group1 || '__nogroup__'
+        if (!byGroupMap.has(g)) byGroupMap.set(g, [])
+        byGroupMap.get(g)!.push(f)
+      })
+      const singleUnnamed = byGroupMap.size === 1 && byGroupMap.has('__nogroup__')
+      const showGroups    = !singleUnnamed
+
+      if (showGroups) {
+        ;[...byGroupMap.entries()].forEach(([gKey, gTasks]) => {
+          const gName      = gKey === '__nogroup__' ? '未分組' : gKey
+          const grpTogKey  = isReqGroup ? `rg:${reqKey}::${gKey}` : `tg:${gKey}`
+          const grpOpen    = !collapsed.has(grpTogKey)
+          result.push({
+            type: 'group',
+            group:     buildGroupData(gName, gTasks),
+            colorIdx:  colorIdx++ % GROUP_COLORS.length,
+            insideReq: isReqGroup,
+            toggleKey: grpTogKey,
+          })
+          if (grpOpen) {
+            gTasks.forEach((f, fi) => {
+              result.push({ type: 'task', func: f, oddRow: fi % 2 === 1, paddingLeft: isReqGroup ? 44 : 28 })
+            })
+          }
+        })
+      } else {
+        tasks.forEach((f, fi) => {
+          result.push({ type: 'task', func: f, oddRow: fi % 2 === 1, paddingLeft: isReqGroup ? 32 : 12 })
         })
       }
     })
     return result
-  }, [groupView, groups, visibleFunctions, collapsed])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupView, groups, visibleFunctions, collapsed, reqNameMap])
 
   // Compute date range from visible functions
   const { rangeStart, rangeEnd } = useMemo(() => {
@@ -492,6 +592,70 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [] }) =
     )
   }
 
+  const renderReqBand = (row: Extract<RowItem, { type: 'req' }>) => {
+    const { minDate: planStart, maxDate: planEnd, actualStart, actualEnd, avgProgress } = row
+    if (!planStart || !planEnd) return null
+
+    const GRAY   = '#d1d5db'
+    const YELLOW = '#fbbf24'
+    const RED    = '#f87171'
+    const GREEN  = '#4ade80'
+
+    const barEnd = actualEnd && actualEnd.isAfter(planEnd)
+      ? actualEnd
+      : !actualEnd && today.isAfter(planEnd) && actualStart ? today : planEnd
+
+    const toX = (d: Dayjs) => Math.max(0, dateToOffset(d, rangeStart, mode))
+    interface Seg { key: string; left: number; width: number; color: string }
+    const segs: Seg[] = []
+    const addSeg = (from: Dayjs, to: Dayjs, color: string, key: string) => {
+      if (to.isBefore(from)) return
+      const w = toX(to.add(1, 'day')) - toX(from)
+      if (w > 0) segs.push({ key, left: toX(from), width: w, color })
+    }
+
+    if (!actualStart) {
+      addSeg(planStart, planEnd, GRAY, 'g0')
+    } else {
+      if (actualStart.isAfter(planStart)) addSeg(planStart, actualStart.subtract(1, 'day'), GRAY, 'g-pre')
+      if (actualEnd) {
+        if (!actualEnd.isAfter(planEnd)) {
+          if (!actualEnd.subtract(1, 'day').isBefore(actualStart)) addSeg(actualStart, actualEnd.subtract(1, 'day'), YELLOW, 'y')
+          addSeg(actualEnd, actualEnd, GREEN, 'g-done')
+          if (actualEnd.isBefore(planEnd)) addSeg(actualEnd.add(1, 'day'), planEnd, GRAY, 'g-trail')
+        } else {
+          addSeg(actualStart, planEnd.subtract(1, 'day'), YELLOW, 'y')
+          addSeg(planEnd, actualEnd.subtract(1, 'day'), RED, 'r')
+          addSeg(actualEnd, actualEnd, GREEN, 'g-done')
+        }
+      } else if (today.isAfter(planEnd)) {
+        addSeg(actualStart, planEnd.subtract(1, 'day'), YELLOW, 'y')
+        addSeg(planEnd, today, RED, 'r')
+      } else {
+        addSeg(actualStart, today, YELLOW, 'y')
+        if (today.isBefore(planEnd)) addSeg(today.add(1, 'day'), planEnd, GRAY, 'g-future')
+      }
+    }
+
+    const containerX = toX(planStart)
+    const containerW = Math.max(20, toX(barEnd.add(1, 'day')) - containerX)
+
+    return (
+      <Tooltip title={`${row.reqNm}：${row.taskCount} 項任務，平均進度 ${avgProgress}%`}>
+        <div style={{ position: 'absolute', left: containerX, top: 6, height: GROUP_H - 12, width: containerW, borderRadius: 5, overflow: 'hidden', cursor: 'pointer' }}>
+          {segs.map((seg) => (
+            <div key={seg.key} style={{ position: 'absolute', left: seg.left - containerX, top: 0, bottom: 0, width: seg.width, background: seg.color, opacity: 0.75 }} />
+          ))}
+          {containerW > 44 && (
+            <span style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 10, fontWeight: 700, color: '#374151', whiteSpace: 'nowrap', zIndex: 1, textShadow: '0 0 3px rgba(255,255,255,0.9)' }}>
+              {avgProgress}%
+            </span>
+          )}
+        </div>
+      </Tooltip>
+    )
+  }
+
   return (
     <div>
       {/* Controls */}
@@ -520,10 +684,11 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [] }) =
           <Segmented
             size="small"
             value={groupView}
-            onChange={(v) => setGroupView(v as 'flat' | 'grouped')}
+            onChange={(v) => setGroupView(v as 'flat' | 'grouped' | 'by_req')}
             options={[
-              { label: '分組', value: 'grouped' },
-              { label: '平面', value: 'flat'    },
+              { label: '按需求', value: 'by_req'  },
+              { label: '分組',   value: 'grouped' },
+              { label: '平面',   value: 'flat'    },
             ]}
           />
 
@@ -591,15 +756,32 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [] }) =
             </div>
             {/* Task / Group rows */}
             {rows.map((row) => {
-              if (row.type === 'group') {
-                const isOpen = !collapsed.has(row.group.name)
-                const color = GROUP_COLORS[row.colorIdx % GROUP_COLORS.length]
+              if (row.type === 'req') {
+                const isOpen = !collapsed.has(`r:${row.reqKey}`)
                 return (
                   <div
-                    key={`g-${row.group.name}`}
+                    key={`r-${row.reqKey}`}
                     className="flex items-center px-2 gap-1.5 border-b border-r border-slate-200 cursor-pointer select-none"
-                    style={{ height: GROUP_H, background: '#f1f5f9' }}
-                    onClick={() => toggleGroup(row.group.name)}
+                    style={{ height: GROUP_H, background: '#faf5ff' }}
+                    onClick={() => toggleGroup(`r:${row.reqKey}`)}
+                  >
+                    {isOpen
+                      ? <ChevronDownIcon className="w-3 h-3 text-purple-400 flex-shrink-0" />
+                      : <ChevronRightIcon className="w-3 h-3 text-purple-400 flex-shrink-0" />}
+                    <span className="text-xs font-bold text-purple-700 truncate">{row.reqNm}</span>
+                    <span className="text-[10px] text-purple-400 flex-shrink-0 ml-auto">{row.taskCount} 項</span>
+                  </div>
+                )
+              }
+              if (row.type === 'group') {
+                const isOpen = !collapsed.has(row.toggleKey)
+                const color  = GROUP_COLORS[row.colorIdx % GROUP_COLORS.length]
+                return (
+                  <div
+                    key={`g-${row.toggleKey}`}
+                    className="flex items-center gap-1.5 border-b border-r border-slate-200 cursor-pointer select-none"
+                    style={{ height: GROUP_H, background: '#f1f5f9', paddingLeft: row.insideReq ? 20 : 8, paddingRight: 8 }}
+                    onClick={() => toggleGroup(row.toggleKey)}
                   >
                     {isOpen
                       ? <ChevronDownIcon className="w-3 h-3 text-slate-400 flex-shrink-0" />
@@ -617,7 +799,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [] }) =
                   style={{
                     height: ROW_H,
                     background: row.oddRow ? '#fafafa' : 'white',
-                    paddingLeft: groupView === 'grouped' ? 28 : 12,
+                    paddingLeft: row.paddingLeft,
                     paddingRight: 12,
                   }}
                 >
@@ -714,12 +896,22 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [] }) =
                   })}
                 </div>
 
-                {/* Rows — group headers + task bars */}
+                {/* Rows — req / group headers + task bars */}
                 {rows.map((row) => {
+                  if (row.type === 'req') {
+                    return (
+                      <div
+                        key={`r-${row.reqKey}`}
+                        style={{ height: GROUP_H, borderBottom: '1px solid #e2e8f0', position: 'relative', background: '#faf5ff' }}
+                      >
+                        {renderReqBand(row)}
+                      </div>
+                    )
+                  }
                   if (row.type === 'group') {
                     return (
                       <div
-                        key={`g-${row.group.name}`}
+                        key={`g-${row.toggleKey}`}
                         style={{ height: GROUP_H, borderBottom: '1px solid #e2e8f0', position: 'relative', background: '#f1f5f9' }}
                       >
                         {renderGroupBand(row.group, row.colorIdx)}

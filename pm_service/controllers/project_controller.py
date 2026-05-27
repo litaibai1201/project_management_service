@@ -10,7 +10,7 @@ from dbs.mysql_db import db
 from dbs.mysql_db.model_tables import (
     ProjectDataModel, ProjectGroupModel, FunctionDataModel,
     ProgressRecordDataModel, ReviewApplyModel, MilestoneModel, ProjectFileModel,
-    HierarchyModel,
+    HierarchyModel, RequirementModel,
 )
 
 
@@ -155,8 +155,10 @@ class ProjectController:
         if not p or p.project_status == 9:
             raise ResourceNotFoundException(resource_type="项目")
         result = p.to_dict()
-        product_pm  = p.product_pm or ""
-        project_pm  = p.project_pm or ""
+        operator    = (operator or "").strip().lower()
+        product_pm  = (p.product_pm or "").strip().lower()
+        project_pm  = (p.project_pm or "").strip().lower()
+        creator     = (p.creator or "").strip().lower()
         is_pm = operator in (product_pm, project_pm)
 
         if operator and p.project_status == 1:
@@ -187,7 +189,7 @@ class ProjectController:
         result["can_set_project_pm"] = (
             p.project_status == 3 and
             not project_pm and
-            operator in (p.creator or "", product_pm)
+            operator in (creator, product_pm)
         )
 
         # can_manage_files: PM 在非删除状态下均可管理附件
@@ -787,9 +789,118 @@ class ProjectController:
             db.session.commit()
             return
 
+        # requirement_review / requirement_shelve 审批更新需求状态
+        if r.apply_type_code in ('requirement_review', 'requirement_shelve') and r.requirement_id:
+            from dbs.mysql_db.model_tables import RequirementModel
+            req = db.session.query(RequirementModel).filter_by(id=r.requirement_id).first()
+            if req:
+                if r.apply_type_code == 'requirement_review':
+                    if final_status == 2:         # 通過 → 已通過
+                        req.req_status = 2
+                    elif final_status in (3, 4):  # 拒絕/退回 → 草稿
+                        req.req_status = 0
+                else:  # requirement_shelve
+                    if final_status == 2:         # 通過 → 搁置
+                        req.req_status = 8
+                    # 拒絕/退回 → 需求狀態不變（仍是已通過）
+                req.update_at = now
+            db.session.commit()
+            from controllers.notification_controller import push_notification
+            result_text = "已通過" if final_status == 2 else ("已被退回" if final_status == 4 else "已被拒絕")
+            type_text = "搁置申請" if r.apply_type_code == 'requirement_shelve' else "審核申請"
+            push_notification(
+                [r.submitter],
+                title=f"您的需求{type_text}{result_text}",
+                desc=f"需求「{r.description}」{type_text}{result_text}",
+                link_type="project",
+                link_id=r.project_id or "",
+            )
+            return
+
+        # requirement_batch_review 批量需求审批
+        if r.apply_type_code == 'requirement_batch_review' and r.requirement_ids_json:
+            import json as _json
+            from dbs.mysql_db.model_tables import RequirementModel
+            req_ids = []
+            try:
+                req_ids = _json.loads(r.requirement_ids_json)
+            except Exception:
+                pass
+            if req_ids:
+                reqs = db.session.query(RequirementModel).filter(
+                    RequirementModel.id.in_(req_ids)
+                ).all()
+                for req in reqs:
+                    if final_status == 2:
+                        req.req_status = 2
+                    elif final_status in (3, 4):
+                        req.req_status = 0
+                    req.update_at = now
+            db.session.commit()
+            from controllers.notification_controller import push_notification
+            result_text = "已通過" if final_status == 2 else ("已被退回" if final_status == 4 else "已被拒絕")
+            push_notification(
+                [r.submitter],
+                title=f"您的需求批量審核申請{result_text}",
+                desc=f"批量需求審核「{r.description}」{result_text}",
+                link_type="project",
+                link_id=r.project_id or "",
+            )
+            return
+
+        # task_addition_review 執行階段新增任務審批
+        if r.apply_type_code == 'task_addition_review' and r.function_ids_json:
+            func_ids = []
+            try:
+                func_ids = json.loads(r.function_ids_json)
+            except Exception:
+                pass
+            if func_ids:
+                funcs = db.session.query(FunctionDataModel).filter(
+                    FunctionDataModel.id.in_(func_ids)
+                ).all()
+                for func in funcs:
+                    if final_status == 2:       # 通過 → 待開始
+                        func.function_status = 1
+                    elif final_status in (3, 4): # 拒絕/退回 → 保留草稿
+                        func.function_status = 0
+                    func.update_at = now
+            db.session.commit()
+            from controllers.notification_controller import push_notification
+            result_text = "已通過" if final_status == 2 else ("已被退回" if final_status == 4 else "已被拒絕")
+            if final_status == 2:
+                # 通知所有任務負責人
+                all_resp = set()
+                for func in funcs:
+                    if func.responsible:
+                        try:
+                            for w in json.loads(func.responsible):
+                                if w and w != r.submitter:
+                                    all_resp.add(w)
+                        except Exception:
+                            pass
+                if all_resp:
+                    proj = db.session.query(ProjectDataModel).filter_by(id=r.project_id).first()
+                    proj_nm = proj.project_nm if proj else ""
+                    push_notification(
+                        list(all_resp),
+                        title="您已被指派為功能任務負責人",
+                        desc=f"專案「{proj_nm}」有新任務已審核通過，請及時跟進。",
+                        link_type="project",
+                        link_id=r.project_id or "",
+                    )
+            push_notification(
+                [r.submitter],
+                title=f"您的任務新增審核申請{result_text}",
+                desc=f"新增任務審核申請{result_text}",
+                link_type="project",
+                link_id=r.project_id or "",
+            )
+            return
+
         # 同步更新功能任务状态（function_complete）
         # 项目状态码: 1=草稿 2=立案審核 3=規劃中 4=規劃審核 5=執行中 6=完結審核 7=完結
-        # 功能状态码: 1=待開始 2=進行中 3=完結審核 4=已完結
+        # 功能状态码: 0=草稿 1=待開始 2=進行中 3=完結審核 4=已完結
         if r.function_id:
             func = db.session.query(FunctionDataModel).filter_by(id=r.function_id).first()
             if func:
@@ -822,6 +933,18 @@ class ProjectController:
                 next_pass, next_fail = project_status_map.get(r.apply_type_code or "", (None, None))
                 if final_status == 2 and next_pass:
                     p.project_status = next_pass
+                    # 完結審核通過 → 記錄實際完結時間
+                    if r.apply_type_code == 'project_complete':
+                        p.end_time = now[:10]
+                    # 立案審核通過 → 專案進入規劃中，自動核准所有草稿需求
+                    if r.apply_type_code == 'initiate':
+                        from dbs.mysql_db.model_tables import RequirementModel
+                        draft_reqs = db.session.query(RequirementModel).filter_by(
+                            project_id=r.project_id, req_status=0
+                        ).all()
+                        for req in draft_reqs:
+                            req.req_status = 2
+                            req.update_at = now
                 elif final_status in (3, 4) and next_fail:
                     p.project_status = next_fail
                 p.update_at = now
@@ -892,8 +1015,45 @@ class ProjectController:
         return ext
 
     def list_project_files(self, project_id: str):
+        import json
         files = db.session.query(ProjectFileModel).filter_by(project_id=project_id).order_by(ProjectFileModel.created_at.desc()).all()
-        return [f.to_dict() for f in files]
+        result = [f.to_dict() for f in files]
+
+        # 将需求附件合并进来，标记 source='requirement_attachment'
+        reqs = (
+            db.session.query(RequirementModel)
+            .filter_by(project_id=project_id)
+            .filter(RequirementModel.req_status != 9)
+            .all()
+        )
+        for req in reqs:
+            if not req.files_json:
+                continue
+            try:
+                req_files = json.loads(req.files_json)
+            except Exception:
+                req_files = []
+            for f in req_files:
+                file_id = f.get('file_id')
+                if not file_id:
+                    continue
+                name = f.get('name', '')
+                ext = name.rsplit('.', 1)[-1].lower() if '.' in name else ''
+                result.append({
+                    'id': file_id,
+                    'project_id': project_id,
+                    'file_nm': name,
+                    'file_size': f.get('size', 0),
+                    'file_ext': ext,
+                    'file_category': 'requirement',
+                    'uploader': req.creator or '',
+                    'created_at': req.update_at or req.created_at or '',
+                    'req_id': req.id,
+                    'req_nm': req.req_nm or '',
+                    'source': 'requirement_attachment',
+                })
+
+        return result
 
     def upload_project_file(self, project_id: str, file, uploader: str, file_category: str = "other"):
         from utils.exceptions import PermissionException
@@ -1000,7 +1160,7 @@ class ProjectController:
 
         # ── 拉取活跃专案（执行中、规划中、规划审核） ──────────────────────
         active_statuses = (3, 4, 5, 10, 11)
-        projects = (
+        active_projects = (
             db.session.query(ProjectDataModel)
             .filter(
                 ProjectDataModel.project_status.in_(active_statuses),
@@ -1009,6 +1169,20 @@ class ProjectController:
             .order_by(ProjectDataModel.priority.desc())
             .all()
         )
+        # ── 拉取本周/上周完结的专案（project_status=7） ────────────────────
+        recent_completed_projects = (
+            db.session.query(ProjectDataModel)
+            .filter(
+                ProjectDataModel.project_status == 7,
+                ProjectDataModel.status == 1,
+                ProjectDataModel.end_time >= last_week_start.isoformat(),
+                ProjectDataModel.end_time <= this_week_end.isoformat(),
+            )
+            .order_by(ProjectDataModel.priority.desc())
+            .all()
+        )
+        completed_ids = {p.id for p in recent_completed_projects}
+        projects = active_projects + recent_completed_projects
 
         # ── 批量查询用户姓名 ──────────────────────────────────────────────
         all_work_nos: set = set()
@@ -1073,30 +1247,38 @@ class ProjectController:
 
         def _compute_week_tag(f: FunctionDataModel, status: str) -> list:
             tags = []
-            end_str = f.latest_expected_end_date or f.expected_end_date  # 延期後用新日期
-            actual_end_str = (f.end_time or "")[:10] if f.end_time else ""
+            if status == "completed":
+                # 已完成：以實際完成日為準，無實際完成日才回退預計日
+                date_str = (f.end_time or "")[:10] if f.end_time else (
+                    f.latest_expected_end_date or f.expected_end_date or ""
+                )
+            else:
+                # 未完成：以延期後的預計完成日為準
+                date_str = f.latest_expected_end_date or f.expected_end_date or ""
 
-            if end_str:
+            if date_str:
                 try:
-                    end_dt = datetime.strptime(end_str, "%Y-%m-%d").date()
-                    if last_week_start <= end_dt <= last_week_end:
+                    dt = datetime.strptime(date_str, "%Y-%m-%d").date()
+                    if last_week_start <= dt <= last_week_end:
                         tags.append("last_week")
-                    elif this_week_start <= end_dt <= this_week_end:
+                    elif this_week_start <= dt <= this_week_end:
                         tags.append("this_week")
-                    elif next_week_start <= end_dt <= next_week_end:
+                    elif next_week_start <= dt <= next_week_end:
                         tags.append("next_week")
                 except ValueError:
                     pass
 
-            if actual_end_str and status == "completed":
-                try:
-                    actual_dt = datetime.strptime(actual_end_str, "%Y-%m-%d").date()
-                    if last_week_start <= actual_dt <= last_week_end and "last_week" not in tags:
-                        tags.append("last_week")
-                except ValueError:
-                    pass
-
             return tags
+
+        # ── 批量查询需求名称 ──────────────────────────────────────────────
+        from dbs.mysql_db.model_tables import RequirementModel
+        req_map: dict = {}
+        if projects:
+            reqs_all = db.session.query(RequirementModel).filter(
+                RequirementModel.project_id.in_([p.id for p in projects]),
+                RequirementModel.req_status != 9,
+            ).all()
+            req_map = {r.id: r.req_nm for r in reqs_all}
 
         # ── 按项目 + group1 分组构建 WBS ──────────────────────────────────
         func_by_proj: dict = {}
@@ -1194,6 +1376,8 @@ class ProjectController:
                         "project_id":      p.id,
                         "function_id":     f.id,
                         "progress_history": history,
+                        "requirement_id":  f.requirement_id or None,
+                        "requirement_nm":  req_map.get(f.requirement_id, "") if f.requirement_id else "",
                     })
 
                 group_progress = (
@@ -1220,6 +1404,8 @@ class ProjectController:
                 "start_date":   p.expected_start_date or (p.created_at or "")[:10],
                 "expected_end": p.expected_end_date or "",
                 "functions":    wbs_functions,
+                "is_completed": p.id in completed_ids,
+                "end_time":     p.end_time or "",
             })
 
         return result
@@ -1419,8 +1605,15 @@ class FunctionController:
         project = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
         if not project or project.project_status == 9:
             raise ResourceNotFoundException(resource_type="项目")
-        if project.project_status not in (3, 10):
-            raise PermissionException(msg="只有規劃中或排程安排階段可以新增功能任務")
+        requirement_id = payload.get("requirement_id", "")
+        if requirement_id:
+            # 关联需求时，需求必须已通过审核
+            from dbs.mysql_db.model_tables import RequirementModel
+            req = db.session.query(RequirementModel).filter_by(id=requirement_id).first()
+            if not req or req.req_status != 2:
+                raise PermissionException(msg="需求尚未通过审核，无法在该需求下新增任务")
+        if project.project_status not in (3, 10, 5):
+            raise PermissionException(msg="只有規劃中、排程安排或執行中階段可以新增功能任務")
         resp = payload.get("responsible", [])
         if isinstance(resp, str):
             try:
@@ -1429,6 +1622,8 @@ class FunctionController:
             except (json.JSONDecodeError, ValueError):
                 resp = [resp] if resp else []
         resp = [str(w).strip().lower() for w in (resp if isinstance(resp, list) else [resp]) if w]
+        # 執行中階段新增的任務需先通過審核，初始為草稿狀態
+        initial_status = 0 if project.project_status == 5 else 1
         f = FunctionDataModel(
             function_nm=payload["function_nm"],
             describe=payload.get("describe", ""),
@@ -1439,21 +1634,86 @@ class FunctionController:
             expected_end_date=payload.get("expected_end_date", ""),
             group1=payload.get("group1", ""),
             group2=payload.get("group2", ""),
+            requirement_id=requirement_id or None,
+            function_status=initial_status,
         )
         db.session.add(f)
         db.session.commit()
-        # 通知负责人（排除创建者本人）
+        # 通知负责人（排除创建者本人；草稿任務等審核通過再通知）
+        if initial_status != 0:
+            from controllers.notification_controller import push_notification
+            notif_targets = [w for w in resp if w != creator]
+            if notif_targets:
+                push_notification(
+                    recipients=notif_targets,
+                    title="您已被指派為功能任務負責人",
+                    desc=f"任務「{f.function_nm}」已指派您為負責人，請及時跟進。",
+                    link_type="project",
+                    link_id=project_id,
+                )
+        return {"function_id": f.id, "is_draft": initial_status == 0}
+
+    def submit_task_review(self, project_id: str, function_ids: list, reviewer: list, operator: str):
+        """批量提交草稿任務審核（執行階段新增任務）"""
+        from utils.exceptions import PermissionException
+        project = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
+        if not project or project.project_status != 5:
+            raise PermissionException(msg="只有執行中的專案才能提交任務審核")
+        operator = (operator or "").strip().lower()
+        project_pm = (project.project_pm or "").strip().lower()
+        if operator != project_pm:
+            raise PermissionException(msg="只有專案PM可以提交任務審核")
+        reviewer = [(w or "").strip().lower() for w in reviewer if w]
+        if not reviewer:
+            raise PermissionException(msg="請指定審核人")
+        if not function_ids:
+            raise PermissionException(msg="請選擇要提交的任務")
+
+        # 驗證所有任務都是草稿狀態且屬於本專案
+        funcs = db.session.query(FunctionDataModel).filter(
+            FunctionDataModel.id.in_(function_ids),
+            FunctionDataModel.project_id == project_id,
+        ).all()
+        if len(funcs) != len(function_ids):
+            raise PermissionException(msg="部分任務不存在或不屬於本專案")
+        for f in funcs:
+            if f.function_status != 0:
+                raise PermissionException(msg=f"任務「{f.function_nm}」不是草稿狀態，無法提交審核")
+
+        now = CommonTools.get_now()
+        # 建立審核節點
+        nodes = [{"node_id": uuid.uuid4().hex, "order": i + 1, "approver_work_no": w,
+                  "approver": w, "status": 0} for i, w in enumerate(reviewer)]
+
+        apply = ReviewApplyModel(
+            project_id=project_id,
+            apply_type="新增任務審核",
+            apply_type_code="task_addition_review",
+            submitter=operator,
+            reviewer=json.dumps(reviewer, ensure_ascii=False),
+            priority=project.priority or 2,
+            apply_status=1,
+            approval_nodes_json=json.dumps(nodes, ensure_ascii=False),
+            function_ids_json=json.dumps(function_ids, ensure_ascii=False),
+        )
+        db.session.add(apply)
+
+        # 任務保留 status=0（草稿），等審核通過後改為 1（待開始）
+        db.session.commit()
+
+        # 通知第一位審核人
         from controllers.notification_controller import push_notification
-        notif_targets = [w for w in resp if w != creator]
-        if notif_targets:
-            push_notification(
-                recipients=notif_targets,
-                title="您已被指派為功能任務負責人",
-                desc=f"任務「{f.function_nm}」已指派您為負責人，請及時跟進。",
-                link_type="project",
-                link_id=project_id,
-            )
-        return {"function_id": f.id}
+        func_names = "、".join(f.function_nm for f in funcs[:3])
+        if len(funcs) > 3:
+            func_names += f" 等{len(funcs)}項"
+        push_notification(
+            recipients=[reviewer[0]],
+            title="您有新的任務審核待處理",
+            desc=f"專案「{project.project_nm}」的任務「{func_names}」需要您審核。",
+            link_type="review",
+            link_id=apply.id,
+        )
+        return {"apply_id": apply.id}
 
     def update_function(self, function_id: str, payload: dict):
         f = db.session.query(FunctionDataModel).filter_by(id=function_id).first()
@@ -1461,7 +1721,7 @@ class FunctionController:
             raise ResourceNotFoundException(resource_type="功能任务")
         _assert_project_not_in_review(f.project_id)
         for field in ("function_nm", "describe", "expected_start_date",
-                      "expected_end_date", "priority", "group1", "group2"):
+                      "expected_end_date", "priority", "group1", "group2", "requirement_id"):
             if field in payload and payload[field] is not None:
                 setattr(f, field, payload[field])
         new_resp = []

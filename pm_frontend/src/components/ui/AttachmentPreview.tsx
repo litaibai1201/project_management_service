@@ -5,7 +5,7 @@
  */
 import React from 'react'
 import { Image, Tooltip } from 'antd'
-import { DocumentTextIcon } from '@heroicons/react/24/outline'
+import { DocumentTextIcon, ArrowDownTrayIcon } from '@heroicons/react/24/outline'
 
 export interface FileItem {
   name: string
@@ -17,6 +17,8 @@ interface AttachmentPreviewProps {
   files?: FileItem[]
   images?: FileItem[]
   onPreview?: (file: FileItem) => void
+  /** Optional: derive download URL from preview URL. Defaults to replacing /preview with /download */
+  getDownloadUrl?: (previewUrl: string) => string
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -46,7 +48,7 @@ function getFileIcon(name: string): React.ReactNode {
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
-const AttachmentPreview: React.FC<AttachmentPreviewProps> = ({ files = [], images = [], onPreview }) => {
+const AttachmentPreview: React.FC<AttachmentPreviewProps> = ({ files = [], images = [], onPreview, getDownloadUrl }) => {
   if (files.length === 0 && images.length === 0) return null
 
   // Separate: explicit images + any image-like files
@@ -56,11 +58,35 @@ const AttachmentPreview: React.FC<AttachmentPreviewProps> = ({ files = [], image
   ]
   const docItems: FileItem[] = files.filter((f) => !isImageUrl(f.name, f.url))
 
+  const toDownloadUrl = (previewUrl: string) =>
+    getDownloadUrl ? getDownloadUrl(previewUrl) : previewUrl.replace('/preview', '/download')
+
   return (
     <div className="mt-2 space-y-2">
       {/* Image thumbnails with preview */}
       {imgItems.length > 0 && (
-        <Image.PreviewGroup>
+        <Image.PreviewGroup
+          preview={{
+            toolbarRender: (originalNode, info) => {
+              const imgUrl = (info as { image?: { url?: string } }).image?.url ?? ''
+              return (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  {originalNode}
+                  <a
+                    href={toDownloadUrl(imgUrl)}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ color: 'rgba(255,255,255,0.85)', display: 'inline-flex', alignItems: 'center', padding: '4px 6px' }}
+                    title="下載"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <ArrowDownTrayIcon style={{ width: 22, height: 22 }} />
+                  </a>
+                </div>
+              )
+            },
+          }}
+        >
           <div className="flex flex-wrap gap-1.5">
             {imgItems.map((img, i) => (
               <Tooltip key={i} title={img.name}>

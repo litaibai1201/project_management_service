@@ -83,6 +83,8 @@ interface WbsTask {
   project_id?: string        // for navigation
   function_id?: string       // for navigation
   progress_history?: TaskProgressEntry[]
+  requirement_id?: string
+  requirement_nm?: string
 }
 
 interface WbsFunction {
@@ -103,6 +105,8 @@ interface WbsProject {
   start_date?: string
   expected_end: string
   functions: WbsFunction[]
+  is_completed?: boolean
+  end_time?: string
 }
 
 interface MeetingNote {
@@ -176,7 +180,7 @@ type PptTextRun = {
   options?: { bold?: boolean; italic?: boolean; color?: string; fontSize?: number; breakType?: string; strike?: boolean; fontFace?: string }
 }
 
-const PPT_FONT_SIZE = 8
+const PPT_FONT_SIZE = 14
 const PPT_FONT_FACE = '標楷體'
 
 const _run = (text: string, extra: object = {}): PptTextRun => ({
@@ -270,6 +274,19 @@ function _projectDotColor(project: WbsProject): string {
   return '0070C0'
 }
 
+// 估算一個專案在進度欄需要幾行文字（用於分頁判斷）
+function _estimateProjectLines(project: WbsProject): number {
+  let lines = 0
+  project.functions.forEach((func) => {
+    func.tasks.forEach((task) => {
+      lines++ // 主任務行
+      if ((task.reschedule_count ?? 0) > 0 && task.reschedule_reason) lines++ // 延期原因行
+      if (task.latest_update && task.status !== 'completed' && !task.is_suspended) lines++ // 進度說明行
+    })
+  })
+  return Math.max(lines, 1)
+}
+
 async function exportWbsPptx(projects: WbsProject[], department = '資訊部') {
   const PptxGenJS = (await import('pptxgenjs')).default
   const pptx = new PptxGenJS()
@@ -288,71 +305,100 @@ async function exportWbsPptx(projects: WbsProject[], department = '資訊部') {
     })
   } catch { /* logo optional */ }
 
-  const slide = pptx.addSlide()
-
-  // ── Logo (top-left) ──
-  if (logoBase64) {
-    slide.addImage({ data: logoBase64, x: 0.15, y: 0.05, w: 2.0, h: 0.43 })
-  }
-
-  // ── Title (centered, same row as logo) ──
-  slide.addText(
-    [{ text: `${department} (系統) – Overview `, options: { color: '0070C0', fontSize: 16, bold: true, fontFace: PPT_FONT_FACE } }],
-    { x: 0, y: 0.05, w: 13.33, h: 0.43, align: 'center', valign: 'middle' },
-  )
-
-  // ── Legend (top-right, same row) ──
-  slide.addText(
-    [
-      { text: '●已完成', options: { color: '00B050', fontSize: 9, fontFace: PPT_FONT_FACE } },
-      { text: '  ', options: { fontSize: 9 } },
-      { text: '●進行中', options: { color: '0070C0', fontSize: 9, fontFace: PPT_FONT_FACE } },
-      { text: '  ', options: { fontSize: 9 } },
-      { text: '●風險', options: { color: 'FFC000', fontSize: 9, fontFace: PPT_FONT_FACE } },
-      { text: ' ', options: { fontSize: 9 } },
-      { text: '●delay', options: { color: 'FF0000', fontSize: 9, fontFace: PPT_FONT_FACE } },
-    ],
-    { x: 10.5, y: 0.08, w: 2.8, h: 0.3 },
-  )
-
-  // ── Table ──
+  const F = PPT_FONT_FACE
   const HDR_BG = '002FA7'
+
   const mkHdr = (text: string) => ({
     text,
-    options: { bold: true, color: 'FFFFFF', fill: { color: HDR_BG }, align: 'center' as const, valign: 'middle' as const, fontSize: PPT_FONT_SIZE, fontFace: PPT_FONT_FACE },
+    options: { bold: true, color: 'FFFFFF', fill: { color: HDR_BG }, align: 'center' as const, valign: 'middle' as const, fontSize: 15, fontFace: F },
   })
-
-  const F = PPT_FONT_FACE
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const tableRows: any[] = [
-    [mkHdr('進\n度'), mkHdr('序\n號'), mkHdr('重點項目'), mkHdr('需求使用者\n專案PM'), mkHdr('DRI'), mkHdr('專案啟動日'), mkHdr('預計結案日'), mkHdr('進度')],
-    ...projects.map((project, idx) => {
-      const dotColor = _projectDotColor(project)
-      const cellMid = (extra: object = {}) => ({ valign: 'middle' as const, align: 'center' as const, fontSize: PPT_FONT_SIZE, fontFace: F, color: '000000', ...extra })
-      return [
-        { text: '●', options: cellMid({ color: dotColor, fill: { color: 'FFFFFF' } }) },
-        { text: String(idx + 1), options: cellMid() },
-        { text: project.name, options: cellMid({ align: 'left' as const }) },
-        { text: project.product_pm || project.pm, options: cellMid({ align: 'left' as const }) },
-        { text: project.pm, options: cellMid({ align: 'left' as const }) },
-        { text: project.start_date ?? '-', options: cellMid() },
-        { text: project.expected_end || '-', options: cellMid() },
-        { text: buildProgressTextRuns(project), options: { valign: 'top' as const, fontSize: PPT_FONT_SIZE, fontFace: F, color: '000000' } },
-      ]
-    }),
+  const headerRow = [
+    mkHdr('進\n度'), mkHdr('序\n號'), mkHdr('重點項目\nTOP3'), mkHdr('-需求使用者\n-專案PM'), mkHdr('DRI'), mkHdr('專案啟動日'), mkHdr('預計結案日'), mkHdr('進度'),
   ]
 
-  slide.addTable(tableRows, {
-    x: 0.22, y: 0.55, w: 12.8,
-    colW: [0.3, 0.3, 1.0, 1.6, 0.6, 0.85, 0.85, 7.25],
-    border: { type: 'solid', color: 'B4C6E7', pt: 0.5 },
-  })
+  // ── 按行數估算分頁（每頁最多 ~35 行，約 10-12 個專案）──
+  const MAX_LINES = 20
+  const chunks: WbsProject[][] = []
+  let chunk: WbsProject[] = []
+  let chunkLines = 0
+  for (const p of projects) {
+    const lines = _estimateProjectLines(p)
+    if (chunk.length > 0 && chunkLines + lines > MAX_LINES) {
+      chunks.push(chunk)
+      chunk = [p]
+      chunkLines = lines
+    } else {
+      chunk.push(p)
+      chunkLines += lines
+    }
+  }
+  if (chunk.length > 0) chunks.push(chunk)
+  if (chunks.length === 0) chunks.push([])
 
-  // ── "ZDT Confidential" (bottom-left, matching master) ──
-  slide.addText(
-    [{ text: 'ZDT Confidential ', options: { fontSize: 9, bold: true, color: 'FF0000', fontFace: PPT_FONT_FACE } }],
-    { x: 0.03, y: 7.1, w: 3.0, h: 0.35 },
-  )
+  // ── 為每頁建立獨立 slide ──
+  let globalIdx = 0
+  for (let pageIdx = 0; pageIdx < chunks.length; pageIdx++) {
+    const pageProjects = chunks[pageIdx]
+    const slide = pptx.addSlide()
+
+    // Logo（左上，高度與 header 行齊）
+    if (logoBase64) {
+      slide.addImage({ data: logoBase64, x: 0.12, y: 0.06, w: 2.3, h: 0.58 })
+    }
+
+    // Title（居中，與 logo 同行垂直對齊）
+    slide.addText(
+      [{ text: `${department} (系統) – Overview`, options: { color: '0070C0', fontSize: 36, bold: true, fontFace: F } }],
+      { x: 0, y: 0.0, w: 13.33, h: 0.72, align: 'center', valign: 'middle' },
+    )
+
+    // Legend（右上，與 logo/title 同行）
+    slide.addText(
+      [
+        { text: '●已完成', options: { color: '00B050', fontSize: 12, fontFace: F } },
+        { text: '  ', options: { fontSize: 12 } },
+        { text: '●進行中', options: { color: '0070C0', fontSize: 12, fontFace: F } },
+        { text: '  ', options: { fontSize: 12 } },
+        { text: '●風險',   options: { color: 'FFC000', fontSize: 12, fontFace: F } },
+        { text: '  ', options: { fontSize: 12 } },
+        { text: '●delay',  options: { color: 'FF0000', fontSize: 12, fontFace: F } },
+      ],
+      { x: 9.8, y: 0.0, w: 3.5, h: 0.72, align: 'right', valign: 'middle' },
+    )
+
+    // Table rows for this page
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const tableRows: any[] = [
+      headerRow,
+      ...pageProjects.map((project) => {
+        const idx = globalIdx++
+        const dotColor = _projectDotColor(project)
+        const cellMid = (extra: object = {}) => ({ valign: 'middle' as const, align: 'center' as const, fontSize: PPT_FONT_SIZE, fontFace: F, color: '000000', ...extra })
+        return [
+          { text: '●', options: cellMid({ color: dotColor, fill: { color: 'FFFFFF' } }) },
+          { text: String(idx + 1), options: cellMid() },
+          { text: project.name, options: cellMid({ align: 'left' as const }) },
+          { text: project.product_pm || project.pm, options: cellMid({ align: 'left' as const }) },
+          { text: project.pm, options: cellMid({ align: 'left' as const }) },
+          { text: project.start_date ?? '-', options: cellMid() },
+          { text: project.is_completed ? (project.end_time || project.expected_end || '-') : (project.expected_end || '-'), options: cellMid({ color: project.is_completed ? '16a34a' : '000000' }) },
+          { text: buildProgressTextRuns(project), options: { valign: 'top' as const, fontSize: PPT_FONT_SIZE, fontFace: F, color: '000000' } },
+        ]
+      }),
+    ]
+
+    slide.addTable(tableRows, {
+      x: 0.12, y: 0.78, w: 13.1,
+      colW: [0.3, 0.3, 1.0, 1.6, 0.6, 0.85, 0.85, 7.25],
+      border: { type: 'solid', color: 'B4C6E7', pt: 0.5 },
+    })
+
+    // Footer
+    slide.addText(
+      [{ text: 'ZDT Confidential', options: { fontSize: 9, bold: true, color: 'FF0000', fontFace: F } }],
+      { x: 0.03, y: 7.1, w: 3.0, h: 0.35 },
+    )
+  }
 
   await pptx.writeFile({ fileName: `專案進度週報_${dayjs().format('YYYY-MM-DD')}.pptx` })
 }
@@ -1042,6 +1088,49 @@ const DutiesSection: React.FC<{ duties: TemporaryDuty[]; onOpenDuty: (id: string
   )
 }
 
+// ─── Requirement Group Wrapper (按需求模式的外層需求摺疊) ────────────────────
+
+const ReqGroupWrapper: React.FC<{
+  name: string
+  progress: number
+  taskCount: number
+  overdueCount: number
+  children: React.ReactNode
+}> = ({ name, progress, taskCount, overdueCount, children }) => {
+  const [expanded, setExpanded] = useState(true)
+  return (
+    <div className="border border-purple-200 rounded-lg overflow-hidden mb-2 last:mb-0">
+      <div
+        className="flex items-center gap-2 px-3 py-2 bg-purple-50/80 cursor-pointer hover:bg-purple-100/60 transition-colors select-none"
+        onClick={() => setExpanded(!expanded)}
+      >
+        {expanded
+          ? <ChevronDownIcon className="w-3 h-3 text-purple-400 transition-transform" />
+          : <ChevronRightIcon className="w-3 h-3 text-purple-400 transition-transform" />
+        }
+        <span className="text-xs font-semibold text-purple-700">{name}</span>
+        <Progress
+          percent={progress} size="small"
+          strokeColor={progress >= 100 ? '#16a34a' : '#7c3aed'}
+          trailColor="#e9d5ff"
+          style={{ width: 60, marginBottom: 0 }}
+          format={() => ''}
+        />
+        <span className="text-[10px] font-semibold text-purple-600">{progress}%</span>
+        <div className="ml-auto flex items-center gap-1.5">
+          <span className="text-[10px] text-slate-400">{taskCount} 項</span>
+          {overdueCount > 0 && (
+            <Tag color="error" style={{ fontSize: 9, margin: 0, lineHeight: '14px', padding: '0 3px' }}>
+              超時 {overdueCount}
+            </Tag>
+          )}
+        </div>
+      </div>
+      {expanded && <div className="pl-2 pr-1 py-1">{children}</div>}
+    </div>
+  )
+}
+
 // ─── Project Card Component ─────────────────────────────────────────────────
 
 const ProjectCard: React.FC<{
@@ -1056,7 +1145,8 @@ const ProjectCard: React.FC<{
   onDeleteNote: (noteId: string) => void
   duties?: TemporaryDuty[]
   onOpenDuty: (id: string) => void
-}> = ({ project, originalProject, onWeekTagClick, expandedTaskId, onToggleTaskExpand, notes, onAddNote, onResolveNote, onDeleteNote, duties, onOpenDuty }) => {
+  groupMode?: 'by_group' | 'by_req'
+}> = ({ project, originalProject, onWeekTagClick, expandedTaskId, onToggleTaskExpand, notes, onAddNote, onResolveNote, onDeleteNote, duties, onOpenDuty, groupMode = 'by_group' }) => {
   const navigate = useNavigate()
 
   // Use ORIGINAL project data for summary stats to avoid filter distortion
@@ -1187,7 +1277,76 @@ const ProjectCard: React.FC<{
         </div>
 
         {/* Function modules (filtered) */}
-        {project.functions.map((f) => (
+        {groupMode === 'by_req' ? (() => {
+          const allTasks = project.functions.flatMap((f) => f.tasks)
+          const reqMap = new Map<string, { name: string; tasks: WbsTask[] }>()
+          allTasks.forEach((t) => {
+            const key = t.requirement_id || '__none__'
+            if (!reqMap.has(key)) reqMap.set(key, { name: t.requirement_nm || '', tasks: [] })
+            reqMap.get(key)!.tasks.push(t)
+          })
+
+          // Given a task set, get the original function groups that contain those tasks
+          const buildSubFunctions = (tasks: WbsTask[]) => {
+            const ids = new Set(tasks.map((t) => t.id))
+            return project.functions
+              .map((f) => ({ ...f, tasks: f.tasks.filter((t) => ids.has(t.id)) }))
+              .filter((f) => f.tasks.length > 0)
+          }
+
+          // Render tasks directly (no inner group header) — used when only one group
+          const renderDirectTasks = (tasks: WbsTask[]) =>
+            tasks.map((t) => (
+              <TaskRow key={t.id} task={t}
+                onWeekTagClick={onWeekTagClick}
+                expanded={expandedTaskId === t.id}
+                onToggleExpand={() => onToggleTaskExpand(t.id)}
+                notes={notesByTaskId[t.id] ?? []}
+                onAddNote={(type, content) => onAddNote(t.id, t.name, type, content)}
+                onResolveNote={onResolveNote}
+                onDeleteNote={onDeleteNote}
+              />
+            ))
+
+          // Render FunctionModules with group headers — used when multiple groups
+          const renderFuncModules = (fns: typeof project.functions) =>
+            fns.map((f) => (
+              <FunctionModule key={f.id} func={f}
+                defaultOpen={f.tasks.some((t) => !!t.is_overdue) || f.tasks.length <= 6}
+                onWeekTagClick={onWeekTagClick} expandedTaskId={expandedTaskId}
+                onToggleTaskExpand={onToggleTaskExpand} notesByTaskId={notesByTaskId}
+                onAddNote={(tid, tnm, type, content) => onAddNote(tid, tnm, type, content)}
+                onResolveNote={onResolveNote} onDeleteNote={onDeleteNote}
+              />
+            ))
+
+          const reqGroups = [...reqMap.entries()]
+            .filter(([key]) => key !== '__none__')
+            .map(([key, { name, tasks }]) => ({
+              key, name, tasks,
+              subFunctions: buildSubFunctions(tasks),
+              progress: tasks.length ? Math.round(tasks.reduce((s, t) => s + t.progress, 0) / tasks.length) : 0,
+              overdueCount: tasks.filter((t) => !!t.is_overdue).length,
+            }))
+
+          const noReqFunctions = buildSubFunctions(reqMap.get('__none__')?.tasks ?? [])
+
+          return (
+            <>
+              {reqGroups.map((g) => (
+                <ReqGroupWrapper key={g.key} name={g.name} progress={g.progress}
+                  taskCount={g.tasks.length} overdueCount={g.overdueCount}>
+                  {/* Single group → show tasks directly; multiple groups → show with group headers */}
+                  {g.subFunctions.length === 1
+                    ? renderDirectTasks(g.subFunctions[0].tasks)
+                    : renderFuncModules(g.subFunctions)}
+                </ReqGroupWrapper>
+              ))}
+              {/* Tasks with no requirement → use original function groups directly */}
+              {renderFuncModules(noReqFunctions)}
+            </>
+          )
+        })() : project.functions.map((f) => (
           <FunctionModule
             key={f.id}
             func={f}
@@ -1267,7 +1426,8 @@ const ReportPreviewModal: React.FC<{
 
   const handleExportPptx = async () => {
     setExporting(true)
-    try { await exportWbsPptx(projects) } finally { setExporting(false) }
+    const department = projects[0]?.department || '資訊部'
+    try { await exportWbsPptx(projects, department) } finally { setExporting(false) }
   }
 
   const handlePrint = () => {
@@ -1336,7 +1496,7 @@ const ReportPreviewModal: React.FC<{
           {/* Title centered */}
           <div style={{ textAlign: 'center', marginBottom: 10 }}>
             <span style={{ color: '#0070C0', fontSize: 20, fontWeight: 700 }}>
-              資訊部 (系統) – Overview
+              {projects[0]?.department || '資訊部'} (系統) – Overview
             </span>
           </div>
 
@@ -1363,7 +1523,6 @@ const ReportPreviewModal: React.FC<{
             <tbody>
               {projects.map((project, idx) => {
                 const dotClr = `#${_projectDotColor(project)}`
-                let taskIdx = 0
 
                 return (
                   <tr key={project.id}>
@@ -1374,7 +1533,12 @@ const ReportPreviewModal: React.FC<{
                     {/* 序號 */}
                     <td style={{ textAlign: 'center', verticalAlign: 'middle', border: '1px solid #B4C6E7' }}>{idx + 1}</td>
                     {/* 重點項目 */}
-                    <td style={{ verticalAlign: 'middle', border: '1px solid #B4C6E7', color: '#000' }}>{project.name}</td>
+                    <td style={{ verticalAlign: 'middle', border: '1px solid #B4C6E7', color: '#000' }}>
+                      {project.name}
+                      {project.is_completed && (
+                        <span style={{ marginLeft: 4, color: '#16a34a', fontWeight: 700, fontSize: 11 }}>[已完結]</span>
+                      )}
+                    </td>
                     {/* 需求使用者（產品PM） */}
                     <td style={{ verticalAlign: 'middle', border: '1px solid #B4C6E7', color: '#000' }}>
                       {project.product_pm || project.pm}
@@ -1387,67 +1551,181 @@ const ReportPreviewModal: React.FC<{
                     <td style={{ textAlign: 'center', verticalAlign: 'middle', border: '1px solid #B4C6E7', color: '#000', whiteSpace: 'nowrap' }}>
                       {project.start_date ?? '-'}
                     </td>
-                    {/* 預計結案日 */}
-                    <td style={{ textAlign: 'center', verticalAlign: 'middle', border: '1px solid #B4C6E7', color: '#000', whiteSpace: 'nowrap' }}>
-                      {project.expected_end || '-'}
+                    {/* 結案日（完結專案顯示實際完結日，否則顯示預計） */}
+                    <td style={{ textAlign: 'center', verticalAlign: 'middle', border: '1px solid #B4C6E7', color: project.is_completed ? '#16a34a' : '#000', whiteSpace: 'nowrap', fontWeight: project.is_completed ? 700 : 400 }}>
+                      {project.is_completed ? (project.end_time || project.expected_end || '-') : (project.expected_end || '-')}
                     </td>
                     {/* 進度 — rich-text matching template style */}
-                    <td style={{ verticalAlign: 'top', border: '1px solid #B4C6E7', lineHeight: 1.6 }}>
-                      {project.functions.flatMap((func) =>
-                        func.tasks
-                          .filter((task) => {
-                            // 三週範圍內的任務顯示（含搁置）
-                            if (task.week_tag.length > 0) return true
-                            // 超時且未完成，無論週期始終統計進來（搁置除外）
-                            if (task.is_overdue && task.status !== 'completed' && !task.is_suspended) return true
-                            return false
-                          })
-                          .map((task) => {
-                          taskIdx++
+                    <td style={{ verticalAlign: 'top', border: '1px solid #B4C6E7', lineHeight: 1.8 }}>
+                      {(() => {
+                        const thisWeekStart = dayjs().startOf('isoWeek')
+                        const lastWeekStart = thisWeekStart.subtract(1, 'week')
+                        const nextWeekStart = thisWeekStart.add(1, 'week')
+                        const isRecentComplete = (task: WbsTask) => {
+                          if (task.status !== 'completed') return false
+                          const d = dayjs(task.actual_end || task.expected_end)
+                          return !d.isBefore(lastWeekStart) && d.isBefore(nextWeekStart)
+                        }
+                        const isVisible = (task: WbsTask) =>
+                          task.week_tag.length > 0 ||
+                          (task.is_overdue && task.status !== 'completed') ||
+                          task.is_suspended ||
+                          isRecentComplete(task)
+
+                        const allItems = project.functions.flatMap((func) =>
+                          func.tasks.filter(isVisible).map((task) => ({ task, funcName: func.name, funcId: func.id }))
+                        )
+
+                        // 週標籤片段（上週/本週/下週）
+                        const renderWeekTags = (task: WbsTask) =>
+                          task.week_tag.map((wt) => (
+                            <span key={wt} style={{ color: WEEK_TAG_CONFIG[wt].color, fontWeight: 700, marginLeft: 3 }}>
+                              [{WEEK_TAG_CONFIG[wt].label}]
+                            </span>
+                          ))
+
+                        // 渲染單一任務行（縮進 + - 開頭）
+                        const renderTaskRow = (task: WbsTask, indent: number) => {
                           const { label, color } = _taskStatusLabel(task)
                           const lineColor = task.status === 'completed' ? '#00B050' : '#000'
                           const hasReschedule = (task.reschedule_count ?? 0) > 0 && !!task.original_end
-                          const assigneeMeta = task.assignee && task.assignee !== '未指派' ? task.assignee : null
+                          const dateStr = task.status === 'completed'
+                            ? `${task.actual_end || task.expected_end}已完成`
+                            : task.expected_end ? `目標${task.expected_end}完成` : null
                           return (
-                            <div key={task.id} style={{ marginTop: taskIdx > 1 ? 2 : 0, color: lineColor }}>
-                              <span>{taskIdx}. </span>
+                            <div key={task.id} style={{ color: lineColor, paddingLeft: indent }}>
+                              <span>- </span>
                               <span style={{ color, fontWeight: 700 }}>({label})</span>
-                              {task.is_suspended && (
-                                <span style={{ color: '#6b7280', fontWeight: 700 }}>[搁置] </span>
-                              )}
-                              <span>{task.name}</span>
-                              <span>(</span>
+                              {task.is_suspended && <span style={{ color: '#6b7280', fontWeight: 700 }}> [搁置]</span>}
+                              <span> {task.name}</span>
                               {hasReschedule ? (
-                                <>
+                                <span>
+                                  {' ('}
                                   <s style={{ color: '#aaa', fontSize: 11 }}>{task.original_end}</s>
                                   <span style={{ color: '#d97706', fontWeight: 700, marginLeft: 3 }}>{task.expected_end}</span>
                                   <span style={{ color: '#d97706', fontSize: 10, marginLeft: 2 }}>延期{task.reschedule_count}次</span>
-                                </>
-                              ) : (
-                                task.expected_end && <span>{task.expected_end}</span>
-                              )}
-                              {assigneeMeta && <span>{task.expected_end || hasReschedule ? ', ' : ''}{assigneeMeta}</span>}
-                              <span>)</span>
-                              {task.week_tag.map((wt) => (
-                                <span key={wt} style={{ color: WEEK_TAG_CONFIG[wt].color, fontWeight: 700, marginLeft: 2 }}>
-                                  [{WEEK_TAG_CONFIG[wt].label}]
+                                  {')'}
                                 </span>
-                              ))}
-                              {task.is_overdue && task.days_overdue && (
-                                <span style={{ color: '#FF0000' }}> [超時{task.days_overdue}天]</span>
-                              )}
+                              ) : dateStr ? (
+                                <span style={{ color: '#6b7280', marginLeft: 4 }}>({dateStr})</span>
+                              ) : null}
+                              {renderWeekTags(task)}
                               {hasReschedule && task.reschedule_reason && (
                                 <div style={{ paddingLeft: 20, color: '#d97706', fontSize: 11 }}>
                                   ↳ 延期原因：{task.reschedule_reason}
                                 </div>
                               )}
-                              {task.latest_update && task.status !== 'completed' && !task.is_suspended && (
-                                <div style={{ paddingLeft: 20, color: '#000' }}>- {task.latest_update}</div>
+                            </div>
+                          )
+                        }
+
+                        // 渲染序號任務行（無分組時直接用序號）
+                        let flatSeq = 0
+                        const renderTaskFlat = (task: WbsTask) => {
+                          flatSeq++
+                          const { label, color } = _taskStatusLabel(task)
+                          const lineColor = task.status === 'completed' ? '#00B050' : '#000'
+                          const hasReschedule = (task.reschedule_count ?? 0) > 0 && !!task.original_end
+                          const dateStr = task.status === 'completed'
+                            ? `${task.actual_end || task.expected_end}已完成`
+                            : task.expected_end ? `目標${task.expected_end}完成` : null
+                          const seq = flatSeq
+                          return (
+                            <div key={task.id} style={{ color: lineColor }}>
+                              <span>{seq}. </span>
+                              <span style={{ color, fontWeight: 700 }}>({label})</span>
+                              {task.is_suspended && <span style={{ color: '#6b7280', fontWeight: 700 }}> [搁置]</span>}
+                              <span> {task.name}</span>
+                              {hasReschedule ? (
+                                <span>
+                                  {' ('}
+                                  <s style={{ color: '#aaa', fontSize: 11 }}>{task.original_end}</s>
+                                  <span style={{ color: '#d97706', fontWeight: 700, marginLeft: 3 }}>{task.expected_end}</span>
+                                  <span style={{ color: '#d97706', fontSize: 10, marginLeft: 2 }}>延期{task.reschedule_count}次</span>
+                                  {')'}
+                                </span>
+                              ) : dateStr ? (
+                                <span style={{ color: '#6b7280', marginLeft: 4 }}>({dateStr})</span>
+                              ) : null}
+                              {renderWeekTags(task)}
+                              {hasReschedule && task.reschedule_reason && (
+                                <div style={{ paddingLeft: 20, color: '#d97706', fontSize: 11 }}>
+                                  ↳ 延期原因：{task.reschedule_reason}
+                                </div>
                               )}
                             </div>
                           )
+                        }
+
+                        const hasRequirements = allItems.some((item) => !!item.task.requirement_nm)
+
+                        // 統一 sections 結構：有名稱的需求 or 分組 都作為同級條目
+                        type Section =
+                          | { kind: 'req'; key: string; name: string; funcs: { key: string; name: string; tasks: WbsTask[] }[] }
+                          | { kind: 'grp'; key: string; name: string; tasks: WbsTask[] }
+
+                        const sections: Section[] = []
+
+                        if (hasRequirements) {
+                          const reqMap = new Map<string, { name: string; funcs: Map<string, { name: string; tasks: WbsTask[] }> }>()
+                          for (const { task, funcName, funcId } of allItems) {
+                            const rKey = task.requirement_id ?? '__none__'
+                            const rName = (task.requirement_nm ?? '').trim()
+                            if (!reqMap.has(rKey)) reqMap.set(rKey, { name: rName, funcs: new Map() })
+                            const req = reqMap.get(rKey)!
+                            if (!req.funcs.has(funcId)) req.funcs.set(funcId, { name: funcName, tasks: [] })
+                            req.funcs.get(funcId)!.tasks.push(task)
+                          }
+                          for (const [rKey, req] of reqMap.entries()) {
+                            if (req.name) {
+                              // 有名稱的需求 → 作為需求條目，分組為子層
+                              sections.push({
+                                kind: 'req', key: rKey, name: req.name,
+                                funcs: Array.from(req.funcs.entries()).map(([fKey, func]) => ({ key: fKey, name: func.name, tasks: func.tasks })),
+                              })
+                            } else {
+                              // 無名稱需求 → 各分組直接提升為頂層條目
+                              for (const [fKey, func] of req.funcs.entries()) {
+                                sections.push({ kind: 'grp', key: fKey, name: func.name, tasks: func.tasks })
+                              }
+                            }
+                          }
+                        } else {
+                          for (const func of project.functions) {
+                            const tasks = func.tasks.filter(isVisible)
+                            if (tasks.length > 0) sections.push({ kind: 'grp', key: func.id, name: func.name, tasks })
+                          }
+                        }
+
+                        if (sections.length === 0) {
+                          // 無分組無需求 → 序號直排
+                          return allItems.map(({ task }) => renderTaskFlat(task))
+                        }
+
+                        return sections.map((section, si) => {
+                          const num = si + 1
+                          if (section.kind === 'req') {
+                            return (
+                              <div key={section.key} style={{ marginBottom: 4 }}>
+                                <div style={{ fontWeight: 700, color: '#002FA7' }}>{num}. {section.name}</div>
+                                {section.funcs.map((func) => (
+                                  <div key={func.key} style={{ paddingLeft: 12 }}>
+                                    <div style={{ fontWeight: 600, color: '#374151' }}>▸ {func.name}</div>
+                                    {func.tasks.map((task) => renderTaskRow(task, 24))}
+                                  </div>
+                                ))}
+                              </div>
+                            )
+                          } else {
+                            return (
+                              <div key={section.key} style={{ marginBottom: 4 }}>
+                                <div style={{ fontWeight: 700, color: '#002FA7' }}>{num}. {section.name}</div>
+                                {section.tasks.map((task) => renderTaskRow(task, 16))}
+                              </div>
+                            )
+                          }
                         })
-                      )}
+                      })()}
                     </td>
                   </tr>
                 )
@@ -1475,6 +1753,7 @@ const WbsOverviewPage: React.FC = () => {
   const [weekFilter, setWeekFilter] = useState<WeekFilter>('all')
   const [statusFilter, setStatusFilter] = useState<TaskStatus | 'all'>('all')
   const [searchKeyword, setSearchKeyword] = useState('')
+  const [wbsGroupMode, setWbsGroupMode] = useState<'by_group' | 'by_req'>('by_req')
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null)
   const [selectedFuncTask, setSelectedFuncTask] = useState<{ projectId: string; functionId: string } | null>(null)
   const [selectedDutyId, setSelectedDutyId] = useState<string | null>(null)
@@ -1819,6 +2098,20 @@ const WbsOverviewPage: React.FC = () => {
         </div>
         <div className="w-px h-5 bg-slate-200" />
         <div className="flex items-center gap-2">
+          <FolderIcon className="w-4 h-4 text-slate-400" />
+          <span className="text-xs font-semibold text-slate-500">分組</span>
+          <Segmented
+            value={wbsGroupMode}
+            onChange={(v) => setWbsGroupMode(v as 'by_group' | 'by_req')}
+            options={[
+              { label: '按分組', value: 'by_group' },
+              { label: '按需求', value: 'by_req' },
+            ]}
+            size="small"
+          />
+        </div>
+        <div className="w-px h-5 bg-slate-200" />
+        <div className="flex items-center gap-2">
           <MagnifyingGlassIcon className="w-4 h-4 text-slate-400" />
           <Input
             placeholder="搜索任務/負責人..."
@@ -1853,6 +2146,7 @@ const WbsOverviewPage: React.FC = () => {
             onDeleteNote={(noteId) => handleDeleteNote(p.id, noteId)}
             duties={projectDutiesMap[p.id]}
             onOpenDuty={setSelectedDutyId}
+            groupMode={wbsGroupMode}
           />
         ))
       )}
