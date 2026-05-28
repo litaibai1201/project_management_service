@@ -2,7 +2,7 @@
 """独立需求控制器"""
 import json
 from dbs.mysql_db import db
-from dbs.mysql_db.model_tables import StandaloneReqModel, UserProfileModel
+from dbs.mysql_db.model_tables import StandaloneReqModel, UserProfileModel, SystemModel
 from utils.tools import CommonTools
 
 
@@ -37,10 +37,19 @@ class StandaloneReqController:
             ).all()
             name_map = {u.work_no: u.name for u in users}
 
+        sys_ids = {r.system_id for r in items if r.system_id}
+        sys_map = {}
+        if sys_ids:
+            systems = db.session.query(SystemModel.id, SystemModel.sys_nm).filter(
+                SystemModel.id.in_(sys_ids)
+            ).all()
+            sys_map = {s.id: s.sys_nm for s in systems}
+
         data = []
         for r in items:
             d = r.to_dict()
             d["creator_nm"] = name_map.get(r.creator, r.creator or "")
+            d["system_nm"]  = sys_map.get(r.system_id, "")
             data.append(d)
 
         return {"data_list": data, "total_count": total, "page": page, "size": size}
@@ -56,6 +65,7 @@ class StandaloneReqController:
             req_nm=payload["req_nm"],
             describe=payload.get("describe", ""),
             priority=int(payload.get("priority", 2)),
+            system_id=payload.get("system_id", ""),
             creator=creator,
             responsible=json.dumps(resp, ensure_ascii=False),
             expected_end_date=payload.get("expected_end_date", ""),
@@ -86,6 +96,8 @@ class StandaloneReqController:
                 except Exception:
                     resp = []
             r.responsible = json.dumps(resp, ensure_ascii=False)
+        if "system_id" in payload:
+            r.system_id = payload["system_id"]
         if "expected_end_date" in payload:
             r.expected_end_date = payload["expected_end_date"]
         r.updated_at = CommonTools.get_now()

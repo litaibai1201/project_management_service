@@ -729,6 +729,7 @@ class StandaloneReqModel(BaseMixinModel):
     priority          = db.Column(db.Integer, default=2, comment="优先级(1低2中3高4紧急)")
     # 0=待處理 1=進行中 2=已完成 9=已刪除
     req_status        = db.Column(db.Integer, default=0, comment="需求状态")
+    system_id         = db.Column(db.String(32), nullable=False, comment="关联系统ID")
     creator           = db.Column(db.String(32), comment="创建人工号")
     responsible       = db.Column(db.Text, comment="负责人工号JSON数组")
     expected_end_date = db.Column(db.String(10), comment="预计完成日期")
@@ -751,6 +752,7 @@ class StandaloneReqModel(BaseMixinModel):
             "describe":           self.describe or "",
             "priority":           self.priority,
             "status":             self.req_status,
+            "system_id":          self.system_id or "",
             "creator":            self.creator or "",
             "responsible":        resp,
             "expected_end_date":  self.expected_end_date or "",

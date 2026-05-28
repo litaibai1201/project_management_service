@@ -7,6 +7,8 @@ export interface StandaloneReq {
   describe:          string
   priority:          number
   status:            number   // 0=待處理 1=進行中 2=已完成 9=已刪除
+  system_id:         string
+  system_nm?:        string
   creator:           string
   creator_nm?:       string
   responsible:       string[]
@@ -26,6 +28,7 @@ export interface StandaloneReqListQuery {
 
 export interface CreateStandaloneReqPayload {
   req_nm:             string
+  system_id:          string
   describe?:          string
   priority?:          number
   responsible?:       string[]

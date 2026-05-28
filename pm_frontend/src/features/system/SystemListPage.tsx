@@ -186,10 +186,22 @@ const SystemListPage: React.FC = () => {
       render: (v: string) => v || <span className="text-slate-300 text-xs">—</span>,
     } as ColumnsType<SystemItem>[number]] : []),
     ...(visibleCols.has('urls') ? [{
-      title: '访问网址', dataIndex: 'urls', width: 160,
-      render: (v: SystemUrl[]) => v?.length
-        ? <Link href={v[0].url} target="_blank" style={{ fontSize: 12 }}>{v[0].name || v[0].url}</Link>
-        : <span className="text-slate-300 text-xs">—</span>,
+      title: '访问网址', dataIndex: 'urls', width: 220,
+      render: (v: SystemUrl[]) => {
+        if (!v?.length) return <span className="text-slate-300 text-xs">—</span>
+        return (
+          <div className="flex flex-col gap-0.5">
+            {v.map((u, i) => (
+              <div key={i} className="flex items-center gap-1 min-w-0">
+                {u.name && <Tag color="processing" style={{ fontSize: 10, padding: '0 4px', lineHeight: '16px', flexShrink: 0 }}>{u.name}</Tag>}
+                <Tooltip title={u.url}>
+                  <Link href={u.url} target="_blank" style={{ fontSize: 12 }} ellipsis>{u.url}</Link>
+                </Tooltip>
+              </div>
+            ))}
+          </div>
+        )
+      },
     } as ColumnsType<SystemItem>[number]] : []),
     {
       title: '操作', key: 'action', width: isAdmin ? 110 : 70, fixed: 'right',

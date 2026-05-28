@@ -4,10 +4,11 @@ import {
   Modal, Form, Tag, Avatar,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { PlusIcon } from '@heroicons/react/24/outline'
-import { TrashIcon } from '@heroicons/react/24/outline'
+import { PlusIcon, PencilSquareIcon, TrashIcon, ArrowsPointingOutIcon } from '@heroicons/react/24/outline'
 import { standaloneReqApi, StandaloneReq } from '@/api/standalone_req.api'
+import RichTextEditor from '@/components/common/RichTextEditor'
 import { userApi } from '@/api/user.api'
+import { systemApi, type SystemItem } from '@/api/system.api'
 import { PRIORITY_MAP } from '@/utils/status'
 import { showToast } from '@/utils/toast'
 import { useWorkNoToName } from '@/hooks/useWorkNoToName'
@@ -42,10 +43,31 @@ const RequirementListPage: React.FC = () => {
   const [reqStatus,   setReqStatus]   = useState<number | undefined>()
   const [reqPriority, setReqPriority] = useState<number | undefined>()
 
-  const [showCreate,   setShowCreate]   = useState(false)
-  const [reqSaving,    setReqSaving]    = useState(false)
-  const [userOptions,  setUserOptions]  = useState<{ value: string; label: string }[]>([])
+  const [showForm,       setShowForm]       = useState(false)
+  const [editTarget,     setEditTarget]     = useState<StandaloneReq | null>(null)
+  const [reqSaving,      setReqSaving]      = useState(false)
+  const [userOptions,    setUserOptions]    = useState<{ value: string; label: string }[]>([])
+  const [systemOptions,  setSystemOptions]  = useState<{ value: string; label: string }[]>([])
+  const [expandOpen,     setExpandOpen]     = useState(false)
+  const [expandDraft,    setExpandDraft]    = useState('')
   const [form] = Form.useForm()
+  const describeValue = Form.useWatch('describe', form)
+
+  const isHtml = (v: string) => /<[a-z][\s\S]*>/i.test(v)
+  const stripHtml = (html: string) => html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+
+  const handleOpenExpand = () => {
+    const current = (describeValue as string) ?? ''
+    const html = isHtml(current)
+      ? current
+      : current.trim() ? `<p>${current.replace(/\n/g, '</p><p>')}</p>` : ''
+    setExpandDraft(html)
+    setExpandOpen(true)
+  }
+  const handleConfirmExpand = () => {
+    form.setFieldValue('describe', expandDraft)
+    setExpandOpen(false)
+  }
 
   const loadReqs = useCallback(async (
     page     = 1,
@@ -66,21 +88,49 @@ const RequirementListPage: React.FC = () => {
 
   useEffect(() => { loadReqs() }, [])
 
-  const handleCreate = async (values: Record<string, unknown>) => {
+  const openCreate = () => {
+    setEditTarget(null)
+    form.resetFields()
+    loadUsers(); loadSystems()
+    setShowForm(true)
+  }
+
+  const openEdit = (r: StandaloneReq) => {
+    setEditTarget(r)
+    form.setFieldsValue({
+      req_nm:            r.req_nm,
+      system_id:         r.system_id,
+      describe:          r.describe,
+      priority:          r.priority,
+      responsible:       r.responsible,
+      expected_end_date: r.expected_end_date,
+    })
+    loadUsers(); loadSystems()
+    setShowForm(true)
+  }
+
+  const handleSave = async (values: Record<string, unknown>) => {
     setReqSaving(true)
     try {
-      await standaloneReqApi.create({
+      const payload = {
         req_nm:            values.req_nm as string,
+        system_id:         values.system_id as string,
         describe:          values.describe as string | undefined,
         priority:          values.priority as number,
         responsible:       values.responsible as string[] | undefined,
         expected_end_date: values.expected_end_date as string | undefined,
-      })
-      showToast.success('需求建立成功')
-      setShowCreate(false)
+      }
+      if (editTarget) {
+        await standaloneReqApi.update(editTarget.id, payload)
+        showToast.success('已更新')
+      } else {
+        await standaloneReqApi.create(payload)
+        showToast.success('需求建立成功')
+      }
+      setShowForm(false)
       form.resetFields()
-      loadReqs(1)
-    } catch (err: unknown) { showToast.error((err as string) || '建立失敗') }
+      loadReqs(editTarget ? reqPage : 1)
+    } catch (err: unknown) { showToast.error((err as string) || '操作失敗') }
     finally { setReqSaving(false) }
   }
 
@@ -100,10 +150,24 @@ const RequirementListPage: React.FC = () => {
     }).catch(() => {})
   }, [userOptions.length])
 
+  const loadSystems = useCallback(() => {
+    if (systemOptions.length > 0) return
+    systemApi.list({ page: 1, size: 1000 }).then((res) => {
+      const data = (res.content as { data_list?: SystemItem[] }).data_list ?? []
+      setSystemOptions(data.map((s) => ({ value: s.id, label: s.sys_nm })))
+    }).catch(() => {})
+  }, [systemOptions.length])
+
   const columns: ColumnsType<StandaloneReq> = [
     {
       title: '需求名稱', dataIndex: 'req_nm', ellipsis: true,
       render: (v: string) => <span className="font-medium text-slate-800">{v}</span>,
+    },
+    {
+      title: '關聯系統', dataIndex: 'system_nm', width: 140, ellipsis: true,
+      render: (v: string) => v
+        ? <Tag color="purple" style={{ fontSize: 11 }}>{v}</Tag>
+        : <span className="text-slate-300 text-xs">—</span>,
     },
     {
       title: '狀態', dataIndex: 'status', width: 100,
@@ -156,13 +220,16 @@ const RequirementListPage: React.FC = () => {
       render: (v: string) => <span className="text-slate-400 text-xs">{v}</span>,
     },
     {
-      title: '操作', key: 'action', width: 80, fixed: 'right',
+      title: '操作', key: 'action', width: 100, fixed: 'right',
       render: (_: unknown, r: StandaloneReq) => (
-        <Space>
+        <Space size={0}>
+          <Tooltip title="編輯">
+            <Button type="text" size="small" icon={<PencilSquareIcon className="w-4 h-4" />} onClick={() => openEdit(r)} />
+          </Tooltip>
           <Popconfirm title="確定刪除？" onConfirm={() => handleDelete(r.id)} okText="刪除" cancelText="取消" okButtonProps={{ danger: true }}>
-            <button type="button" className="text-red-400 hover:text-red-600">
-              <TrashIcon className="w-4 h-4" />
-            </button>
+            <Tooltip title="刪除">
+              <Button type="text" size="small" danger icon={<TrashIcon className="w-4 h-4" />} />
+            </Tooltip>
           </Popconfirm>
         </Space>
       ),
@@ -180,7 +247,7 @@ const RequirementListPage: React.FC = () => {
         <Button
           type="primary"
           icon={<PlusIcon className="w-4 h-4" />}
-          onClick={() => { setShowCreate(true); loadUsers() }}
+          onClick={openCreate}
           style={{ background: '#2563eb', fontWeight: 500 }}
         >
           新建需求
@@ -226,18 +293,27 @@ const RequirementListPage: React.FC = () => {
         />
       </div>
 
-      {/* Create Modal */}
+      {/* Create / Edit Modal */}
       <Modal
-        title="新建需求"
-        open={showCreate}
-        onCancel={() => { setShowCreate(false); form.resetFields() }}
+        title={editTarget ? `編輯需求 — ${editTarget.req_nm}` : '新建需求'}
+        open={showForm}
+        onCancel={() => { setShowForm(false); form.resetFields() }}
         footer={null}
         width="min(600px, 88vw)"
         destroyOnClose
       >
-        <Form form={form} layout="vertical" onFinish={handleCreate} className="mt-4">
+        <Form form={form} layout="vertical" onFinish={handleSave} className="mt-4">
           <Form.Item name="req_nm" label="需求名稱" rules={[{ required: true, message: '請輸入需求名稱' }]}>
             <Input placeholder="請輸入需求名稱" />
+          </Form.Item>
+          <Form.Item name="system_id" label="關聯系統" rules={[{ required: true, message: '請選擇關聯系統' }]}>
+            <Select
+              placeholder="選擇系統（必填）"
+              options={systemOptions}
+              showSearch
+              filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
+              onDropdownVisibleChange={(open) => { if (open) loadSystems() }}
+            />
           </Form.Item>
           <div className="grid grid-cols-2 gap-x-4">
             <Form.Item name="priority" label="優先級" rules={[{ required: true }]} initialValue={2}>
@@ -258,14 +334,64 @@ const RequirementListPage: React.FC = () => {
               onDropdownVisibleChange={(open) => { if (open) loadUsers() }}
             />
           </Form.Item>
-          <Form.Item name="describe" label="需求描述">
-            <Input.TextArea rows={4} placeholder="請描述需求內容..." />
+          <Form.Item label="需求描述">
+            <div className="flex items-center justify-between mb-1.5">
+              <span />
+              <button
+                type="button"
+                onClick={handleOpenExpand}
+                className="flex items-center gap-1 text-xs text-slate-500 hover:text-blue-600 border border-slate-200 rounded-md px-2 py-1 hover:border-blue-300 bg-white transition-colors"
+              >
+                <ArrowsPointingOutIcon className="w-3.5 h-3.5" />
+                展開富文本編輯
+              </button>
+            </div>
+            <Form.Item
+              name="describe"
+              noStyle
+              getValueProps={(v) => ({ value: v && isHtml(v) ? stripHtml(v) : (v ?? '') })}
+            >
+              <Input.TextArea
+                rows={3}
+                placeholder="請描述需求內容，或點擊右上角展開富文本編輯器..."
+                style={{ resize: 'vertical', minHeight: 72 }}
+              />
+            </Form.Item>
+            {describeValue && isHtml(describeValue as string) && (
+              <p className="text-xs text-blue-500 mt-1">已套用富文本格式，點擊「展開富文本編輯」可繼續修改</p>
+            )}
           </Form.Item>
           <div className="flex justify-end gap-3">
-            <Button onClick={() => { setShowCreate(false); form.resetFields() }}>取消</Button>
-            <Button type="primary" htmlType="submit" loading={reqSaving} style={{ background: '#2563eb' }}>建立</Button>
+            <Button onClick={() => { setShowForm(false); form.resetFields() }}>取消</Button>
+            <Button type="primary" htmlType="submit" loading={reqSaving} style={{ background: '#2563eb' }}>
+              {editTarget ? '保存' : '建立'}
+            </Button>
           </div>
         </Form>
+      </Modal>
+
+      {/* 描述展開編輯 Modal */}
+      <Modal
+        open={expandOpen}
+        title="需求描述"
+        onCancel={() => setExpandOpen(false)}
+        width="80vw"
+        style={{ top: 40, maxWidth: 1100 }}
+        styles={{ body: { padding: '16px 24px 24px' } }}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button onClick={() => setExpandOpen(false)}>取消</Button>
+            <Button type="primary" onClick={handleConfirmExpand} style={{ background: '#2563eb' }}>完成</Button>
+          </div>
+        }
+        destroyOnClose
+      >
+        <RichTextEditor
+          value={expandDraft}
+          onChange={setExpandDraft}
+          placeholder="請輸入需求描述..."
+          minHeight={480}
+        />
       </Modal>
     </div>
   )
