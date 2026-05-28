@@ -11,12 +11,23 @@ def push_notification(recipients: list, title: str, desc: str = "",
     """
     批量写入平台通知记录，并异步触发钉钉推送（均为 best-effort）。
     须在主事务 commit 之后调用，以避免嵌套事务问题。
+
+    优先通过 Celery 异步执行（deliver_notification task），
+    Celery 不可用时自动降级为同步写入 + 钉钉推送。
     """
     clean = [str(wn).strip().upper() for wn in recipients if wn]
     if not clean:
         return
 
-    # ── 1. 写入平台通知表 ─────────────────────────────────────────────────
+    # ── 优先：Celery 异步入队（立即返回，不阻塞请求）────────────────────
+    try:
+        from tasks.notification_tasks import deliver_notification
+        deliver_notification.delay(clean, title, desc, link_type, link_id or "")
+        return
+    except Exception:
+        pass  # Celery 未启动或 import 失败，降级到同步模式
+
+    # ── 降级：同步写入平台通知表 ─────────────────────────────────────────
     try:
         for wn in clean:
             db.session.add(NotificationModel(
@@ -33,12 +44,12 @@ def push_notification(recipients: list, title: str, desc: str = "",
         except Exception:
             pass
 
-    # ── 2. 异步推送钉钉消息 ───────────────────────────────────────────────
+    # ── 降级：同步触发钉钉推送（Celery task 仍可异步）───────────────────
     try:
         from tasks.dingtalk_tasks import send_dingtalk_notification
         send_dingtalk_notification.delay(clean, title, desc)
     except Exception:
-        pass  # Celery 未启动或配置缺失时静默跳过
+        pass
 
 
 # ─── Controller（REST 接口层调用）──────────────────────────────────────────────

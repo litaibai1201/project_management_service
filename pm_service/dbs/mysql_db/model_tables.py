@@ -327,6 +327,11 @@ class FunctionDataModel(BaseMixinModel):
     priority = db.Column(db.Integer, default=2)
     # 0=草稿(待審核) 1=待开始 2=进行中 3=完结审核 4=已完结 8=搁置 9=删除
     function_status = db.Column(db.Integer, default=1)
+
+    __table_args__ = (
+        # 最常见过滤组合：status=1 AND function_status in (...)
+        db.Index('ix_func_status_fstatus', 'status', 'function_status'),
+    )
     progress = db.Column(db.Integer, default=0)
     expected_start_date = db.Column(db.String(10))
     expected_end_date = db.Column(db.String(10))
@@ -378,6 +383,13 @@ class ProgressRecordDataModel(BaseMixinModel):
     time_consum = db.Column(db.Float, default=0)
     is_read = db.Column(db.Integer, default=0)
     files_json = db.Column(db.Text, comment="附件信息(JSON数组)")
+
+    __table_args__ = (
+        # 批量查提交人工时/进度记录（get_progress_report / get_anomalies）
+        db.Index('ix_prog_rec_submitter', 'submitter'),
+        # 异常检测：function_id IN [...] AND created_at >= 7天前
+        db.Index('ix_prog_rec_func_created', 'function_id', 'created_at'),
+    )
 
     def to_dict(self):
         coops = []
@@ -450,6 +462,13 @@ class ReviewApplyModel(BaseMixinModel):
     reviewer = db.Column(db.Text, comment="审核人工号(JSON数组)")
     # 1=待审 2=通过 3=拒绝 4=退回
     apply_status = db.Column(db.Integer, default=1)
+
+    __table_args__ = (
+        # 我提交的审核列表
+        db.Index('ix_review_submitter', 'submitter'),
+        # 专案维度查审核（get_review_list）
+        db.Index('ix_review_project_status', 'project_id', 'apply_status'),
+    )
     priority = db.Column(db.Integer, default=2)
     description = db.Column(db.Text)
     approval_nodes_json = db.Column(db.Text, comment="审批节点(JSON)")
@@ -498,6 +517,11 @@ class TemporaryDutyModel(BaseMixinModel):
     responsible = db.Column(db.Text, comment="负责人工号(JSON数组)")
     # 0=草稿 1=进行中 2=完结审核 3=已完结 8=搁置 9=删除
     duty_status = db.Column(db.Integer, default=0)
+
+    __table_args__ = (
+        # 最常见过滤组合：status=1 AND duty_status != 9
+        db.Index('ix_duty_status_dstatus', 'status', 'duty_status'),
+    )
     priority = db.Column(db.Integer, default=2)
     progress = db.Column(db.Integer, default=0)
     group = db.Column(db.String(64), comment="任务分组(用户自定义)")
@@ -552,6 +576,13 @@ class DutyProgressRecordModel(BaseMixinModel):
     start_time = db.Column(db.String(10))
     is_read = db.Column(db.Integer, default=0)
     files_json = db.Column(db.Text, comment="附件信息(JSON数组)")
+
+    __table_args__ = (
+        # 批量查提交人临时任务工时（get_progress_report）
+        db.Index('ix_duty_prog_submitter', 'submitter'),
+        # 日期范围过滤（get_progress_report start_date/end_date）
+        db.Index('ix_duty_prog_created', 'created_at'),
+    )
 
     def to_dict(self):
         coops = []

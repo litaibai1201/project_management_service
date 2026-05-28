@@ -298,7 +298,7 @@ const ProjectDetailPage: React.FC = () => {
         await requirementApi.update(id, editReq.id, values as Parameters<typeof requirementApi.update>[2])
         showToast.success('需求已更新')
       } else {
-        await requirementApi.create(id, values as Parameters<typeof requirementApi.create>[1])
+        await requirementApi.create(id, values as unknown as Parameters<typeof requirementApi.create>[1])
         showToast.success('需求已新增')
       }
       setShowAddReq(false)

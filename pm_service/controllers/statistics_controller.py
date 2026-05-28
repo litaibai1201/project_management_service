@@ -7,10 +7,12 @@ from dbs.mysql_db.model_tables import (
     UserProfileModel, FunctionDataModel, TemporaryDutyModel,
     ProgressRecordDataModel, DutyProgressRecordModel,
 )
+from utils.cache_decorator import cache_result, method_key_builder
 
 
 class StatisticsController:
 
+    @cache_result(ttl=120, key_prefix="member_stats", key_builder=method_key_builder)
     def get_member_stats(self, work_no: str, start_date: str = None, end_date: str = None):
         """
         获取当前用户下属的工作统计。
@@ -40,10 +42,73 @@ class StatisticsController:
             )
 
         member_work_nos = {u.work_no for u in users}
+        all_wns = list(member_work_nos)
+
+        # ── 批量预加载：功能任务（MySQL）──────────────────────────
+        from collections import defaultdict
+        func_conds = [FunctionDataModel.responsible.like(f'%"{wn}"%') for wn in all_wns]
+        all_funcs_pre = db.session.query(FunctionDataModel).filter(
+            FunctionDataModel.status == 1,
+            db.or_(*func_conds),
+        ).all() if func_conds else []
+        funcs_by_user: dict = defaultdict(list)
+        for f in all_funcs_pre:
+            try:
+                resp = json.loads(f.responsible) if f.responsible else []
+            except (ValueError, TypeError):
+                resp = []
+            for wn in resp:
+                if wn in member_work_nos:
+                    funcs_by_user[wn].append(f)
+
+        # ── 批量预加载：临时任务（MySQL）──────────────────────────
+        duty_conds = [TemporaryDutyModel.responsible.like(f'%"{wn}"%') for wn in all_wns]
+        all_duties_pre = db.session.query(TemporaryDutyModel).filter(
+            TemporaryDutyModel.status == 1,
+            db.or_(*duty_conds),
+        ).all() if duty_conds else []
+        duties_by_user: dict = defaultdict(list)
+        for d in all_duties_pre:
+            try:
+                resp = json.loads(d.responsible) if d.responsible else []
+            except (ValueError, TypeError):
+                resp = []
+            for wn in resp:
+                if wn in member_work_nos:
+                    duties_by_user[wn].append(d)
+
+        # ── 批量预加载：日报（MongoDB）────────────────────────────
+        from dbs.mongo_db.client import mongo_client
+        col = mongo_client.db["daily_logs"]
+        today_str = datetime.today().strftime("%Y-%m-%d")
+
+        today_logs_by_user: dict = {}
+        for lg in col.find(
+            {"work_no": {"$in": all_wns}, "log_date": today_str},
+            {"work_no": 1, "log_date": 1, "log_status": 1, "_id": 0},
+        ):
+            today_logs_by_user[lg["work_no"]] = lg
+
+        log_q: dict = {"work_no": {"$in": all_wns}}
+        if start_date or end_date:
+            log_q["log_date"] = {}
+            if start_date:
+                log_q["log_date"]["$gte"] = start_date
+            if end_date:
+                log_q["log_date"]["$lte"] = end_date
+        logs_by_user: dict = defaultdict(list)
+        for lg in col.find(log_q, {"work_no": 1, "log_date": 1, "total_hours": 1, "_id": 0}):
+            logs_by_user[lg["work_no"]].append(lg)
 
         members = []
         for user in users:
-            stat = self._build_member_stat(user, start_date, end_date)
+            stat = self._build_member_stat(
+                user, start_date, end_date,
+                funcs=funcs_by_user[user.work_no],
+                duties=duties_by_user[user.work_no],
+                today_log=today_logs_by_user.get(user.work_no),
+                logs=logs_by_user[user.work_no],
+            )
             members.append(stat)
 
         # ── 团队汇总（按任务ID去重，不重复计数） ─────────────────────────
@@ -104,10 +169,11 @@ class StatisticsController:
         from dbs.mongo_db.client import mongo_client
         col = mongo_client.db["daily_logs"]
         total_hours = 0.0
-        for wn in member_work_nos:
-            logs = col.find({"work_no": wn})
-            for lg in logs:
-                total_hours += float(lg.get("total_hours") or 0)
+        for lg in col.find(
+            {"work_no": {"$in": list(member_work_nos)}},
+            {"total_hours": 1, "_id": 0},
+        ):
+            total_hours += float(lg.get("total_hours") or 0)
 
         return {
             "total_hours": round(total_hours, 1),
@@ -116,15 +182,19 @@ class StatisticsController:
             "overdue_tasks": len(overdue),
         }
 
-    def _build_member_stat(self, user: UserProfileModel, start_date, end_date):
+    def _build_member_stat(self, user: UserProfileModel, start_date, end_date,
+                           funcs=None, duties=None, today_log=None, logs=None):
         work_no = user.work_no
         today = datetime.today().date()
 
         # ── 功能任务统计 ───────────────────────────────────────────────
-        all_funcs = db.session.query(FunctionDataModel).filter(
-            FunctionDataModel.status == 1,
-            FunctionDataModel.responsible.like(f'%"{work_no}"%'),
-        ).all()
+        if funcs is None:
+            all_funcs = db.session.query(FunctionDataModel).filter(
+                FunctionDataModel.status == 1,
+                FunctionDataModel.responsible.like(f'%"{work_no}"%'),
+            ).all()
+        else:
+            all_funcs = funcs
 
         completed_tasks = 0
         in_progress_tasks = 0
@@ -156,10 +226,13 @@ class StatisticsController:
                         pass
 
         # ── 临时任务统计 ──────────────────────────────────────────────
-        all_duties = db.session.query(TemporaryDutyModel).filter(
-            TemporaryDutyModel.status == 1,
-            TemporaryDutyModel.responsible.like(f"%{work_no}%"),
-        ).all()
+        if duties is None:
+            all_duties = db.session.query(TemporaryDutyModel).filter(
+                TemporaryDutyModel.status == 1,
+                TemporaryDutyModel.responsible.like(f"%{work_no}%"),
+            ).all()
+        else:
+            all_duties = duties
 
         for d in all_duties:
             resp = json.loads(d.responsible) if d.responsible else []
@@ -184,21 +257,25 @@ class StatisticsController:
                         pass
 
         # ── 今日日报是否提交（MongoDB） ────────────────────────────────
-        from dbs.mongo_db.client import mongo_client
-        col = mongo_client.db["daily_logs"]
-        today_str = today.strftime("%Y-%m-%d")
-        today_log = col.find_one({"work_no": work_no, "log_date": today_str})
+        if today_log is None:
+            from dbs.mongo_db.client import mongo_client
+            col = mongo_client.db["daily_logs"]
+            today_str = today.strftime("%Y-%m-%d")
+            today_log = col.find_one({"work_no": work_no, "log_date": today_str})
         log_submitted = today_log is not None and int(today_log.get("log_status") or 0) >= 2
 
         # ── 工时统计（MongoDB） ────────────────────────────────────────
-        log_query: dict = {"work_no": work_no}
-        if start_date or end_date:
-            log_query["log_date"] = {}
-            if start_date:
-                log_query["log_date"]["$gte"] = start_date
-            if end_date:
-                log_query["log_date"]["$lte"] = end_date
-        logs = list(col.find(log_query))
+        if logs is None:
+            from dbs.mongo_db.client import mongo_client
+            col = mongo_client.db["daily_logs"]
+            log_query: dict = {"work_no": work_no}
+            if start_date or end_date:
+                log_query["log_date"] = {}
+                if start_date:
+                    log_query["log_date"]["$gte"] = start_date
+                if end_date:
+                    log_query["log_date"]["$lte"] = end_date
+            logs = list(col.find(log_query))
         total_hours = round(sum(float(lg.get("total_hours") or 0) for lg in logs), 1)
 
         # ── 按周聚合工时 ──────────────────────────────────────────────
@@ -330,11 +407,13 @@ class StatisticsController:
         weekly_map[week_key]["total"]    = round(weekly_map[week_key]["total"]    + hours,    1)
         weekly_map[week_key]["overtime"] = round(weekly_map[week_key]["overtime"] + ot_hours, 1)
 
+    @cache_result(ttl=120, key_prefix="progress_report", key_builder=method_key_builder)
     def get_progress_report(self, work_no: str, start_date: str, end_date: str):
         """
         进度报告：按日期范围返回每位成员的工作汇整。
         数据来源：MongoDB daily_logs（日报）+ MySQL 任务状态。
         """
+        from collections import defaultdict
         from controllers.user_controller import UserController
         from dbs.mysql_db.model_tables import ProjectDataModel
         from dbs.mongo_db.client import mongo_client
@@ -344,80 +423,145 @@ class StatisticsController:
         sub_work_nos = [s["work_no"] for s in subordinates]
 
         if sub_work_nos:
-            users = db.session.query(UserProfileModel).filter(
+            users = db.session.query(UserProfileModel.work_no, UserProfileModel.name).filter(
                 UserProfileModel.work_no.in_(sub_work_nos), UserProfileModel.status == 1
             ).all()
         else:
-            users = db.session.query(UserProfileModel).filter(
+            users = db.session.query(UserProfileModel.work_no, UserProfileModel.name).filter(
                 UserProfileModel.status == 1, UserProfileModel.work_no != work_no
             ).all()
 
+        if not users:
+            return []
+
         today = datetime.today().date()
-
-        # 项目名称缓存
-        proj_cache: dict = {}
-        def _proj_name(pid: str) -> str:
-            if pid not in proj_cache:
-                p = db.session.query(ProjectDataModel).filter_by(id=pid).first()
-                proj_cache[pid] = p.project_nm if p else "未知專案"
-            return proj_cache[pid]
-
-        CATEGORY_LABEL = {
-            "project": "專案任務", "duty": "臨時任務",
-            "meeting": "會議", "training": "培訓",
-            "cr_ar": "CR/AR", "other": "其他",
-        }
-
+        all_wns = [u.work_no for u in users]
+        wns_set = set(all_wns)
+        end_dt_str = (end_date + " 23:59:59") if end_date else None
         col = mongo_client.db["daily_logs"]
 
+        # ── 批量预加载：进度记录（MySQL）─────────────────────────
+        _base_prog = db.session.query(ProgressRecordDataModel)
+        _base_duty = db.session.query(DutyProgressRecordModel)
+        if start_date:
+            _base_prog = _base_prog.filter(ProgressRecordDataModel.created_at >= start_date)
+            _base_duty = _base_duty.filter(DutyProgressRecordModel.created_at >= start_date)
+        if end_dt_str:
+            _base_prog = _base_prog.filter(ProgressRecordDataModel.created_at <= end_dt_str)
+            _base_duty = _base_duty.filter(DutyProgressRecordModel.created_at <= end_dt_str)
+
+        _coop_prog = [ProgressRecordDataModel.cooperator.like(f'%"{wn}"%') for wn in all_wns]
+        _coop_duty = [DutyProgressRecordModel.cooperator.like(f'%"{wn}"%') for wn in all_wns]
+        all_prog_recs = _base_prog.filter(
+            db.or_(ProgressRecordDataModel.submitter.in_(all_wns), *_coop_prog)
+        ).all()
+        all_duty_prog_recs = _base_duty.filter(
+            db.or_(DutyProgressRecordModel.submitter.in_(all_wns), *_coop_duty)
+        ).all()
+
+        prog_by_user: dict = defaultdict(list)
+        duty_prog_by_user: dict = defaultdict(list)
+        for r in all_prog_recs:
+            if r.submitter in wns_set:
+                prog_by_user[r.submitter].append(r)
+            try:
+                for co in (json.loads(r.cooperator) if r.cooperator else []):
+                    if co in wns_set and co != r.submitter:
+                        prog_by_user[co].append(r)
+            except (ValueError, TypeError):
+                pass
+        for r in all_duty_prog_recs:
+            if r.submitter in wns_set:
+                duty_prog_by_user[r.submitter].append(r)
+            try:
+                for co in (json.loads(r.cooperator) if r.cooperator else []):
+                    if co in wns_set and co != r.submitter:
+                        duty_prog_by_user[co].append(r)
+            except (ValueError, TypeError):
+                pass
+
+        # ── 批量预加载：日报（MongoDB）────────────────────────────
+        log_q: dict = {"work_no": {"$in": all_wns}, "status": 1}
+        if start_date or end_date:
+            log_q["log_date"] = {}
+            if start_date:
+                log_q["log_date"]["$gte"] = start_date
+            if end_date:
+                log_q["log_date"]["$lte"] = end_date
+        logs_by_user: dict = defaultdict(list)
+        _prog_report_proj = {
+            "work_no": 1, "log_id": 1, "log_date": 1, "total_hours": 1,
+            "log_status": 1, "task_items": 1, "free_items": 1, "remark": 1, "_id": 0,
+        }
+        for lg in col.find(log_q, _prog_report_proj).sort("log_date", -1):
+            logs_by_user[lg["work_no"]].append(lg)
+
+        # ── 批量预加载：功能任务（MySQL）──────────────────────────
+        func_conds = [FunctionDataModel.responsible.like(f'%"{wn}"%') for wn in all_wns]
+        all_funcs_pre = db.session.query(FunctionDataModel).filter(
+            FunctionDataModel.status == 1,
+            db.or_(*func_conds),
+        ).all() if func_conds else []
+
+        funcs_by_user: dict = defaultdict(list)
+        for f in all_funcs_pre:
+            try:
+                resp = json.loads(f.responsible) if f.responsible else []
+            except (ValueError, TypeError):
+                resp = []
+            for wn in resp:
+                if wn in wns_set:
+                    funcs_by_user[wn].append(f)
+
+        # ── 批量预加载：临时任务（MySQL）──────────────────────────
+        duty_conds = [TemporaryDutyModel.responsible.like(f'%"{wn}"%') for wn in all_wns]
+        all_duties_pre = db.session.query(TemporaryDutyModel).filter(
+            TemporaryDutyModel.status == 1,
+            TemporaryDutyModel.duty_status != 9,
+            db.or_(*duty_conds),
+        ).all() if duty_conds else []
+
+        duties_by_user: dict = defaultdict(list)
+        for d in all_duties_pre:
+            try:
+                resp = json.loads(d.responsible) if d.responsible else []
+            except (ValueError, TypeError):
+                resp = []
+            for wn in resp:
+                if wn in wns_set:
+                    duties_by_user[wn].append(d)
+
+        # ── 批量预加载：专案名称（MySQL）──────────────────────────
+        all_proj_ids = {f.project_id for f in all_funcs_pre if f.project_id}
+        all_proj_ids |= {d.project_id for d in all_duties_pre if getattr(d, "project_id", None)}
+        proj_cache: dict = {}
+        if all_proj_ids:
+            projects = db.session.query(ProjectDataModel).filter(
+                ProjectDataModel.id.in_(all_proj_ids)
+            ).all()
+            proj_cache = {p.id: p.project_nm for p in projects}
+
+        def _proj_name(pid: str) -> str:
+            return proj_cache.get(pid, "未知專案")
+
+        # ── 按用户处理（全部使用预加载数据，零额外 SQL）────────────
         result = []
         for user in users:
             wn = user.work_no
 
-            # ── 进度记录（MySQL）：工时 + 更新次数（含合作者） ──────
-            prog_q = db.session.query(ProgressRecordDataModel).filter(
-                db.or_(
-                    ProgressRecordDataModel.submitter == wn,
-                    ProgressRecordDataModel.cooperator.like(f'%"{wn}"%'),
-                ),
-            )
-            duty_prog_q = db.session.query(DutyProgressRecordModel).filter(
-                db.or_(
-                    DutyProgressRecordModel.submitter == wn,
-                    DutyProgressRecordModel.cooperator.like(f'%"{wn}"%'),
-                ),
-            )
-            if start_date:
-                prog_q      = prog_q.filter(ProgressRecordDataModel.created_at >= start_date)
-                duty_prog_q = duty_prog_q.filter(DutyProgressRecordModel.created_at >= start_date)
-            if end_date:
-                prog_q      = prog_q.filter(ProgressRecordDataModel.created_at <= end_date + " 23:59:59")
-                duty_prog_q = duty_prog_q.filter(DutyProgressRecordModel.created_at <= end_date + " 23:59:59")
-            prog_recs      = prog_q.all()
-            duty_prog_recs  = duty_prog_q.all()
+            prog_recs      = prog_by_user[wn]
+            duty_prog_recs = duty_prog_by_user[wn]
+            logs           = logs_by_user[wn]
 
-            updates_count = len(prog_recs) + len(duty_prog_recs)
-            period_hours  = round(
-                sum(float(r.time_consum or 0) for r in prog_recs) +
-                sum(float(r.time_consum or 0) for r in duty_prog_recs),
-                1,
-            )
-
-            # ── 日报原始数据（MongoDB） ─────────────────────────────
-            log_query: dict = {"work_no": wn, "status": 1}
-            if start_date or end_date:
-                log_query["log_date"] = {}
-                if start_date:
-                    log_query["log_date"]["$gte"] = start_date
-                if end_date:
-                    log_query["log_date"]["$lte"] = end_date
-            logs = list(col.find(log_query).sort("log_date", -1))
+            period_hours = round(sum(float(lg.get("total_hours") or 0) for lg in logs), 1)
 
             # 返回原始日报详情列表（与 daily_log API 的 _to_detail 格式一致）
             daily_logs = []
+            updates_count = 0
             for lg in logs:
                 task_items = lg.get("task_items") or []
                 free_items = lg.get("free_items") or []
+                updates_count += len(task_items) + len(free_items)
                 daily_logs.append({
                     "log_id":      lg.get("log_id", ""),
                     "work_no":     wn,
@@ -443,14 +587,7 @@ class StatisticsController:
                     if fid:
                         func_hours[fid] = func_hours.get(fid, 0) + float(t.get("work_hours") or 0)
 
-            all_funcs = db.session.query(FunctionDataModel).filter(
-                FunctionDataModel.status == 1,
-                FunctionDataModel.responsible.like(f'%"{wn}"%'),
-            ).all()
-            for f in all_funcs:
-                resp = json.loads(f.responsible) if f.responsible else []
-                if wn not in resp:
-                    continue
+            for f in funcs_by_user[wn]:
                 proj_nm = _proj_name(f.project_id)
                 s = f.function_status or 0
                 f_start = f.expected_start_date or ""
@@ -518,6 +655,84 @@ class StatisticsController:
                             "expected_end_date": f_end,
                         })
 
+            # ── 临时任务状态 ──────────────────────────────────────────
+            duty_hours: dict = {}
+            for r in duty_prog_recs:
+                did = r.duty_id or ""
+                if did:
+                    duty_hours[did] = round(duty_hours.get(did, 0) + float(r.time_consum or 0), 1)
+
+            for d in duties_by_user[wn]:
+                resp = json.loads(d.responsible) if d.responsible else []
+                if wn not in resp:
+                    continue
+                proj_nm = _proj_name(d.project_id) if getattr(d, "project_id", None) else "臨時任務"
+                s = d.duty_status or 0
+                d_start = str(d.expected_start_date or "")
+                d_end = str(d.latest_expected_end_date or d.expected_end_date or "")
+                d_actual_end = str(d.end_time or "")[:10]
+                task_hours = round(duty_hours.get(d.id, 0), 1)
+
+                if s == 3:
+                    # 已完結：仅显示在本期内完成的
+                    if d_actual_end and start_date <= d_actual_end <= end_date:
+                        completed_list.append({
+                            "id": d.id, "name": d.duty_nm, "project": proj_nm,
+                            "type": "duty",
+                            "completed_at": d_actual_end,
+                            "hours": task_hours,
+                            "expected_start_date": d_start,
+                            "expected_end_date": d_end,
+                        })
+                elif s in (1, 2):
+                    # 进行中 / 待审核
+                    days_left = 999
+                    task_status = "normal"
+                    if d_end:
+                        try:
+                            end_dt = datetime.strptime(d_end, "%Y-%m-%d").date()
+                            days_left = (end_dt - today).days
+                            if days_left < 0:
+                                task_status = "overdue"
+                                overdue_list.append({
+                                    "id": d.id, "name": d.duty_nm,
+                                    "project": proj_nm, "days_overdue": abs(days_left),
+                                })
+                            elif days_left <= 3:
+                                task_status = "urgent"
+                        except ValueError:
+                            pass
+                    in_progress_list.append({
+                        "id": d.id, "name": d.duty_nm, "project": proj_nm,
+                        "progress": 0, "days_left": days_left,
+                        "status": task_status,
+                        "expected_start_date": d_start,
+                        "expected_end_date": d_end,
+                        "hours": task_hours,
+                    })
+                elif s == 0:
+                    # 未开始：仅显示预计开始时间在本期范围内的
+                    if d_start and start_date <= d_start <= end_date:
+                        days_left = 999
+                        task_status = "normal"
+                        if d_end:
+                            try:
+                                end_dt = datetime.strptime(d_end, "%Y-%m-%d").date()
+                                days_left = (end_dt - today).days
+                                if days_left < 0:
+                                    task_status = "overdue"
+                                elif days_left <= 3:
+                                    task_status = "urgent"
+                            except ValueError:
+                                pass
+                        not_started_list.append({
+                            "id": d.id, "name": d.duty_nm, "project": proj_nm,
+                            "progress": 0, "days_left": days_left,
+                            "status": task_status,
+                            "expected_start_date": d_start,
+                            "expected_end_date": d_end,
+                        })
+
             result.append({
                 "work_no":       wn,
                 "name":          user.name,
@@ -532,6 +747,7 @@ class StatisticsController:
 
         return result
 
+    @cache_result(ttl=180, key_prefix="anomalies", key_builder=method_key_builder)
     def get_anomalies(self, work_no: str):
         """
         异常管理看板：自动检测所有下属的异常项目。
@@ -544,6 +760,7 @@ class StatisticsController:
         - project_delay:      专案整体进度落后
         - delay_no_report:    超期任务近7天无进度记录
         """
+        from collections import defaultdict
         from controllers.user_controller import UserController
         from dbs.mysql_db.model_tables import ProjectDataModel, ProgressRecordDataModel
         from dbs.mongo_db.client import mongo_client
@@ -553,30 +770,83 @@ class StatisticsController:
         sub_work_nos = [s["work_no"] for s in subordinates]
 
         if sub_work_nos:
-            users = db.session.query(UserProfileModel).filter(
+            users = db.session.query(UserProfileModel.work_no, UserProfileModel.name).filter(
                 UserProfileModel.work_no.in_(sub_work_nos), UserProfileModel.status == 1
             ).all()
         else:
-            users = db.session.query(UserProfileModel).filter(
+            users = db.session.query(UserProfileModel.work_no, UserProfileModel.name).filter(
                 UserProfileModel.status == 1, UserProfileModel.work_no != work_no
             ).all()
 
         name_map = {u.work_no: u.name for u in users}
         user_work_nos = [u.work_no for u in users]
+        wns_set = set(user_work_nos)
         today = datetime.today().date()
         today_str = today.strftime("%Y-%m-%d")
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         urgent_threshold = today + timedelta(days=3)
+        seven_days_ago = (today - timedelta(days=7)).strftime("%Y-%m-%d")
         week_start = today - timedelta(days=today.weekday())
         week_start_str = week_start.strftime("%Y-%m-%d")
 
-        # 项目名称缓存
+        # ── 批量预加载：功能任务 ──────────────────────────────────────
+        all_funcs = db.session.query(FunctionDataModel).filter(
+            FunctionDataModel.status == 1,
+            FunctionDataModel.function_status.in_([1, 2, 3]),
+        ).all()
+
+        # ── 批量预加载：专案名称（MySQL）─────────────────────────────
+        all_proj_ids = {f.project_id for f in all_funcs if f.project_id}
         proj_cache: dict = {}
+        if all_proj_ids:
+            for p in db.session.query(ProjectDataModel).filter(
+                ProjectDataModel.id.in_(all_proj_ids)
+            ).all():
+                proj_cache[p.id] = p.project_nm
+
         def _proj_name(pid: str) -> str:
-            if pid not in proj_cache:
-                p = db.session.query(ProjectDataModel).filter_by(id=pid).first()
-                proj_cache[pid] = p.project_nm if p else "未知專案"
-            return proj_cache[pid]
+            return proj_cache.get(pid, "未知專案")
+
+        # ── 批量预加载：近7天进度记录（MySQL）────────────────────────
+        # 用于 delay_no_report（按 function_id+submitter）和 progress_stalled（按 function_id）
+        func_ids = [f.id for f in all_funcs]
+        recent_by_func_submitter: set = set()   # (function_id, submitter)
+        funcs_with_recent: set = set()           # function_id
+        if func_ids:
+            recent_recs = db.session.query(
+                ProgressRecordDataModel.function_id,
+                ProgressRecordDataModel.submitter,
+            ).filter(
+                ProgressRecordDataModel.function_id.in_(func_ids),
+                ProgressRecordDataModel.created_at >= seven_days_ago,
+            ).all()
+            for func_id, submitter in recent_recs:
+                recent_by_func_submitter.add((func_id, submitter))
+                funcs_with_recent.add(func_id)
+
+        # ── 批量预加载：日报（MongoDB）────────────────────────────────
+        col = mongo_client.db["daily_logs"]
+
+        # 今日已提交日报的 work_no 集合（1 次查询）
+        submitted_today: set = set()
+        if user_work_nos:
+            for lg in col.find(
+                {"work_no": {"$in": user_work_nos}, "log_date": today_str, "status": 1},
+                {"work_no": 1},
+            ):
+                submitted_today.add(lg["work_no"])
+
+        # 本周工时（1 次查询，按 work_no 汇总）
+        week_hours_by_user: dict = defaultdict(float)
+        if today.weekday() >= 2 and user_work_nos:
+            for lg in col.find(
+                {
+                    "work_no": {"$in": user_work_nos},
+                    "log_date": {"$gte": week_start_str, "$lte": today_str},
+                },
+                {"work_no": 1, "total_hours": 1, "_id": 0},
+            ):
+                week_hours_by_user[lg["work_no"]] += float(lg.get("total_hours") or 0)
 
         anomalies = []
         idx = 0
@@ -596,14 +866,9 @@ class StatisticsController:
             })
 
         # ── 1. 任务异常（超期 / 即将超期 / 进度停滞） ──────────────────
-        all_funcs = db.session.query(FunctionDataModel).filter(
-            FunctionDataModel.status == 1,
-            FunctionDataModel.function_status.in_([1, 2, 3]),
-        ).all()
-
         for f in all_funcs:
             resp = json.loads(f.responsible) if f.responsible else []
-            matched = [w for w in resp if w in user_work_nos]
+            matched = [w for w in resp if w in wns_set]
             if not matched:
                 continue
             proj_nm = _proj_name(f.project_id)
@@ -624,14 +889,8 @@ class StatisticsController:
                          f"任務「{f.function_nm}」預計 {end} 完成，已超期 {days_over} 天",
                          member_wn=wn, project=proj_nm, task=f.function_nm, value=days_over)
 
-                    # delay_no_report: 超期但近7天无进度记录
-                    seven_days_ago = (today - timedelta(days=7)).strftime("%Y-%m-%d")
-                    recent = db.session.query(ProgressRecordDataModel).filter(
-                        ProgressRecordDataModel.function_id == f.id,
-                        ProgressRecordDataModel.submitter == wn,
-                        ProgressRecordDataModel.created_at >= seven_days_ago,
-                    ).count()
-                    if recent == 0:
+                    # delay_no_report: 超期但近7天无进度记录（使用预加载集合）
+                    if (f.id, wn) not in recent_by_func_submitter:
                         _add("delay_no_report", "critical",
                              f"{member_nm} 超期任務 7 天未更新進度",
                              f"任務「{f.function_nm}」已超期且近 7 天無進度記錄",
@@ -644,42 +903,32 @@ class StatisticsController:
                          f"任務「{f.function_nm}」預計 {end} 完成，僅剩 {days_left} 天",
                          member_wn=wn, project=proj_nm, task=f.function_nm, value=days_left)
 
-            # progress_stalled: 进行中但7天无更新（只检查一次，不按成员）
-            if f.function_status in (2, 3):
-                seven_days_ago = (today - timedelta(days=7)).strftime("%Y-%m-%d")
-                recent_any = db.session.query(ProgressRecordDataModel).filter(
-                    ProgressRecordDataModel.function_id == f.id,
-                    ProgressRecordDataModel.created_at >= seven_days_ago,
-                ).count()
-                if recent_any == 0 and matched:
-                    wn0 = matched[0]
-                    _add("progress_stalled", "warning",
-                         f"任務「{f.function_nm}」進度停滯",
-                         f"任務已進行中但近 7 天無人提交進度更新",
-                         member_wn=wn0, project=proj_nm, task=f.function_nm)
+            # progress_stalled: 进行中但7天无更新（使用预加载集合）
+            if f.function_status in (2, 3) and f.id not in funcs_with_recent and matched:
+                wn0 = matched[0]
+                _add("progress_stalled", "warning",
+                     f"任務「{f.function_nm}」進度停滯",
+                     f"任務已進行中但近 7 天無人提交進度更新",
+                     member_wn=wn0, project=proj_nm, task=f.function_nm)
 
-        # ── 2. 日报异常（今日未填） ────────────────────────────────────
-        col = mongo_client.db["daily_logs"]
+        # ── 2. 日报异常（今日未填，使用预加载集合）──────────────────────
         for wn in user_work_nos:
-            has_log = col.count_documents({"work_no": wn, "log_date": today_str, "status": 1}, limit=1)
-            if not has_log:
+            if wn not in submitted_today:
                 _add("no_daily_log", "info",
                      f"{name_map.get(wn, wn)} 今日尚未填寫日報",
                      f"截至目前未提交 {today_str} 的工作日誌",
                      member_wn=wn)
 
-        # ── 3. 工时不足（本周 < 标准工时） ─────────────────────────────
-        # 只在周三之后检查，给成员时间填写
+        # ── 3. 工时不足（使用预加载汇总）─────────────────────────────
         if today.weekday() >= 2:
-            standard_hours = (today.weekday() + 1) * 8  # 按已过天数计算应有工时
+            standard_hours = (today.weekday() + 1) * 8
             for wn in user_work_nos:
-                logs = list(col.find({"work_no": wn, "log_date": {"$gte": week_start_str, "$lte": today_str}}))
-                week_hours = sum(float(lg.get("total_hours") or 0) for lg in logs)
-                if week_hours < standard_hours * 0.6:  # 低于应有工时的60%才报
+                week_hours = round(week_hours_by_user[wn], 1)
+                if week_hours < standard_hours * 0.6:
                     _add("insufficient_hours", "warning",
                          f"{name_map.get(wn, wn)} 本週工時不足",
-                         f"本週已記錄 {round(week_hours, 1)}h，預期至少 {round(standard_hours * 0.6, 1)}h",
-                         member_wn=wn, value=round(week_hours, 1))
+                         f"本週已記錄 {week_hours}h，預期至少 {round(standard_hours * 0.6, 1)}h",
+                         member_wn=wn, value=week_hours)
 
         # ── 4. 专案Delay ──────────────────────────────────────────────
         active_projects = db.session.query(ProjectDataModel).filter(
@@ -697,7 +946,7 @@ class StatisticsController:
             if end_dt < today:
                 days_over = (today - end_dt).days
                 pm_wn = p.project_pm
-                if pm_wn in user_work_nos or not sub_work_nos:
+                if pm_wn in wns_set or not sub_work_nos:
                     _add("project_delay", "critical",
                          f"專案「{p.project_nm}」已 Delay {days_over} 天",
                          f"預計 {end} 結案，已超期 {days_over} 天",

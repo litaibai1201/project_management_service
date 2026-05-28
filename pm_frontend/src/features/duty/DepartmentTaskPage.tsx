@@ -157,7 +157,6 @@ const KanbanColumn: React.FC<{
 
 const DepartmentTaskPage: React.FC = () => {
   const workNo      = useAppSelector((s) => s.auth.workNo) ?? ''
-  const isSupervisor = useAppSelector((s) => s.auth.isSupervisor)
   const toName      = useWorkNoToName()
 
   const [tasks,    setTasks]    = useState<TemporaryDuty[]>([])
@@ -167,7 +166,7 @@ const DepartmentTaskPage: React.FC = () => {
 
   // Create task modal
   const [createOpen,  setCreateOpen]  = useState(false)
-  const [createGroup, setCreateGroup] = useState<string>('')
+  const [_createGroup, setCreateGroup] = useState<string>('')
   const [createForm]                   = Form.useForm()
   const [creating,    setCreating]    = useState(false)
 
@@ -274,11 +273,11 @@ const DepartmentTaskPage: React.FC = () => {
       }
       const res = await dutyApi.create(payload)
       if (res.code === '0') {
-        showToast('success', '任務已創建')
+        showToast.success('任務已創建')
         setCreateOpen(false)
         loadTasks()
       } else {
-        showToast('error', res.msg ?? '創建失敗')
+        showToast.error(res.msg ?? '創建失敗')
       }
     } finally {
       setCreating(false)

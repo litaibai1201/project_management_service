@@ -137,10 +137,17 @@ class RequirementController:
         operator = (operator or "").strip().lower()
         reviewer = [(w or "").strip().lower() for w in reviewer if w]
 
-        # 构建审批节点
+        # 批量查询审核人与提交人姓名
+        all_wks = list({operator} | set(reviewer))
+        wk_user_map = {
+            u.work_no: u
+            for u in db.session.query(UserProfileModel).filter(
+                UserProfileModel.work_no.in_(all_wks)
+            ).all()
+        }
         nodes = []
         for i, wk in enumerate(reviewer):
-            u = db.session.query(UserProfileModel).filter_by(work_no=wk).first()
+            u = wk_user_map.get(wk)
             nodes.append({
                 "node_id": f"{CommonTools.get_now().replace(' ', '')}_{i}",
                 "order": i + 1,
@@ -152,7 +159,7 @@ class RequirementController:
                 "comment": None,
             })
 
-        submitter_profile = db.session.query(UserProfileModel).filter_by(work_no=operator).first()
+        submitter_profile = wk_user_map.get(operator)
         submitter_name = submitter_profile.name if submitter_profile else operator
 
         apply = ReviewApplyModel(
@@ -194,9 +201,15 @@ class RequirementController:
         if operator != (p.product_pm or "").strip().lower():
             raise PermissionException(msg="只有產品PM可以提交需求審核")
 
+        req_map = {
+            r.id: r
+            for r in db.session.query(RequirementModel).filter(
+                RequirementModel.id.in_(requirement_ids)
+            ).all()
+        }
         reqs = []
         for req_id in requirement_ids:
-            r = db.session.query(RequirementModel).filter_by(id=req_id).first()
+            r = req_map.get(req_id)
             if not r or r.req_status == 9:
                 raise ResourceNotFoundException(resource_type="需求")
             if r.req_status != 0:
@@ -204,9 +217,15 @@ class RequirementController:
             reqs.append(r)
 
         reviewer = [(w or "").strip().lower() for w in reviewer if w]
+        reviewer_user_map = {
+            u.work_no: u
+            for u in db.session.query(UserProfileModel).filter(
+                UserProfileModel.work_no.in_(reviewer)
+            ).all()
+        } if reviewer else {}
         nodes = []
         for i, wk in enumerate(reviewer):
-            u = db.session.query(UserProfileModel).filter_by(work_no=wk).first()
+            u = reviewer_user_map.get(wk)
             nodes.append({
                 "node_id": f"{CommonTools.get_now().replace(' ', '')}_{i}",
                 "order": i + 1,
@@ -275,9 +294,16 @@ class RequirementController:
         operator = (operator or "").strip().lower()
         reviewer = [(w or "").strip().lower() for w in reviewer if w]
 
+        all_wks = list({operator} | set(reviewer))
+        wk_user_map = {
+            u.work_no: u
+            for u in db.session.query(UserProfileModel).filter(
+                UserProfileModel.work_no.in_(all_wks)
+            ).all()
+        }
         nodes = []
         for i, wk in enumerate(reviewer):
-            u = db.session.query(UserProfileModel).filter_by(work_no=wk).first()
+            u = wk_user_map.get(wk)
             nodes.append({
                 "node_id": f"{CommonTools.get_now().replace(' ', '')}_{i}",
                 "order": i + 1,
@@ -289,7 +315,7 @@ class RequirementController:
                 "comment": None,
             })
 
-        submitter_profile = db.session.query(UserProfileModel).filter_by(work_no=operator).first()
+        submitter_profile = wk_user_map.get(operator)
         submitter_name = submitter_profile.name if submitter_profile else operator
 
         apply = ReviewApplyModel(

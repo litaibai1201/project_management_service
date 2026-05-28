@@ -10,7 +10,7 @@ import {
   BellIcon, ArrowRightStartOnRectangleIcon, Bars3Icon,
   ChevronDoubleLeftIcon, ChartBarIcon, PencilSquareIcon,
   ExclamationTriangleIcon, TableCellsIcon, RectangleStackIcon,
-  DocumentChartBarIcon, Squares2X2Icon,
+  DocumentChartBarIcon,
 } from '@heroicons/react/24/outline'
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
 import { logout } from '@/features/auth/authSlice'

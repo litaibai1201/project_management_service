@@ -21,12 +21,11 @@ import dayjs from 'dayjs'
 import isoWeek from 'dayjs/plugin/isoWeek'
 dayjs.extend(isoWeek)
 import { projectApi } from '@/api/project.api'
-import { dutyApi } from '@/api/duty.api'
 import { authApi, type AlertTask, type WeeklyActivityItem, type NewsItem } from '@/api/auth.api'
 import { dailyLogApi, type BackendDailyLogSummary } from '@/api/daily_log.api'
 import { notificationApi } from '@/api/notification.api'
-import type { ProjectListItem, UserStatistical, TeamStatistical, TeamBenefitGroup, TemporaryDuty, ApplyRecord, ProjectFunction } from '@/types/api.types'
-import { DUTY_STATUS_MAP, FUNCTION_STATUS_MAP } from '@/utils/status'
+import type { ProjectListItem, UserStatistical, TeamStatistical, TeamBenefitGroup, ApplyRecord, ProjectFunction } from '@/types/api.types'
+import { FUNCTION_STATUS_MAP } from '@/utils/status'
 import { useWorkNoToName } from '@/hooks/useWorkNoToName'
 import { useDashboardConfig } from '@/hooks/useDashboardConfig'
 import {
@@ -51,8 +50,6 @@ const getHeatColor = (hours: number) => {
   return '#2563eb'
 }
 
-const STATUS_LABEL: Record<number, string> = { 1:'草稿',2:'立案審核',3:'規劃中',4:'規劃審核',5:'執行中',6:'完結審核',7:'已完結' }
-const STATUS_COLOR: Record<number, string> = { 1:'default',2:'processing',3:'blue',4:'orange',5:'green',6:'orange',7:'success' }
 const PRIORITY_COLORS = ['#22c55e', '#f59e0b', '#ef4444', '#7c3aed']
 
 // ─── Sub-components ────────────────────────────────────────────────────────────
@@ -708,7 +705,6 @@ const DashboardPage: React.FC = () => {
   const [memberStats,      setMemberStats]      = useState<MemberWorkStat[]>([])
   const [myProjects,       setMyProjects]       = useState<ProjectListItem[]>([])
   const [teamProjects,     setTeamProjects]     = useState<ProjectListItem[]>([])
-  const [myDuties,         setMyDuties]         = useState<TemporaryDuty[]>([])
   const [myFuncTasks,      setMyFuncTasks]      = useState<(ProjectFunction & { project_nm: string })[]>([])
   const [pendingReviews,   setPendingReviews]   = useState<ApplyRecord[]>([])
   const [allPendingReviews, setAllPendingReviews] = useState<ApplyRecord[]>([])
@@ -1069,7 +1065,7 @@ const DashboardPage: React.FC = () => {
                       <LabelList
                         position="right"
                         style={{ fontSize: 11, fill: '#64748b', fontWeight: 600 }}
-                        content={({ x, y, width, height, index }: { x?: number; y?: number; width?: number; height?: number; index?: number }) => {
+                        content={({ x, y, width, height, index }: any) => {
                           if (index == null || x == null || y == null || width == null || height == null) return null
                           const d = managerChartData[index]
                           if (!d) return null

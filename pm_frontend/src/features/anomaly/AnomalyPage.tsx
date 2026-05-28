@@ -5,12 +5,12 @@
  */
 import React, { useState, useMemo, useEffect } from 'react'
 import {
-  Card, Tag, Avatar, Badge, Tooltip, Empty,
+  Card, Tag, Avatar, Empty,
 } from 'antd'
 import {
   ExclamationTriangleIcon, ClockIcon, DocumentTextIcon,
   ChartBarIcon, PauseCircleIcon, ShieldExclamationIcon,
-  CheckCircleIcon, ArrowTrendingDownIcon, BellAlertIcon,
+  ArrowTrendingDownIcon, BellAlertIcon,
   FunnelIcon,
 } from '@heroicons/react/24/outline'
 import dayjs from 'dayjs'
@@ -46,12 +46,6 @@ const TYPE_META: Record<AnomalyType, { label: string; icon: React.ReactNode; col
   delay_no_report:   { label: 'Delay未提報告',icon: <ShieldExclamationIcon className="w-4 h-4" />,     color: '#be123c' },
 }
 
-const LEVEL_META: Record<AnomalyLevel, { label: string; color: string; bg: string; border: string }> = {
-  critical: { label: '高風險', color: '#dc2626', bg: '#fef2f2', border: '#fecaca' },
-  warning:  { label: '需關注', color: '#d97706', bg: '#fff7ed', border: '#fed7aa' },
-  info:     { label: '提示',   color: '#2563eb', bg: '#eff6ff', border: '#bfdbfe' },
-}
-
 // ─── Anomaly data is loaded from the API ────────────────────────────────────
 
 // ─── Stats Summary ──────────────────────────────────────────────────────────
@@ -74,97 +68,6 @@ const SummaryCard: React.FC<{
     </div>
   </div>
 )
-
-// ─── Anomaly Card ───────────────────────────────────────────────────────────
-const AnomalyCard: React.FC<{ item: AnomalyItem }> = ({ item }) => {
-  const typeMeta = TYPE_META[item.type]
-  const levelMeta = LEVEL_META[item.level]
-
-  return (
-    <div
-      className="rounded-xl border px-4 py-3 mb-2.5 transition-all hover:shadow-sm"
-      style={{ background: levelMeta.bg, borderColor: levelMeta.border }}
-    >
-      <div className="flex items-start gap-3">
-        {/* Left: icon */}
-        <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5"
-          style={{ background: typeMeta.color + '18', color: typeMeta.color }}>
-          {typeMeta.icon}
-        </div>
-
-        {/* Middle: structured info */}
-        <div className="flex-1 min-w-0">
-          {/* Row 1: type tag + title */}
-          <div className="flex items-center gap-2 flex-wrap mb-1">
-            <Tag style={{ fontSize: 10, padding: '0 5px', margin: 0, lineHeight: '18px', color: typeMeta.color, background: typeMeta.color + '15', border: `1px solid ${typeMeta.color}30`, fontWeight: 600 }}>
-              {typeMeta.label}
-            </Tag>
-            <span className="text-sm font-semibold text-slate-700">{item.title}</span>
-          </div>
-
-          {/* Row 2: structured detail fields */}
-          <div className="flex items-center gap-x-4 gap-y-1 flex-wrap text-xs mb-1.5">
-            {item.member && (
-              <div className="flex items-center gap-1.5">
-                <Avatar size={18} style={{ background: levelMeta.color, fontSize: 9, fontWeight: 700 }}>
-                  {item.member[0]}
-                </Avatar>
-                <span className="text-slate-600 font-medium">{item.member}</span>
-              </div>
-            )}
-            {item.project && (
-              <div className="flex items-center gap-1">
-                <span className="text-slate-400">專案</span>
-                <span className="text-blue-600 font-medium bg-blue-50 border border-blue-100 rounded px-1.5 py-0.5 text-[11px]">
-                  {item.project}
-                </span>
-              </div>
-            )}
-            {item.task && (
-              <div className="flex items-center gap-1">
-                <span className="text-slate-400">任務</span>
-                <span className="text-slate-700 font-medium">{item.task}</span>
-              </div>
-            )}
-            {item.value != null && item.type === 'task_overdue' && (
-              <div className="flex items-center gap-1">
-                <span className="text-slate-400">超期</span>
-                <span className="text-red-600 font-bold">{item.value} 天</span>
-              </div>
-            )}
-            {item.value != null && item.type === 'task_urgent' && (
-              <div className="flex items-center gap-1">
-                <span className="text-slate-400">剩餘</span>
-                <span className="text-orange-600 font-bold">{item.value} 天</span>
-              </div>
-            )}
-            {item.value != null && item.type === 'insufficient_hours' && (
-              <div className="flex items-center gap-1">
-                <span className="text-slate-400">本週已記錄</span>
-                <span className="text-orange-600 font-bold">{item.value}h</span>
-              </div>
-            )}
-            {item.value != null && item.type === 'project_delay' && (
-              <div className="flex items-center gap-1">
-                <span className="text-slate-400">Delay</span>
-                <span className="text-red-600 font-bold">{item.value} 天</span>
-              </div>
-            )}
-          </div>
-
-          {/* Row 3: description */}
-          <p className="text-[11px] text-slate-500 leading-relaxed">{item.description}</p>
-        </div>
-
-        {/* Right: detected time */}
-        <div className="flex-shrink-0 text-right">
-          <div className="text-[10px] text-slate-300">{dayjs(item.detected_at).format('MM/DD')}</div>
-          <div className="text-[10px] text-slate-300">{dayjs(item.detected_at).format('HH:mm')}</div>
-        </div>
-      </div>
-    </div>
-  )
-}
 
 // ─── Main ───────────────────────────────────────────────────────────────────
 
@@ -206,7 +109,6 @@ const AnomalyPage: React.FC = () => {
   const allTaskCount  = countUniqueTasks(filteredByType)
   const criticalCount = countUniqueTasks(filteredByType.filter((a) => a.level === 'critical'))
   const warningCount  = countUniqueTasks(filteredByType.filter((a) => a.level === 'warning'))
-  const normalCount   = 0
 
   // Type tag counts: unique tasks, react to filterLevel
   const typeCounts = useMemo(() => {

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
-import { Card, Row, Col, Statistic, Table, Tag, Spin } from 'antd'
+import { Card, Row, Col, Statistic, Table, Spin } from 'antd'
+import type { TableColumnsType } from 'antd'
 import {
   UserOutlined,
   ProjectOutlined,
@@ -21,7 +22,7 @@ const AdminDashboardPage: React.FC = () => {
       .finally(() => setLoading(false))
   }, [])
 
-  const rawLogColumns = [
+  const rawLogColumns: TableColumnsType<OperationLog> = [
     { title: '工号',     dataIndex: 'work_no',   key: 'work_no',   width: 120 },
     { title: '操作',     dataIndex: 'operation', key: 'operation' },
     { title: '详情',     dataIndex: 'detail',    key: 'detail',    ellipsis: true },

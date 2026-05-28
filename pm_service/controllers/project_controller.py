@@ -6,6 +6,7 @@ import uuid
 
 from utils.tools import CommonTools
 from utils.exceptions import ResourceNotFoundException, BusinessException
+from utils.cache_decorator import cache_result, method_key_builder
 from dbs.mysql_db import db
 from dbs.mysql_db.model_tables import (
     ProjectDataModel, ProjectGroupModel, FunctionDataModel,
@@ -354,14 +355,21 @@ class ProjectController:
         }
         apply_type, apply_type_code = type_map.get(status, ("状态变更", "other"))
 
-        # 获取提交人姓名
-        submitter_profile = db.session.query(UserProfileModel).filter_by(work_no=submitter).first()
+        # 批量查询提交人与审核人姓名
+        all_wks = list({submitter} | set(reviewer))
+        wk_user_map = {
+            u.work_no: u
+            for u in db.session.query(UserProfileModel).filter(
+                UserProfileModel.work_no.in_(all_wks)
+            ).all()
+        }
+        submitter_profile = wk_user_map.get(submitter)
         submitter_name = submitter_profile.name if submitter_profile else submitter
 
         # 构建初始审批节点（按传入顺序排列）
         nodes = []
         for i, reviewer_wk in enumerate(reviewer):
-            u = db.session.query(UserProfileModel).filter_by(work_no=reviewer_wk).first()
+            u = wk_user_map.get(reviewer_wk)
             nodes.append({
                 "node_id": f"{CommonTools.get_now().replace(' ', '')}_{i}",
                 "order": i + 1,
@@ -457,13 +465,17 @@ class ProjectController:
             .filter(FunctionDataModel.function_status != 9)
             .all()
         )
+        # 批量聚合所有函数工时（1 次 GROUP BY，替代 N 次 SUM 查询）
+        func_ids = [f.id for f in funcs]
         total_hours = 0
-        for f in funcs:
-            hours = (
-                db.session.query(db.func.sum(ProgressRecordDataModel.time_consum))
-                .filter_by(function_id=f.id).scalar()
-            ) or 0
-            total_hours += hours
+        if func_ids:
+            rows = db.session.query(
+                ProgressRecordDataModel.function_id,
+                db.func.sum(ProgressRecordDataModel.time_consum),
+            ).filter(
+                ProgressRecordDataModel.function_id.in_(func_ids)
+            ).group_by(ProgressRecordDataModel.function_id).all()
+            total_hours = sum(float(h or 0) for _, h in rows)
         avg_progress = (
             sum(f.progress for f in funcs) // len(funcs) if funcs else 0
         )
@@ -481,12 +493,14 @@ class ProjectController:
         # Build function name map for this project
         funcs = db.session.query(FunctionDataModel).filter_by(project_id=project_id).all()
         func_map = {f.id: f.function_nm for f in funcs}
-        # Build user name map
+        # Build user name map（批量一次查询）
         submitters = list({r.submitter for r in records if r.submitter})
-        user_map = {}
-        for wn in submitters:
-            u = db.session.query(UserProfileModel).filter_by(work_no=wn).first()
-            user_map[wn] = u.name if u else wn
+        user_map = {wn: wn for wn in submitters}
+        if submitters:
+            for u in db.session.query(UserProfileModel).filter(
+                UserProfileModel.work_no.in_(submitters)
+            ).all():
+                user_map[u.work_no] = u.name
         def _enrich(r):
             d = r.to_dict()
             d["operator"] = d["submitter"]
@@ -533,9 +547,15 @@ class ProjectController:
                     reviewers = _json.loads(reviewers)
                 except Exception:
                     reviewers = [reviewers]
+            legacy_user_map = {
+                u.work_no: u
+                for u in db.session.query(UserProfileModel).filter(
+                    UserProfileModel.work_no.in_(reviewers)
+                ).all()
+            } if reviewers else {}
             nodes = []
             for i, wk in enumerate(reviewers):
-                u = db.session.query(UserProfileModel).filter_by(work_no=wk).first()
+                u = legacy_user_map.get(wk)
                 nodes.append({
                     "node_id": f"legacy_{i}",
                     "order": i + 1,
@@ -1203,7 +1223,7 @@ class ProjectController:
             all_work_nos.update(resp)
 
         users = (
-            db.session.query(UserProfileModel)
+            db.session.query(UserProfileModel.work_no, UserProfileModel.name)
             .filter(UserProfileModel.work_no.in_(list(all_work_nos)))
             .all()
         ) if all_work_nos else []
@@ -1410,6 +1430,7 @@ class ProjectController:
 
         return result
 
+    @cache_result(ttl=300, key_prefix="report_stats", key_builder=method_key_builder)
     def get_report_stats(self) -> list:
         """
         項目進度報表統計
@@ -1564,7 +1585,7 @@ class ProjectController:
         # 查詢姓名
         name_map: dict = {}
         if all_work_nos:
-            profiles = db.session.query(UserProfileModel).filter(
+            profiles = db.session.query(UserProfileModel.work_no, UserProfileModel.name).filter(
                 UserProfileModel.work_no.in_(all_work_nos)
             ).all()
             name_map = {p.work_no: p.name for p in profiles}
@@ -2074,28 +2095,35 @@ class FunctionController:
 
         # Lazy backfill: derive start_time/end_time from progress records for tasks missing them
         needs_commit = False
-        for f in funcs:
-            if f.start_time and f.end_time:
-                continue
-            records = (
+        need_backfill = [f for f in funcs if not (f.start_time and f.end_time)]
+        if need_backfill:
+            from collections import defaultdict
+            backfill_ids = [f.id for f in need_backfill]
+            all_bf_recs = (
                 db.session.query(ProgressRecordDataModel)
-                .filter_by(function_id=f.id)
+                .filter(ProgressRecordDataModel.function_id.in_(backfill_ids))
                 .order_by(ProgressRecordDataModel.created_at.asc())
                 .all()
             )
-            if not records:
-                continue
-            if not f.start_time:
-                earliest = records[0].created_at
-                if earliest:
-                    f.start_time = earliest[:10]
-                    needs_commit = True
-            if not f.end_time and f.function_status == 4:
-                # Use latest record's created_at as actual end
-                latest = records[-1].created_at
-                if latest:
-                    f.end_time = latest[:10]
-                    needs_commit = True
+            recs_by_func: dict = defaultdict(list)
+            for rec in all_bf_recs:
+                recs_by_func[rec.function_id].append(rec)
+
+            for f in need_backfill:
+                records = recs_by_func[f.id]
+                if not records:
+                    continue
+                if not f.start_time:
+                    earliest = records[0].created_at
+                    if earliest:
+                        f.start_time = earliest[:10]
+                        needs_commit = True
+                if not f.end_time and f.function_status == 4:
+                    # Use latest record's created_at as actual end
+                    latest = records[-1].created_at
+                    if latest:
+                        f.end_time = latest[:10]
+                        needs_commit = True
         if needs_commit:
             db.session.commit()
 

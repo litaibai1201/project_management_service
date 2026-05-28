@@ -89,7 +89,46 @@ def auto_migrate(app, db):
                         error=e,
                     )
 
-        # ── 3. 汇总日志 ──────────────────────────────────────────────────────
+        # ── 3. 检查索引，补充缺失索引 ────────────────────────────────────────
+        added_indexes = []
+        index_errors  = []
+
+        for table_name, table in db.metadata.tables.items():
+            if not inspector.has_table(table_name):
+                continue
+
+            existing_index_names = {
+                idx["name"] for idx in inspector.get_indexes(table_name)
+            }
+
+            for index in table.indexes:
+                if index.name in existing_index_names:
+                    continue
+
+                col_names  = ", ".join(f"`{col.name}`" for col in index.columns)
+                unique_str = "UNIQUE " if index.unique else ""
+                sql = (
+                    f"CREATE {unique_str}INDEX `{index.name}` "
+                    f"ON `{table_name}` ({col_names})"
+                )
+                try:
+                    with db.engine.connect() as conn:
+                        conn.execute(sqlalchemy.text(sql))
+                        conn.commit()
+                    added_indexes.append(f"{table_name}.{index.name}")
+                    logger.info(
+                        f"[AutoMigrate] 新增索引: {table_name}.{index.name}  DDL: {sql}",
+                        event="auto_migrate_add_index",
+                    )
+                except Exception as e:
+                    index_errors.append(f"{table_name}.{index.name}: {e}")
+                    logger.error(
+                        f"[AutoMigrate] 新增索引失败: {table_name}.{index.name}",
+                        event="auto_migrate_index_error",
+                        error=e,
+                    )
+
+        # ── 4. 汇总日志 ──────────────────────────────────────────────────────
         if added:
             logger.info(
                 f"[AutoMigrate] 完成，共新增 {len(added)} 列: {', '.join(added)}",
@@ -98,8 +137,19 @@ def auto_migrate(app, db):
         else:
             logger.info("[AutoMigrate] 表结构无变更", event="auto_migrate_no_change")
 
+        if added_indexes:
+            logger.info(
+                f"[AutoMigrate] 共新增 {len(added_indexes)} 个索引: {', '.join(added_indexes)}",
+                event="auto_migrate_indexes_done",
+            )
+
         if errors:
             logger.warning(
                 f"[AutoMigrate] {len(errors)} 个列操作失败: {'; '.join(errors)}",
                 event="auto_migrate_partial_failure",
+            )
+        if index_errors:
+            logger.warning(
+                f"[AutoMigrate] {len(index_errors)} 个索引操作失败: {'; '.join(index_errors)}",
+                event="auto_migrate_index_partial_failure",
             )

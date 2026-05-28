@@ -34,6 +34,20 @@ def _default_key_builder(func_name: str, args: tuple, kwargs: dict, key_prefix: 
         return f"cache:{func_name}"
 
 
+def method_key_builder(func_name: str, args: tuple, kwargs: dict, key_prefix: Optional[str]):
+    """实例方法专用 key builder：跳过 args[0]（self），避免对象内存地址污染缓存键。"""
+    try:
+        method_args = args[1:]  # skip self
+        parts = [key_prefix or func_name, func_name]
+        if kwargs:
+            parts.append(json.dumps(kwargs, sort_keys=True, default=str))
+        elif method_args:
+            parts.append(json.dumps(method_args, default=str))
+        return ":".join(parts)
+    except Exception:
+        return f"cache:{func_name}"
+
+
 def cache_result(ttl: int = 300, key_prefix: Optional[str] = None, key_builder: Callable = None, serializer: Callable = None, deserializer: Callable = None):
     """缓存结果装饰器
 
@@ -90,4 +104,4 @@ def cache_result(ttl: int = 300, key_prefix: Optional[str] = None, key_builder: 
     return decorator
 
 
-__all__ = ["cache_result"]
+__all__ = ["cache_result", "method_key_builder"]

@@ -14,6 +14,54 @@ from queues.celery_queue import celery_app
 from loggers import logger
 
 
+# ── 实时通知投递（写 DB + 推钉钉，全程异步）──────────────────────────────────
+
+@celery_app.app.task(
+    name="tasks.notification.deliver",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=10,
+)
+def deliver_notification(self, recipients: list, title: str, desc: str = "",
+                          link_type: str = "", link_id: str = "") -> None:
+    """
+    将平台通知写入数据库，并触发钉钉推送。
+    由 push_notification() 通过 .delay() 调用，完全异步，不阻塞请求响应。
+    """
+    from dbs.mysql_db import db
+    from dbs.mysql_db.model_tables import NotificationModel
+
+    # 1. 写入平台通知表
+    try:
+        for wn in recipients:
+            db.session.add(NotificationModel(
+                recipient=wn,
+                title=title,
+                desc=desc,
+                link_type=link_type,
+                link_id=link_id or "",
+            ))
+        db.session.commit()
+    except Exception as e:
+        logger.error("[deliver_notification] DB 写入失败",
+                     category="error", event="deliver_notification_db_error", error=e)
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        try:
+            raise self.retry(exc=e)
+        except Exception:
+            pass
+
+    # 2. 钉钉推送（已有异步 task，直接复用）
+    try:
+        from tasks.dingtalk_tasks import send_dingtalk_notification
+        send_dingtalk_notification.delay(recipients, title, desc)
+    except Exception:
+        pass  # Celery 或钉钉配置缺失时静默跳过
+
+
 # ── #9 即将到期提醒（3天内）────────────────────────────────────────────────────
 
 @celery_app.app.task(name="tasks.notification.deadline_alert")

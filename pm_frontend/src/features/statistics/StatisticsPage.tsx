@@ -17,7 +17,7 @@ import type { ColumnsType } from 'antd/es/table'
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip as RTooltip, Legend, ResponsiveContainer, Cell,
-  PieChart, Pie, ReferenceLine,
+  PieChart, Pie,
 } from 'recharts'
 import {
   ChartBarIcon, ClockIcon, CheckCircleIcon,
@@ -999,7 +999,7 @@ const StatisticsPage: React.FC = () => {
   const { mergeColumns: memberColumns } = useResizableColumns(rawMemberColumns)
 
   // ── Individual member work-hours detail (used in both manager drill-down and engineer self-view) ──
-  const renderPersonalDetail = (workNo: string, memberName: string) => {
+  const renderPersonalDetail = (workNo: string, _memberName: string) => {
     const detail = personalCache[workNo]
     const projectData    = detail?.project_dist    ?? []
     const categoryData   = detail?.category_dist   ?? []

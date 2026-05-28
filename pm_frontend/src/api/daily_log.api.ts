@@ -16,7 +16,6 @@ export interface BackendTaskItem {
   source?: 'progress' | 'manual' | 'updated'  // 數據來源
   project_id?: string              // 所屬專案 ID（project 類型時使用）
   project_nm?: string              // 所屬專案名稱（project 類型時使用）
-  progress?: number                // 攜帶的進度百分比（用於更新鏈追蹤 % 變化）
   suggest_id?: string              // 來源進度記錄 ID，用於刷新後去重
   files?: { name: string; url: string; size?: number }[]  // 來自進度記錄的附件
   record_time?: string             // 提交時間 HH:mm（來自進度記錄 created_at）

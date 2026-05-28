@@ -25,7 +25,7 @@ const AdminUsersPage: React.FC = () => {
   // Role assignment modal
   const [roles, setRoles]                 = useState<Role[]>([])
   const [roleTarget, setRoleTarget]       = useState<AdminUser | null>(null)
-  const [roleDetail, setRoleDetail]       = useState<UserRoleDetail | null>(null)
+  const [_roleDetail, setRoleDetail]      = useState<UserRoleDetail | null>(null)
   const [roleLoading, setRoleLoading]     = useState(false)
   const [selectedRole, setSelectedRole]   = useState<string | null>(null)
   const [targetKeys, setTargetKeys]       = useState<string[]>([])   // subordinate work_nos
@@ -102,8 +102,6 @@ const AdminUsersPage: React.FC = () => {
     }
   }
 
-  const { mergeColumns: columns } = useResizableColumns(rawColumns)
-
   // transfer data source: all users except self
   const transferSource = users
     .filter((u) => u.work_no !== roleTarget?.work_no)
@@ -161,6 +159,7 @@ const AdminUsersPage: React.FC = () => {
       ),
     },
   ]
+  const { mergeColumns: columns } = useResizableColumns(rawColumns)
 
   return (
     <div>

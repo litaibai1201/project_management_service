@@ -4,7 +4,7 @@
  */
 import React, { useState, useMemo, useCallback, useEffect } from 'react'
 import {
-  Card, Button, Tag, Progress, Modal, Form, Select, Input, InputNumber,
+  Card, Button, Tag, Modal, Form, Select, Input, InputNumber,
   Switch, Upload, Segmented, Empty, Badge, Popconfirm, Popover,
   AutoComplete, Alert, Spin, DatePicker, Dropdown,
 } from 'antd'
