@@ -309,7 +309,7 @@ export async function exportDailyReport(opts: ExportDailyReportOptions): Promise
       dutyGroup.map(e => toRawItem(e, e.duty_id ?? e.entry_id, e.duty_nm || ''))
     )
     dataRows.push(new TableRow({ children: [
-      cell([p(tr(`${sectionIdx}. 臨時任務`, true))], COL_LEFT),
+      cell([p(tr(`${sectionIdx}. AR`, true))], COL_LEFT),
       cell(buildRightParas(taskGroups), COL_RIGHT),
     ]}))
     sectionIdx++
@@ -529,7 +529,7 @@ export async function exportRangeReport(opts: ExportRangeReportOptions): Promise
   if (dutyGroup.length) {
     const taskGroups = groupByTaskWithDate(dutyGroup.map(e => toRawItem(e, e.duty_id ?? e.entry_id, e.duty_nm || '')))
     dataRows.push(new TableRow({ children: [
-      cell([p(tr(`${sectionIdx}. 臨時任務`, true))], COL_LEFT),
+      cell([p(tr(`${sectionIdx}. AR`, true))], COL_LEFT),
       cell(buildRangeRightParas(taskGroups, today), COL_RIGHT),
     ]}))
     sectionIdx++

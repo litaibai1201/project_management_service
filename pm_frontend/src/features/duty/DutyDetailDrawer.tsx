@@ -304,7 +304,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
             <div className="w-1.5 h-5 rounded-full flex-shrink-0" style={{ background: priorityColor }} />
             <span className="font-bold text-slate-800 text-base leading-tight">{duty.duty_nm}</span>
           </div>
-        ) : '臨時任務詳情'
+        ) : 'AR詳情'
       }
       styles={{ body: { padding: '16px 24px', overflowY: 'auto' } }}
       destroyOnHidden

@@ -14,7 +14,7 @@ import {
   PencilSquareIcon, TrashIcon, ClockIcon, CalendarDaysIcon,
   ArrowUpTrayIcon,
   DocumentTextIcon, SunIcon, MoonIcon, BriefcaseIcon,
-  AcademicCapIcon, UsersIcon, WrenchScrewdriverIcon,
+  AcademicCapIcon, UsersIcon,
   EllipsisHorizontalCircleIcon, ArrowDownTrayIcon,
 } from '@heroicons/react/24/outline'
 import { useAppSelector } from '@/hooks/redux'
@@ -36,10 +36,9 @@ const STANDARD_DAILY_HOURS = 8.0
 
 const WORK_CATEGORIES: { value: WorkCategory; label: string; color: string; icon: React.ReactNode }[] = [
   { value: 'project',  label: '專案工作',    color: '#2563eb', icon: <BriefcaseIcon className="w-4 h-4" /> },
-  { value: 'cr_ar',    label: 'CR / AR',     color: '#16a34a', icon: <WrenchScrewdriverIcon className="w-4 h-4" /> },
   { value: 'training', label: '教育訓練',    color: '#d97706', icon: <AcademicCapIcon className="w-4 h-4" /> },
   { value: 'meeting',  label: '週會 / 月會', color: '#dc2626', icon: <UsersIcon className="w-4 h-4" /> },
-  { value: 'duty',     label: '臨時任務',    color: '#7c3aed', icon: <DocumentTextIcon className="w-4 h-4" /> },
+  { value: 'duty',     label: 'AR',    color: '#7c3aed', icon: <DocumentTextIcon className="w-4 h-4" /> },
   { value: 'other',    label: '其他',        color: '#94a3b8', icon: <EllipsisHorizontalCircleIcon className="w-4 h-4" /> },
 ]
 
@@ -84,7 +83,7 @@ function groupDailyEntries(entries: DailyLogEntry[]): CategorySection[] {
 
     let projectGroups: ProjectSubGroup[] = []
 
-    if (catInfo.value === 'project' || catInfo.value === 'cr_ar') {
+    if (catInfo.value === 'project') {
       // Group by project → function
       const projMap = new Map<string, { nm: string; taskMap: Map<string, DailyLogEntry[]> }>()
       for (const e of catEntries) {
@@ -331,7 +330,7 @@ const SelfReportView: React.FC<{
             cs.totalHours += e.hours
 
             let projKey: string, projNm: string, taskKey: string, taskNm: string
-            if (catKey === 'project' || catKey === 'cr_ar') {
+            if (catKey === 'project') {
               projKey = e.project_id ?? '__no_proj__'; projNm = e.project_nm ?? ''
               taskKey = e.function_id ?? e.entry_id;   taskNm = e.function_nm ?? '（無關聯任務）'
             } else if (catKey === 'duty') {
@@ -613,9 +612,9 @@ const DailyLogPage: React.FC = () => {
       .catch(() => {})
   }, [])
 
-  // Load duty list once on mount
+  // Load duty list once on mount — 僅返回當前用戶為責任人、狀態為未開始/進行中的 AR
   useEffect(() => {
-    dutyApi.list({ page: 1, size: 200, status: 2 })  // status=2 → 進行中
+    dutyApi.taskList({ page: 1, size: 200 })
       .then((res) => {
         const list = (res.content as { data_list?: { id: string; duty_nm: string }[] })?.data_list ?? []
         setDutyOpts(list.map((d) => ({ id: d.id, name: d.duty_nm })))
@@ -1441,7 +1440,7 @@ const DailyLogPage: React.FC = () => {
                             const projCollapsed = collapsedDayGroups.has(projCollapseKey)
                             return (
                             <div key={pg.projKey}>
-                              {/* Project sub-header (only for project / cr_ar with a named project) */}
+                              {/* Project sub-header (only for project with a named project) */}
                               {pg.projNm && (
                                 <button
                                   type="button"
@@ -1688,7 +1687,7 @@ const DailyLogPage: React.FC = () => {
               <div className={`grid gap-x-3 ${hasTaskLink ? 'grid-cols-3' : 'grid-cols-2'}`}>
                 <Form.Item name="work_category" label="工作分類" rules={[{ required: true, message: '請選擇分類' }]}>
                   <Select placeholder="選擇分類" onChange={(v: WorkCategory) => {
-                    if (v !== 'project' && v !== 'cr_ar') {
+                    if (v !== 'project') {
                       form.setFieldsValue({ project_id: undefined, function_id: undefined })
                       setSelectedProject(null)
                     }
@@ -1739,7 +1738,7 @@ const DailyLogPage: React.FC = () => {
             )
           })()}
 
-          {(watchedCategory === 'project' || watchedCategory === 'cr_ar') && (
+          {watchedCategory === 'project' && (
             <div className="grid grid-cols-2 gap-x-3">
               <Form.Item name="project_id" label="關聯專案" rules={[{ required: true, message: '請選擇專案' }]}>
                 <Select placeholder="選擇專案" allowClear onChange={(v: string) => {
@@ -1782,8 +1781,8 @@ const DailyLogPage: React.FC = () => {
             </div>
           )}
           {watchedCategory === 'duty' && (
-            <Form.Item name="duty_id" label="關聯臨時任務" rules={[{ required: true, message: '請選擇任務' }]}>
-              <Select placeholder="選擇臨時任務" allowClear>
+            <Form.Item name="duty_id" label="關聯AR" rules={[{ required: true, message: '請選擇任務' }]}>
+              <Select placeholder="選擇AR" allowClear>
                 {dutyOpts.map((d) => (
                   <Select.Option key={d.id} value={d.id}>{d.name}</Select.Option>
                 ))}

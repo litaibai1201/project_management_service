@@ -92,8 +92,8 @@ const APPLY_TYPE_META: Record<string, {
     icon:    '🎯',
   },
   duty_complete: {
-    what:    '負責人認為此臨時任務已完成，申請完結確認',
-    approve: '通過後，臨時任務將標記為「已完結」',
+    what:    '負責人認為此AR已完成，申請完結確認',
+    approve: '通過後，AR將標記為「已完結」',
     reject:  '拒絕後，任務退回執行中，負責人需繼續完善',
     icon:    '📌',
   },
@@ -144,7 +144,7 @@ const REVIEWER_TABS = [
   { key: 'schedule',           label: '排程審核'    },
   { key: 'function_complete',  label: '功能完結審核' },
   { key: 'project_complete',   label: '專案完結'    },
-  { key: 'duty_complete',      label: '臨時任務'    },
+  { key: 'duty_complete',      label: 'AR'    },
   { key: 'requirement_review', label: '需求審核'    },
   { key: 'task_addition_review', label: '新增任務審核' },
 ]
@@ -157,7 +157,7 @@ const REVIEWED_TABS = [
   { key: 'schedule',           label: '排程審核'    },
   { key: 'function_complete',  label: '功能完結審核' },
   { key: 'project_complete',   label: '專案完結'    },
-  { key: 'duty_complete',      label: '臨時任務'    },
+  { key: 'duty_complete',      label: 'AR'    },
   { key: 'requirement_review', label: '需求審核'    },
   { key: 'task_addition_review', label: '新增任務審核' },
 ]
@@ -170,7 +170,7 @@ const SUBMITTER_TABS = [
   { key: 'schedule',           label: '排程審核'    },
   { key: 'function_complete',  label: '功能完結審核' },
   { key: 'project_complete',   label: '專案完結'    },
-  { key: 'duty_complete',      label: '臨時任務'    },
+  { key: 'duty_complete',      label: 'AR'    },
   { key: 'requirement_review', label: '需求審核'    },
   { key: 'task_addition_review', label: '新增任務審核' },
 ]
@@ -1455,7 +1455,7 @@ const ReviewListPage: React.FC = () => {
       return { ...r, apply_type: '功能完結審核' }
     }
     if (r.apply_type_code === 'duty_completion') {
-      return { ...r, apply_type_code: 'duty_complete', apply_type: '臨時任務完結審核' }
+      return { ...r, apply_type_code: 'duty_complete', apply_type: 'AR完結審核' }
     }
     return r
   }

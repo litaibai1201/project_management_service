@@ -44,7 +44,7 @@ src/
 ├── features/               # 業務模組（每個模組：slice + pages + components）
 │   ├── auth/               # 登入、儀表板、PrivateRoute
 │   ├── project/            # 專案列表、詳情、建立、功能任務、審核
-│   ├── duty/               # 臨時任務列表、詳情
+│   ├── duty/               # AR列表、詳情
 │   ├── user/               # 用戶管理
 │   ├── group/              # 成員管理
 │   └── search/             # 全局搜索
@@ -154,7 +154,7 @@ useSocketEvent<ProgressData>('progress_updated', (data) => {
 | `/projects` | 專案列表 | ✓ |
 | `/projects/:id` | 專案詳情 | ✓ |
 | `/review` | 審核管理 | ✓ |
-| `/duties` | 臨時任務列表 | ✓ |
+| `/duties` | AR列表 | ✓ |
 | `/duties/:id` | 任務詳情 | ✓ |
 | `/users` | 用戶管理 | ✓ |
 | `/members` | 成員管理 | ✓ |

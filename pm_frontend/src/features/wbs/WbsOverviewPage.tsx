@@ -994,7 +994,7 @@ const DutiesSection: React.FC<{ duties: TemporaryDuty[]; onOpenDuty: (id: string
         }
         <ClockIcon className={`w-3.5 h-3.5 ${show || overdueCount > 0 ? 'text-orange-500' : 'text-slate-400 group-hover/duties:text-orange-400 transition-colors'}`} />
         <span className={`text-[11px] font-semibold ${show || overdueCount > 0 ? 'text-orange-600' : 'text-slate-400 group-hover/duties:text-orange-500 transition-colors'}`}>
-          臨時任務
+          AR
         </span>
         <span className="text-[10px] font-bold bg-orange-100 text-orange-600 rounded-full px-1.5 py-0.5 leading-none">
           {duties.length}

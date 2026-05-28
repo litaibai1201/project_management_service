@@ -503,11 +503,11 @@ class ReviewApplyModel(BaseMixinModel):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 临时任务
+# AR
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TemporaryDutyModel(BaseMixinModel):
-    """临时任务"""
+    """AR"""
     __tablename__ = "temporary_duty_form"
 
     id = db.Column(db.String(32), primary_key=True, default=generate_uuid)
@@ -563,7 +563,7 @@ class TemporaryDutyModel(BaseMixinModel):
 
 
 class DutyProgressRecordModel(BaseMixinModel):
-    """临时任务进度记录"""
+    """AR进度记录"""
     __tablename__ = "duty_progress_record_form"
 
     id = db.Column(db.String(32), primary_key=True, default=generate_uuid)
@@ -578,7 +578,7 @@ class DutyProgressRecordModel(BaseMixinModel):
     files_json = db.Column(db.Text, comment="附件信息(JSON数组)")
 
     __table_args__ = (
-        # 批量查提交人临时任务工时（get_progress_report）
+        # 批量查提交人AR工时（get_progress_report）
         db.Index('ix_duty_prog_submitter', 'submitter'),
         # 日期范围过滤（get_progress_report start_date/end_date）
         db.Index('ix_duty_prog_created', 'created_at'),

@@ -1355,12 +1355,12 @@ const DashboardPage: React.FC = () => {
                           <YAxis hide />
                           <RTooltip contentStyle={{ borderRadius: 10, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: 12 }} cursor={{ fill: '#f8fafc' }} />
                           <Bar dataKey="project" name="功能任務進度" fill="#bfdbfe" radius={[4,4,0,0]} />
-                          <Bar dataKey="duty"    name="臨時任務進度" fill="#2563eb" radius={[4,4,0,0]} />
+                          <Bar dataKey="duty"    name="AR進度" fill="#2563eb" radius={[4,4,0,0]} />
                         </BarChart>
                       </ResponsiveContainer>
                       <div className="flex gap-4 mt-1">
                         <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-[#bfdbfe]" /><span className="text-xs text-slate-400">功能任務進度</span></div>
-                        <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-[#2563eb]" /><span className="text-xs text-slate-400">臨時任務進度</span></div>
+                        <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-[#2563eb]" /><span className="text-xs text-slate-400">AR進度</span></div>
                       </div>
                     </>
                   )}

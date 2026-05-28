@@ -40,7 +40,7 @@ class MemberDutiesApi(MethodView):
     @jwt_required()
     @blp.response(200, RspMsgDictSchema)
     def get(self, work_no):
-        """成员临时任务列表"""
+        """成员AR列表"""
         page = int(request.args.get("page", 1))
         size = int(request.args.get("size", 20))
         return response_result(content=ctrl.get_member_duties(work_no, page=page, size=size))

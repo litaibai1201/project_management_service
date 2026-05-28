@@ -330,9 +330,9 @@ const GroupMembersPage: React.FC = () => {
               },
               {
                 key: 'duties',
-                label: `臨時任務 (${duties.length})`,
+                label: `AR (${duties.length})`,
                 children: duties.length === 0 ? (
-                  <Empty description="暫無臨時任務" className="py-10" />
+                  <Empty description="暫無AR" className="py-10" />
                 ) : (
                   <div className="flex flex-col gap-2 mt-1">
                     {duties.map((d) => {

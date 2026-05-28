@@ -72,7 +72,7 @@ const AdminDashboardPage: React.FC = () => {
         <Col xs={24} sm={12} lg={6}>
           <Card>
             <Statistic
-              title="临时任务"
+              title="AR"
               value={data?.total_duties ?? 0}
               prefix={<FileTextOutlined />}
               valueStyle={{ color: '#faad14' }}

@@ -35,7 +35,7 @@ const WIDGET_CATEGORIES: Record<DashboardViewType, Category[]> = {
       label: '任務',
       widgets: [
         { id: 'task_stats',         title: '任務統計',      desc: '展示任務完成情況',           color: '#22c55e' },
-        { id: 'my_tasks',           title: '我負責的任務',  desc: '展示我負責的臨時任務列表',   color: '#22c55e' },
+        { id: 'my_tasks',           title: '我負責的任務',  desc: '展示我負責的AR列表',   color: '#22c55e' },
         { id: 'pending_review',     title: '待處理',        desc: '展示待處理數量概覽',         color: '#f59e0b' },
         { id: 'my_pending_review',  title: '待我審批',      desc: '展示待我審批的申請列表',     color: '#f59e0b' },
       ],

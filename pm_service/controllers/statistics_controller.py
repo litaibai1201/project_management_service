@@ -61,7 +61,7 @@ class StatisticsController:
                 if wn in member_work_nos:
                     funcs_by_user[wn].append(f)
 
-        # ── 批量预加载：临时任务（MySQL）──────────────────────────
+        # ── 批量预加载：AR（MySQL）──────────────────────────
         duty_conds = [TemporaryDutyModel.responsible.like(f'%"{wn}"%') for wn in all_wns]
         all_duties_pre = db.session.query(TemporaryDutyModel).filter(
             TemporaryDutyModel.status == 1,
@@ -144,7 +144,7 @@ class StatisticsController:
                     except ValueError:
                         pass
 
-        # 临时任务
+        # AR
         all_duties = db.session.query(TemporaryDutyModel).filter(
             TemporaryDutyModel.status == 1,
         ).all()
@@ -225,7 +225,7 @@ class StatisticsController:
                     except ValueError:
                         pass
 
-        # ── 临时任务统计 ──────────────────────────────────────────────
+        # ── AR统计 ──────────────────────────────────────────────
         if duties is None:
             all_duties = db.session.query(TemporaryDutyModel).filter(
                 TemporaryDutyModel.status == 1,
@@ -339,7 +339,7 @@ class StatisticsController:
 
         CATEGORY_LABEL = {
             "project":  "專案任務",
-            "duty":     "臨時任務",
+            "duty":     "AR",
             "meeting":  "會議",
             "training": "培訓",
             "cr_ar":    "CR/AR",
@@ -513,7 +513,7 @@ class StatisticsController:
                 if wn in wns_set:
                     funcs_by_user[wn].append(f)
 
-        # ── 批量预加载：临时任务（MySQL）──────────────────────────
+        # ── 批量预加载：AR（MySQL）──────────────────────────
         duty_conds = [TemporaryDutyModel.responsible.like(f'%"{wn}"%') for wn in all_wns]
         all_duties_pre = db.session.query(TemporaryDutyModel).filter(
             TemporaryDutyModel.status == 1,
@@ -655,7 +655,7 @@ class StatisticsController:
                             "expected_end_date": f_end,
                         })
 
-            # ── 临时任务状态 ──────────────────────────────────────────
+            # ── AR状态 ──────────────────────────────────────────
             duty_hours: dict = {}
             for r in duty_prog_recs:
                 did = r.duty_id or ""
@@ -666,7 +666,7 @@ class StatisticsController:
                 resp = json.loads(d.responsible) if d.responsible else []
                 if wn not in resp:
                     continue
-                proj_nm = _proj_name(d.project_id) if getattr(d, "project_id", None) else "臨時任務"
+                proj_nm = _proj_name(d.project_id) if getattr(d, "project_id", None) else "AR"
                 s = d.duty_status or 0
                 d_start = str(d.expected_start_date or "")
                 d_end = str(d.latest_expected_end_date or d.expected_end_date or "")

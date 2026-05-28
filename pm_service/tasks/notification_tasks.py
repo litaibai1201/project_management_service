@@ -2,8 +2,8 @@
 """
 @文件: notification_tasks.py
 @说明: 通知相关定时任务
-        #9  每天早上 9:00 — 检查 3 天内到期的功能任务/临时任务，通知负责人
-        #10 每天早上 9:00 — 检查已逾期（未完成）的功能任务/临时任务，通知负责人 + 专案PM
+        #9  每天早上 9:00 — 检查 3 天内到期的功能任务/AR，通知负责人
+        #10 每天早上 9:00 — 检查已逾期（未完成）的功能任务/AR，通知负责人 + 专案PM
         #11 每天 17:30  — 提醒当天未提交日报的成员
 """
 
@@ -66,7 +66,7 @@ def deliver_notification(self, recipients: list, title: str, desc: str = "",
 
 @celery_app.app.task(name="tasks.notification.deadline_alert")
 def deadline_alert() -> dict:
-    """每天 09:00 检查未完成任务：距截止日期 ≤ 3 天时通知负责人（涵盖功能任务和临时任务）"""
+    """每天 09:00 检查未完成任务：距截止日期 ≤ 3 天时通知负责人（涵盖功能任务和AR）"""
     from dbs.mysql_db import db
     from dbs.mysql_db.model_tables import FunctionDataModel, TemporaryDutyModel, ProjectDataModel
     from controllers.notification_controller import push_notification
@@ -102,7 +102,7 @@ def deadline_alert() -> dict:
             )
             notified += len(resp)
 
-        # ── 临时任务 ──────────────────────────────────────────────────────────
+        # ── AR ──────────────────────────────────────────────────────────
         duties = (
             db.session.query(TemporaryDutyModel)
             .filter(TemporaryDutyModel.duty_status == 1)  # 进行中
@@ -118,7 +118,7 @@ def deadline_alert() -> dict:
             push_notification(
                 recipients=resp,
                 title="任務即將到期提醒",
-                desc=f"臨時任務「{d.duty_nm}」將於 {end_date} 到期，請儘快完成。",
+                desc=f"AR「{d.duty_nm}」將於 {end_date} 到期，請儘快完成。",
                 link_type="duty",
                 link_id=d.id,
             )
@@ -170,7 +170,7 @@ def overdue_alert() -> dict:
             )
             notified += len(recipients)
 
-        # ── 临时任务 ──────────────────────────────────────────────────────────
+        # ── AR ──────────────────────────────────────────────────────────
         duties = (
             db.session.query(TemporaryDutyModel)
             .filter(TemporaryDutyModel.duty_status == 1)
@@ -186,7 +186,7 @@ def overdue_alert() -> dict:
             push_notification(
                 recipients=resp,
                 title="任務逾期提醒",
-                desc=f"臨時任務「{d.duty_nm}」已逾期（截止日：{end_date}），請儘快處理。",
+                desc=f"AR「{d.duty_nm}」已逾期（截止日：{end_date}），請儘快處理。",
                 link_type="duty",
                 link_id=d.id,
             )
@@ -204,7 +204,7 @@ def overdue_alert() -> dict:
 @celery_app.app.task(name="tasks.notification.daily_log_reminder")
 def daily_log_reminder() -> dict:
     """
-    每天 17:30 提醒：当天有进行中任务（功能任务 or 临时任务）的成员，
+    每天 17:30 提醒：当天有进行中任务（功能任务 or AR）的成员，
     若尚未提交当天日报则发送通知。
     """
     from dbs.mysql_db import db
@@ -227,7 +227,7 @@ def daily_log_reminder() -> dict:
             resp = json.loads(f.responsible) if f.responsible else []
             members.update(resp)
 
-        # 有进行中临时任务的成员
+        # 有进行中AR的成员
         active_duties = (
             db.session.query(TemporaryDutyModel)
             .filter(TemporaryDutyModel.duty_status == 1)

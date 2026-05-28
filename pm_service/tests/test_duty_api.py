@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
-"""临时任务接口测试 — /api/temporary_duty"""
+"""AR接口测试 — /api/temporary_duty"""
 import json
 import pytest
 from tests.conftest import json_post, json_get, json_put, json_delete
 
 
 def create_duty(client, token, **overrides):
-    """辅助：创建一条草稿临时任务，返回 duty_id"""
+    """辅助：创建一条草稿AR，返回 duty_id"""
     payload = {
-        "duty_nm": "测试临时任务",
+        "duty_nm": "测试AR",
         "responsible": '["T001"]',
         "expected_start_date": "2026-01-01",
         "expected_end_date": "2026-12-31",

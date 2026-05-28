@@ -140,7 +140,7 @@ const DutyListPage: React.FC = () => {
 
   useEffect(() => { if (activeTab === 'project') loadMyFunctions(1, myFuncPageSize, myFuncStatus, myFuncScope) }, [activeTab, isManagerView])
 
-  // ── 臨時任務 state ────────────────────────────────────────────────────────
+  // ── AR state ────────────────────────────────────────────────────────
   const dutyView = isManagerView ? 'all' : 'mine'
   const [groupMode, setGroupMode]     = useState<'flat' | 'grouped'>('grouped')
   const [filterGroup, setFilterGroup] = useState<string | null>(null)
@@ -269,7 +269,7 @@ const DutyListPage: React.FC = () => {
           expected_end_date:   values.expected_end_date as string | undefined,
         },
       })).unwrap()
-      showToast.success('臨時任務建立成功')
+      showToast.success('AR建立成功')
       setShowCreate(false); form.resetFields()
       dispatch(fetchDutyListThunk(query))
     } catch (err: unknown) { showToast.error((err as string) || '建立失敗') }
@@ -440,7 +440,7 @@ const DutyListPage: React.FC = () => {
       <div className="flex items-center justify-between mb-5">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">任務</h1>
-          <p className="text-slate-400 text-sm mt-0.5">管理你的專案任務與臨時任務</p>
+          <p className="text-slate-400 text-sm mt-0.5">管理你的專案任務與AR</p>
         </div>
         {activeTab === 'duty' && (
           <Button type="primary" icon={<PlusIcon className="w-4 h-4" />}
@@ -569,7 +569,7 @@ const DutyListPage: React.FC = () => {
         },
         {
           key: 'duty',
-          label: `臨時任務 (${(hideCompleted ? displayedList.filter((d) => d.status !== 3) : displayedList).length})`,
+          label: `AR (${(hideCompleted ? displayedList.filter((d) => d.status !== 3) : displayedList).length})`,
           children: (
             <div>
 
@@ -707,7 +707,7 @@ const DutyListPage: React.FC = () => {
       )}
 
       {/* Create Modal */}
-      <Modal title="新建臨時任務" open={showCreate}
+      <Modal title="新建 AR" open={showCreate}
         onCancel={() => { setShowCreate(false); form.resetFields() }}
         footer={null} width="min(720px, 88vw)" destroyOnClose>
         <Form form={form} layout="vertical" onFinish={handleCreate} className="mt-4">

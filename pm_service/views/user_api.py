@@ -251,7 +251,7 @@ class MyDutiesApi(MethodView):
     @jwt_required()
     @blp.response(200, RspMsgDictSchema)
     def get(self):
-        """我的临时任务列表"""
+        """我的AR列表"""
         work_no = get_identity()
         page = int(request.args.get("page", 1))
         size = int(request.args.get("size", 20))

@@ -641,7 +641,7 @@ class UserController:
         }
 
     def get_alert_tasks(self, work_no: str) -> list:
-        """返回当前用户7天内到期或已超期的功能任务 / 临时任务"""
+        """返回当前用户7天内到期或已超期的功能任务 / AR"""
         import datetime
         from dbs.mysql_db.model_tables import FunctionDataModel, TemporaryDutyModel, ProjectDataModel
 
@@ -797,7 +797,7 @@ class UserController:
                 "created_at": str(r.created_at) if r.created_at else "",
             })
 
-        # ── 临时任务进度更新（该用户提交的）─────────────────────────────────
+        # ── AR进度更新（该用户提交的）─────────────────────────────────
         duty_recs = (
             db.session.query(DutyProgressRecordModel)
             .filter(DutyProgressRecordModel.submitter == work_no)
@@ -813,7 +813,7 @@ class UserController:
             entries.append({
                 "id": r.id,
                 "action": "提交了任務進度",
-                "subject": duty_map.get(r.duty_id, "臨時任務"),
+                "subject": duty_map.get(r.duty_id, "AR"),
                 "type": "duty_progress",
                 "created_at": str(r.created_at) if r.created_at else "",
             })
@@ -892,7 +892,7 @@ class UserController:
         }
 
     def my_duties(self, work_no: str, page=1, size=20, status=None):
-        """我的临时任务列表"""
+        """我的AR列表"""
         from dbs.mysql_db.model_tables import TemporaryDutyModel
         q = db.session.query(TemporaryDutyModel).filter(
             db.or_(

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""临时任务控制器"""
+"""AR控制器"""
 import json
 
 from utils.tools import CommonTools
@@ -47,7 +47,7 @@ class DutyController:
         }
 
     def list_duties_by_project(self, project_id: str):
-        """查询关联到某专案的所有临时任务（不含已删除）"""
+        """查询关联到某专案的所有AR（不含已删除）"""
         duties = db.session.query(TemporaryDutyModel).filter(
             TemporaryDutyModel.project_id == project_id,
             TemporaryDutyModel.duty_status != 9,
@@ -57,7 +57,7 @@ class DutyController:
     def get_duty(self, duty_id: str):
         d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
         if not d or d.duty_status == 9:
-            raise ResourceNotFoundException(resource_type="临时任务")
+            raise ResourceNotFoundException(resource_type="AR")
         return d.to_dict()
 
     def create_duty(self, payload: dict, creator: str):
@@ -93,7 +93,7 @@ class DutyController:
         if notif_targets:
             push_notification(
                 notif_targets,
-                title="您被指定為臨時任務負責人",
+                title="您被指定為AR負責人",
                 desc=f"「{d.duty_nm}」，建立人：{creator_display}",
                 link_type="duty",
                 link_id=d.id,
@@ -103,7 +103,7 @@ class DutyController:
     def update_duty(self, duty_id: str, payload: dict, work_no: str = None):
         d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
         if not d or d.duty_status == 9:
-            raise ResourceNotFoundException(resource_type="临时任务")
+            raise ResourceNotFoundException(resource_type="AR")
         if work_no and d.creator != work_no:
             raise PermissionException("只有建立人可以修改任務基本資訊")
         for field in ("duty_nm", "describe", "priority", "group", "project_id",
@@ -138,7 +138,7 @@ class DutyController:
             if new_resp:
                 push_notification(
                     recipients=new_resp,
-                    title="您已被指定為臨時任務負責人",
+                    title="您已被指定為AR負責人",
                     desc=f"「{d.duty_nm}」已指派您為負責人，請及時跟進。",
                     link_type="duty",
                     link_id=d.id,
@@ -157,7 +157,7 @@ class DutyController:
             if removed_resp:
                 push_notification(
                     recipients=removed_resp,
-                    title="您已被移除臨時任務負責人",
+                    title="您已被移除AR負責人",
                     desc=f"「{d.duty_nm}」已將您從負責人名單中移除。",
                     link_type="duty",
                     link_id=d.id,
@@ -167,19 +167,19 @@ class DutyController:
             if creator and creator not in changed_wns:
                 push_notification(
                     recipients=[creator],
-                    title="臨時任務負責人已調整",
+                    title="AR負責人已調整",
                     desc=f"「{d.duty_nm}」的負責人已更新。",
                     link_type="duty",
                     link_id=d.id,
                 )
 
     def reschedule_duty(self, duty_id: str, new_end_date: str, reason: str, operator: str):
-        """延期临时任务：建立人或责任人可操作，记录延期历史"""
+        """延期AR：建立人或责任人可操作，记录延期历史"""
         if not new_end_date or not new_end_date.strip():
             raise ValidationException(msg="new_end_date 不能为空")  # noqa
         d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
         if not d or d.duty_status == 9:
-            raise ResourceNotFoundException(resource_type="临时任务")
+            raise ResourceNotFoundException(resource_type="AR")
 
         responsible = []
         if d.responsible:
@@ -227,7 +227,7 @@ class DutyController:
         if notif_targets:
             push_notification(
                 recipients=notif_targets,
-                title="臨時任務已延期",
+                title="AR已延期",
                 desc=notif_msg,
                 link_type="duty",
                 link_id=d.id,
@@ -237,7 +237,7 @@ class DutyController:
     def delete_duty(self, duty_id: str, work_no: str = None):
         d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
         if not d:
-            raise ResourceNotFoundException(resource_type="临时任务")
+            raise ResourceNotFoundException(resource_type="AR")
         if work_no and d.creator != work_no:
             raise PermissionException("只有建立人可以刪除任務")
         if d.duty_status not in (0, 1, 8):
@@ -250,7 +250,7 @@ class DutyController:
         """草稿 → 進行中（建立人）。可附帶 responsible/expected_start_date/expected_end_date 一起更新"""
         d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
         if not d or d.duty_status == 9:
-            raise ResourceNotFoundException(resource_type="临时任务")
+            raise ResourceNotFoundException(resource_type="AR")
         responsible = json.loads(d.responsible) if d.responsible else []
         if work_no != d.creator and work_no not in responsible:
             raise PermissionException("只有建立人或負責人可以激活任務")
@@ -282,7 +282,7 @@ class DutyController:
         if notif_targets:
             push_notification(
                 recipients=notif_targets,
-                title="您負責的臨時任務已激活",
+                title="您負責的AR已激活",
                 desc=f"「{d.duty_nm}」已開始進行，請及時跟進。",
                 link_type="duty",
                 link_id=d.id,
@@ -292,7 +292,7 @@ class DutyController:
         """進行中 → 擱置（建立人）"""
         d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
         if not d or d.duty_status == 9:
-            raise ResourceNotFoundException(resource_type="临时任务")
+            raise ResourceNotFoundException(resource_type="AR")
         if d.creator != work_no:
             raise PermissionException("只有建立人可以擱置任務")
         if d.duty_status != 1:
@@ -305,7 +305,7 @@ class DutyController:
         """擱置 → 進行中（建立人）"""
         d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
         if not d or d.duty_status == 9:
-            raise ResourceNotFoundException(resource_type="临时任务")
+            raise ResourceNotFoundException(resource_type="AR")
         if d.creator != work_no:
             raise PermissionException("只有建立人可以恢復任務")
         if d.duty_status != 8:
@@ -318,7 +318,7 @@ class DutyController:
         """提交完結審核：進行中 → 完結審核，建立 ReviewApplyModel"""
         d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
         if not d or d.duty_status == 9:
-            raise ResourceNotFoundException(resource_type="临时任务")
+            raise ResourceNotFoundException(resource_type="AR")
         responsible = json.loads(d.responsible) if d.responsible else []
         if work_no not in responsible:
             raise PermissionException("只有負責人可以提交完結審核")
@@ -341,7 +341,7 @@ class DutyController:
         ]
         review = ReviewApplyModel(
             duty_id=duty_id,
-            apply_type="臨時任務完結審核",
+            apply_type="AR完結審核",
             apply_type_code="duty_completion",
             submitter=work_no,
             submitter_name=submitter_name,
@@ -365,7 +365,7 @@ class DutyController:
         push_notification(
             first_reviewers,
             title="您有新的審核申請待處理",
-            desc=f"「{d.duty_nm}」臨時任務完結審核，提交人：{submitter_display}",
+            desc=f"「{d.duty_nm}」AR完結審核，提交人：{submitter_display}",
             link_type="review",
             link_id=review.id,
         )
@@ -374,7 +374,7 @@ class DutyController:
     def allocate(self, duty_id: str, payload: dict):
         d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
         if not d:
-            raise ResourceNotFoundException(resource_type="临时任务")
+            raise ResourceNotFoundException(resource_type="AR")
         new_resp = []
         removed_resp = []
         old_resp_snap = []
@@ -397,7 +397,7 @@ class DutyController:
             if new_resp:
                 push_notification(
                     recipients=new_resp,
-                    title="您已被指定為臨時任務負責人",
+                    title="您已被指定為AR負責人",
                     desc=f"「{d.duty_nm}」已指派您為負責人，請及時跟進。",
                     link_type="duty",
                     link_id=d.id,
@@ -416,7 +416,7 @@ class DutyController:
             if removed_resp:
                 push_notification(
                     recipients=removed_resp,
-                    title="您已被移除臨時任務負責人",
+                    title="您已被移除AR負責人",
                     desc=f"「{d.duty_nm}」已將您從負責人名單中移除。",
                     link_type="duty",
                     link_id=d.id,
@@ -425,7 +425,7 @@ class DutyController:
     def set_status(self, duty_id: str, status: int):
         d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
         if not d:
-            raise ResourceNotFoundException(resource_type="临时任务")
+            raise ResourceNotFoundException(resource_type="AR")
         d.duty_status = status
         d.update_at = CommonTools.get_now()
         db.session.commit()
@@ -463,7 +463,7 @@ class DutyController:
         import os, uuid as _uuid
         d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
         if not d or d.duty_status == 9:
-            raise ResourceNotFoundException(resource_type="临时任务")
+            raise ResourceNotFoundException(resource_type="AR")
         if d.duty_status != 1:
             raise BusinessException("只有進行中的任務才能更新進度")
         responsible = json.loads(d.responsible) if d.responsible else []

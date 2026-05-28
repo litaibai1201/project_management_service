@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""临时任务模块序列化"""
+"""AR模块序列化"""
 from marshmallow import Schema, fields, validate
 
 

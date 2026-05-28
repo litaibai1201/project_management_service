@@ -56,7 +56,7 @@ const TYPE_META: Record<string, { label: string; tagColor: string; bgColor: stri
   project:     { label: '專案',   tagColor: 'blue',   bgColor: 'bg-blue-50',   iconColor: 'text-blue-500'   },
   requirement: { label: '需求',   tagColor: 'cyan',   bgColor: 'bg-cyan-50',   iconColor: 'text-cyan-500'   },
   function:    { label: '功能任務', tagColor: 'green', bgColor: 'bg-green-50',  iconColor: 'text-green-500'  },
-  duty:        { label: '臨時任務', tagColor: 'purple', bgColor: 'bg-purple-50', iconColor: 'text-purple-500' },
+  duty:        { label: 'AR', tagColor: 'purple', bgColor: 'bg-purple-50', iconColor: 'text-purple-500' },
 }
 
 const ResultCard: React.FC<{ item: SearchResult; keyword: string; onClick: () => void }> = ({ item, keyword, onClick }) => {

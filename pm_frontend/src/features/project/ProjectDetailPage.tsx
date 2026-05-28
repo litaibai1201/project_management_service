@@ -1710,7 +1710,7 @@ const ProjectDetailPage: React.FC = () => {
                       <div className="border-t border-orange-100">
                         <div className="flex items-center gap-2 px-4 py-2 bg-orange-50/60">
                           <FolderIcon className="w-4 h-4 text-orange-500" />
-                          <span className="text-sm font-semibold text-slate-700">臨時任務</span>
+                          <span className="text-sm font-semibold text-slate-700">AR</span>
                           <Tag color="orange" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>
                             {displayedDuties.filter((d) => d.status !== 3).length} 項
                           </Tag>
@@ -1846,7 +1846,7 @@ const ProjectDetailPage: React.FC = () => {
                             header={
                               <div className="flex items-center gap-3">
                                 <FolderIcon className="w-4 h-4 text-orange-500" />
-                                <span className="font-semibold text-slate-700">臨時任務</span>
+                                <span className="font-semibold text-slate-700">AR</span>
                                 <Tag color="orange" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>
                                   {displayedDuties.filter((d) => d.status !== 3).length} 項
                                 </Tag>

@@ -3,7 +3,7 @@ import type { ApiResponse, DailyLog, DailyLogEntry } from '@/types/api.types'
 
 // ─── Backend wire types (match Flask-Marshmallow schema exactly) ──────────────
 
-/** Backend: task_items 條目（專案功能 / 臨時任務） */
+/** Backend: task_items 條目（專案功能 / AR） */
 export interface BackendTaskItem {
   task_type: 'project' | 'duty'   // backend field name
   task_id: string                  // function_id (project) | duty_id (duty)

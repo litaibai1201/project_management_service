@@ -224,7 +224,7 @@ class DailyLogController:
                 "submitter":           r.submitter,
             })
 
-        # ── 临时任务进度记录 ──────────────────────────────────────────────
+        # ── AR进度记录 ──────────────────────────────────────────────
         duty_recs = (
             db.session.query(DutyProgressRecordModel)
             .filter(
@@ -318,7 +318,7 @@ class DailyLogController:
         elif task_type == "duty":
             duty = db.session.query(TemporaryDutyModel).filter_by(id=task_id).first()
             if not duty:
-                raise ResourceNotFoundException(msg="临时任务不存在")
+                raise ResourceNotFoundException(msg="AR不存在")
             duty.progress = progress
             db.session.commit()
         else:

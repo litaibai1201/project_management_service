@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""临时任务接口 Blueprint"""
+"""AR接口 Blueprint"""
 from flask import request
 from flask.views import MethodView
 from flask_smorest import Blueprint
@@ -8,7 +8,7 @@ from utils.response import response_result
 from controllers.duty_controller import DutyController
 from serializes.response_serialize import RspMsgDictSchema, RspMsgRawSchema
 
-blp = Blueprint("duty_api", __name__, description="临时任务管理接口")
+blp = Blueprint("duty_api", __name__, description="AR管理接口")
 ctrl = DutyController()
 
 
@@ -19,7 +19,7 @@ class DutyByProjectApi(MethodView):
     @jwt_required()
     @blp.response(200, RspMsgRawSchema)
     def get(self, project_id):
-        """查询关联到某专案的所有临时任务"""
+        """查询关联到某专案的所有AR"""
         return response_result(content=ctrl.list_duties_by_project(project_id))
 
 
@@ -28,7 +28,7 @@ class DutyListApi(MethodView):
     @jwt_required()
     @blp.response(200, RspMsgDictSchema)
     def post(self):
-        """临时任务列表"""
+        """AR列表"""
         work_no = get_identity()
         payload = request.get_json() or {}
         return response_result(content=ctrl.list_duties(payload, work_no=work_no))
@@ -39,7 +39,7 @@ class DutyCreateApi(MethodView):
     @jwt_required()
     @blp.response(200, RspMsgDictSchema)
     def post(self):
-        """创建临时任务"""
+        """创建AR"""
         work_no = get_identity()
         payload = request.form.to_dict()
         return response_result(content=ctrl.create_duty(payload, creator=work_no))
@@ -50,13 +50,13 @@ class DutyDetailApi(MethodView):
     @jwt_required()
     @blp.response(200, RspMsgDictSchema)
     def get(self, duty_id):
-        """获取临时任务详情"""
+        """获取AR详情"""
         return response_result(content=ctrl.get_duty(duty_id))
 
     @jwt_required()
     @blp.response(200, RspMsgDictSchema)
     def put(self, duty_id):
-        """更新临时任务"""
+        """更新AR"""
         work_no = get_identity()
         payload = request.form.to_dict()
         ctrl.update_duty(duty_id, payload, work_no=work_no)
@@ -65,7 +65,7 @@ class DutyDetailApi(MethodView):
     @jwt_required()
     @blp.response(200, RspMsgDictSchema)
     def delete(self, duty_id):
-        """删除临时任务"""
+        """删除AR"""
         work_no = get_identity()
         ctrl.delete_duty(duty_id, work_no=work_no)
         return response_result()
@@ -139,7 +139,7 @@ class DutyAllocationApi(MethodView):
     @jwt_required()
     @blp.response(200, RspMsgDictSchema)
     def put(self, duty_id):
-        """分配临时任务"""
+        """分配AR"""
         payload = request.get_json() or {}
         ctrl.allocate(duty_id, payload)
         return response_result()

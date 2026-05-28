@@ -46,7 +46,7 @@ from views.notification_api import blp as notification_blp
 # 前端 API 调用地址映射：
 #   /api/user/*           → user_blp       (登录、用户管理、层级、个人查询)
 #   /api/project/*        → project_blp    (项目、功能任务、里程碑、审核)
-#   /api/temporary_duty/* → duty_blp       (临时任务、进度、审核)
+#   /api/temporary_duty/* → duty_blp       (AR、进度、审核)
 #   /api/group/*          → group_blp      (成员管理、报告)
 #   /api/statistics/*     → statistics_blp (统计)
 #   /api/daily_log        → daily_log_blp  (日报)
