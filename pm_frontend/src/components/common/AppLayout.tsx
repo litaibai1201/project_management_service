@@ -10,7 +10,7 @@ import {
   BellIcon, ArrowRightStartOnRectangleIcon, Bars3Icon,
   ChevronDoubleLeftIcon, ChartBarIcon, PencilSquareIcon,
   ExclamationTriangleIcon, TableCellsIcon, RectangleStackIcon,
-  DocumentChartBarIcon,
+  DocumentChartBarIcon, ServerStackIcon,
 } from '@heroicons/react/24/outline'
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
 import { logout } from '@/features/auth/authSlice'
@@ -42,6 +42,7 @@ const NAV_ITEMS: NavItem[] = [
       // { key: '/dept-tasks', icon: <Squares2X2Icon className="w-[16px] h-[16px]" />, label: '部門任務', path: '/dept-tasks' }, // TODO: 功能開發中，暫時隱藏
     ],
   },
+  { key: '/systems',    icon: <ServerStackIcon className="w-[18px] h-[18px]" />,             label: '系統管理',  path: '/systems'    },
   { key: '/daily-log',  icon: <PencilSquareIcon className="w-[18px] h-[18px]" />,           label: '工作日誌',  path: '/daily-log'  },
   {
     key: '/review-mgmt',

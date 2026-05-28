@@ -10,6 +10,7 @@ import {
   LogoutOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
+  DesktopOutlined,
 } from '@ant-design/icons'
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
 import { logout } from '@/features/auth/authSlice'
@@ -18,11 +19,12 @@ import { showToast } from '@/utils/toast'
 const { Sider, Header, Content } = Layout
 
 const MENU_ITEMS = [
-  { key: '/admin',         icon: <DashboardOutlined />, label: '仪表盘' },
-  { key: '/admin/users',   icon: <UserOutlined />,      label: '用户管理' },
-  { key: '/admin/config',  icon: <SettingOutlined />,   label: '系统配置' },
-  { key: '/admin/logs',    icon: <FileTextOutlined />,  label: '操作日志' },
-  { key: '/admin/admins',  icon: <TeamOutlined />,      label: '管理员账号' },
+  { key: '/admin',          icon: <DashboardOutlined />, label: '仪表盘' },
+  { key: '/admin/users',    icon: <UserOutlined />,      label: '用户管理' },
+  { key: '/admin/systems',  icon: <DesktopOutlined />,   label: '系统资料' },
+  { key: '/admin/config',   icon: <SettingOutlined />,   label: '系统配置' },
+  { key: '/admin/logs',     icon: <FileTextOutlined />,  label: '操作日志' },
+  { key: '/admin/admins',   icon: <TeamOutlined />,      label: '管理员账号' },
 ]
 
 const AdminLayout: React.FC = () => {

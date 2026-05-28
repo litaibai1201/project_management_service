@@ -8,6 +8,7 @@ import type { UploadFile } from 'antd'
 import { PlusIcon, PaperClipIcon } from '@heroicons/react/24/outline'
 import { userApi } from '@/api/user.api'
 import { projectApi } from '@/api/project.api'
+import { systemApi, type SystemItem } from '@/api/system.api'
 import AttachmentPreview from '@/components/ui/AttachmentPreview'
 import FilePreviewModal from '@/features/project/FilePreviewModal'
 import type { FileInfo, TemporaryDuty } from '@/types/api.types'
@@ -82,6 +83,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
   const [showEditModal, setShowEditModal]       = useState(false)
   const [editForm]                              = Form.useForm()
   const [projectOptions, setProjectOptions]     = useState<{ value: string; label: string }[]>([])
+  const [systemOptions,  setSystemOptions]      = useState<{ value: string; label: string }[]>([])
 
   // 提交完結審核
   const [showSubmitModal, setShowSubmitModal] = useState(false)
@@ -141,7 +143,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
       duty_nm:              duty.duty_nm,
       describe:             duty.describe ?? '',
       group:                duty.group ?? '',
-      project_id:           duty.project_id ?? '',
+      system_id:            duty.system_id ?? '',
       priority:             duty.priority,
       responsible:          duty.responsible ?? [],
       expected_start_date:  duty.expected_start_date ?? '',
@@ -155,8 +157,14 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
         setProjectOptions(data.map((p) => ({ value: p.id, label: p.project_nm })))
       }).catch(() => {})
     }
+    if (systemOptions.length === 0) {
+      systemApi.list({ page: 1, size: 200 }).then((res) => {
+        const c = res.content as { data_list: SystemItem[] }
+        setSystemOptions((c.data_list ?? []).map((s) => ({ value: s.id, label: s.sys_nm })))
+      }).catch(() => {})
+    }
     setShowEditModal(true)
-  }, [duty, editForm, ensureUserOptions, projectOptions.length])
+  }, [duty, editForm, ensureUserOptions, projectOptions.length, systemOptions.length])
 
   const handleEdit = useCallback(async () => {
     const values = await editForm.validateFields()
@@ -166,7 +174,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
         duty_nm:              values.duty_nm,
         describe:             values.describe,
         group:                values.group,
-        project_id:           values.project_id,
+        system_id:            values.system_id,
         priority:             values.priority,
         responsible:          values.responsible,
         expected_start_date:  values.expected_start_date,
@@ -430,9 +438,9 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
                   <Tag color="processing" style={{ fontSize: 11 }}>{duty.group}</Tag>
                 </Descriptions.Item>
               )}
-              {duty.project_nm && (
-                <Descriptions.Item label="關聯專案">
-                  <span className="text-blue-600 text-xs">{duty.project_nm}</span>
+              {duty.system_nm && (
+                <Descriptions.Item label="關聯系統">
+                  <span className="text-blue-600 text-xs">{duty.system_nm}</span>
                 </Descriptions.Item>
               )}
               {duty.describe && (
@@ -791,13 +799,21 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
               <Input type="date" />
             </Form.Item>
           </div>
-          <Form.Item name="project_id" label="關聯專案" extra="選填，僅作標記參考">
+          <Form.Item name="system_id" label="關聯系統">
             <Select
-              placeholder="選擇關聯專案（選填）"
-              options={projectOptions}
+              placeholder="選擇關聯系統（選填）"
+              options={systemOptions}
               showSearch
               filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
               allowClear
+              onDropdownVisibleChange={(open) => {
+                if (open && systemOptions.length === 0) {
+                  systemApi.list({ page: 1, size: 200 }).then((res) => {
+                    const c = res.content as { data_list: SystemItem[] }
+                    setSystemOptions((c.data_list ?? []).map((s) => ({ value: s.id, label: s.sys_nm })))
+                  }).catch(() => {})
+                }
+              }}
             />
           </Form.Item>
           <Form.Item name="describe" label="任務描述">

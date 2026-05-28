@@ -40,6 +40,7 @@ from views.dashboard_config_api import blp as dashboard_config_blp
 from views.meeting_note_api import blp as meeting_note_blp
 from views.notification_api import blp as notification_blp
 from views.standalone_req_api import blp as standalone_req_blp
+from views.system_api import blp as system_blp
 
 # ==================== 蓝图注册配置 ====================
 # 格式: (蓝图对象, URL 前缀配置)
@@ -74,4 +75,5 @@ BLUEPRINTS = [
     (notification_blp,      {"url_prefix": "/api/notification"}),
     (meeting_note_blp,      {"url_prefix": "/api"}),
     (standalone_req_blp,    {"url_prefix": "/api/standalone_req"}),
+    (system_blp,            {"url_prefix": "/api/system"}),
 ]

@@ -33,6 +33,8 @@ const WbsOverviewPage  = lazy(() => import('@/features/wbs/WbsOverviewPage'))
 const ProjectReportPage    = lazy(() => import('@/features/project/ProjectReportPage'))
 const DepartmentTaskPage      = lazy(() => import('@/features/duty/DepartmentTaskPage'))
 const RequirementListPage     = lazy(() => import('@/features/requirement/RequirementListPage'))
+const SystemListPage          = lazy(() => import('@/features/system/SystemListPage'))
+const AdminSystemPage         = lazy(() => import('@/features/system/SystemListPage'))   // reuse same page in admin
 
 // ─── Loading Fallback ─────────────────────────────────────────────────────────
 const PageLoader: React.FC = () => (
@@ -78,6 +80,7 @@ const router = createBrowserRouter([
           { path: 'project-report',   element: <Suspense fallback={<PageLoader />}><ProjectReportPage /></Suspense> },
           { path: 'dept-tasks',        element: <Suspense fallback={<PageLoader />}><DepartmentTaskPage /></Suspense> },
           { path: 'requirements',      element: <Suspense fallback={<PageLoader />}><RequirementListPage /></Suspense> },
+          { path: 'systems',           element: <Suspense fallback={<PageLoader />}><SystemListPage /></Suspense> },
         ],
       },
     ],
@@ -94,7 +97,8 @@ const router = createBrowserRouter([
           { path: 'admin/users',   element: <Suspense fallback={<PageLoader />}><AdminUsersPage /></Suspense> },
           { path: 'admin/config',  element: <Suspense fallback={<PageLoader />}><SystemConfigPage /></Suspense> },
           { path: 'admin/logs',    element: <Suspense fallback={<PageLoader />}><OperationLogsPage /></Suspense> },
-          { path: 'admin/admins',  element: <Suspense fallback={<PageLoader />}><AdminAccountsPage /></Suspense> },
+          { path: 'admin/admins',   element: <Suspense fallback={<PageLoader />}><AdminAccountsPage /></Suspense> },
+          { path: 'admin/systems',  element: <Suspense fallback={<PageLoader />}><AdminSystemPage /></Suspense> },
         ],
       },
     ],

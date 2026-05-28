@@ -268,6 +268,8 @@ export interface TemporaryDuty {
   group?: string
   project_id?: string
   project_nm?: string
+  system_id?:  string
+  system_nm?:  string
   creator: string
   responsible?: string[]
   status: DutyStatus
@@ -287,6 +289,7 @@ export interface CreateDutyPayload {
   describe?: string
   group?: string
   project_id?: string
+  system_id?:  string
   expected_start_date?: string
   expected_end_date?: string
   priority: number

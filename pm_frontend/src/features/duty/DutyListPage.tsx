@@ -15,6 +15,7 @@ import { DUTY_STATUS_MAP, PRIORITY_MAP, FUNCTION_STATUS_MAP } from '@/utils/stat
 import { showToast } from '@/utils/toast'
 import { projectApi } from '@/api/project.api'
 import { userApi } from '@/api/user.api'
+import { systemApi, type SystemItem } from '@/api/system.api'
 import { useWorkNoToName } from '@/hooks/useWorkNoToName'
 import FunctionDetailDrawer from '@/features/project/FunctionDetailDrawer'
 import DutyDetailDrawer from './DutyDetailDrawer'
@@ -148,8 +149,9 @@ const DutyListPage: React.FC = () => {
   const [dutyPersonal, setDutyPersonal] = useState<'all' | 'mine'>('all')
   const [selectedDutyId, setSelectedDutyId] = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState(false)
-  const [modalUserOptions, setModalUserOptions] = useState<{ value: string; label: string }[]>([])
+  const [modalUserOptions,   setModalUserOptions]   = useState<{ value: string; label: string }[]>([])
   const [modalProjectOptions, setModalProjectOptions] = useState<{ value: string; label: string }[]>([])
+  const [modalSystemOptions, setModalSystemOptions]  = useState<{ value: string; label: string }[]>([])
   const [dutyExpandOpen,  setDutyExpandOpen]  = useState(false)
   const [dutyExpandDraft, setDutyExpandDraft] = useState('')
 
@@ -193,7 +195,13 @@ const DutyListPage: React.FC = () => {
         setModalProjectOptions(data.map((p) => ({ value: p.id, label: p.project_nm })))
       }).catch(() => {})
     }
-  }, [modalUserOptions.length, modalProjectOptions.length])
+    if (modalSystemOptions.length === 0) {
+      systemApi.list({ page: 1, size: 200 }).then((res) => {
+        const c = res.content as { data_list: SystemItem[] }
+        setModalSystemOptions((c.data_list ?? []).map((s) => ({ value: s.id, label: s.sys_nm })))
+      }).catch(() => {})
+    }
+  }, [modalUserOptions.length, modalProjectOptions.length, modalSystemOptions.length])
 
   const myList = useMemo(
     () => list.filter((d) =>
@@ -262,7 +270,7 @@ const DutyListPage: React.FC = () => {
           duty_nm:             values.duty_nm as string,
           describe:            values.describe as string | undefined,
           group:               values.group as string | undefined,
-          project_id:          values.project_id as string | undefined,
+          system_id:           values.system_id as string | undefined,
           priority:            values.priority as number,
           responsible:         values.responsible as string[] | undefined,
           expected_start_date: values.expected_start_date as string | undefined,
@@ -369,12 +377,10 @@ const DutyListPage: React.FC = () => {
       ),
     },
     {
-      title: '關聯專案', dataIndex: 'project_nm', width: 130, ellipsis: true,
-      render: (v: string, r: TemporaryDuty) => v ? (
-        <Button type="link" style={{ padding: 0, fontSize: 11 }} onClick={() => navigate(`/projects/${r.project_id}`)}>
-          {v}
-        </Button>
-      ) : <span className="text-slate-300 text-xs">—</span>,
+      title: '關聯系統', dataIndex: 'system_nm', width: 130, ellipsis: true,
+      render: (v: string) => v
+        ? <Tag color="geekblue" style={{ fontSize: 10 }}>{v}</Tag>
+        : <span className="text-slate-300 text-xs">—</span>,
     },
     {
       title: '分組', dataIndex: 'group', width: 100,
@@ -744,10 +750,10 @@ const DutyListPage: React.FC = () => {
               allowClear
             />
           </Form.Item>
-          <Form.Item name="project_id" label="關聯專案" extra="選填，僅作標記參考，不會出現在專案任務清單">
+          <Form.Item name="system_id" label="關聯系統">
             <Select
-              placeholder="選擇關聯專案（選填）"
-              options={modalProjectOptions}
+              placeholder="選擇關聯系統（選填）"
+              options={modalSystemOptions}
               showSearch
               filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
               allowClear

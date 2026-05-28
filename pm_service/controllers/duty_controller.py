@@ -6,7 +6,7 @@ from utils.tools import CommonTools
 from utils.exceptions import ResourceNotFoundException, PermissionException, BusinessException, ValidationException
 from dbs.mysql_db import db
 from dbs.mysql_db.model_tables import (
-    TemporaryDutyModel, DutyProgressRecordModel, ReviewApplyModel, ProjectDataModel
+    TemporaryDutyModel, DutyProgressRecordModel, ReviewApplyModel, ProjectDataModel, SystemModel
 )
 
 
@@ -36,9 +36,15 @@ class DutyController:
         if proj_ids:
             projs = db.session.query(ProjectDataModel).filter(ProjectDataModel.id.in_(proj_ids)).all()
             proj_map = {p.id: p.project_nm for p in projs}
+        sys_ids = [d.system_id for d in duties if d.system_id]
+        sys_map = {}
+        if sys_ids:
+            syss = db.session.query(SystemModel.id, SystemModel.sys_nm).filter(SystemModel.id.in_(sys_ids)).all()
+            sys_map = {s.id: s.sys_nm for s in syss}
         def _enrich(d):
             r = d.to_dict()
             r['project_nm'] = proj_map.get(d.project_id, '') if d.project_id else ''
+            r['system_nm']  = sys_map.get(d.system_id, '') if d.system_id else ''
             return r
         return {
             "total_count": total,
@@ -58,7 +64,13 @@ class DutyController:
         d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
         if not d or d.duty_status == 9:
             raise ResourceNotFoundException(resource_type="AR")
-        return d.to_dict()
+        result = d.to_dict()
+        if d.system_id:
+            s = db.session.query(SystemModel.sys_nm).filter_by(id=d.system_id).first()
+            result['system_nm'] = s.sys_nm if s else ''
+        else:
+            result['system_nm'] = ''
+        return result
 
     def create_duty(self, payload: dict, creator: str):
         from utils.exceptions import ValidationException
@@ -79,6 +91,7 @@ class DutyController:
             priority=payload.get("priority", 2),
             group=payload.get("group", ""),
             project_id=payload.get("project_id", "") or None,
+            system_id=payload.get("system_id", "") or None,
             expected_start_date=payload.get("expected_start_date", ""),
             expected_end_date=payload.get("expected_end_date", ""),
         )
@@ -106,7 +119,7 @@ class DutyController:
             raise ResourceNotFoundException(resource_type="AR")
         if work_no and d.creator != work_no:
             raise PermissionException("只有建立人可以修改任務基本資訊")
-        for field in ("duty_nm", "describe", "priority", "group", "project_id",
+        for field in ("duty_nm", "describe", "priority", "group", "project_id", "system_id",
                       "expected_start_date", "expected_end_date"):
             if field in payload and payload[field] is not None:
                 setattr(d, field, payload[field])

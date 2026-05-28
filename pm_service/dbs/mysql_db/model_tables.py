@@ -526,6 +526,7 @@ class TemporaryDutyModel(BaseMixinModel):
     progress = db.Column(db.Integer, default=0)
     group = db.Column(db.String(64), comment="任务分组(用户自定义)")
     project_id = db.Column(db.String(32), comment="关联专案ID（仅作参考，不纳入专案任务）")
+    system_id  = db.Column(db.String(32), comment="关联系统ID")
     expected_start_date = db.Column(db.String(10))
     expected_end_date = db.Column(db.String(10))
     start_time = db.Column(db.String(19))
@@ -552,6 +553,7 @@ class TemporaryDutyModel(BaseMixinModel):
             "creator": self.creator, "responsible": resp, "status": self.duty_status,
             "priority": self.priority, "progress": self.progress, "group": self.group or "",
             "project_id": self.project_id or "",
+            "system_id":  self.system_id  or "",
             "expected_start_date": self.expected_start_date or "",
             "expected_end_date": self.latest_expected_end_date or self.expected_end_date or "",
             "original_end_date": self.expected_end_date or "",
@@ -756,6 +758,51 @@ class StandaloneReqModel(BaseMixinModel):
             "expected_end_date":  self.expected_end_date or "",
             "created_at":         self.created_at or "",
             "updated_at":         self.updated_at or "",
+        }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 系统管理
+# ─────────────────────────────────────────────────────────────────────────────
+
+class SystemModel(BaseMixinModel):
+    """系统管理"""
+    __tablename__ = "system_form"
+
+    id               = db.Column(db.String(32), primary_key=True, default=generate_uuid)
+    sys_nm           = db.Column(db.String(128), nullable=False, comment="系统名称")
+    sys_group        = db.Column(db.String(64),  comment="所属分组")
+    maintainers      = db.Column(db.Text, comment="维护人员工号JSON数组")
+    description      = db.Column(db.Text, comment="系统功能介绍")
+    go_live_date     = db.Column(db.String(10),  comment="系统上线时间")
+    urls_json        = db.Column(db.Text, comment="访问网址列表JSON [{name,url}]")
+    deploy_info_json = db.Column(db.Text, comment="部署详情JSON数组")
+    sys_status       = db.Column(db.Integer, default=1, comment="1=正常 9=已删除")
+    created_at       = db.Column(db.String(19), default=CommonTools.get_now, nullable=False)
+    updated_at       = db.Column(db.String(19), default=CommonTools.get_now, onupdate=CommonTools.get_now)
+
+    __table_args__ = (
+        db.Index('ix_system_group', 'sys_group'),
+        db.Index('ix_system_status', 'sys_status'),
+    )
+
+    def to_dict(self):
+        def _load(field):
+            try:
+                return json.loads(field) if field else []
+            except Exception:
+                return []
+        return {
+            "id":          self.id,
+            "sys_nm":      self.sys_nm,
+            "sys_group":   self.sys_group or "",
+            "maintainers": _load(self.maintainers),
+            "description": self.description or "",
+            "go_live_date":     self.go_live_date or "",
+            "urls":             _load(self.urls_json),
+            "deploy_info":      _load(self.deploy_info_json),
+            "created_at":  self.created_at or "",
+            "updated_at":  self.updated_at or "",
         }
 
 
