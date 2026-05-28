@@ -266,8 +266,6 @@ export interface TemporaryDuty {
   duty_nm: string
   describe?: string
   group?: string
-  project_id?: string
-  project_nm?: string
   system_id?:  string
   system_nm?:  string
   creator: string
@@ -288,7 +286,6 @@ export interface CreateDutyPayload {
   duty_nm: string
   describe?: string
   group?: string
-  project_id?: string
   system_id?:  string
   expected_start_date?: string
   expected_end_date?: string

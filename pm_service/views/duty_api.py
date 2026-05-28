@@ -14,14 +14,6 @@ ctrl = DutyController()
 
 # ─── Duty CRUD ───────────────────────────────────────────────────────────────
 
-@blp.route("/by_project/<string:project_id>")
-class DutyByProjectApi(MethodView):
-    @jwt_required()
-    @blp.response(200, RspMsgRawSchema)
-    def get(self, project_id):
-        """查询关联到某专案的所有AR"""
-        return response_result(content=ctrl.list_duties_by_project(project_id))
-
 
 @blp.route("/temporary_duty_list")
 class DutyListApi(MethodView):

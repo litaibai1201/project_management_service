@@ -29,6 +29,7 @@ import {
 import { useNavigate } from 'react-router-dom'
 import { projectApi } from '@/api/project.api'
 import { dutyApi } from '@/api/duty.api'
+import { systemApi, type SystemItem } from '@/api/system.api'
 import { tokenStorage } from '@/api/httpClient'
 import AttachmentPreview from '@/components/ui/AttachmentPreview'
 import { useWorkNoToName } from '@/hooks/useWorkNoToName'
@@ -960,133 +961,6 @@ const FunctionModule: React.FC<{
   )
 }
 
-// ─── Duties Section (inside ProjectCard) ───────────────────────────────────
-
-// Duty status → icon (mirrors TaskRow STATUS_CONFIG style)
-const DUTY_STATUS_ICON: Record<number, React.ReactNode> = {
-  0: <ClockIcon className="w-3.5 h-3.5 text-slate-400" />,
-  1: <ArrowTrendingUpIcon className="w-3.5 h-3.5 text-blue-500" />,
-  2: <ClockIcon className="w-3.5 h-3.5 text-orange-400" />,
-  3: <CheckCircleIcon className="w-3.5 h-3.5 text-green-500" />,
-  8: <ClockIcon className="w-3.5 h-3.5 text-slate-300" />,
-  9: <ClockIcon className="w-3.5 h-3.5 text-slate-200" />,
-}
-
-const DutiesSection: React.FC<{ duties: TemporaryDuty[]; onOpenDuty: (id: string) => void }> = ({ duties, onOpenDuty }) => {
-  const [show, setShow] = useState(false)
-  const toName = useWorkNoToName()
-
-  const overdueCount = duties.filter((d) => {
-    if (d.status === 8 || d.status === 3) return false
-    return d.expected_end_date ? dayjs(d.expected_end_date).isBefore(dayjs(), 'day') : false
-  }).length
-
-  return (
-    <div className="mt-3 px-1">
-      {/* Section header */}
-      <button
-        className="border-0 bg-transparent cursor-pointer w-full flex items-center gap-2 py-1.5 text-left group/duties"
-        onClick={() => setShow(!show)}
-      >
-        {show
-          ? <ChevronDownIcon className="w-3 h-3 text-orange-400" />
-          : <ChevronRightIcon className="w-3 h-3 text-slate-400 group-hover/duties:text-orange-400 transition-colors" />
-        }
-        <ClockIcon className={`w-3.5 h-3.5 ${show || overdueCount > 0 ? 'text-orange-500' : 'text-slate-400 group-hover/duties:text-orange-400 transition-colors'}`} />
-        <span className={`text-[11px] font-semibold ${show || overdueCount > 0 ? 'text-orange-600' : 'text-slate-400 group-hover/duties:text-orange-500 transition-colors'}`}>
-          AR
-        </span>
-        <span className="text-[10px] font-bold bg-orange-100 text-orange-600 rounded-full px-1.5 py-0.5 leading-none">
-          {duties.length}
-        </span>
-        {overdueCount > 0 && (
-          <span className="text-[10px] font-bold bg-red-500 text-white rounded-full px-1.5 py-0.5 leading-none">
-            {overdueCount} 超時
-          </span>
-        )}
-      </button>
-
-      {/* Duty rows — same layout as TaskRow */}
-      {show && (
-        <div className="overflow-hidden">
-          {duties.map((d) => {
-            const isOverdue = d.status !== 8 && d.status !== 3 && d.status !== 9 && d.expected_end_date
-              ? dayjs(d.expected_end_date).isBefore(dayjs(), 'day')
-              : false
-            const isCompleted = d.status === 3
-            const daysOverdue = isOverdue && d.expected_end_date
-              ? dayjs().diff(dayjs(d.expected_end_date), 'day')
-              : 0
-            const assigneeNames = (d.responsible ?? []).map((wn) => toName(wn) || wn).join('、')
-
-            return (
-              <div
-                key={d.id}
-                className={`group flex items-start gap-3 px-4 py-2.5 border-b border-slate-50 last:border-b-0 hover:bg-slate-50/50 transition-colors cursor-pointer ${isOverdue ? 'bg-red-50/30' : ''}`}
-                onClick={() => onOpenDuty(d.id)}
-              >
-                {/* Status icon */}
-                <div className="mt-0.5 flex-shrink-0">
-                  {DUTY_STATUS_ICON[d.status] ?? DUTY_STATUS_ICON[0]}
-                </div>
-
-                {/* Name + assignee + overdue */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className={`text-xs font-medium cursor-pointer hover:underline decoration-dotted underline-offset-2 hover:text-blue-600 ${isCompleted ? 'text-green-600 line-through decoration-green-300' : isOverdue ? 'text-red-700' : 'text-slate-700'}`}>
-                      {d.duty_nm}
-                      <EyeIcon className="w-3 h-3 inline-block ml-1 -mt-0.5 text-slate-300 group-hover:text-blue-400 transition-colors" />
-                    </span>
-                    {assigneeNames && (
-                      <span className="text-[10px] text-slate-400 bg-slate-100 rounded px-1.5 py-0.5">{assigneeNames}</span>
-                    )}
-                    {isOverdue && (
-                      <Tag color="error" style={{ fontSize: 9, margin: 0, lineHeight: '14px', padding: '0 3px' }}>
-                        超時 {daysOverdue} 天
-                      </Tag>
-                    )}
-                  </div>
-                </div>
-
-                {/* Progress */}
-                <div className="flex items-center gap-2 flex-shrink-0 w-[120px]">
-                  {isCompleted ? (
-                    <span className="text-xs font-semibold text-green-600">完成</span>
-                  ) : (
-                    <>
-                      <Progress
-                        percent={d.progress}
-                        size="small"
-                        strokeColor={isOverdue ? '#f87171' : d.progress >= 80 ? '#16a34a' : '#2563eb'}
-                        trailColor="#e2e8f0"
-                        style={{ width: 70, marginBottom: 0 }}
-                        format={() => ''}
-                      />
-                      <span className={`text-[10px] font-semibold ${isOverdue ? 'text-red-500' : 'text-slate-500'}`}>{d.progress}%</span>
-                    </>
-                  )}
-                </div>
-
-                {/* Expected end date */}
-                <div className="flex-shrink-0 text-right w-[85px]">
-                  <Tooltip title="預計完成時間">
-                    <span className={`text-[10px] ${isOverdue ? 'text-red-500 font-semibold' : 'text-slate-400'}`}>
-                      {d.expected_end_date ?? '—'}
-                    </span>
-                  </Tooltip>
-                </div>
-
-                {/* Placeholder to align with TaskRow's note button column */}
-                <div className="flex-shrink-0 w-[24px]" />
-              </div>
-            )
-          })}
-        </div>
-      )}
-    </div>
-  )
-}
-
 // ─── Requirement Group Wrapper (按需求模式的外層需求摺疊) ────────────────────
 
 const ReqGroupWrapper: React.FC<{
@@ -1142,24 +1016,16 @@ const ProjectCard: React.FC<{
   onAddNote: (taskId: string | null, taskName: string | null, type: NoteType, content: string) => void
   onResolveNote: (noteId: string) => void
   onDeleteNote: (noteId: string) => void
-  duties?: TemporaryDuty[]
-  onOpenDuty: (id: string) => void
   groupMode?: 'by_group' | 'by_req'
-}> = ({ project, originalProject, onWeekTagClick, expandedTaskId, onToggleTaskExpand, notes, onAddNote, onResolveNote, onDeleteNote, duties, onOpenDuty, groupMode = 'by_group' }) => {
+}> = ({ project, originalProject, onWeekTagClick, expandedTaskId, onToggleTaskExpand, notes, onAddNote, onResolveNote, onDeleteNote, groupMode = 'by_group' }) => {
   const navigate = useNavigate()
 
   // Use ORIGINAL project data for summary stats to avoid filter distortion
-  const dutyList = (duties ?? []).filter((d) => d.status !== 8 && d.status !== 9)
-  const todayStr = dayjs().format('YYYY-MM-DD')
-  const twStart  = dayjs().startOf('isoWeek').format('YYYY-MM-DD')
-  const twEnd    = dayjs().endOf('isoWeek').format('YYYY-MM-DD')
-  const nwStart  = dayjs().add(1, 'week').startOf('isoWeek').format('YYYY-MM-DD')
-  const nwEnd    = dayjs().add(1, 'week').endOf('isoWeek').format('YYYY-MM-DD')
-  const totalTasks = originalProject.functions.reduce((s, f) => s + f.tasks.length, 0) + dutyList.length
-  const completedTasks = originalProject.functions.reduce((s, f) => s + f.tasks.filter((t) => t.status === 'completed').length, 0) + dutyList.filter((d) => d.status === 3).length
-  const overdueTasks = originalProject.functions.reduce((s, f) => s + f.tasks.filter((t) => !!t.is_overdue).length, 0) + dutyList.filter((d) => d.status !== 3 && !!d.expected_end_date && d.expected_end_date < todayStr).length
-  const thisWeekTasks = originalProject.functions.reduce((s, f) => s + f.tasks.filter((t) => t.week_tag.includes('this_week')).length, 0) + dutyList.filter((d) => !!d.expected_end_date && d.expected_end_date >= twStart && d.expected_end_date <= twEnd).length
-  const nextWeekTasks = originalProject.functions.reduce((s, f) => s + f.tasks.filter((t) => t.week_tag.includes('next_week')).length, 0) + dutyList.filter((d) => !!d.expected_end_date && d.expected_end_date >= nwStart && d.expected_end_date <= nwEnd).length
+  const totalTasks = originalProject.functions.reduce((s, f) => s + f.tasks.length, 0)
+  const completedTasks = originalProject.functions.reduce((s, f) => s + f.tasks.filter((t) => t.status === 'completed').length, 0)
+  const overdueTasks = originalProject.functions.reduce((s, f) => s + f.tasks.filter((t) => !!t.is_overdue).length, 0)
+  const thisWeekTasks = originalProject.functions.reduce((s, f) => s + f.tasks.filter((t) => t.week_tag.includes('this_week')).length, 0)
+  const nextWeekTasks = originalProject.functions.reduce((s, f) => s + f.tasks.filter((t) => t.week_tag.includes('next_week')).length, 0)
   const lastWeekCompleted = originalProject.functions.reduce((s, f) => s + f.tasks.filter((t) => t.week_tag.includes('last_week') && t.status === 'completed').length, 0)
 
   const filteredTaskCount = project.functions.reduce((s, f) => s + f.tasks.length, 0)
@@ -1359,11 +1225,6 @@ const ProjectCard: React.FC<{
             onDeleteNote={onDeleteNote}
           />
         ))}
-
-        {/* Temporary Duties Section */}
-        {duties && duties.length > 0 && (
-          <DutiesSection duties={duties} onOpenDuty={onOpenDuty} />
-        )}
 
         {/* Meeting Notes Section — all notes (task-level + project-level) */}
         <div className="mt-3 px-1">
@@ -1742,22 +1603,379 @@ const ReportPreviewModal: React.FC<{
   )
 }
 
+// ─── Duty week tags utility ──────────────────────────────────────────────────
+
+function computeDutyWeekTags(d: TemporaryDuty): WeekTag[] {
+  if (!d.expected_end_date) return []
+  const today   = dayjs()
+  const twStart = today.startOf('isoWeek')
+  const twEnd   = today.endOf('isoWeek')
+  const lwStart = twStart.subtract(1, 'week')
+  const lwEnd   = twEnd.subtract(1, 'week')
+  const nwStart = twStart.add(1, 'week')
+  const nwEnd   = twEnd.add(1, 'week')
+  const end = dayjs(d.expected_end_date)
+  const tags: WeekTag[] = []
+  if (!end.isBefore(lwStart) && !end.isAfter(lwEnd)) tags.push('last_week')
+  if (!end.isBefore(twStart) && !end.isAfter(twEnd))  tags.push('this_week')
+  if (!end.isBefore(nwStart) && !end.isAfter(nwEnd))  tags.push('next_week')
+  return tags
+}
+
+// ─── Duty Task Row (matches TaskRow style) ──────────────────────────────────
+
+const DutyTaskRow: React.FC<{
+  duty: TemporaryDuty
+  onSelect: (id: string) => void
+  onWeekTagClick?: (wt: WeekTag) => void
+  notes?: MeetingNote[]
+  onAddNote?: (type: NoteType, content: string) => void
+  onResolveNote?: (noteId: string) => void
+  onDeleteNote?: (noteId: string) => void
+}> = ({ duty: d, onSelect, onWeekTagClick, notes = [], onAddNote, onResolveNote, onDeleteNote }) => {
+  const isOverdue    = d.status !== 3 && !!d.expected_end_date && dayjs(d.expected_end_date).isBefore(dayjs(), 'day')
+  const isCompleted  = d.status === 3
+  const isInProgress = d.status === 1 || d.status === 2
+  const weekTags     = computeDutyWeekTags(d)
+  const priorityColor = d.priority >= 4 ? '#dc2626' : d.priority >= 3 ? '#d97706' : d.priority >= 2 ? '#2563eb' : '#94a3b8'
+  const priorityLabel = d.priority >= 4 ? '緊急' : d.priority >= 3 ? '高' : d.priority >= 2 ? '中' : '低'
+  const pendingCount  = notes.filter((n) => n.status === 'pending').length
+  const hasPending    = pendingCount > 0
+
+  return (
+    <div className={`group flex items-start gap-3 px-4 py-2.5 border-b border-slate-50 last:border-b-0 hover:bg-slate-50/50 transition-colors ${isOverdue ? 'bg-red-50/30' : ''} ${hasPending ? 'border-l-[3px] border-l-blue-400' : ''}`}>
+      <div className="mt-0.5 flex-shrink-0">
+        {isCompleted  ? <CheckCircleIcon className="w-3.5 h-3.5 text-green-500" />
+         : isOverdue  ? <ExclamationTriangleIcon className="w-3.5 h-3.5 text-red-500" />
+         : isInProgress ? <ArrowTrendingUpIcon className="w-3.5 h-3.5 text-blue-500" />
+         : <ClockIcon className="w-3.5 h-3.5 text-slate-400" />}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span
+            className={`text-xs font-medium cursor-pointer hover:underline decoration-dotted underline-offset-2 ${isCompleted ? 'text-green-600 line-through decoration-green-300' : isOverdue ? 'text-red-700' : 'text-slate-700 hover:text-blue-600'}`}
+            onClick={() => onSelect(d.id)}
+          >
+            {d.duty_nm}
+          </span>
+          {weekTags.map((wt) => (
+            <span
+              key={wt}
+              className="text-[10px] font-semibold rounded px-1.5 py-0.5 cursor-pointer select-none"
+              style={{ color: WEEK_TAG_CONFIG[wt].color, background: WEEK_TAG_CONFIG[wt].bg }}
+              onClick={() => onWeekTagClick?.(wt)}
+            >
+              {WEEK_TAG_CONFIG[wt].label}
+            </span>
+          ))}
+          {isOverdue && <Tag style={{ fontSize: 9, margin: 0, lineHeight: '14px', padding: '0 4px' }} color="error">超時</Tag>}
+        </div>
+        {(d.responsible?.length || d.progress > 0) && (
+          <div className="flex items-center gap-2 mt-0.5">
+            {d.responsible && d.responsible.length > 0 && (
+              <span className="text-[10px] text-slate-400">
+                {d.responsible.slice(0, 2).join(', ')}{d.responsible.length > 2 ? ` +${d.responsible.length - 2}` : ''}
+              </span>
+            )}
+            {d.progress > 0 && <span className="text-[10px] text-slate-400">{d.progress}%</span>}
+          </div>
+        )}
+      </div>
+
+      {/* Priority tag */}
+      <Tag style={{ fontSize: 9, margin: 0, lineHeight: '14px', padding: '0 4px', color: priorityColor, borderColor: priorityColor + '44', background: priorityColor + '0D', flexShrink: 0 }}>
+        {priorityLabel}
+      </Tag>
+
+      {/* Expected end date */}
+      <div className="flex-shrink-0 text-right w-[85px]">
+        <Tooltip title="預計完成時間">
+          <span className={`text-[10px] ${isOverdue ? 'text-red-500 font-semibold' : 'text-slate-400'}`}>
+            {d.expected_end_date ?? ''}
+          </span>
+        </Tooltip>
+      </div>
+
+      {/* Meeting note button — far right, same as TaskRow */}
+      {onAddNote && (
+        <div className="flex-shrink-0 w-[24px] flex items-center justify-center">
+          <NotePopover taskName={d.duty_nm} notes={notes} onAdd={onAddNote} onResolve={onResolveNote} onDelete={onDeleteNote}>
+            <button
+              className={`border-0 bg-transparent cursor-pointer relative p-0.5 rounded transition-all ${hasPending || notes.length > 0 ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} hover:bg-blue-50`}
+              onClick={(e) => e.stopPropagation()}
+              title={hasPending ? `${pendingCount} 條待處理備注` : '會議備注'}
+            >
+              <ChatBubbleOvalLeftEllipsisIcon className={`w-3.5 h-3.5 transition-colors ${hasPending ? 'text-blue-500' : notes.length > 0 ? 'text-blue-300' : 'text-slate-400 hover:text-blue-500'}`} />
+              {pendingCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-3.5 h-3.5 text-[8px] font-bold bg-blue-500 text-white rounded-full flex items-center justify-center leading-none">
+                  {pendingCount > 9 ? '9+' : pendingCount}
+                </span>
+              )}
+            </button>
+          </NotePopover>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Duty Function Block (matches FunctionModule style) ─────────────────────
+
+const DutyFunctionBlock: React.FC<{
+  groupNm: string
+  duties: TemporaryDuty[]
+  onSelect: (id: string) => void
+  onWeekTagClick?: (wt: WeekTag) => void
+  defaultOpen?: boolean
+  notesByDutyId: Record<string, MeetingNote[]>
+  onAddNote: (dutyId: string, dutyNm: string, type: NoteType, content: string) => void
+  onResolveNote: (noteId: string) => void
+  onDeleteNote: (noteId: string) => void
+}> = ({ groupNm, duties, onSelect, onWeekTagClick, defaultOpen = true, notesByDutyId, onAddNote, onResolveNote, onDeleteNote }) => {
+  const [open, setOpen] = useState(defaultOpen)
+  const completed  = duties.filter((d) => d.status === 3).length
+  const overdue    = duties.filter((d) => d.status !== 3 && !!d.expected_end_date && dayjs(d.expected_end_date).isBefore(dayjs(), 'day')).length
+  const thisWeek   = duties.filter((d) => computeDutyWeekTags(d).includes('this_week')).length
+  const progress   = duties.length > 0 ? Math.round(completed / duties.length * 100) : 0
+
+  return (
+    <div className="border border-slate-100 rounded-lg overflow-hidden mb-2 last:mb-0">
+      <div
+        className="flex items-center gap-2 px-3 py-2 bg-slate-50/80 cursor-pointer hover:bg-slate-100/60 transition-colors select-none"
+        onClick={() => setOpen(!open)}
+      >
+        {open ? <ChevronDownIcon className="w-3 h-3 text-slate-400" /> : <ChevronRightIcon className="w-3 h-3 text-slate-400" />}
+        <span className="text-xs font-semibold text-slate-600">{groupNm}</span>
+        <Progress percent={progress} size="small"
+          strokeColor={progress >= 100 ? '#16a34a' : progress >= 60 ? '#2563eb' : '#d97706'}
+          trailColor="#e2e8f0" style={{ width: 60, marginBottom: 0 }} format={() => ''} />
+        <span className="text-[10px] font-semibold text-slate-500">{progress}%</span>
+        <div className="ml-auto flex items-center gap-1.5">
+          <span className="text-[10px] text-slate-400">{completed}/{duties.length} 完成</span>
+          {thisWeek > 0 && <Tag color="blue" style={{ fontSize: 9, margin: 0, lineHeight: '14px', padding: '0 3px' }}>本週 {thisWeek} 項</Tag>}
+          {overdue > 0 && <Tag color="error" style={{ fontSize: 9, margin: 0, lineHeight: '14px', padding: '0 3px' }}>超時 {overdue}</Tag>}
+        </div>
+      </div>
+      {open && duties.map((d) => (
+        <DutyTaskRow
+          key={d.id}
+          duty={d}
+          onSelect={onSelect}
+          onWeekTagClick={onWeekTagClick}
+          notes={notesByDutyId[d.id] ?? []}
+          onAddNote={(type, content) => onAddNote(d.id, d.duty_nm, type, content)}
+          onResolveNote={onResolveNote}
+          onDeleteNote={onDeleteNote}
+        />
+      ))}
+    </div>
+  )
+}
+
+// ─── Duty Card (matches ProjectCard style exactly) ───────────────────────────
+
+const DutyCard: React.FC<{
+  title: string
+  duties: TemporaryDuty[]
+  notes: MeetingNote[]
+  onSelect: (id: string) => void
+  onWeekTagClick?: (wt: WeekTag) => void
+  onAddNote: (taskId: string | null, taskName: string | null, type: NoteType, content: string) => void
+  onResolveNote: (noteId: string) => void
+  onDeleteNote: (noteId: string) => void
+  tag?: string
+  systemInfo?: SystemItem
+}> = ({ title, duties, notes, onSelect, onWeekTagClick, onAddNote, onResolveNote, onDeleteNote, tag, systemInfo }) => {
+  const today   = dayjs()
+  const twStart = today.startOf('isoWeek')
+  const twEnd   = today.endOf('isoWeek')
+  const lwStart = twStart.subtract(1, 'week')
+  const lwEnd   = twEnd.subtract(1, 'week')
+  const nwStart = twStart.add(1, 'week')
+  const nwEnd   = twEnd.add(1, 'week')
+
+  const totalCount     = duties.length
+  const completedCount = duties.filter((d) => d.status === 3).length
+  const overdueCount   = duties.filter((d) => d.status !== 3 && !!d.expected_end_date && dayjs(d.expected_end_date).isBefore(today, 'day')).length
+  const thisWeekCount  = duties.filter((d) => { const e = d.expected_end_date ? dayjs(d.expected_end_date) : null; return !!e && !e.isBefore(twStart) && !e.isAfter(twEnd) }).length
+  const nextWeekCount  = duties.filter((d) => { const e = d.expected_end_date ? dayjs(d.expected_end_date) : null; return !!e && !e.isBefore(nwStart) && !e.isAfter(nwEnd) }).length
+  const lastWeekDone   = duties.filter((d) => { const e = d.expected_end_date ? dayjs(d.expected_end_date) : null; return d.status === 3 && !!e && !e.isBefore(lwStart) && !e.isAfter(lwEnd) }).length
+  const progress       = totalCount > 0 ? Math.round(completedCount / totalCount * 100) : 0
+
+  const pendingNoteCount = notes.filter((n) => n.status === 'pending').length
+
+  // Notes by duty id (task-level)
+  const notesByDutyId = useMemo(() => {
+    const map: Record<string, MeetingNote[]> = {}
+    notes.forEach((n) => { if (n.taskId) (map[n.taskId] = map[n.taskId] ?? []).push(n) })
+    return map
+  }, [notes])
+
+  // Auto-expand notes panel when first note added
+  const [showNotes, setShowNotes] = useState(false)
+  const prevNoteCountRef = React.useRef(notes.length)
+  React.useEffect(() => {
+    if (notes.length > prevNoteCountRef.current) setShowNotes(true)
+    prevNoteCountRef.current = notes.length
+  }, [notes.length])
+
+  // Group by d.group
+  const groupMap = new Map<string, TemporaryDuty[]>()
+  duties.forEach((d) => {
+    const g = d.group || '未分組'
+    if (!groupMap.has(g)) groupMap.set(g, [])
+    groupMap.get(g)!.push(d)
+  })
+
+  return (
+    <Collapse
+      defaultActiveKey={overdueCount > 0 ? ['main'] : []}
+      className="mb-4 bg-white border border-slate-100 rounded-xl overflow-hidden shadow-sm"
+      expandIconPosition="end"
+    >
+      <Panel
+        key="main"
+        header={
+          <div className="flex items-center gap-3 flex-wrap">
+            <FolderIcon className="w-5 h-5 text-blue-500 flex-shrink-0" />
+            <span className="font-semibold text-slate-700 text-sm">{title}</span>
+            {tag && (
+              <Tag style={{ fontSize: 10, margin: 0, lineHeight: '16px', padding: '0 4px', color: '#7c3aed', borderColor: '#7c3aed44', background: '#7c3aed0D' }}>
+                {tag}
+              </Tag>
+            )}
+            {systemInfo?.maintainer_names && systemInfo.maintainer_names.length > 0 && (
+              <span className="text-[10px] text-slate-400">
+                負責人: {systemInfo.maintainer_names.slice(0, 2).map((m) => m.name).join('、')}
+                {systemInfo.maintainer_names.length > 2 && ` +${systemInfo.maintainer_names.length - 2}`}
+              </span>
+            )}
+            {systemInfo?.go_live_date && (
+              <span className="text-[10px] text-slate-400">上線: {systemInfo.go_live_date}</span>
+            )}
+            {overdueCount > 0 && (
+              <div className="flex items-center gap-1">
+                <ExclamationTriangleIcon className="w-3.5 h-3.5 text-red-500" />
+                <span className="text-[10px] text-red-500 font-semibold">{overdueCount} 項超時</span>
+              </div>
+            )}
+            {pendingNoteCount > 0 && (
+              <div className="flex items-center gap-1">
+                <ChatBubbleOvalLeftEllipsisIcon className="w-3.5 h-3.5 text-blue-400" />
+                <span className="text-[10px] text-blue-500 font-semibold">{pendingNoteCount} 條備注</span>
+              </div>
+            )}
+          </div>
+        }
+        extra={
+          <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
+            <Tooltip title="整體完成度">
+              <div className="flex items-center gap-1.5">
+                <Progress
+                  type="circle" percent={progress} size={32}
+                  strokeColor={progress >= 80 ? '#16a34a' : progress >= 40 ? '#2563eb' : '#d97706'}
+                  format={(p) => <span className="text-[9px] font-bold">{p}%</span>}
+                />
+              </div>
+            </Tooltip>
+            <div className="text-right">
+              <div className="text-[10px] text-slate-400">{completedCount}/{totalCount} 完成</div>
+            </div>
+          </div>
+        }
+      >
+        {/* Week summary banner — same as ProjectCard */}
+        <div className="flex gap-3 mb-3 px-1">
+          <div className="flex-1 rounded-lg bg-slate-50 border border-slate-100 px-3 py-2">
+            <div className="text-[10px] text-slate-400 mb-0.5">上週完成</div>
+            <div className="text-sm font-bold text-slate-600">{lastWeekDone} 項</div>
+          </div>
+          <div className="flex-1 rounded-lg bg-blue-50 border border-blue-100 px-3 py-2">
+            <div className="text-[10px] text-blue-500 mb-0.5">本週進行中</div>
+            <div className="text-sm font-bold text-blue-600">{thisWeekCount} 項</div>
+          </div>
+          <div className="flex-1 rounded-lg bg-violet-50 border border-violet-100 px-3 py-2">
+            <div className="text-[10px] text-violet-500 mb-0.5">下週待辦</div>
+            <div className="text-sm font-bold text-violet-600">{nextWeekCount} 項</div>
+          </div>
+          {overdueCount > 0 && (
+            <div className="flex-1 rounded-lg bg-red-50 border border-red-100 px-3 py-2">
+              <div className="text-[10px] text-red-500 mb-0.5">超時任務</div>
+              <div className="text-sm font-bold text-red-600">{overdueCount} 項</div>
+            </div>
+          )}
+        </div>
+
+        {/* Group blocks — matches FunctionModule layout */}
+        {Array.from(groupMap.entries()).map(([groupNm, groupDuties]) => (
+          <DutyFunctionBlock
+            key={groupNm}
+            groupNm={groupNm}
+            duties={groupDuties}
+            onSelect={onSelect}
+            onWeekTagClick={onWeekTagClick}
+            defaultOpen={groupDuties.some((d) => d.status !== 3 && !!d.expected_end_date && dayjs(d.expected_end_date).isBefore(dayjs(), 'day')) || groupDuties.length <= 6}
+            notesByDutyId={notesByDutyId}
+            onAddNote={(dutyId, dutyNm, type, content) => onAddNote(dutyId, dutyNm, type, content)}
+            onResolveNote={onResolveNote}
+            onDeleteNote={onDeleteNote}
+          />
+        ))}
+
+        {/* Meeting Notes Section — same as ProjectCard */}
+        <div className="mt-3 px-1">
+          <button
+            className="border-0 bg-transparent cursor-pointer w-full flex items-center gap-2 py-1.5 text-left group/notes"
+            onClick={() => setShowNotes(!showNotes)}
+          >
+            {showNotes
+              ? <ChevronDownIcon className="w-3 h-3 text-blue-400" />
+              : <ChevronRightIcon className="w-3 h-3 text-slate-400 group-hover/notes:text-blue-400 transition-colors" />
+            }
+            <ChatBubbleOvalLeftEllipsisIcon className={`w-3.5 h-3.5 ${showNotes || pendingNoteCount > 0 ? 'text-blue-500' : 'text-slate-400 group-hover/notes:text-blue-400 transition-colors'}`} />
+            <span className={`text-[11px] font-semibold ${showNotes || pendingNoteCount > 0 ? 'text-blue-600' : 'text-slate-400 group-hover/notes:text-blue-500 transition-colors'}`}>
+              會議備注
+            </span>
+            {pendingNoteCount > 0 && (
+              <span className="text-[10px] font-bold bg-blue-500 text-white rounded-full px-1.5 py-0.5 leading-none">
+                {pendingNoteCount}
+              </span>
+            )}
+            {notes.length === 0 && (
+              <span className="text-[10px] text-slate-300">（點擊展開記錄）</span>
+            )}
+          </button>
+          {showNotes && (
+            <MeetingNotesPanel
+              notes={notes}
+              onAddProjectNote={(type, content) => onAddNote(null, null, type, content)}
+              onResolve={onResolveNote}
+              onDelete={onDeleteNote}
+            />
+          )}
+        </div>
+      </Panel>
+    </Collapse>
+  )
+}
+
 // ─── Main Page ──────────────────────────────────────────────────────────────
 
 const WbsOverviewPage: React.FC = () => {
   const isManager = useAppSelector((s) => s.auth.isSupervisor)
 
   const [wbsData, setWbsData] = useState<WbsProject[]>([])
-  const [projectDutiesMap, setProjectDutiesMap] = useState<Record<string, TemporaryDuty[]>>({})
   const [weekFilter, setWeekFilter] = useState<WeekFilter>('all')
   const [statusFilter, setStatusFilter] = useState<TaskStatus | 'all'>('all')
   const [searchKeyword, setSearchKeyword] = useState('')
   const [wbsGroupMode, setWbsGroupMode] = useState<'by_group' | 'by_req'>('by_req')
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null)
   const [selectedFuncTask, setSelectedFuncTask] = useState<{ projectId: string; functionId: string } | null>(null)
-  const [selectedDutyId, setSelectedDutyId] = useState<string | null>(null)
   const [meetingNotes, setMeetingNotes] = useState<Record<string, MeetingNote[]>>({})
   const [previewOpen, setPreviewOpen] = useState(false)
+  const [allDuties, setAllDuties] = useState<TemporaryDuty[]>([])
+  const [selectedDutyId, setSelectedDutyId] = useState<string | null>(null)
+  const [systemInfoMap, setSystemInfoMap] = useState<Record<string, SystemItem>>({})
 
   // Load WBS data
   useEffect(() => {
@@ -1766,21 +1984,27 @@ const WbsOverviewPage: React.FC = () => {
       .catch(() => {})
   }, [])
 
-  // Load temporary duties for each project (independent, non-blocking)
+  // Load all active AR tasks
   useEffect(() => {
-    if (wbsData.length === 0) return
-    Promise.all(
-      wbsData.map((p) =>
-        dutyApi.listByProject(p.id)
-          .then((res) => ({ projectId: p.id, duties: Array.isArray(res.content) ? res.content as TemporaryDuty[] : [] }))
-          .catch(() => ({ projectId: p.id, duties: [] as TemporaryDuty[] }))
-      )
-    ).then((results) => {
-      const map: Record<string, TemporaryDuty[]> = {}
-      results.forEach(({ projectId, duties }) => { if (duties.length > 0) map[projectId] = duties })
-      setProjectDutiesMap(map)
-    })
-  }, [wbsData])
+    dutyApi.list({ page: 1, size: 1000 })
+      .then((res) => {
+        const data = (res.content as { data_list?: TemporaryDuty[] }).data_list ?? []
+        setAllDuties(data.filter((d) => d.status !== 9))
+      })
+      .catch(() => {})
+  }, [])
+
+  // Load system info for system-bound duties
+  useEffect(() => {
+    systemApi.list({ page: 1, size: 1000 })
+      .then((res) => {
+        const list = (res.content as { data_list?: SystemItem[] }).data_list ?? []
+        const map: Record<string, SystemItem> = {}
+        list.forEach((s) => { map[s.id] = s })
+        setSystemInfoMap(map)
+      })
+      .catch(() => {})
+  }, [])
 
   // Load all meeting notes for visible projects after WBS data arrives
   useEffect(() => {
@@ -1890,60 +2114,48 @@ const WbsOverviewPage: React.FC = () => {
   // Summary stats — week filter applies to all except overdue (always full-data)
   const summary = useMemo(() => {
     const allTasks = wbsData.flatMap((p) => p.functions.flatMap((f) => f.tasks))
-    const allDuties = Object.values(projectDutiesMap).flat().filter((d) => d.status !== 8 && d.status !== 9)
 
-    const today = dayjs()
-    const thisWeekStart = today.startOf('isoWeek')
-    const thisWeekEnd   = today.endOf('isoWeek')
-    const lastWeekStart = thisWeekStart.subtract(1, 'week')
-    const lastWeekEnd   = thisWeekEnd.subtract(1, 'week')
-    const nextWeekStart = thisWeekStart.add(1, 'week')
-    const nextWeekEnd   = thisWeekEnd.add(1, 'week')
-
-    // Apply week filter only (not status filter) so stats show status breakdown within the period
     const matchesPeriod = (task: WbsTask) => {
       if (weekFilter === 'show_all') return true
-      if (weekFilter === 'all') return task.week_tag.length > 0  // 近3週：上/本/下週任意
+      if (weekFilter === 'all') return task.week_tag.length > 0
       return task.week_tag.includes(weekFilter as WeekTag)
     }
 
+    const today = dayjs()
+    const twStart = today.startOf('isoWeek')
+    const twEnd   = today.endOf('isoWeek')
+    const lwStart = twStart.subtract(1, 'week')
+    const nwStart = twStart.add(1, 'week')
+    const nwEnd   = twEnd.add(1, 'week')
+
+    const periodTasks = allTasks.filter(matchesPeriod)
+    const periodProjectIds = new Set(
+      wbsData.filter((p) => p.functions.some((f) => f.tasks.some(matchesPeriod))).map((p) => p.id)
+    )
+
+    const activeDuties = allDuties.filter((d) => d.status !== 9)
     const dutyMatchesPeriod = (d: TemporaryDuty) => {
       if (weekFilter === 'show_all') return true
-      const endDate = d.expected_end_date ? dayjs(d.expected_end_date) : null
-      if (!endDate) return d.status === 1 || d.status === 2  // in-progress duties without end date shown in 近3週
-      if (weekFilter === 'all') return (!endDate.isBefore(lastWeekStart) && !endDate.isAfter(nextWeekEnd)) || d.status === 1 || d.status === 2
-      if (weekFilter === 'this_week') return !endDate.isBefore(thisWeekStart) && !endDate.isAfter(thisWeekEnd)
-      if (weekFilter === 'last_week') return !endDate.isBefore(lastWeekStart) && !endDate.isAfter(lastWeekEnd)
-      if (weekFilter === 'next_week') return !endDate.isBefore(nextWeekStart) && !endDate.isAfter(nextWeekEnd)
+      const end = d.expected_end_date ? dayjs(d.expected_end_date) : null
+      if (weekFilter === 'all') return (end && !end.isBefore(lwStart) && !end.isAfter(nwEnd)) || d.status === 1 || d.status === 2
+      if (weekFilter === 'last_week') return !!end && !end.isBefore(lwStart) && !end.isAfter(twStart.subtract(1, 'day'))
+      if (weekFilter === 'this_week') return !!end && !end.isBefore(twStart) && !end.isAfter(twEnd)
+      if (weekFilter === 'next_week') return !!end && !end.isBefore(nwStart) && !end.isAfter(nwEnd)
       return false
     }
-
-    const isDutyOverdue = (d: TemporaryDuty) =>
-      d.status !== 3 && !!d.expected_end_date && dayjs(d.expected_end_date).isBefore(today, 'day')
-
-    const periodTasks  = allTasks.filter(matchesPeriod)
-    const periodDuties = allDuties.filter(dutyMatchesPeriod)
-
-    const periodProjectIds = new Set([
-      ...wbsData
-        .filter((p) => p.functions.some((f) => f.tasks.some(matchesPeriod)))
-        .map((p) => p.id),
-      ...Object.entries(projectDutiesMap)
-        .filter(([, duties]) => duties.filter((d) => d.status !== 8 && d.status !== 9).some(dutyMatchesPeriod))
-        .map(([id]) => id),
-    ])
+    const periodDuties = activeDuties.filter(dutyMatchesPeriod)
 
     return {
       totalProjects: periodProjectIds.size,
       totalTasks:    periodTasks.length + periodDuties.length,
-      completed:     periodTasks.filter((t) => t.status === 'completed').length     + periodDuties.filter((d) => d.status === 3).length,
-      inProgress:    periodTasks.filter((t) => t.status === 'in_progress').length   + periodDuties.filter((d) => d.status === 1 || d.status === 2).length,
-      overdue:       allTasks.filter((t) => !!t.is_overdue).length + allDuties.filter(isDutyOverdue).length,   // always full-data
-      notStarted:    periodTasks.filter((t) => t.status === 'not_started').length   + periodDuties.filter((d) => d.status === 0).length,
-      thisWeek:      allTasks.filter((t) => t.week_tag.includes('this_week')).length + allDuties.filter((d) => !!d.expected_end_date && !dayjs(d.expected_end_date).isBefore(thisWeekStart) && !dayjs(d.expected_end_date).isAfter(thisWeekEnd)).length,
-      nextWeek:      allTasks.filter((t) => t.week_tag.includes('next_week')).length + allDuties.filter((d) => !!d.expected_end_date && !dayjs(d.expected_end_date).isBefore(nextWeekStart) && !dayjs(d.expected_end_date).isAfter(nextWeekEnd)).length,
+      completed:     periodTasks.filter((t) => t.status === 'completed').length + periodDuties.filter((d) => d.status === 3).length,
+      inProgress:    periodTasks.filter((t) => t.status === 'in_progress').length + periodDuties.filter((d) => d.status === 1 || d.status === 2).length,
+      overdue:       allTasks.filter((t) => !!t.is_overdue).length + activeDuties.filter((d) => d.status !== 3 && !!d.expected_end_date && dayjs(d.expected_end_date).isBefore(today, 'day')).length,
+      notStarted:    periodTasks.filter((t) => t.status === 'not_started').length + periodDuties.filter((d) => d.status === 0).length,
+      thisWeek:      allTasks.filter((t) => t.week_tag.includes('this_week')).length + activeDuties.filter((d) => !!d.expected_end_date && !dayjs(d.expected_end_date).isBefore(twStart) && !dayjs(d.expected_end_date).isAfter(twEnd)).length,
+      nextWeek:      allTasks.filter((t) => t.week_tag.includes('next_week')).length + activeDuties.filter((d) => !!d.expected_end_date && !dayjs(d.expected_end_date).isBefore(nwStart) && !dayjs(d.expected_end_date).isAfter(nwEnd)).length,
     }
-  }, [wbsData, weekFilter, projectDutiesMap])
+  }, [wbsData, weekFilter, allDuties])
 
   // Total pending notes across all projects (for header indicator)
   const totalPendingNotes = useMemo(() => {
@@ -1981,6 +2193,126 @@ const WbsOverviewPage: React.FC = () => {
   }, [wbsData])
 
   const filteredTaskCount = filteredProjects.reduce((s, p) => s + p.functions.reduce((s2, f) => s2 + f.tasks.length, 0), 0)
+
+  const filteredDuties = useMemo(() => {
+    const today = dayjs()
+    const twStart = today.startOf('isoWeek')
+    const twEnd   = today.endOf('isoWeek')
+    const lwStart = twStart.subtract(1, 'week')
+    const lwEnd   = twEnd.subtract(1, 'week')
+    const nwStart = twStart.add(1, 'week')
+    const nwEnd   = twEnd.add(1, 'week')
+    const kw = searchKeyword.toLowerCase()
+
+    return allDuties.filter((d) => {
+      // status filter
+      if (statusFilter === 'completed' && d.status !== 3) return false
+      if (statusFilter === 'not_started' && d.status !== 0) return false
+      if (statusFilter === 'in_progress' && !(d.status === 1 || d.status === 2)) return false
+      if (statusFilter === 'overdue') {
+        const isOverdue = d.status !== 3 && !!d.expected_end_date && dayjs(d.expected_end_date).isBefore(today, 'day')
+        if (!isOverdue) return false
+      }
+      // week filter
+      if (weekFilter !== 'show_all') {
+        const end = d.expected_end_date ? dayjs(d.expected_end_date) : null
+        if (weekFilter === 'all') {
+          const inRange = end && !end.isBefore(lwStart) && !end.isAfter(nwEnd)
+          const isActive = d.status === 1 || d.status === 2
+          if (!inRange && !isActive) return false
+        } else if (weekFilter === 'last_week') {
+          if (!end || end.isBefore(lwStart) || end.isAfter(lwEnd)) return false
+        } else if (weekFilter === 'this_week') {
+          if (!end || end.isBefore(twStart) || end.isAfter(twEnd)) return false
+        } else if (weekFilter === 'next_week') {
+          if (!end || end.isBefore(nwStart) || end.isAfter(nwEnd)) return false
+        }
+      }
+      // search
+      if (kw && !d.duty_nm?.toLowerCase().includes(kw)) return false
+      return true
+    })
+  }, [allDuties, weekFilter, statusFilter, searchKeyword])
+
+  // Split filtered AR tasks: bound to a system vs standalone
+  const systemDuties     = useMemo(() => filteredDuties.filter((d) => !!d.system_id), [filteredDuties])
+  const standaloneDuties = useMemo(() => filteredDuties.filter((d) => !d.system_id),  [filteredDuties])
+
+  // Meeting notes for duty cards, keyed by note ref key
+  const [dutyNotes, setDutyNotes] = useState<Record<string, MeetingNote[]>>({})
+
+  // Load duty notes after allDuties arrives
+  useEffect(() => {
+    if (allDuties.length === 0) return
+    const keys = new Set<string>()
+    allDuties.forEach((d) => keys.add(d.system_id || 'ar_standalone'))
+    Promise.all(
+      Array.from(keys).map((key) =>
+        meetingNoteApi.list(key)
+          .then((res) => ({ key, notes: Array.isArray(res.content) ? res.content : [] }))
+          .catch(() => ({ key, notes: [] }))
+      )
+    ).then((results) => {
+      const map: Record<string, MeetingNote[]> = {}
+      results.forEach(({ key, notes }) => {
+        map[key] = notes.map((n: ApiMeetingNote) => ({
+          id: n.id, projectId: n.projectId, type: n.type,
+          content: n.content, taskId: n.taskId ?? undefined,
+          taskName: n.taskName ?? undefined,
+          author: n.author, createdAt: n.createdAt, status: n.status,
+        }))
+      })
+      setDutyNotes(map)
+    })
+  }, [allDuties])
+
+  const handleAddDutyNote = useCallback((
+    noteKey: string,
+    taskId: string | null,
+    taskName: string | null,
+    type: NoteType,
+    content: string
+  ) => {
+    meetingNoteApi.create(noteKey, { note_type: type, content, task_id: taskId, task_name: taskName })
+      .then((res) => {
+        if (!res.content) return
+        const n = res.content as ApiMeetingNote
+        const note: MeetingNote = {
+          id: n.id, projectId: n.projectId, type: n.type,
+          content: n.content, taskId: n.taskId ?? undefined,
+          taskName: n.taskName ?? undefined,
+          author: n.author, createdAt: n.createdAt, status: n.status,
+        }
+        setDutyNotes((prev) => ({ ...prev, [noteKey]: [note, ...(prev[noteKey] ?? [])] }))
+      }).catch(() => {})
+  }, [])
+
+  const handleResolveDutyNote = useCallback((noteKey: string, noteId: string) => {
+    setDutyNotes((prev) => ({
+      ...prev,
+      [noteKey]: (prev[noteKey] ?? []).map((n) =>
+        n.id === noteId ? { ...n, status: n.status === 'pending' ? 'resolved' : 'pending' } : n
+      ),
+    }))
+    const note = (dutyNotes[noteKey] ?? []).find((n) => n.id === noteId)
+    const newStatus = note?.status === 'pending' ? 'resolved' : 'pending'
+    meetingNoteApi.updateStatus(noteId, newStatus).catch(() => {
+      setDutyNotes((prev) => ({
+        ...prev,
+        [noteKey]: (prev[noteKey] ?? []).map((n) =>
+          n.id === noteId ? { ...n, status: note?.status ?? 'pending' } : n
+        ),
+      }))
+    })
+  }, [dutyNotes])
+
+  const handleDeleteDutyNote = useCallback((noteKey: string, noteId: string) => {
+    setDutyNotes((prev) => ({
+      ...prev,
+      [noteKey]: (prev[noteKey] ?? []).filter((n) => n.id !== noteId),
+    }))
+    meetingNoteApi.delete(noteId).catch(() => {})
+  }, [])
 
   const weekLabel = useMemo(() => {
     const ws = dayjs().isoWeekday(1)
@@ -2127,27 +2459,90 @@ const WbsOverviewPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Project cards */}
-      {filteredProjects.length === 0 ? (
+      {/* Empty state — only when both sections are empty */}
+      {filteredProjects.length === 0 && filteredDuties.length === 0 && (
         <Empty description="沒有符合篩選條件的任務" className="my-16" />
-      ) : (
-        filteredProjects.map((p) => (
-          <ProjectCard
-            key={p.id}
-            project={p}
-            originalProject={originalProjectMap[p.id]}
+      )}
+
+      {/* Project cards */}
+      {filteredProjects.length > 0 && (
+        <>
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-sm font-semibold text-slate-700">專案任務</span>
+            <span className="text-xs text-slate-400 bg-slate-100 rounded-full px-2 py-0.5">
+              {filteredProjects.length} 個專案
+            </span>
+          </div>
+          {filteredProjects.map((p) => (
+            <ProjectCard
+              key={p.id}
+              project={p}
+              originalProject={originalProjectMap[p.id]}
+              onWeekTagClick={handleWeekTagClick}
+              expandedTaskId={expandedTaskId}
+              onToggleTaskExpand={handleToggleTaskExpand}
+              notes={meetingNotes[p.id] ?? []}
+              onAddNote={(taskId, taskName, type, content) => handleAddNote(p.id, taskId, taskName, type, content)}
+              onResolveNote={(noteId) => handleResolveNote(p.id, noteId)}
+              onDeleteNote={(noteId) => handleDeleteNote(p.id, noteId)}
+              groupMode={wbsGroupMode}
+            />
+          ))}
+        </>
+      )}
+
+      {/* System-bound AR Tasks — one DutyCard per system */}
+      {systemDuties.length > 0 && (() => {
+        const systemMap = new Map<string, { systemNm: string; duties: TemporaryDuty[]; noteKey: string }>()
+        systemDuties.forEach((d) => {
+          const key     = d.system_id!
+          const noteKey = key   // system_id is a 32-char UUID, fits VARCHAR(32)
+          if (!systemMap.has(key)) systemMap.set(key, { systemNm: d.system_nm ?? key, duties: [], noteKey })
+          systemMap.get(key)!.duties.push(d)
+        })
+        return (
+          <div className="mt-6">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-sm font-semibold text-slate-700">系統任務</span>
+              <span className="text-xs text-slate-400 bg-slate-100 rounded-full px-2 py-0.5">{systemDuties.length} 項</span>
+            </div>
+            {Array.from(systemMap.entries()).map(([sysId, { systemNm, duties, noteKey }]) => (
+              <DutyCard
+                key={systemNm}
+                title={systemNm}
+                duties={duties}
+                notes={dutyNotes[noteKey] ?? []}
+                onSelect={setSelectedDutyId}
+                onWeekTagClick={handleWeekTagClick}
+                onAddNote={(tid, tnm, type, content) => handleAddDutyNote(noteKey, tid, tnm, type, content)}
+                onResolveNote={(noteId) => handleResolveDutyNote(noteKey, noteId)}
+                onDeleteNote={(noteId) => handleDeleteDutyNote(noteKey, noteId)}
+                tag="AR"
+                systemInfo={systemInfoMap[sysId]}
+              />
+            ))}
+          </div>
+        )
+      })()}
+
+      {/* Standalone AR Tasks (no system) — single DutyCard */}
+      {standaloneDuties.length > 0 && (
+        <div className="mt-6">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-sm font-semibold text-slate-700">AR 任務</span>
+            <span className="text-xs text-slate-400 bg-slate-100 rounded-full px-2 py-0.5">{standaloneDuties.length} 項</span>
+          </div>
+          <DutyCard
+            title="AR 任務"
+            duties={standaloneDuties}
+            notes={dutyNotes['ar_standalone'] ?? []}
+            onSelect={setSelectedDutyId}
             onWeekTagClick={handleWeekTagClick}
-            expandedTaskId={expandedTaskId}
-            onToggleTaskExpand={handleToggleTaskExpand}
-            notes={meetingNotes[p.id] ?? []}
-            onAddNote={(taskId, taskName, type, content) => handleAddNote(p.id, taskId, taskName, type, content)}
-            onResolveNote={(noteId) => handleResolveNote(p.id, noteId)}
-            onDeleteNote={(noteId) => handleDeleteNote(p.id, noteId)}
-            duties={projectDutiesMap[p.id]}
-            onOpenDuty={setSelectedDutyId}
-            groupMode={wbsGroupMode}
+            onAddNote={(tid, tnm, type, content) => handleAddDutyNote('ar_standalone', tid, tnm, type, content)}
+            onResolveNote={(noteId) => handleResolveDutyNote('ar_standalone', noteId)}
+            onDeleteNote={(noteId) => handleDeleteDutyNote('ar_standalone', noteId)}
           />
-        ))
+        </div>
       )}
 
       <ReportPreviewModal
@@ -2170,6 +2565,7 @@ const WbsOverviewPage: React.FC = () => {
         dutyId={selectedDutyId}
         onClose={() => setSelectedDutyId(null)}
       />
+
     </div>
   )
 }

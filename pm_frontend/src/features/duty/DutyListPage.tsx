@@ -149,9 +149,8 @@ const DutyListPage: React.FC = () => {
   const [dutyPersonal, setDutyPersonal] = useState<'all' | 'mine'>('all')
   const [selectedDutyId, setSelectedDutyId] = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState(false)
-  const [modalUserOptions,   setModalUserOptions]   = useState<{ value: string; label: string }[]>([])
-  const [modalProjectOptions, setModalProjectOptions] = useState<{ value: string; label: string }[]>([])
-  const [modalSystemOptions, setModalSystemOptions]  = useState<{ value: string; label: string }[]>([])
+  const [modalUserOptions,  setModalUserOptions]  = useState<{ value: string; label: string }[]>([])
+  const [modalSystemOptions, setModalSystemOptions] = useState<{ value: string; label: string }[]>([])
   const [dutyExpandOpen,  setDutyExpandOpen]  = useState(false)
   const [dutyExpandDraft, setDutyExpandDraft] = useState('')
 
@@ -188,20 +187,13 @@ const DutyListPage: React.FC = () => {
         setModalUserOptions(data.map((u) => ({ value: u.work_no, label: `${u.name} (${u.work_no})` })))
       }).catch(() => {})
     }
-    if (modalProjectOptions.length === 0) {
-      projectApi.list({ page: 1, size: 200 }).then((res) => {
-        const c = res.content as { project_list?: { id: string; project_nm: string }[]; data_list?: { id: string; project_nm: string }[] }
-        const data = c.project_list ?? c.data_list ?? []
-        setModalProjectOptions(data.map((p) => ({ value: p.id, label: p.project_nm })))
-      }).catch(() => {})
-    }
     if (modalSystemOptions.length === 0) {
       systemApi.list({ page: 1, size: 200 }).then((res) => {
         const c = res.content as { data_list: SystemItem[] }
         setModalSystemOptions((c.data_list ?? []).map((s) => ({ value: s.id, label: s.sys_nm })))
       }).catch(() => {})
     }
-  }, [modalUserOptions.length, modalProjectOptions.length, modalSystemOptions.length])
+  }, [modalUserOptions.length, modalSystemOptions.length])
 
   const myList = useMemo(
     () => list.filter((d) =>

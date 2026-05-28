@@ -7,7 +7,6 @@ import {
 import type { UploadFile } from 'antd'
 import { PlusIcon, PaperClipIcon } from '@heroicons/react/24/outline'
 import { userApi } from '@/api/user.api'
-import { projectApi } from '@/api/project.api'
 import { systemApi, type SystemItem } from '@/api/system.api'
 import AttachmentPreview from '@/components/ui/AttachmentPreview'
 import FilePreviewModal from '@/features/project/FilePreviewModal'
@@ -82,8 +81,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
   // 編輯任務
   const [showEditModal, setShowEditModal]       = useState(false)
   const [editForm]                              = Form.useForm()
-  const [projectOptions, setProjectOptions]     = useState<{ value: string; label: string }[]>([])
-  const [systemOptions,  setSystemOptions]      = useState<{ value: string; label: string }[]>([])
+  const [systemOptions, setSystemOptions] = useState<{ value: string; label: string }[]>([])
 
   // 提交完結審核
   const [showSubmitModal, setShowSubmitModal] = useState(false)
@@ -150,13 +148,6 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
       expected_end_date:    duty.expected_end_date ?? '',
     })
     ensureUserOptions()
-    if (projectOptions.length === 0) {
-      projectApi.list({ page: 1, size: 200 }).then((res) => {
-        const c = res.content as { project_list?: { id: string; project_nm: string }[]; data_list?: { id: string; project_nm: string }[] }
-        const data = c.project_list ?? c.data_list ?? []
-        setProjectOptions(data.map((p) => ({ value: p.id, label: p.project_nm })))
-      }).catch(() => {})
-    }
     if (systemOptions.length === 0) {
       systemApi.list({ page: 1, size: 200 }).then((res) => {
         const c = res.content as { data_list: SystemItem[] }
@@ -164,7 +155,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
       }).catch(() => {})
     }
     setShowEditModal(true)
-  }, [duty, editForm, ensureUserOptions, projectOptions.length, systemOptions.length])
+  }, [duty, editForm, ensureUserOptions, systemOptions.length])
 
   const handleEdit = useCallback(async () => {
     const values = await editForm.validateFields()

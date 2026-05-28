@@ -6,7 +6,7 @@ from utils.tools import CommonTools
 from utils.exceptions import ResourceNotFoundException, PermissionException, BusinessException, ValidationException
 from dbs.mysql_db import db
 from dbs.mysql_db.model_tables import (
-    TemporaryDutyModel, DutyProgressRecordModel, ReviewApplyModel, ProjectDataModel, SystemModel
+    TemporaryDutyModel, DutyProgressRecordModel, ReviewApplyModel, SystemModel
 )
 
 
@@ -31,11 +31,6 @@ class DutyController:
             q = q.filter(TemporaryDutyModel.responsible.like(f"%{responsible}%"))
         total = q.count()
         duties = q.order_by(TemporaryDutyModel.created_at.desc()).offset((page-1)*size).limit(size).all()
-        proj_ids = [d.project_id for d in duties if d.project_id]
-        proj_map = {}
-        if proj_ids:
-            projs = db.session.query(ProjectDataModel).filter(ProjectDataModel.id.in_(proj_ids)).all()
-            proj_map = {p.id: p.project_nm for p in projs}
         sys_ids = [d.system_id for d in duties if d.system_id]
         sys_map = {}
         if sys_ids:
@@ -43,22 +38,13 @@ class DutyController:
             sys_map = {s.id: s.sys_nm for s in syss}
         def _enrich(d):
             r = d.to_dict()
-            r['project_nm'] = proj_map.get(d.project_id, '') if d.project_id else ''
-            r['system_nm']  = sys_map.get(d.system_id, '') if d.system_id else ''
+            r['system_nm'] = sys_map.get(d.system_id, '') if d.system_id else ''
             return r
         return {
             "total_count": total,
             "total_page": (total + size - 1) // size,
             "data_list": [_enrich(d) for d in duties],
         }
-
-    def list_duties_by_project(self, project_id: str):
-        """查询关联到某专案的所有AR（不含已删除）"""
-        duties = db.session.query(TemporaryDutyModel).filter(
-            TemporaryDutyModel.project_id == project_id,
-            TemporaryDutyModel.duty_status != 9,
-        ).order_by(TemporaryDutyModel.created_at.desc()).all()
-        return [d.to_dict() for d in duties]
 
     def get_duty(self, duty_id: str):
         d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
@@ -90,7 +76,6 @@ class DutyController:
             responsible=json.dumps(resp, ensure_ascii=False),
             priority=payload.get("priority", 2),
             group=payload.get("group", ""),
-            project_id=payload.get("project_id", "") or None,
             system_id=payload.get("system_id", "") or None,
             expected_start_date=payload.get("expected_start_date", ""),
             expected_end_date=payload.get("expected_end_date", ""),
@@ -119,7 +104,7 @@ class DutyController:
             raise ResourceNotFoundException(resource_type="AR")
         if work_no and d.creator != work_no:
             raise PermissionException("只有建立人可以修改任務基本資訊")
-        for field in ("duty_nm", "describe", "priority", "group", "project_id", "system_id",
+        for field in ("duty_nm", "describe", "priority", "group", "system_id",
                       "expected_start_date", "expected_end_date"):
             if field in payload and payload[field] is not None:
                 setattr(d, field, payload[field])

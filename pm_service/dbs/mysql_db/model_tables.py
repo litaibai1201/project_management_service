@@ -525,7 +525,6 @@ class TemporaryDutyModel(BaseMixinModel):
     priority = db.Column(db.Integer, default=2)
     progress = db.Column(db.Integer, default=0)
     group = db.Column(db.String(64), comment="任务分组(用户自定义)")
-    project_id = db.Column(db.String(32), comment="关联专案ID（仅作参考，不纳入专案任务）")
     system_id  = db.Column(db.String(32), comment="关联系统ID")
     expected_start_date = db.Column(db.String(10))
     expected_end_date = db.Column(db.String(10))
@@ -552,7 +551,6 @@ class TemporaryDutyModel(BaseMixinModel):
             "id": self.id, "duty_nm": self.duty_nm, "describe": self.describe or "",
             "creator": self.creator, "responsible": resp, "status": self.duty_status,
             "priority": self.priority, "progress": self.progress, "group": self.group or "",
-            "project_id": self.project_id or "",
             "system_id":  self.system_id  or "",
             "expected_start_date": self.expected_start_date or "",
             "expected_end_date": self.latest_expected_end_date or self.expected_end_date or "",
