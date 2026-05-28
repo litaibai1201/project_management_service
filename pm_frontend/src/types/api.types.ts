@@ -205,6 +205,7 @@ export interface ProjectFunction {
   group1?: string
   group2?: string
   requirement_id?: string
+  requirement_nm?: string
 }
 
 export interface AddFunctionPayload {

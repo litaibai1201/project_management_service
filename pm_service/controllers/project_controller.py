@@ -2067,6 +2067,15 @@ class FunctionController:
         projects = db.session.query(ProjectDataModel).filter(ProjectDataModel.id.in_(proj_ids)).all()
         proj_map = {p.id: p for p in projects}
 
+        # 批量查需求名称
+        req_ids = list({f.requirement_id for f in funcs if f.requirement_id})
+        req_map = {}
+        if req_ids:
+            reqs = db.session.query(RequirementModel.id, RequirementModel.req_nm).filter(
+                RequirementModel.id.in_(req_ids)
+            ).all()
+            req_map = {r.id: r.req_nm for r in reqs}
+
         result = []
         for f in funcs:
             d = f.to_dict()
@@ -2074,6 +2083,7 @@ class FunctionController:
             d['project_nm']     = p.project_nm if p else ''
             d['project_status'] = p.project_status if p else 0
             d['project_pm']     = p.project_pm if p else ''
+            d['requirement_nm'] = req_map.get(f.requirement_id, '') if f.requirement_id else ''
             result.append(d)
 
         return {'total_count': total, 'data_list': result}

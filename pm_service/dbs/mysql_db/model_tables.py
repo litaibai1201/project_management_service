@@ -715,6 +715,50 @@ class NotificationModel(db.Model):
         }
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# 独立需求
+# ─────────────────────────────────────────────────────────────────────────────
+
+class StandaloneReqModel(BaseMixinModel):
+    """独立需求（不关联专案）"""
+    __tablename__ = "standalone_req_form"
+
+    id                = db.Column(db.String(32), primary_key=True, default=generate_uuid)
+    req_nm            = db.Column(db.String(128), nullable=False, comment="需求名称")
+    describe          = db.Column(db.Text, comment="需求描述")
+    priority          = db.Column(db.Integer, default=2, comment="优先级(1低2中3高4紧急)")
+    # 0=待處理 1=進行中 2=已完成 9=已刪除
+    req_status        = db.Column(db.Integer, default=0, comment="需求状态")
+    creator           = db.Column(db.String(32), comment="创建人工号")
+    responsible       = db.Column(db.Text, comment="负责人工号JSON数组")
+    expected_end_date = db.Column(db.String(10), comment="预计完成日期")
+    created_at        = db.Column(db.String(19), default=CommonTools.get_now, nullable=False)
+    updated_at        = db.Column(db.String(19), default=CommonTools.get_now, onupdate=CommonTools.get_now)
+
+    __table_args__ = (
+        db.Index('ix_standalone_req_creator', 'creator'),
+        db.Index('ix_standalone_req_status',  'req_status'),
+    )
+
+    def to_dict(self):
+        try:
+            resp = json.loads(self.responsible) if self.responsible else []
+        except Exception:
+            resp = []
+        return {
+            "id":                 self.id,
+            "req_nm":             self.req_nm,
+            "describe":           self.describe or "",
+            "priority":           self.priority,
+            "status":             self.req_status,
+            "creator":            self.creator or "",
+            "responsible":        resp,
+            "expected_end_date":  self.expected_end_date or "",
+            "created_at":         self.created_at or "",
+            "updated_at":         self.updated_at or "",
+        }
+
+
 class MeetingNoteModel(db.Model):
     __tablename__ = "meeting_note"
 

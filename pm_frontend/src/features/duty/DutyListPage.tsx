@@ -45,7 +45,7 @@ const StatusDot: React.FC<{ status: number }> = ({ status }) => {
   )
 }
 
-type MyFunction = ProjectFunction & { project_nm: string; project_status: number; project_pm: string }
+type MyFunction = ProjectFunction & { project_nm: string; project_status: number; project_pm: string; requirement_nm?: string }
 
 const DutyListPage: React.FC = () => {
   const dispatch = useAppDispatch()
@@ -298,6 +298,12 @@ const DutyListPage: React.FC = () => {
           {v}
         </Button>
       ),
+    },
+    {
+      title: '所屬需求', dataIndex: 'requirement_nm', width: 150, ellipsis: true,
+      render: (v: string) => v
+        ? <Tag color="purple" style={{ fontSize: 10 }}>{v}</Tag>
+        : <span className="text-slate-300 text-xs">—</span>,
     },
     {
       title: '任務分組', key: 'group', width: 140, ellipsis: true,

@@ -36,6 +36,7 @@ const NAV_ITEMS: NavItem[] = [
     label: '項目管理',
     children: [
       { key: '/projects',       icon: <RectangleStackIcon className="w-[16px] h-[16px]" />,       label: '專案列表', path: '/projects'       },
+      { key: '/requirements',     icon: <ClipboardDocumentListIcon className="w-[16px] h-[16px]" />, label: '需求列表', path: '/requirements' },
       { key: '/duties',         icon: <ClipboardDocumentListIcon className="w-[16px] h-[16px]" />, label: '任務列表', path: '/duties'         },
       { key: '/project-report',   icon: <DocumentChartBarIcon className="w-[16px] h-[16px]" />,  label: '項目報表',   path: '/project-report'   },
       // { key: '/dept-tasks', icon: <Squares2X2Icon className="w-[16px] h-[16px]" />, label: '部門任務', path: '/dept-tasks' }, // TODO: 功能開發中，暫時隱藏
