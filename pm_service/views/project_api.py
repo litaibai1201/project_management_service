@@ -538,6 +538,16 @@ class MilestoneDetailApi(MethodView):
 
 # ─── Requirements ─────────────────────────────────────────────────────────────
 
+@blp.route("/requirements/list")
+class GlobalRequirementListApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def post(self):
+        """全局专案需求列表（分页）"""
+        payload = request.get_json() or {}
+        return response_result(content=req_ctrl.list_all(payload))
+
+
 @blp.route("/<string:project_id>/requirements")
 class RequirementListApi(MethodView):
     @jwt_required()

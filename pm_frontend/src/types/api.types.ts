@@ -266,8 +266,9 @@ export interface TemporaryDuty {
   duty_nm: string
   describe?: string
   group?: string
-  system_id?:  string
-  system_nm?:  string
+  system_id?:         string
+  system_nm?:         string
+  standalone_req_id?: string
   creator: string
   responsible?: string[]
   status: DutyStatus
@@ -286,7 +287,8 @@ export interface CreateDutyPayload {
   duty_nm: string
   describe?: string
   group?: string
-  system_id?:  string
+  system_id?:         string
+  standalone_req_id?: string
   expected_start_date?: string
   expected_end_date?: string
   priority: number
@@ -294,12 +296,14 @@ export interface CreateDutyPayload {
 }
 
 export interface DutyListQuery {
-  page: number
-  size?: number
-  keyword?: string
-  status?: number
-  priority?: number
-  responsible?: string
+  page:              number
+  size?:             number
+  keyword?:          string
+  status?:           number
+  priority?:         number
+  responsible?:      string
+  standalone_req_id?: string
+  system_id?:        string
 }
 
 // ─── Review / Apply ───────────────────────────────────────────────────────────

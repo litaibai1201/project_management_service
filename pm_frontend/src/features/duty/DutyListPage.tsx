@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Table, Button, Input, Select, Space, Tooltip, Popconfirm,
-  Progress, Modal, Form, Tag, Avatar, Segmented, Collapse, AutoComplete, Spin, Empty, Tabs, Switch,
+  Progress, Modal, Form, Tag, Avatar, Segmented, Collapse, AutoComplete, Spin, Empty, Tabs, Switch, Card,
 } from 'antd'
 import RichTextEditor from '@/components/common/RichTextEditor'
 import type { ColumnsType } from 'antd/es/table'
@@ -459,9 +459,8 @@ const DutyListPage: React.FC = () => {
           key: 'project',
           label: `專案任務 (${myFuncTotal})`,
           children: (
-            <div>
-              {/* 專案任務篩選 */}
-              <div className="flex flex-wrap items-center gap-3 mb-4 bg-white p-3 rounded-xl shadow-sm border border-slate-100">
+            <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: 0 } }}>
+              <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-slate-100">
                 <Segmented
                   value={myFuncPersonal}
                   onChange={(v) => setMyFuncPersonal(v as 'all' | 'mine')}
@@ -512,28 +511,25 @@ const DutyListPage: React.FC = () => {
                   顯示已完結
                 </div>
               </div>
-
               {myFuncView === 'flat' ? (
-                <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-1">
-                  <Table
-                    rowKey="id"
-                    columns={funcColumns}
-                    components={tableComponents}
-                    dataSource={filteredMyFunctions}
-                    loading={myFuncLoading}
-                    size="middle"
-                    scroll={{ x: 980 }}
-                    pagination={{
-                      pageSize: myFuncPageSize,
-                      showSizeChanger: true,
-                      pageSizeOptions: ['10', '20', '50', '100'],
-                      showTotal: (t) => `共 ${t} 筆`,
-                      onShowSizeChange: (_, size) => setMyFuncPageSize(size),
-                    }}
-                  />
-                </div>
+                <Table
+                  rowKey="id"
+                  columns={funcColumns}
+                  components={tableComponents}
+                  dataSource={filteredMyFunctions}
+                  loading={myFuncLoading}
+                  size="small"
+                  scroll={{ x: 980 }}
+                  pagination={{
+                    pageSize: myFuncPageSize,
+                    showSizeChanger: true,
+                    pageSizeOptions: ['10', '20', '50', '100'],
+                    showTotal: (t) => `共 ${t} 筆`,
+                    onShowSizeChange: (_, size) => setMyFuncPageSize(size),
+                  }}
+                />
               ) : (
-                <div>
+                <div className="p-4">
                   {myFuncLoading ? (
                     <div className="flex justify-center py-12"><Spin size="large" /></div>
                   ) : groupedMyFunctions.length === 0 ? (
@@ -568,147 +564,137 @@ const DutyListPage: React.FC = () => {
                   )}
                 </div>
               )}
-            </div>
+            </Card>
           ),
         },
         {
           key: 'duty',
           label: `AR (${(hideCompleted ? displayedList.filter((d) => d.status !== 3) : displayedList).length})`,
           children: (
-            <div>
-
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3 mb-4 bg-white p-3 rounded-xl shadow-sm border border-slate-100">
-        <Segmented
-          value={dutyPersonal}
-          onChange={(v) => setDutyPersonal(v as 'all' | 'mine')}
-          options={[
-            { label: '全部', value: 'all' },
-            { label: '我的', value: 'mine' },
-          ]}
-        />
-        <div className="w-px h-5 bg-slate-200" />
-        <Segmented
-          size="small"
-          value={groupMode}
-          onChange={(v) => setGroupMode(v as 'flat' | 'grouped')}
-          options={[
-            { label: '分組', value: 'grouped' },
-            { label: '平面', value: 'flat'    },
-          ]}
-        />
-        <div className="w-px h-5 bg-slate-200" />
-        <Search placeholder="搜索任務名稱..." allowClear style={{ width: 220 }}
-          prefix={<MagnifyingGlassIcon className="w-4 h-4 text-slate-400" />}
-          onSearch={(v) => dispatch(setDutyQuery({ keyword: v, page: 1 }))}
-        />
-        <Select placeholder="狀態" allowClear style={{ width: 130 }}
-          onChange={(v) => dispatch(setDutyQuery({ status: v, page: 1 }))}
-          options={Object.entries(DUTY_STATUS_MAP).map(([k, v]) => ({ value: Number(k), label: v.label }))}
-        />
-        <Select placeholder="優先級" allowClear style={{ width: 110 }}
-          onChange={(v) => dispatch(setDutyQuery({ priority: v, page: 1 }))}
-          options={[{value:1,label:'低'},{value:2,label:'中'},{value:3,label:'高'},{value:4,label:'緊急'}]}
-        />
-        {/* Group filter */}
-        {groupFilterOptions.length > 0 && (
-          <Select
-            placeholder="分組"
-            allowClear
-            style={{ width: 120 }}
-            value={filterGroup}
-            onChange={(v) => setFilterGroup(v ?? null)}
-            options={groupFilterOptions}
-          />
-        )}
-        {/* Responsible filter */}
-        <Select
-          placeholder="負責人"
-          allowClear
-          showSearch
-          optionFilterProp="label"
-          style={{ width: 140 }}
-          value={query.responsible ?? undefined}
-          onChange={(v) => dispatch(setDutyQuery({ responsible: v ?? undefined, page: 1 }))}
-          options={modalUserOptions}
-          onDropdownVisibleChange={(open) => {
-            if (open && modalUserOptions.length === 0) {
-              userApi.list({ page: 1, size: 2000 }).then((res) => {
-                const data = (res.content as { data_list?: { work_no: string; name: string }[] }).data_list ?? []
-                setModalUserOptions(data.map((u) => ({ value: u.work_no, label: `${u.name} (${u.work_no})` })))
-              }).catch(() => {})
-            }
-          }}
-        />
-        <div className="ml-auto flex items-center gap-4 text-sm text-slate-500">
-          <label className="flex items-center gap-2 cursor-pointer">
-            <Switch size="small" checked={showHeld} onChange={setShowHeld} />
-            顯示搁置
-          </label>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <Switch size="small" checked={!hideCompleted} onChange={(v) => setHideCompleted(!v)} />
-            顯示已完結
-          </label>
-        </div>
-      </div>
-
-      {/* Table / Grouped display */}
-      {groupMode === 'flat' ? (
-        <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-1">
-          <Table
-            rowKey="id" columns={columns} components={tableComponents} dataSource={hideCompleted ? displayedList.filter((d) => d.status !== 3) : displayedList} loading={isLoading}
-            pagination={{
-              current: query.page, pageSize: query.size ?? 10,
-              total: (hideCompleted ? displayedList.filter((d) => d.status !== 3) : displayedList).length,
-              showSizeChanger: true, showTotal: (t) => `共 ${t} 條`,
-              onChange: (page, size) => dispatch(setDutyQuery({ page, size })),
-            }}
-            scroll={{ x: 920 }} size="middle"
-          />
-        </div>
-      ) : (
-        <div>
-          {isLoading ? (
-            <div className="flex justify-center py-12"><Spin size="large" /></div>
-          ) : groupedDuties.length === 0 ? (
-            <Empty description="暫無任務" className="py-12" />
-          ) : (
-            <Collapse
-              defaultActiveKey={groupedDuties.map((g) => g.name)}
-              className="bg-transparent border-0"
-              expandIconPosition="start"
-            >
-              {groupedDuties.map((g) => (
-                <Collapse.Panel
-                  key={g.name}
-                  header={
-                    <div className="flex items-center gap-3">
-                      <FolderIcon className="w-4 h-4 text-blue-500" />
-                      <span className="font-semibold text-slate-700">{g.name}</span>
-                      <Tag color="blue" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>
-                        {g.count} 項
-                      </Tag>
-                      <Progress
-                        percent={g.avgProgress} size="small" showInfo={false}
-                        style={{ width: 80 }} strokeColor="#2563eb" trailColor="#e2e8f0"
-                      />
-                      <span className="text-xs text-slate-400">{g.avgProgress}%</span>
-                      {g.overdueCount > 0 && (
-                        <Tag color="error" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>
-                          超時 {g.overdueCount}
-                        </Tag>
-                      )}
-                    </div>
-                  }
-                >
-                  <Table rowKey="id" columns={groupedColumns} components={tableComponents} dataSource={g.items}
-                    pagination={false} size="small" scroll={{ x: 820 }} />
-                </Collapse.Panel>
-              ))}
-            </Collapse>
-          )}
-        </div>
-      )}
+            <>
+              <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: 0 } }}>
+                <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-slate-100">
+                  <Segmented
+                    value={dutyPersonal}
+                    onChange={(v) => setDutyPersonal(v as 'all' | 'mine')}
+                    options={[
+                      { label: '全部', value: 'all' },
+                      { label: '我的', value: 'mine' },
+                    ]}
+                  />
+                  <div className="w-px h-5 bg-slate-200" />
+                  <Segmented
+                    size="small"
+                    value={groupMode}
+                    onChange={(v) => setGroupMode(v as 'flat' | 'grouped')}
+                    options={[
+                      { label: '分組', value: 'grouped' },
+                      { label: '平面', value: 'flat'    },
+                    ]}
+                  />
+                  <div className="w-px h-5 bg-slate-200" />
+                  <Search placeholder="搜索任務名稱..." allowClear style={{ width: 200 }}
+                    prefix={<MagnifyingGlassIcon className="w-4 h-4 text-slate-400" />}
+                    onSearch={(v) => dispatch(setDutyQuery({ keyword: v, page: 1 }))}
+                  />
+                  <Select placeholder="狀態" allowClear style={{ width: 120 }}
+                    onChange={(v) => dispatch(setDutyQuery({ status: v, page: 1 }))}
+                    options={Object.entries(DUTY_STATUS_MAP).map(([k, v]) => ({ value: Number(k), label: v.label }))}
+                  />
+                  <Select placeholder="優先級" allowClear style={{ width: 100 }}
+                    onChange={(v) => dispatch(setDutyQuery({ priority: v, page: 1 }))}
+                    options={[{value:1,label:'低'},{value:2,label:'中'},{value:3,label:'高'},{value:4,label:'緊急'}]}
+                  />
+                  {groupFilterOptions.length > 0 && (
+                    <Select
+                      placeholder="分組" allowClear style={{ width: 110 }}
+                      value={filterGroup}
+                      onChange={(v) => setFilterGroup(v ?? null)}
+                      options={groupFilterOptions}
+                    />
+                  )}
+                  <Select
+                    placeholder="負責人" allowClear showSearch optionFilterProp="label" style={{ width: 130 }}
+                    value={query.responsible ?? undefined}
+                    onChange={(v) => dispatch(setDutyQuery({ responsible: v ?? undefined, page: 1 }))}
+                    options={modalUserOptions}
+                    onDropdownVisibleChange={(open) => {
+                      if (open && modalUserOptions.length === 0) {
+                        userApi.list({ page: 1, size: 2000 }).then((res) => {
+                          const data = (res.content as { data_list?: { work_no: string; name: string }[] }).data_list ?? []
+                          setModalUserOptions(data.map((u) => ({ value: u.work_no, label: `${u.name} (${u.work_no})` })))
+                        }).catch(() => {})
+                      }
+                    }}
+                  />
+                  <div className="ml-auto flex items-center gap-4 text-sm text-slate-500">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <Switch size="small" checked={showHeld} onChange={setShowHeld} />
+                      顯示搁置
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <Switch size="small" checked={!hideCompleted} onChange={(v) => setHideCompleted(!v)} />
+                      顯示已完結
+                    </label>
+                  </div>
+                </div>
+                {groupMode === 'flat' ? (
+                  <Table
+                    rowKey="id" columns={columns} components={tableComponents}
+                    dataSource={hideCompleted ? displayedList.filter((d) => d.status !== 3) : displayedList}
+                    loading={isLoading}
+                    pagination={{
+                      current: query.page, pageSize: query.size ?? 10,
+                      total: (hideCompleted ? displayedList.filter((d) => d.status !== 3) : displayedList).length,
+                      showSizeChanger: true, showTotal: (t) => `共 ${t} 條`,
+                      onChange: (page, size) => dispatch(setDutyQuery({ page, size })),
+                    }}
+                    scroll={{ x: 920 }} size="small"
+                  />
+                ) : (
+                  <div className="p-4">
+                    {isLoading ? (
+                      <div className="flex justify-center py-12"><Spin size="large" /></div>
+                    ) : groupedDuties.length === 0 ? (
+                      <Empty description="暫無任務" className="py-12" />
+                    ) : (
+                      <Collapse
+                        defaultActiveKey={groupedDuties.map((g) => g.name)}
+                        className="bg-transparent border-0"
+                        expandIconPosition="start"
+                      >
+                        {groupedDuties.map((g) => (
+                          <Collapse.Panel
+                            key={g.name}
+                            header={
+                              <div className="flex items-center gap-3">
+                                <FolderIcon className="w-4 h-4 text-blue-500" />
+                                <span className="font-semibold text-slate-700">{g.name}</span>
+                                <Tag color="blue" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>
+                                  {g.count} 項
+                                </Tag>
+                                <Progress
+                                  percent={g.avgProgress} size="small" showInfo={false}
+                                  style={{ width: 80 }} strokeColor="#2563eb" trailColor="#e2e8f0"
+                                />
+                                <span className="text-xs text-slate-400">{g.avgProgress}%</span>
+                                {g.overdueCount > 0 && (
+                                  <Tag color="error" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>
+                                    超時 {g.overdueCount}
+                                  </Tag>
+                                )}
+                              </div>
+                            }
+                          >
+                            <Table rowKey="id" columns={groupedColumns} components={tableComponents} dataSource={g.items}
+                              pagination={false} size="small" scroll={{ x: 820 }} />
+                          </Collapse.Panel>
+                        ))}
+                      </Collapse>
+                    )}
+                  </div>
+                )}
+              </Card>
 
       {/* Create Modal */}
       <Modal title="新建 AR" open={showCreate}
@@ -823,7 +809,7 @@ const DutyListPage: React.FC = () => {
           minHeight={480}
         />
       </Modal>
-    </div>
+    </>
           ),
         },
       ]}

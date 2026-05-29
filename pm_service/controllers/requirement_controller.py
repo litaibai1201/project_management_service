@@ -14,6 +14,51 @@ class RequirementController:
 
     # ── 列表 ────────────────────────────────────────────────────────────────────
 
+    def list_all(self, payload: dict):
+        """全局需求列表（分页）"""
+        keyword  = payload.get("keyword", "")
+        status   = payload.get("status")
+        priority = payload.get("priority")
+        page     = int(payload.get("page", 1))
+        size     = int(payload.get("size", 20))
+
+        q = db.session.query(RequirementModel).filter(RequirementModel.req_status != 9)
+        if keyword:
+            q = q.filter(RequirementModel.req_nm.like(f"%{keyword}%"))
+        if status is not None:
+            q = q.filter(RequirementModel.req_status == int(status))
+        if priority is not None:
+            q = q.filter(RequirementModel.priority == int(priority))
+
+        total = q.count()
+        items = q.order_by(RequirementModel.created_at.desc()).offset((page - 1) * size).limit(size).all()
+
+        project_ids = {r.project_id for r in items}
+        creator_nos = {r.creator for r in items if r.creator}
+
+        proj_map = {}
+        if project_ids:
+            projects = db.session.query(ProjectDataModel).filter(
+                ProjectDataModel.id.in_(project_ids)
+            ).all()
+            proj_map = {p.id: p.project_nm for p in projects}
+
+        name_map = {}
+        if creator_nos:
+            users = db.session.query(UserProfileModel).filter(
+                UserProfileModel.work_no.in_(creator_nos)
+            ).all()
+            name_map = {u.work_no: u.name for u in users}
+
+        data = []
+        for r in items:
+            d = r.to_dict()
+            d["creator_nm"] = name_map.get(r.creator, r.creator or "")
+            d["project_nm"] = proj_map.get(r.project_id, "")
+            data.append(d)
+
+        return {"data_list": data, "total_count": total, "page": page, "size": size}
+
     def get_requirements(self, project_id: str):
         """获取专案下所有未删除的需求"""
         reqs = (

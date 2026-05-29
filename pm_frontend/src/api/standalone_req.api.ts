@@ -1,5 +1,12 @@
-import { post, put, del } from './httpClient'
+import { get, post, put, del, postForm } from './httpClient'
 import type { ApiResponse } from '@/types/api.types'
+
+export interface ReqFileInfo {
+  file_id: string
+  name:    string
+  url:     string
+  size:    number
+}
 
 export interface StandaloneReq {
   id:                string
@@ -13,17 +20,19 @@ export interface StandaloneReq {
   creator_nm?:       string
   responsible:       string[]
   expected_end_date: string
+  files:             ReqFileInfo[]
   created_at:        string
   updated_at:        string
 }
 
 export interface StandaloneReqListQuery {
-  page:        number
-  size?:       number
-  keyword?:    string
-  status?:     number
-  priority?:   number
+  page:         number
+  size?:        number
+  keyword?:     string
+  status?:      number
+  priority?:    number
   responsible?: string
+  system_id?:   string
 }
 
 export interface CreateStandaloneReqPayload {
@@ -54,4 +63,16 @@ export const standaloneReqApi = {
 
   delete: (id: string): Promise<ApiResponse<null>> =>
     del(`/standalone_req/${id}`),
+
+  get: (id: string): Promise<ApiResponse<StandaloneReq>> =>
+    get(`/standalone_req/${id}`),
+
+  uploadFile: (reqId: string, file: File): Promise<ApiResponse<{ files: ReqFileInfo[]; file: ReqFileInfo }>> => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return postForm(`/standalone_req/${reqId}/files`, fd)
+  },
+
+  deleteFile: (reqId: string, fileId: string): Promise<ApiResponse<ReqFileInfo[]>> =>
+    del(`/standalone_req/${reqId}/files`, { data: { file_id: fileId } }),
 }

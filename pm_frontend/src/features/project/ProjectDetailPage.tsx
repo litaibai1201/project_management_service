@@ -112,6 +112,10 @@ const ProjectDetailPage: React.FC = () => {
   const [addFuncLoading,  setAddFuncLoading]   = useState(false)
   const [funcForm]                             = Form.useForm()
 
+  // ── Tab 控制 ──────────────────────────────────────────────────────────────
+  const [activeTab,          setActiveTab]          = useState(() => searchParams.get('req') ? 'requirements' : 'info')
+  const [expandedReqKeys,    setExpandedReqKeys]    = useState<string[]>(() => { const r = searchParams.get('req'); return r ? [r] : [] })
+
   // ── 需求管理 ──────────────────────────────────────────────────────────────
   const [requirements,       setRequirements]       = useState<Requirement[]>([])
   const [reqLoading,         setReqLoading]         = useState(false)
@@ -1333,7 +1337,9 @@ const ProjectDetailPage: React.FC = () => {
       {/* Tabs */}
       <Tabs
         type="card"
+        activeKey={activeTab}
         onChange={(key) => {
+          setActiveTab(key)
           if (key === 'requirements' && id && !reqLoading) {
             loadRequirements(id)
           }
@@ -1406,6 +1412,8 @@ const ProjectDetailPage: React.FC = () => {
                   locale={{ emptyText: <Empty description="暫無需求" className="py-8" /> }}
                   expandable={{
                     expandRowByClick: true,
+                    expandedRowKeys: expandedReqKeys,
+                    onExpandedRowsChange: (keys) => setExpandedReqKeys(keys as string[]),
                     expandedRowRender: (req: Requirement) => (
                       <div className="bg-slate-50 px-6 py-4 grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
                         <div className="col-span-2">

@@ -29,6 +29,12 @@ class DutyController:
             q = q.filter(TemporaryDutyModel.priority == priority)
         if responsible:
             q = q.filter(TemporaryDutyModel.responsible.like(f"%{responsible}%"))
+        standalone_req_id = payload.get("standalone_req_id")
+        if standalone_req_id:
+            q = q.filter(TemporaryDutyModel.standalone_req_id == standalone_req_id)
+        system_id = payload.get("system_id")
+        if system_id:
+            q = q.filter(TemporaryDutyModel.system_id == system_id)
         total = q.count()
         duties = q.order_by(TemporaryDutyModel.created_at.desc()).offset((page-1)*size).limit(size).all()
         sys_ids = [d.system_id for d in duties if d.system_id]
@@ -77,6 +83,7 @@ class DutyController:
             priority=payload.get("priority", 2),
             group=payload.get("group", ""),
             system_id=payload.get("system_id", "") or None,
+            standalone_req_id=payload.get("standalone_req_id", "") or None,
             expected_start_date=payload.get("expected_start_date", ""),
             expected_end_date=payload.get("expected_end_date", ""),
         )

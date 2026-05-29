@@ -16,6 +16,8 @@ class StandaloneReqController:
         page       = int(payload.get("page", 1))
         size       = int(payload.get("size", 20))
 
+        system_id  = payload.get("system_id")
+
         q = db.session.query(StandaloneReqModel).filter(StandaloneReqModel.req_status != 9)
         if keyword:
             q = q.filter(StandaloneReqModel.req_nm.like(f"%{keyword}%"))
@@ -25,6 +27,8 @@ class StandaloneReqController:
             q = q.filter(StandaloneReqModel.priority == priority)
         if responsible:
             q = q.filter(StandaloneReqModel.responsible.like(f"%{responsible}%"))
+        if system_id:
+            q = q.filter(StandaloneReqModel.system_id == system_id)
 
         total = q.count()
         items = q.order_by(StandaloneReqModel.created_at.desc()).offset((page - 1) * size).limit(size).all()
@@ -113,3 +117,86 @@ class StandaloneReqController:
         r.updated_at = CommonTools.get_now()
         db.session.commit()
         return True
+
+    # ── 文件管理 ────────────────────────────────────────────────────────────────
+
+    def upload_file(self, req_id: str, file, uploader: str):
+        import os
+        from flask import current_app
+        from dbs.mysql_db.model_tables import generate_uuid
+        from utils.exceptions import BusinessException, ResourceNotFoundException
+        r = db.session.query(StandaloneReqModel).filter_by(id=req_id).first()
+        if not r or r.req_status == 9:
+            raise ResourceNotFoundException(resource_type="需求")
+
+        ALLOWED_EXT = {
+            'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
+            'png', 'jpg', 'jpeg', 'gif', 'zip', 'rar', 'txt', 'md',
+        }
+        filename = file.filename or ""
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "bin"
+        if ext not in ALLOWED_EXT:
+            raise BusinessException(msg=f"不支持的文件类型: {ext}")
+
+        base_dir = current_app.config.get("UPLOAD_FOLDER", "uploads")
+        upload_dir = os.path.join(base_dir, "standalone_req", req_id)
+        os.makedirs(upload_dir, exist_ok=True)
+
+        file_id = generate_uuid()
+        stored_name = f"{file_id}.{ext}"
+        abs_path = os.path.join(upload_dir, stored_name)
+        file.save(abs_path)
+        size = os.path.getsize(abs_path)
+
+        rel_url = f"/api/standalone_req/{req_id}/files/{file_id}/preview"
+        file_info = {"name": filename, "url": rel_url, "size": size, "file_id": file_id}
+
+        files = []
+        if r.files_json:
+            try:
+                files = json.loads(r.files_json)
+            except Exception:
+                pass
+        files.append(file_info)
+        r.files_json = json.dumps(files, ensure_ascii=False)
+        r.updated_at = CommonTools.get_now()
+        db.session.commit()
+        return {"files": files, "file": file_info}
+
+    def get_file_path(self, req_id: str, file_id: str):
+        import os
+        from flask import current_app
+        from utils.exceptions import ResourceNotFoundException
+        r = db.session.query(StandaloneReqModel).filter_by(id=req_id).first()
+        if not r or r.req_status == 9:
+            raise ResourceNotFoundException(resource_type="需求")
+        files = []
+        if r.files_json:
+            try:
+                files = json.loads(r.files_json)
+            except Exception:
+                pass
+        file_info = next((f for f in files if f.get("file_id") == file_id), None)
+        if not file_info:
+            raise ResourceNotFoundException(resource_type="附件")
+        base_dir = current_app.config.get("UPLOAD_FOLDER", "uploads")
+        ext = file_info["name"].rsplit(".", 1)[-1] if "." in file_info["name"] else "bin"
+        abs_path = os.path.join(base_dir, "standalone_req", req_id, f"{file_id}.{ext}")
+        return abs_path, file_info["name"]
+
+    def remove_file(self, req_id: str, file_id: str):
+        from utils.exceptions import ResourceNotFoundException
+        r = db.session.query(StandaloneReqModel).filter_by(id=req_id).first()
+        if not r or r.req_status == 9:
+            raise ResourceNotFoundException(resource_type="需求")
+        files = []
+        if r.files_json:
+            try:
+                files = json.loads(r.files_json)
+            except Exception:
+                pass
+        files = [f for f in files if f.get("file_id") != file_id]
+        r.files_json = json.dumps(files, ensure_ascii=False)
+        r.updated_at = CommonTools.get_now()
+        db.session.commit()
+        return files

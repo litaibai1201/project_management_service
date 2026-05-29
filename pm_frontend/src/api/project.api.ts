@@ -336,7 +336,27 @@ export const projectApi = {
 
 // ─── Requirement API ──────────────────────────────────────────────────────────
 
+export interface ProjectReqListQuery {
+  page:      number
+  size?:     number
+  keyword?:  string
+  status?:   number
+  priority?: number
+}
+
+export type ProjectReqItem = Requirement & { project_nm?: string; creator_nm?: string }
+
+export interface ProjectReqListResult {
+  data_list:   ProjectReqItem[]
+  total_count: number
+  page:        number
+  size:        number
+}
+
 export const requirementApi = {
+  listAll: (payload: ProjectReqListQuery): Promise<ApiResponse<ProjectReqListResult>> =>
+    post('/project/requirements/list', payload),
+
   list: (projectId: string): Promise<ApiResponse<Requirement[]>> =>
     get(`/project/${projectId}/requirements`),
 

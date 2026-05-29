@@ -525,7 +525,8 @@ class TemporaryDutyModel(BaseMixinModel):
     priority = db.Column(db.Integer, default=2)
     progress = db.Column(db.Integer, default=0)
     group = db.Column(db.String(64), comment="任务分组(用户自定义)")
-    system_id  = db.Column(db.String(32), comment="关联系统ID")
+    system_id          = db.Column(db.String(32), comment="关联系统ID")
+    standalone_req_id  = db.Column(db.String(32), comment="关联独立需求ID")
     expected_start_date = db.Column(db.String(10))
     expected_end_date = db.Column(db.String(10))
     start_time = db.Column(db.String(19))
@@ -551,7 +552,8 @@ class TemporaryDutyModel(BaseMixinModel):
             "id": self.id, "duty_nm": self.duty_nm, "describe": self.describe or "",
             "creator": self.creator, "responsible": resp, "status": self.duty_status,
             "priority": self.priority, "progress": self.progress, "group": self.group or "",
-            "system_id":  self.system_id  or "",
+            "system_id":         self.system_id or "",
+            "standalone_req_id": self.standalone_req_id or "",
             "expected_start_date": self.expected_start_date or "",
             "expected_end_date": self.latest_expected_end_date or self.expected_end_date or "",
             "original_end_date": self.expected_end_date or "",
@@ -733,6 +735,7 @@ class StandaloneReqModel(BaseMixinModel):
     creator           = db.Column(db.String(32), comment="创建人工号")
     responsible       = db.Column(db.Text, comment="负责人工号JSON数组")
     expected_end_date = db.Column(db.String(10), comment="预计完成日期")
+    files_json        = db.Column(db.Text, comment="附件JSON数组")
     created_at        = db.Column(db.String(19), default=CommonTools.get_now, nullable=False)
     updated_at        = db.Column(db.String(19), default=CommonTools.get_now, onupdate=CommonTools.get_now)
 
@@ -756,6 +759,7 @@ class StandaloneReqModel(BaseMixinModel):
             "creator":            self.creator or "",
             "responsible":        resp,
             "expected_end_date":  self.expected_end_date or "",
+            "files":              json.loads(self.files_json) if self.files_json else [],
             "created_at":         self.created_at or "",
             "updated_at":         self.updated_at or "",
         }

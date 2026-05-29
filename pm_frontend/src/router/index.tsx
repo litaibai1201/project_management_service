@@ -34,6 +34,7 @@ const ProjectReportPage    = lazy(() => import('@/features/project/ProjectReport
 const DepartmentTaskPage      = lazy(() => import('@/features/duty/DepartmentTaskPage'))
 const RequirementListPage     = lazy(() => import('@/features/requirement/RequirementListPage'))
 const SystemListPage          = lazy(() => import('@/features/system/SystemListPage'))
+const SystemDetailPage        = lazy(() => import('@/features/system/SystemDetailPage'))
 const AdminSystemPage         = lazy(() => import('@/features/system/SystemListPage'))   // reuse same page in admin
 
 // ─── Loading Fallback ─────────────────────────────────────────────────────────
@@ -81,6 +82,7 @@ const router = createBrowserRouter([
           { path: 'dept-tasks',        element: <Suspense fallback={<PageLoader />}><DepartmentTaskPage /></Suspense> },
           { path: 'requirements',      element: <Suspense fallback={<PageLoader />}><RequirementListPage /></Suspense> },
           { path: 'systems',           element: <Suspense fallback={<PageLoader />}><SystemListPage /></Suspense> },
+          { path: 'systems/:id',       element: <Suspense fallback={<PageLoader />}><SystemDetailPage /></Suspense> },
         ],
       },
     ],
