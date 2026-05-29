@@ -522,7 +522,7 @@ class ProjectController:
                        viewer_is_supervisor: bool = False) -> dict:
         """为审批记录补充关联项目/功能/任务名称及提交人姓名，并标记当前用户是否轮到审核"""
         from dbs.mysql_db.model_tables import UserProfileModel
-        project_nm = function_nm = duty_nm = None
+        project_nm = function_nm = duty_nm = system_nm = None
         if r.project_id:
             p = db.session.query(ProjectDataModel).filter_by(id=r.project_id).first()
             project_nm = p.project_nm if p else None
@@ -533,7 +533,11 @@ class ProjectController:
             from dbs.mysql_db.model_tables import TemporaryDutyModel
             d = db.session.query(TemporaryDutyModel).filter_by(id=r.duty_id).first()
             duty_nm = d.duty_nm if d else None
-        result = r.to_dict(project_nm=project_nm, function_nm=function_nm, duty_nm=duty_nm)
+        if r.system_id:
+            from dbs.mysql_db.model_tables import SystemModel
+            s = db.session.query(SystemModel).filter_by(id=r.system_id).first()
+            system_nm = s.sys_nm if s else None
+        result = r.to_dict(project_nm=project_nm, function_nm=function_nm, duty_nm=duty_nm, system_nm=system_nm)
         # 补充提交人姓名（老记录 submitter_name 为空时从用户表查询）
         if not result.get("submitter_name"):
             u = db.session.query(UserProfileModel).filter_by(work_no=r.submitter).first()
@@ -868,6 +872,58 @@ class ProjectController:
             )
             return
 
+        # standalone_req_review 系統需求審核（單條）
+        if r.apply_type_code == 'standalone_req_review' and r.requirement_id:
+            from dbs.mysql_db.model_tables import StandaloneReqModel
+            req = db.session.query(StandaloneReqModel).filter_by(id=r.requirement_id).first()
+            if req:
+                if final_status == 2:
+                    req.req_status = 2
+                elif final_status in (3, 4):
+                    req.req_status = 0
+                req.updated_at = now
+            db.session.commit()
+            from controllers.notification_controller import push_notification
+            result_text = "已通過" if final_status == 2 else ("已被退回" if final_status == 4 else "已被拒絕")
+            push_notification(
+                [r.submitter],
+                title=f"您的系統需求審核申請{result_text}",
+                desc=f"系統需求「{r.description}」審核{result_text}",
+                link_type="review",
+                link_id=review_id,
+            )
+            return
+
+        # standalone_req_batch_review 系統需求批量審核
+        if r.apply_type_code == 'standalone_req_batch_review' and r.requirement_ids_json:
+            import json as _json
+            from dbs.mysql_db.model_tables import StandaloneReqModel
+            try:
+                req_ids = _json.loads(r.requirement_ids_json)
+            except Exception:
+                req_ids = []
+            if req_ids:
+                reqs = db.session.query(StandaloneReqModel).filter(
+                    StandaloneReqModel.id.in_(req_ids)
+                ).all()
+                for req in reqs:
+                    if final_status == 2:
+                        req.req_status = 2
+                    elif final_status in (3, 4):
+                        req.req_status = 0
+                    req.updated_at = now
+            db.session.commit()
+            from controllers.notification_controller import push_notification
+            result_text = "已通過" if final_status == 2 else ("已被退回" if final_status == 4 else "已被拒絕")
+            push_notification(
+                [r.submitter],
+                title=f"您的系統需求批量審核申請{result_text}",
+                desc=f"批量系統需求審核「{r.description}」{result_text}",
+                link_type="review",
+                link_id=review_id,
+            )
+            return
+
         # task_addition_review 執行階段新增任務審批
         if r.apply_type_code == 'task_addition_review' and r.function_ids_json:
             func_ids = []
@@ -916,6 +972,56 @@ class ProjectController:
                 link_type="project",
                 link_id=r.project_id or "",
             )
+            return
+
+        # req_task_addition_review 需求任務新增審批
+        if r.apply_type_code == 'req_task_addition_review' and r.function_ids_json:
+            duty_ids = []
+            try:
+                duty_ids = json.loads(r.function_ids_json)
+            except Exception:
+                pass
+            if duty_ids:
+                from dbs.mysql_db.model_tables import TemporaryDutyModel, SystemModel
+                duties = db.session.query(TemporaryDutyModel).filter(TemporaryDutyModel.id.in_(duty_ids)).all()
+                for d in duties:
+                    if final_status == 2:        # 通過 → 未開始（首次更新進度後才變進行中）
+                        d.duty_status = 6
+                    elif final_status in (3, 4): # 拒絕/退回 → 草稿
+                        d.duty_status = 0
+                    d.updated_at = now
+                db.session.commit()
+                from controllers.notification_controller import push_notification
+                result_text = "已通過" if final_status == 2 else ("已被退回" if final_status == 4 else "已被拒絕")
+                sys_nm = ""
+                if r.system_id:
+                    sys_obj = db.session.query(SystemModel).filter_by(id=r.system_id).first()
+                    sys_nm = sys_obj.sys_nm if sys_obj else ""
+                if final_status == 2:
+                    all_resp = set()
+                    for d in duties:
+                        if d.responsible:
+                            try:
+                                for w in json.loads(d.responsible):
+                                    if w and w != r.submitter:
+                                        all_resp.add(str(w))
+                            except Exception:
+                                pass
+                    if all_resp:
+                        push_notification(
+                            list(all_resp),
+                            title="您已被指派為需求任務負責人",
+                            desc=f"系統「{sys_nm}」有新需求任務已審核通過，請及時跟進。",
+                            link_type="system",
+                            link_id=r.system_id or "",
+                        )
+                push_notification(
+                    [r.submitter],
+                    title=f"您的需求任務新增審核申請{result_text}",
+                    desc=f"系統「{sys_nm}」需求任務新增審核申請{result_text}",
+                    link_type="system",
+                    link_id=r.system_id or "",
+                )
             return
 
         # 同步更新功能任务状态（function_complete）

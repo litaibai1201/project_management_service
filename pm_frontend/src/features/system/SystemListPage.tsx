@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Table, Button, Input, Select, AutoComplete, Space, Tooltip, Popconfirm,
-  Modal, Form, Tag, Avatar, Drawer, Descriptions, Divider,
+  Modal, Form, Tag, Avatar,
   Typography, Popover, Checkbox,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
@@ -12,7 +13,7 @@ import { userApi } from '@/api/user.api'
 import { useAppSelector } from '@/hooks/redux'
 import { showToast } from '@/utils/toast'
 
-const { Text, Link } = Typography
+const { Link } = Typography
 
 const EMPTY_DEPLOY_ROW: DeployRow = {
   fe_host: '', fe_path: '', fe_app_nm: '', fe_port: '',
@@ -21,7 +22,8 @@ const EMPTY_DEPLOY_ROW: DeployRow = {
 }
 
 const SystemListPage: React.FC = () => {
-  const isAdmin = useAppSelector((s) => s.auth.isAdmin)
+  const isAdmin  = useAppSelector((s) => s.auth.isAdmin)
+  const navigate = useNavigate()
 
   const TOGGLEABLE_COLS = ['sys_group', 'maintainer_names', 'go_live_date', 'urls'] as const
   type ColKey = typeof TOGGLEABLE_COLS[number]
@@ -44,8 +46,6 @@ const SystemListPage: React.FC = () => {
   const [group,    setGroup]    = useState<string | undefined>()
   const [groups,   setGroups]   = useState<string[]>([])
 
-  const [detail,      setDetail]      = useState<SystemItem | null>(null)
-  const [detailOpen,  setDetailOpen]  = useState(false)
   const [editTarget,  setEditTarget]  = useState<SystemItem | null>(null)
   const [formOpen,    setFormOpen]    = useState(false)
   const [saving,      setSaving]      = useState(false)
@@ -110,16 +110,6 @@ const SystemListPage: React.FC = () => {
     setFormOpen(true)
   }
 
-  const openDetail = async (item: SystemItem) => {
-    setDetail(item)
-    setDetailOpen(true)
-    // Refresh detail from server for latest data
-    try {
-      const res = await systemApi.get(item.id)
-      setDetail(res.content as SystemItem)
-    } catch { /* ignore */ }
-  }
-
   const handleSave = async () => {
     let values: Record<string, unknown>
     try { values = await form.validateFields() } catch { return }
@@ -160,7 +150,7 @@ const SystemListPage: React.FC = () => {
     {
       title: '系统名称', dataIndex: 'sys_nm', ellipsis: true, width: 260,
       render: (v: string, r) => (
-        <Button type="link" style={{ padding: 0, fontWeight: 500 }} onClick={() => openDetail(r)}>{v}</Button>
+        <Button type="link" style={{ padding: 0, fontWeight: 500 }} onClick={() => navigate(`/systems/${r.id}`)}>{v}</Button>
       ),
     },
     ...(visibleCols.has('sys_group') ? [{
@@ -208,7 +198,7 @@ const SystemListPage: React.FC = () => {
       render: (_: unknown, r) => (
         <Space size={0}>
           <Tooltip title="查看详情">
-            <Button icon={<EyeIcon className="w-4 h-4" />} size="small" type="text" onClick={() => openDetail(r)} />
+            <Button icon={<EyeIcon className="w-4 h-4" />} size="small" type="text" onClick={() => navigate(`/systems/${r.id}`)} />
           </Tooltip>
           {isAdmin && (
             <>
@@ -298,101 +288,6 @@ const SystemListPage: React.FC = () => {
           scroll={{ x: 800 }}
         />
       </div>
-
-      {/* Detail Drawer */}
-      <Drawer
-        title={detail?.sys_nm ?? '系统详情'}
-        open={detailOpen}
-        onClose={() => setDetailOpen(false)}
-        width={720}
-        styles={{ body: { padding: '16px 24px' } }}
-      >
-        {detail && (
-          <div className="space-y-6">
-            {/* Basic Info */}
-            <Descriptions column={2} bordered size="small">
-              <Descriptions.Item label="系统名称" span={2}>{detail.sys_nm}</Descriptions.Item>
-              <Descriptions.Item label="所属分组">
-                {detail.sys_group ? <Tag color="blue">{detail.sys_group}</Tag> : '—'}
-              </Descriptions.Item>
-              <Descriptions.Item label="上线时间">{detail.go_live_date || '—'}</Descriptions.Item>
-              <Descriptions.Item label="系统功能介绍" span={2}>
-                <Text style={{ whiteSpace: 'pre-wrap' }}>{detail.description || '—'}</Text>
-              </Descriptions.Item>
-            </Descriptions>
-
-            {/* Maintainers */}
-            {detail.maintainer_names.length > 0 && (
-              <>
-                <Divider orientation="left" plain>维护人员</Divider>
-                <div className="flex flex-wrap gap-2">
-                  {detail.maintainer_names.map((u) => (
-                    <div key={u.work_no} className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1">
-                      <Avatar size="small" style={{ background: '#2563eb', fontSize: 10 }}>{u.name?.[0]}</Avatar>
-                      <span className="text-sm text-slate-700">{u.name}</span>
-                      <span className="text-xs text-slate-400">({u.work_no})</span>
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
-
-            {/* URLs */}
-            {detail.urls.length > 0 && (
-              <>
-                <Divider orientation="left" plain>访问网址</Divider>
-                <div className="space-y-2">
-                  {detail.urls.map((u, i) => (
-                    <div key={i} className="flex items-center gap-3">
-                      {u.name && <Tag color="processing">{u.name}</Tag>}
-                      <Link href={u.url} target="_blank">{u.url}</Link>
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
-
-            {/* Deploy Info */}
-            {detail.deploy_info.length > 0 && (
-              <>
-                <Divider orientation="left" plain>部署详情</Divider>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs border-collapse border border-slate-200">
-                    <thead>
-                      <tr className="bg-slate-50">
-                        <th className="border border-slate-200 px-2 py-1.5 text-left text-slate-600 font-medium">前端 IP</th>
-                        <th className="border border-slate-200 px-2 py-1.5 text-left text-slate-600 font-medium">端口</th>
-                        <th className="border border-slate-200 px-2 py-1.5 text-left text-slate-600 font-medium">部署路径</th>
-                        <th className="border border-slate-200 px-2 py-1.5 text-left text-slate-600 font-medium">应用名（代码包）</th>
-                        <th className="border border-slate-200 px-2 py-1.5 text-left text-slate-600 font-medium">后端 IP</th>
-                        <th className="border border-slate-200 px-2 py-1.5 text-left text-slate-600 font-medium">端口</th>
-                        <th className="border border-slate-200 px-2 py-1.5 text-left text-slate-600 font-medium">路径</th>
-                        <th className="border border-slate-200 px-2 py-1.5 text-left text-slate-600 font-medium">应用名（代码包）</th>
-                        <th className="border border-slate-200 px-2 py-1.5 text-left text-slate-600 font-medium">备注</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {detail.deploy_info.map((row, i) => (
-                        <tr key={i} className={i % 2 === 0 ? '' : 'bg-slate-50'}>
-                          <td className="border border-slate-200 px-2 py-1.5 text-slate-700">{row.fe_host || '—'}</td>
-                          <td className="border border-slate-200 px-2 py-1.5 text-slate-700">{row.fe_port || '—'}</td>
-                          <td className="border border-slate-200 px-2 py-1.5 text-slate-700">{row.fe_path || '—'}</td>
-                          <td className="border border-slate-200 px-2 py-1.5 text-slate-700">{row.fe_app_nm || '—'}</td>
-                          <td className="border border-slate-200 px-2 py-1.5 text-slate-700">{row.be_host || '—'}</td>
-                          <td className="border border-slate-200 px-2 py-1.5 text-slate-700">{row.be_port || '—'}</td>
-                          <td className="border border-slate-200 px-2 py-1.5 text-slate-700">{row.be_path || '—'}</td>
-                          <td className="border border-slate-200 px-2 py-1.5 text-slate-700">{row.be_app_nm || '—'}</td>
-                          <td className="border border-slate-200 px-2 py-1.5 text-slate-500">{row.remark || '—'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            )}
-          </div>
-        )}
-      </Drawer>
 
       {/* Create / Edit Modal */}
       <Modal

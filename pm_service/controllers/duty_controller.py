@@ -74,7 +74,7 @@ class DutyController:
                 resp = json.loads(resp)
             except Exception:
                 resp = [resp] if resp else []
-        resp = [w.strip().lower() for w in (resp if isinstance(resp, list) else [resp]) if w]
+        resp = [str(w).strip().lower() for w in (resp if isinstance(resp, list) else [resp]) if w]
         d = TemporaryDutyModel(
             duty_nm=payload["duty_nm"],
             describe=payload.get("describe", ""),
@@ -105,6 +105,162 @@ class DutyController:
             )
         return {"duty_id": d.id}
 
+    def submit_req_task_review(self, duty_id: str, payload: dict, work_no: str):
+        """提交需求任務新增審核（草稿→待審，需主管審批後方可進行）"""
+        from dbs.mysql_db.model_tables import UserProfileModel, StandaloneReqModel
+        from utils.exceptions import BusinessException
+        d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
+        if not d or d.duty_status == 9:
+            raise ResourceNotFoundException(resource_type="任務")
+        if not d.standalone_req_id:
+            raise BusinessException(msg="只有需求任務才需要提交審核")
+        if d.duty_status != 0:
+            raise BusinessException(msg="只有草稿狀態的任務才可提交審核")
+
+        reviewer = payload.get("reviewer", [])
+        if isinstance(reviewer, str):
+            reviewer = [reviewer] if reviewer else []
+        if not reviewer:
+            raise BusinessException(msg="請選擇審核人")
+
+        all_wks = list({work_no} | set(reviewer))
+        user_map = {
+            u.work_no: u
+            for u in db.session.query(UserProfileModel).filter(
+                UserProfileModel.work_no.in_(all_wks)
+            ).all()
+        }
+        nodes = []
+        for i, wk in enumerate(reviewer):
+            u = user_map.get(wk)
+            nodes.append({
+                "node_id": f"{CommonTools.get_now().replace(' ', '')}_{i}",
+                "order": i + 1,
+                "approver": u.name if u else wk,
+                "approver_work_no": wk,
+                "status": 0,
+                "is_countersign": False,
+                "approved_at": None,
+                "comment": None,
+            })
+
+        submitter_profile = user_map.get(work_no)
+        submitter_name = submitter_profile.name if submitter_profile else work_no
+
+        sys = db.session.query(SystemModel).filter_by(id=d.system_id).first() if d.system_id else None
+        sys_nm = sys.sys_nm if sys else ""
+        req = db.session.query(StandaloneReqModel).filter_by(id=d.standalone_req_id).first()
+        req_nm = req.req_nm if req else ""
+        desc = f"[{req_nm}] {d.duty_nm}" if req_nm else d.duty_nm
+
+        apply = ReviewApplyModel(
+            system_id=d.system_id,
+            requirement_id=d.standalone_req_id,
+            function_ids_json=json.dumps([duty_id], ensure_ascii=False),
+            apply_type="需求任務新增審核",
+            apply_type_code="req_task_addition_review",
+            submitter=work_no,
+            submitter_name=submitter_name,
+            reviewer=json.dumps(reviewer, ensure_ascii=False),
+            priority=d.priority,
+            description=desc,
+            approval_nodes_json=json.dumps(nodes, ensure_ascii=False),
+        )
+        d.duty_status = 5  # 審核中
+        db.session.add(apply)
+        db.session.commit()
+
+        from controllers.notification_controller import push_notification
+        first_reviewers = [n["approver_work_no"] for n in nodes if n.get("order") == 1]
+        push_notification(
+            first_reviewers,
+            title="您有新的需求任務新增待審核",
+            desc=f"需求任務「{d.duty_nm}」已提交審核，請及時處理。",
+            link_type="review",
+            link_id=apply.id,
+        )
+        return {"apply_id": apply.id}
+
+    def batch_submit_req_task_review(self, duty_ids: list, payload: dict, work_no: str):
+        """批量提交需求任務新增審核（多個草稿任務合併為一張審核單）"""
+        from dbs.mysql_db.model_tables import UserProfileModel
+        if not duty_ids:
+            raise BusinessException(msg="請選擇要提交審核的任務")
+
+        duties = db.session.query(TemporaryDutyModel).filter(
+            TemporaryDutyModel.id.in_(duty_ids),
+            TemporaryDutyModel.duty_status == 0,
+        ).all()
+        if not duties:
+            raise BusinessException(msg="未找到可提交審核的草稿任務")
+
+        # 所有任務必須屬於同一系統
+        system_ids = {d.system_id for d in duties if d.system_id}
+        if len(system_ids) > 1:
+            raise BusinessException(msg="批量提交的任務必須屬於同一系統")
+        system_id = system_ids.pop() if system_ids else None
+
+        reviewer = payload.get("reviewer", [])
+        if isinstance(reviewer, str):
+            reviewer = [reviewer] if reviewer else []
+        if not reviewer:
+            raise BusinessException(msg="請選擇審核人")
+
+        all_wks = list({work_no} | set(reviewer))
+        user_map = {
+            u.work_no: u
+            for u in db.session.query(UserProfileModel).filter(
+                UserProfileModel.work_no.in_(all_wks)
+            ).all()
+        }
+        nodes = []
+        for i, wk in enumerate(reviewer):
+            u = user_map.get(wk)
+            nodes.append({
+                "node_id": f"{CommonTools.get_now().replace(' ', '')}_{i}",
+                "order": i + 1,
+                "approver": u.name if u else wk,
+                "approver_work_no": wk,
+                "status": 0,
+                "is_countersign": False,
+                "approved_at": None,
+                "comment": None,
+            })
+
+        submitter_profile = user_map.get(work_no)
+        submitter_name = submitter_profile.name if submitter_profile else work_no
+
+        sys = db.session.query(SystemModel).filter_by(id=system_id).first() if system_id else None
+        sys_nm = sys.sys_nm if sys else ""
+        desc = f"系統「{sys_nm}」新增 {len(duties)} 個需求任務" if sys_nm else f"新增 {len(duties)} 個需求任務"
+
+        for d in duties:
+            d.duty_status = 5  # 審核中
+        apply = ReviewApplyModel(
+            system_id=system_id,
+            function_ids_json=json.dumps([d.id for d in duties], ensure_ascii=False),
+            apply_type="需求任務新增審核",
+            apply_type_code="req_task_addition_review",
+            submitter=work_no,
+            submitter_name=submitter_name,
+            reviewer=json.dumps(reviewer, ensure_ascii=False),
+            description=desc,
+            approval_nodes_json=json.dumps(nodes, ensure_ascii=False),
+        )
+        db.session.add(apply)
+        db.session.commit()
+
+        from controllers.notification_controller import push_notification
+        first_reviewers = [n["approver_work_no"] for n in nodes if n.get("order") == 1]
+        push_notification(
+            first_reviewers,
+            title="您有新的需求任務新增待審核",
+            desc=f"「{sys_nm}」新增了 {len(duties)} 個需求任務待您審核。",
+            link_type="review",
+            link_id=apply.id,
+        )
+        return {"apply_id": apply.id, "count": len(duties)}
+
     def update_duty(self, duty_id: str, payload: dict, work_no: str = None):
         d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
         if not d or d.duty_status == 9:
@@ -127,7 +283,7 @@ class DutyController:
                     resp = json.loads(resp)
                 except Exception:
                     resp = [resp] if resp else []
-            resp = [w.strip().lower() for w in (resp if isinstance(resp, list) else [resp]) if w]
+            resp = [str(w).strip().lower() for w in (resp if isinstance(resp, list) else [resp]) if w]
             old_resp_snap = json.loads(d.responsible) if d.responsible else []
             new_resp = [w for w in resp if w not in old_resp_snap]
             removed_resp = [w for w in old_resp_snap if w not in resp]
@@ -256,6 +412,8 @@ class DutyController:
         d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
         if not d or d.duty_status == 9:
             raise ResourceNotFoundException(resource_type="AR")
+        if d.standalone_req_id:
+            raise BusinessException("需求任務需提交主管審核後才可啟動，請點擊「提交審核」")
         responsible = json.loads(d.responsible) if d.responsible else []
         if work_no != d.creator and work_no not in responsible:
             raise PermissionException("只有建立人或負責人可以激活任務")
@@ -320,22 +478,60 @@ class DutyController:
         db.session.commit()
 
     def submit_completion(self, duty_id: str, work_no: str, reviewer: list, submitter_name: str = ""):
-        """提交完結審核：進行中 → 完結審核，建立 ReviewApplyModel"""
+        """提交完結審核。
+        - 需求任務（有 standalone_req_id）：審核人自動設為需求責任人；若提交人即為需求責任人則直接完結。
+        - AR任務：使用傳入的 reviewer 列表。
+        """
+        from dbs.mysql_db.model_tables import UserProfileModel, StandaloneReqModel
         d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
         if not d or d.duty_status == 9:
             raise ResourceNotFoundException(resource_type="AR")
         responsible = json.loads(d.responsible) if d.responsible else []
         if work_no not in responsible:
             raise PermissionException("只有負責人可以提交完結審核")
-        if d.duty_status != 1:
-            raise BusinessException("僅進行中狀態可提交完結審核")
-        if not reviewer:
-            raise BusinessException("請至少指定一位審核人")
+        if d.duty_status not in (1, 6):
+            raise BusinessException("僅進行中或未開始狀態可提交完結審核")
+
+        now = CommonTools.get_now()
+
+        if d.standalone_req_id:
+            # 需求任務：審核人為需求責任人
+            req = db.session.query(StandaloneReqModel).filter_by(id=d.standalone_req_id).first()
+            req_responsible = json.loads(req.responsible) if req and req.responsible else []
+
+            if work_no in req_responsible:
+                # 提交人即需求責任人 → 直接完結，無需審核
+                d.duty_status = 3
+                d.end_time = now
+                d.update_at = now
+                db.session.commit()
+                return {"review_id": "", "direct": True}
+
+            # 以需求責任人為審核人
+            reviewer = req_responsible
+            if not reviewer:
+                raise BusinessException("需求未指定責任人，無法提交完結審核")
+            apply_type = "需求任務完結審核"
+            apply_type_code = "duty_complete"
+        else:
+            # AR任務：使用傳入的 reviewer
+            if not reviewer:
+                raise BusinessException("請至少指定一位審核人")
+            apply_type = "AR完結審核"
+            apply_type_code = "duty_complete"
+
+        # 取得審核人姓名
+        user_map = {
+            u.work_no: u
+            for u in db.session.query(UserProfileModel).filter(
+                UserProfileModel.work_no.in_(reviewer + [work_no])
+            ).all()
+        }
         nodes = [
             {
                 "node_id": f"node_{i+1}",
                 "order": i + 1,
-                "approver": r,
+                "approver": user_map[r].name if r in user_map else r,
                 "approver_work_no": r,
                 "is_countersign": False,
                 "status": 0,
@@ -344,10 +540,15 @@ class DutyController:
             }
             for i, r in enumerate(reviewer)
         ]
+        if not submitter_name:
+            u = user_map.get(work_no)
+            submitter_name = u.name if u else work_no
+
         review = ReviewApplyModel(
             duty_id=duty_id,
-            apply_type="AR完結審核",
-            apply_type_code="duty_completion",
+            system_id=d.system_id,
+            apply_type=apply_type,
+            apply_type_code=apply_type_code,
             submitter=work_no,
             submitter_name=submitter_name,
             reviewer=json.dumps(reviewer, ensure_ascii=False),
@@ -355,26 +556,20 @@ class DutyController:
             approval_nodes_json=json.dumps(nodes, ensure_ascii=False),
         )
         d.duty_status = 2
-        d.update_at = CommonTools.get_now()
+        d.update_at = now
         db.session.add(review)
         db.session.commit()
-        # 通知第一位審核人
+
         from controllers.notification_controller import push_notification
-        from dbs.mysql_db.model_tables import UserProfileModel
         first_reviewers = [n["approver_work_no"] for n in nodes if n.get("order") == 1]
-        if submitter_name:
-            submitter_display = submitter_name
-        else:
-            submitter_user = db.session.query(UserProfileModel).filter_by(work_no=work_no).first()
-            submitter_display = f"{submitter_user.name}({work_no})" if submitter_user else work_no
         push_notification(
             first_reviewers,
             title="您有新的審核申請待處理",
-            desc=f"「{d.duty_nm}」AR完結審核，提交人：{submitter_display}",
+            desc=f"「{d.duty_nm}」{apply_type}，提交人：{submitter_name}",
             link_type="review",
             link_id=review.id,
         )
-        return {"review_id": review.id}
+        return {"review_id": review.id, "direct": False}
 
     def allocate(self, duty_id: str, payload: dict):
         d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
@@ -469,11 +664,14 @@ class DutyController:
         d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
         if not d or d.duty_status == 9:
             raise ResourceNotFoundException(resource_type="AR")
-        if d.duty_status != 1:
-            raise BusinessException("只有進行中的任務才能更新進度")
+        if d.duty_status not in (1, 6):
+            raise BusinessException("只有進行中或未開始的任務才能更新進度")
         responsible = json.loads(d.responsible) if d.responsible else []
         if submitter not in responsible:
             raise PermissionException("只有負責人可以更新進度")
+        # 未開始 → 進行中（首次更新進度自動啟動）
+        if d.duty_status == 6:
+            d.duty_status = 1
         progress_id = _uuid.uuid4().hex
         rec = DutyProgressRecordModel(
             id=progress_id,

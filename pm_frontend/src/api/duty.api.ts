@@ -124,4 +124,18 @@ export const dutyApi = {
   /** GET /api/temporary_duty/tasklist */
   taskList: (params?: { page?: number; size?: number }) =>
     get('/temporary_duty/tasklist', { params }),
+
+  /** POST /api/temporary_duty/batch_req_task_review */
+  batchSubmitReqTaskReview: (
+    dutyIds: string[],
+    reviewer: string[],
+  ): Promise<ApiResponse<{ apply_id: string; count: number }>> =>
+    post('/temporary_duty/batch_req_task_review', { duty_ids: dutyIds, reviewer }),
+
+  /** POST /api/temporary_duty/:id/req_task_review */
+  submitReqTaskReview: (
+    dutyId: string,
+    payload: { reviewer: string[]; submitter_name?: string },
+  ): Promise<ApiResponse<{ apply_id: string }>> =>
+    post(`/temporary_duty/${dutyId}/req_task_review`, payload),
 }

@@ -15,12 +15,15 @@ import { useResizableColumns, tableComponents } from '@/hooks/useResizableColumn
 import { projectApi, requirementApi } from '@/api/project.api'
 import { dutyApi } from '@/api/duty.api'
 import { userApi } from '@/api/user.api'
-import { ApplyRecord, Project, ProjectFile, ProjectFunction, ProgressRecord, FileInfo, ReviewPayload, Requirement } from '@/types/api.types'
+import { standaloneReqApi, type StandaloneReq } from '@/api/standalone_req.api'
+import { systemApi, type SystemItem } from '@/api/system.api'
+import { ApplyRecord, Project, ProjectFile, ProjectFunction, ProgressRecord, FileInfo, ReviewPayload, Requirement, TemporaryDuty } from '@/types/api.types'
 import { showToast } from '@/utils/toast'
 import FilePreviewModal from './FilePreviewModal'
 import { tokenStorage } from '@/api/httpClient'
 import { useWorkNoToName } from '@/hooks/useWorkNoToName'
 import RichTextContent from '@/components/common/RichTextContent'
+import { DUTY_STATUS_MAP } from '@/utils/status'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -48,10 +51,13 @@ const APPLY_TYPE_COLOR: Record<string, string> = {
   duty_complete:       'volcano',
   duty_completion:     'volcano',  // 兼容旧记录
   requirement_change:  'orange',
-  requirement_review:       'purple',
-  requirement_batch_review: 'purple',
-  requirement_shelve:       'gold',
-  task_addition_review:     'cyan',
+  requirement_review:           'purple',
+  requirement_batch_review:     'purple',
+  requirement_shelve:           'gold',
+  task_addition_review:         'cyan',
+  standalone_req_review:        'magenta',
+  standalone_req_batch_review:  'magenta',
+  req_task_addition_review:     'blue',
 }
 
 // 每種申請類型的詳細說明：告訴審核人這是什麼、通過後會發生什麼
@@ -127,52 +133,76 @@ const APPLY_TYPE_META: Record<string, {
     reject:  '拒絕後，需求保持原有狀態不變',
     icon:    '🗂️',
   },
+  standalone_req_review: {
+    what:    '申請人提交了系統需求，申請審核通過後方可建立關聯AR任務',
+    approve: '通過後，需求狀態變為「已通過」，可建立關聯此需求的AR任務',
+    reject:  '拒絕後，需求退回草稿狀態，申請人可修改後重新提交',
+    icon:    '🖥️',
+  },
+  standalone_req_batch_review: {
+    what:    '申請人批量提交了多條系統需求，申請一次審核通過所有需求',
+    approve: '通過後，所有需求狀態變為「已通過」，可建立關聯AR任務',
+    reject:  '拒絕後，所有需求退回草稿狀態，申請人可修改後重新提交',
+    icon:    '🖥️',
+  },
+  req_task_addition_review: {
+    what:    '申請人在系統需求下新增了需求任務，申請審核通過後方可正式啟動任務',
+    approve: '通過後，草稿任務狀態變為「進行中」，負責人可開始執行',
+    reject:  '拒絕後，任務保持草稿狀態，申請人可修改後重新提交',
+    icon:    '🆕',
+  },
 }
 
 // 一個頁籤 key 可能對應多個 apply_type_code（如需求審核 = 單條 + 批量）
 const TAB_CODES: Record<string, string[]> = {
-  requirement_review: ['requirement_review', 'requirement_batch_review'],
+  requirement_review: [
+    'requirement_review', 'requirement_batch_review',
+    'standalone_req_review', 'standalone_req_batch_review',
+  ],
 }
 const tabMatchesCodes = (tabKey: string, code: string) =>
   TAB_CODES[tabKey] ? TAB_CODES[tabKey].includes(code) : code === tabKey
 
 // 待我審核（只看待處理）
 const REVIEWER_TABS = [
-  { key: 'all',                label: '全部待審'    },
-  { key: 'initiate',           label: '立案申請'    },
-  { key: 'plan',               label: '規劃審核'    },
-  { key: 'schedule',           label: '排程審核'    },
-  { key: 'function_complete',  label: '功能完結審核' },
-  { key: 'project_complete',   label: '專案完結'    },
-  { key: 'duty_complete',      label: 'AR'    },
-  { key: 'requirement_review', label: '需求審核'    },
-  { key: 'task_addition_review', label: '新增任務審核' },
+  { key: 'all',                    label: '全部待審'    },
+  { key: 'initiate',               label: '立案申請'    },
+  { key: 'plan',                   label: '規劃審核'    },
+  { key: 'schedule',               label: '排程審核'    },
+  { key: 'function_complete',      label: '功能完結審核' },
+  { key: 'project_complete',       label: '專案完結'    },
+  { key: 'duty_complete',          label: 'AR'    },
+  { key: 'requirement_review',     label: '需求審核'    },
+  { key: 'task_addition_review',   label: '新增任務審核' },
+  { key: 'req_task_addition_review', label: '需求任務審核' },
 ]
 
 // 我的審核（已審核過的記錄，按類型分）
 const REVIEWED_TABS = [
-  { key: 'all',                label: '全部'        },
-  { key: 'initiate',           label: '立案申請'    },
-  { key: 'plan',               label: '規劃審核'    },
-  { key: 'schedule',           label: '排程審核'    },
-  { key: 'function_complete',  label: '功能完結審核' },
-  { key: 'project_complete',   label: '專案完結'    },
-  { key: 'duty_complete',      label: 'AR'    },
-  { key: 'requirement_review', label: '需求審核'    },
-  { key: 'task_addition_review', label: '新增任務審核' },
+  { key: 'all',                    label: '全部'        },
+  { key: 'initiate',               label: '立案申請'    },
+  { key: 'plan',                   label: '規劃審核'    },
+  { key: 'schedule',               label: '排程審核'    },
+  { key: 'function_complete',      label: '功能完結審核' },
+  { key: 'project_complete',       label: '專案完結'    },
+  { key: 'duty_complete',          label: 'AR'    },
+  { key: 'requirement_review',     label: '需求審核'    },
+  { key: 'task_addition_review',   label: '新增任務審核' },
+  { key: 'req_task_addition_review', label: '需求任務審核' },
 ]
 
 // 我的提交
 const SUBMITTER_TABS = [
-  { key: 'all',                label: '全部'        },
-  { key: 'initiate',           label: '立案申請'    },
-  { key: 'plan',               label: '規劃審核'    },
-  { key: 'schedule',           label: '排程審核'    },
-  { key: 'function_complete',  label: '功能完結審核' },
-  { key: 'project_complete',   label: '專案完結'    },
-  { key: 'duty_complete',      label: 'AR'    },
-  { key: 'requirement_review', label: '需求審核'    },
-  { key: 'task_addition_review', label: '新增任務審核' },
+  { key: 'all',                    label: '全部'        },
+  { key: 'initiate',               label: '立案申請'    },
+  { key: 'plan',                   label: '規劃審核'    },
+  { key: 'schedule',               label: '排程審核'    },
+  { key: 'function_complete',      label: '功能完結審核' },
+  { key: 'project_complete',       label: '專案完結'    },
+  { key: 'duty_complete',          label: 'AR'    },
+  { key: 'requirement_review',     label: '需求審核'    },
+  { key: 'task_addition_review',   label: '新增任務審核' },
+  { key: 'req_task_addition_review', label: '需求任務審核' },
 ]
 
 // ─── 每種審批類型需要展示的附件分類 ──────────────────────────────────────────────
@@ -497,6 +527,193 @@ const WbsTable: React.FC<{
   )
 }
 
+// ─── DutyWbsTable ─────────────────────────────────────────────────────────────
+
+const DutyWbsTable: React.FC<{
+  duties: TemporaryDuty[]
+  toName: (workNo: string) => string
+  reqNameMap: Record<string, string>
+}> = ({ duties, toName, reqNameMap }) => {
+  const COLS = '24px 2fr 1fr 1fr 1fr 1fr 1fr'
+
+  const structure = useMemo(() => {
+    const byReq = new Map<string, TemporaryDuty[]>()
+    duties.forEach((d) => {
+      const key = d.standalone_req_id || '__none__'
+      if (!byReq.has(key)) byReq.set(key, [])
+      byReq.get(key)!.push(d)
+    })
+    return [...byReq.entries()].map(([reqKey, tasks]) => {
+      const subGroupMap = new Map<string, TemporaryDuty[]>()
+      tasks.forEach((t) => {
+        const g = t.group || '__nogroup__'
+        if (!subGroupMap.has(g)) subGroupMap.set(g, [])
+        subGroupMap.get(g)!.push(t)
+      })
+      const subGroups = [...subGroupMap.entries()].map(([g, items]) => ({
+        name: g === '__nogroup__' ? '未分組' : g,
+        key: g,
+        items,
+      }))
+      return { reqKey, reqNm: reqKey === '__none__' ? null : (reqNameMap[reqKey] || reqKey), subGroups, allTasks: tasks }
+    })
+  }, [duties, reqNameMap])
+
+  const allHeaderKeys = useMemo(() => {
+    const keys: string[] = []
+    structure.forEach((r) => {
+      if (r.reqNm) keys.push(`req:${r.reqKey}`)
+      const showGroups = !(r.subGroups.length === 1 && r.subGroups[0].key === '__nogroup__')
+      if (showGroups) r.subGroups.forEach((g) => keys.push(`grp:${r.reqKey}::${g.key}`))
+    })
+    return keys
+  }, [structure])
+
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set(allHeaderKeys))
+  const allCollapsed = allHeaderKeys.length > 0 && allHeaderKeys.every((k) => collapsed.has(k))
+  const toggleAll = () => setCollapsed(allCollapsed ? new Set() : new Set(allHeaderKeys))
+  const toggle = (key: string) => setCollapsed((prev) => {
+    const next = new Set(prev); next.has(key) ? next.delete(key) : next.add(key); return next
+  })
+
+  const groupRange = (tasks: TemporaryDuty[]) => {
+    const starts = tasks.map((t) => t.expected_start_date).filter(Boolean) as string[]
+    const ends   = tasks.map((t) => t.expected_end_date).filter(Boolean) as string[]
+    return { start: starts.length ? starts.sort()[0] : null, end: ends.length ? ends.sort().at(-1)! : null }
+  }
+  const groupResponsible = (tasks: TemporaryDuty[]) => {
+    const seen = new Set<string>()
+    tasks.forEach((t) => (t.responsible ?? []).forEach((r) => seen.add(r)))
+    return [...seen]
+  }
+
+  const renderTaskRows = (tasks: TemporaryDuty[], indent = false) =>
+    tasks.map((task, ti) => {
+      const s = DUTY_STATUS_MAP[task.status] ?? { label: String(task.status), color: 'default', dot: '#94a3b8' }
+      return (
+        <div key={task.id}
+          className={`grid border-b border-slate-100 last:border-b-0 hover:bg-slate-50 transition-colors ${ti % 2 === 1 ? 'bg-slate-50/40' : ''}`}
+          style={{ gridTemplateColumns: COLS }}>
+          <div />
+          <div className={`${indent ? 'pl-5' : 'px-2'} pr-2 py-2 text-slate-700 flex items-center gap-1.5`}>
+            <span className="truncate">{task.duty_nm}</span>
+          </div>
+          <div className="px-2 py-2 text-slate-600 truncate">
+            {(task.responsible ?? []).length > 0
+              ? (task.responsible ?? []).map((r) => toName(r) || r).join('、')
+              : <span className="text-slate-300">—</span>}
+          </div>
+          <div className="px-2 py-2">
+            {PRIORITY_LABEL[task.priority]
+              ? <span className="font-medium" style={{ color: PRIORITY_LABEL[task.priority].color }}>{PRIORITY_LABEL[task.priority].label}</span>
+              : '—'}
+          </div>
+          <div className="px-2 py-2 text-slate-500 tabular-nums">{task.expected_start_date || '—'}</div>
+          <div className="px-2 py-2 text-slate-500 tabular-nums">{task.expected_end_date || '—'}</div>
+          <div className="px-2 py-2">
+            <span className="flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: s.dot }} />
+              <span style={{ color: s.dot }}>{s.label}</span>
+            </span>
+          </div>
+        </div>
+      )
+    })
+
+  return (
+    <div className="border border-slate-200 rounded-lg overflow-hidden text-xs">
+      <div className="grid bg-slate-100 border-b border-slate-200 font-semibold text-slate-500"
+        style={{ gridTemplateColumns: COLS }}>
+        <div className="flex items-center justify-center py-2">
+          {allHeaderKeys.length > 0 && (
+            <button onClick={toggleAll}
+              className="w-4 h-4 rounded border border-slate-300 hover:border-violet-400 hover:text-violet-600 text-slate-400 bg-white hover:bg-violet-50 transition-colors cursor-pointer flex items-center justify-center text-[10px] font-bold leading-none"
+              title={allCollapsed ? '展開全部' : '折疊全部'}>
+              {allCollapsed ? '+' : '−'}
+            </button>
+          )}
+        </div>
+        <div className="px-2 py-2">任務名稱</div>
+        <div className="px-2 py-2">負責人</div>
+        <div className="px-2 py-2">優先級</div>
+        <div className="px-2 py-2">預計開始</div>
+        <div className="px-2 py-2">預計完成</div>
+        <div className="px-2 py-2">狀態</div>
+      </div>
+
+      {structure.map((reqGroup) => {
+        const reqColKey = `req:${reqGroup.reqKey}`
+        const reqOpen   = !collapsed.has(reqColKey)
+        const singleUnnamedGroup = reqGroup.subGroups.length === 1 && reqGroup.subGroups[0].key === '__nogroup__'
+        const showGroups = !singleUnnamedGroup
+
+        return (
+          <div key={reqGroup.reqKey}>
+            {reqGroup.reqNm && (
+              <div className="grid items-center border-b border-slate-200 bg-purple-50 hover:bg-purple-100 cursor-pointer select-none transition-colors"
+                style={{ gridTemplateColumns: COLS }}
+                onClick={() => toggle(reqColKey)}>
+                <div className="flex items-center justify-center py-2">
+                  <span className="w-4 h-4 rounded border border-purple-300 text-purple-500 bg-white flex items-center justify-center text-[10px] font-bold leading-none flex-shrink-0">
+                    {reqOpen ? '−' : '+'}
+                  </span>
+                </div>
+                <div className="px-2 py-2 font-semibold text-purple-700 flex items-center gap-1.5 col-span-6">
+                  <span className="truncate">{reqGroup.reqNm}</span>
+                  <span className="font-normal text-purple-400 text-[11px] flex-shrink-0">（{reqGroup.allTasks.length} 項）</span>
+                </div>
+              </div>
+            )}
+
+            {(!reqGroup.reqNm || reqOpen) && (
+              showGroups ? (
+                reqGroup.subGroups.map((sg, gi) => {
+                  const grpColKey = `grp:${reqGroup.reqKey}::${sg.key}`
+                  const grpOpen   = !collapsed.has(grpColKey)
+                  const { start, end } = groupRange(sg.items)
+                  const responsible    = groupResponsible(sg.items)
+                  return (
+                    <div key={sg.key}>
+                      <div className="grid items-center border-b border-slate-200 bg-violet-50 hover:bg-violet-100 cursor-pointer select-none transition-colors"
+                        style={{ gridTemplateColumns: COLS }}
+                        onClick={() => toggle(grpColKey)}>
+                        <div className="flex items-center justify-center py-2">
+                          <span className="w-4 h-4 rounded border border-violet-300 text-violet-500 bg-white flex items-center justify-center text-[10px] font-bold leading-none flex-shrink-0">
+                            {grpOpen ? '−' : '+'}
+                          </span>
+                        </div>
+                        <div className={`${reqGroup.reqNm ? 'pl-4' : 'px-2'} pr-2 py-2 font-semibold text-violet-700 flex items-center gap-1.5`}>
+                          <span className="w-4 h-4 rounded-sm bg-violet-200 text-violet-700 text-[10px] font-bold flex items-center justify-center flex-shrink-0">{gi + 1}</span>
+                          <span className="truncate">{sg.name}</span>
+                          <span className="font-normal text-violet-400 text-[11px] flex-shrink-0">（{sg.items.length} 項）</span>
+                        </div>
+                        {!grpOpen ? (
+                          <>
+                            <div className="px-2 py-2 text-violet-500 truncate">
+                              {responsible.length > 0 ? responsible.map((r) => toName(r) || r).join('、') : <span className="text-violet-300">—</span>}
+                            </div>
+                            <div className="px-2 py-2" />
+                            <div className="px-2 py-2 text-violet-500 tabular-nums">{start ?? '—'}</div>
+                            <div className="px-2 py-2 text-violet-500 tabular-nums">{end ?? '—'}</div>
+                            <div className="px-2 py-2" />
+                          </>
+                        ) : <div className="col-span-5" />}
+                      </div>
+                      {grpOpen && renderTaskRows(sg.items, !!reqGroup.reqNm)}
+                    </div>
+                  )
+                })
+              ) : (
+                renderTaskRows(reqGroup.allTasks, !!reqGroup.reqNm)
+              )
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ─── Detail Drawer ────────────────────────────────────────────────────────────
 
 const ReviewDetailDrawer: React.FC<{
@@ -513,6 +730,9 @@ const ReviewDetailDrawer: React.FC<{
   const [files,                setFiles]                = useState<ProjectFile[]>([])
   const [functions,            setFunctions]            = useState<ProjectFunction[]>([])
   const [requirements,         setRequirements]         = useState<Requirement[]>([])
+  const [standaloneReqs,       setStandaloneReqs]       = useState<StandaloneReq[]>([])
+  const [systemDetail,         setSystemDetail]         = useState<SystemItem | null>(null)
+  const [reqTaskDuties,        setReqTaskDuties]        = useState<TemporaryDuty[]>([])
   const [funcDetail,           setFuncDetail]           = useState<ProjectFunction | null>(null)
   const [progressRecords,      setProgressRecords]      = useState<ProgressRecord[]>([])
   const [progressPage,         setProgressPage]         = useState(1)
@@ -556,6 +776,55 @@ const ReviewDetailDrawer: React.FC<{
     } catch { /* global */ }
     finally { setProgressLoading(false) }
   }
+
+  // 加載系統需求詳情 + 系統資訊（standalone req review / req_task_addition_review 類型）
+  useEffect(() => {
+    const isStandaloneType = record?.apply_type_code === 'standalone_req_review' ||
+      record?.apply_type_code === 'standalone_req_batch_review' ||
+      record?.apply_type_code === 'req_task_addition_review'
+    if (!record || !isStandaloneType) {
+      setStandaloneReqs([])
+      setSystemDetail(null)
+      setReqTaskDuties([])
+      return
+    }
+    // 載入系統資訊
+    const sysId = record.system_id
+    if (sysId) {
+      systemApi.get(sysId).then((res) => setSystemDetail(res.content as SystemItem)).catch(() => {})
+    }
+    if (record.apply_type_code === 'req_task_addition_review') {
+      // 載入需求任務詳情
+      const dutyIds = record.function_ids ?? []
+      if (dutyIds.length > 0) {
+        Promise.all(dutyIds.map((did) => dutyApi.get(did))).then((results) => {
+          const loadedDuties = results.map((r) => r.content as TemporaryDuty)
+          setReqTaskDuties(loadedDuties)
+          // 載入關聯的獨立需求名稱
+          const reqIds = [...new Set(loadedDuties.map((d) => d.standalone_req_id).filter(Boolean) as string[])]
+          if (reqIds.length > 0) {
+            Promise.all(reqIds.map((rid) => standaloneReqApi.get(rid))).then((reqResults) => {
+              setStandaloneReqs(reqResults.map((r) => r.content as StandaloneReq))
+            }).catch(() => {})
+          }
+        }).catch(() => {})
+      }
+      return
+    }
+    // 載入需求詳情（standalone_req_review / standalone_req_batch_review）
+    const reqId = record.requirement_id
+    const reqIds = record.requirement_ids ?? []
+    if (reqId) {
+      standaloneReqApi.get(reqId).then((res) => {
+        setStandaloneReqs([res.content as StandaloneReq])
+      }).catch(() => {})
+    } else if (reqIds.length > 0) {
+      standaloneReqApi.list({ page: 1, size: 200 }).then((res) => {
+        const all = (res.content as { data_list?: StandaloneReq[] }).data_list ?? []
+        setStandaloneReqs(all.filter((r) => reqIds.includes(r.id)))
+      }).catch(() => {})
+    }
+  }, [record?.id, record?.apply_type_code])
 
   useEffect(() => {
     if (!record?.project_id) {
@@ -629,10 +898,14 @@ const ReviewDetailDrawer: React.FC<{
 
   if (!record) return null
 
+  const isStandaloneReqType = record.apply_type_code === 'standalone_req_review' || record.apply_type_code === 'standalone_req_batch_review'
+  const isReqTaskType = record.apply_type_code === 'req_task_addition_review'
   const targetName = record.apply_type_code === 'function_complete'
     ? (record.function_nm || record.project_nm || '—')
     : record.apply_type_code === 'duty_complete'
     ? (record.duty_nm || '—')
+    : (isStandaloneReqType || isReqTaskType)
+    ? (record.system_nm || systemDetail?.sys_nm || '—')
     : (record.project_nm || record.duty_nm || record.function_nm || '—')
   const nodes         = [...(record.approval_nodes ?? [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
 
@@ -763,8 +1036,47 @@ const ReviewDetailDrawer: React.FC<{
         </div>
       )}
 
-      {/* ─── ④ 申請資訊 Grid Table ─── */}
-      {record.project_id && (
+      {/* ─── ④ 申請資訊 Grid Table（系統需求版）─── */}
+      {(isStandaloneReqType || isReqTaskType) && (
+        <div className="mb-5">
+          <div className="text-sm font-semibold text-slate-700 mb-2">申請資訊</div>
+          {!systemDetail ? (
+            <div className="flex justify-center py-6"><Spin size="small" /></div>
+          ) : (
+            <table className="w-full text-sm border-collapse">
+              <tbody>
+                <tr>
+                  <td className="bg-slate-50 px-3 py-2.5 border border-slate-200 font-medium text-slate-500 whitespace-nowrap w-[21%]">系統名稱</td>
+                  <td className="px-3 py-2.5 border border-slate-200 font-medium text-slate-800" colSpan={3}>{systemDetail.sys_nm}</td>
+                </tr>
+                <tr>
+                  <td className="bg-slate-50 px-3 py-2.5 border border-slate-200 font-medium text-slate-500 whitespace-nowrap">所屬分組</td>
+                  <td className="px-3 py-2.5 border border-slate-200 text-slate-700 w-[29%]">{systemDetail.sys_group || '—'}</td>
+                  <td className="bg-slate-50 px-3 py-2.5 border border-slate-200 font-medium text-slate-500 whitespace-nowrap w-[21%]">上線時間</td>
+                  <td className="px-3 py-2.5 border border-slate-200 text-slate-700">{systemDetail.go_live_date || '—'}</td>
+                </tr>
+                {(systemDetail.maintainer_names ?? []).length > 0 && (
+                  <tr>
+                    <td className="bg-slate-50 px-3 py-2.5 border border-slate-200 font-medium text-slate-500 whitespace-nowrap">維護人員</td>
+                    <td className="px-3 py-2.5 border border-slate-200 text-slate-700" colSpan={3}>
+                      {systemDetail.maintainer_names.map((u) => u.name).join('、')}
+                    </td>
+                  </tr>
+                )}
+                {systemDetail.description && (
+                  <tr>
+                    <td className="bg-slate-50 px-3 py-2.5 border border-slate-200 font-medium text-slate-500 whitespace-nowrap">系統描述</td>
+                    <td className="px-3 py-2.5 border border-slate-200 text-slate-700" colSpan={3}>{systemDetail.description}</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {/* ─── ④ 申請資訊 Grid Table（專案版）─── */}
+      {record.project_id && !isStandaloneReqType && (
         <div className="mb-5">
           <button
             type="button"
@@ -1069,6 +1381,78 @@ const ReviewDetailDrawer: React.FC<{
                 })}
               </div>
             )
+          )}
+        </div>
+      )}
+
+      {/* ─── ④-e2 系統需求詳情（standalone req review 專用） ─── */}
+      {isStandaloneReqType && (
+        <div className="mb-5">
+          <button
+            type="button"
+            className="flex items-center gap-1.5 text-sm font-semibold text-slate-700 mb-2 hover:text-blue-600 transition-colors cursor-pointer select-none border-0 bg-transparent outline-none focus:outline-none p-0"
+            onClick={() => setReqListCollapsed((v) => !v)}
+          >
+            <span className="text-[10px] text-slate-400 font-normal">{reqListCollapsed ? '展開' : '收起'}</span>
+            🖥️ 需求詳情
+            <span className="font-normal text-xs text-slate-400">共 {standaloneReqs.length} 項</span>
+          </button>
+          {!reqListCollapsed && (
+            standaloneReqs.length === 0 ? (
+              <div className="text-xs text-slate-400 py-4 text-center border border-dashed border-slate-200 rounded-lg">暫無需求資料</div>
+            ) : (
+              <div className="border border-slate-200 rounded-lg overflow-hidden text-xs">
+                <div className="grid bg-slate-100 border-b border-slate-200 font-semibold text-slate-500"
+                  style={{ gridTemplateColumns: '2fr 70px 90px 1.5fr 2fr' }}>
+                  <div className="px-3 py-2">需求名稱</div>
+                  <div className="px-3 py-2">優先級</div>
+                  <div className="px-3 py-2">期望完成</div>
+                  <div className="px-3 py-2">預估效益</div>
+                  <div className="px-3 py-2">需求描述</div>
+                </div>
+                {standaloneReqs.map((req, i) => (
+                  <div key={req.id} className={`grid items-start border-b border-slate-100 last:border-b-0 ${i % 2 === 1 ? 'bg-slate-50/40' : 'bg-white'}`}
+                    style={{ gridTemplateColumns: '2fr 70px 90px 1.5fr 2fr' }}>
+                    <div className="px-3 py-2.5 text-slate-800 font-medium truncate">{req.req_nm}</div>
+                    <div className="px-3 py-2.5">
+                      {PRIORITY_LABEL[req.priority]
+                        ? <span className="font-medium" style={{ color: PRIORITY_LABEL[req.priority].color }}>{PRIORITY_LABEL[req.priority].label}</span>
+                        : '—'}
+                    </div>
+                    <div className="px-3 py-2.5 text-slate-500 tabular-nums">{req.expected_end_date || '—'}</div>
+                    <div className="px-3 py-2.5 text-slate-500">
+                      {req.benefit_amount != null
+                        ? <>{req.benefit_amount} {req.benefit_unit ?? '元/年'}{req.expected_benefit ? <div className="text-slate-400 text-[11px] mt-0.5">{req.expected_benefit}</div> : null}</>
+                        : req.expected_benefit
+                          ? <span>{req.expected_benefit}</span>
+                          : '—'}
+                    </div>
+                    <div className="px-3 py-2.5 text-slate-500">
+                      {req.describe ? (req.describe.length > 40 ? req.describe.slice(0, 40) + '…' : req.describe) : '—'}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )
+          )}
+        </div>
+      )}
+
+      {/* ─── ④-e3 需求任務詳情（req_task_addition_review 專用） ─── */}
+      {isReqTaskType && (
+        <div className="mb-5">
+          <div className="text-sm font-semibold text-slate-700 mb-2 flex items-center gap-1.5">
+            🆕 新增任務詳情
+            <span className="font-normal text-xs text-slate-400">共 {reqTaskDuties.length} 項</span>
+          </div>
+          {reqTaskDuties.length === 0 ? (
+            <div className="text-xs text-slate-400 py-4 text-center border border-dashed border-slate-200 rounded-lg">暫無任務資料</div>
+          ) : (
+            <DutyWbsTable
+              duties={reqTaskDuties}
+              toName={toName}
+              reqNameMap={Object.fromEntries(standaloneReqs.map((r) => [r.id, r.req_nm]))}
+            />
           )}
         </div>
       )}
@@ -1576,22 +1960,23 @@ const ReviewListPage: React.FC = () => {
     {
       title: '相關項目', key: 'target', ellipsis: true,
       render: (_: unknown, r) => {
-        const isFuncComplete = r.apply_type_code === 'function_complete'
-        const isDutyComplete = r.apply_type_code === 'duty_complete'
-        // 用 || 跳過空字串（後端返回 "" 而非 null）
+        const isFuncComplete    = r.apply_type_code === 'function_complete'
+        const isDutyComplete    = r.apply_type_code === 'duty_complete'
+        const isStandaloneReq   = r.apply_type_code === 'standalone_req_review' || r.apply_type_code === 'standalone_req_batch_review' || r.apply_type_code === 'req_task_addition_review'
         const primaryName = isFuncComplete
           ? (r.function_nm || r.project_nm || '—')
           : isDutyComplete
           ? (r.duty_nm || '—')
+          : isStandaloneReq
+          ? (r.system_nm || '—')
           : (r.project_nm || r.duty_nm || r.function_nm || '—')
-        // 功能完結審核：次標題顯示所屬專案
         const secondaryName = isFuncComplete && r.project_nm ? r.project_nm : null
         return (
-          <div
-            className="cursor-pointer group"
-            onClick={() => setDetailRecord(r)}
-          >
-            <div className="text-slate-700 text-sm font-medium group-hover:text-blue-600 transition-colors">{primaryName}</div>
+          <div className="cursor-pointer group" onClick={() => setDetailRecord(r)}>
+            <div className="flex items-center gap-1.5">
+              {isStandaloneReq && <Tag color="purple" style={{ fontSize: 10, padding: '0 4px', lineHeight: '18px', margin: 0 }}>系統</Tag>}
+              <span className="text-slate-700 text-sm font-medium group-hover:text-blue-600 transition-colors">{primaryName}</span>
+            </div>
             {secondaryName && (
               <div className="text-slate-400 text-xs mt-0.5">專案：{secondaryName}</div>
             )}
@@ -1870,8 +2255,22 @@ const ReviewListPage: React.FC = () => {
         destroyOnHidden
       >
         <div className="mt-1 mb-4 text-sm text-slate-500">
-          對「{actionTarget?.record.project_nm ?? actionTarget?.record.duty_nm ?? actionTarget?.record.function_nm}」
-          提交{actionTarget ? actionLabels[actionTarget.action] : ''}審核意見
+          {(() => {
+            const r = actionTarget?.record
+            if (!r) return null
+            const isStandalone = r.apply_type_code === 'standalone_req_review' || r.apply_type_code === 'standalone_req_batch_review' || r.apply_type_code === 'req_task_addition_review'
+            const name = isStandalone
+              ? (r.description || '—')
+              : (r.project_nm ?? r.duty_nm ?? r.function_nm ?? r.description ?? '—')
+            return (
+              <>
+                {isStandalone && r.system_nm && (
+                  <div className="mb-1 text-xs text-slate-400">系統：{r.system_nm}</div>
+                )}
+                <span>對「{name}」提交{actionLabels[actionTarget!.action]}審核意見</span>
+              </>
+            )
+          })()}
         </div>
         <Form form={actionForm} layout="vertical" onFinish={handleActionConfirm}>
           {needReason && (

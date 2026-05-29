@@ -2,8 +2,9 @@
 """独立需求控制器"""
 import json
 from dbs.mysql_db import db
-from dbs.mysql_db.model_tables import StandaloneReqModel, UserProfileModel, SystemModel
+from dbs.mysql_db.model_tables import StandaloneReqModel, UserProfileModel, SystemModel, ReviewApplyModel
 from utils.tools import CommonTools
+from utils.exceptions import ResourceNotFoundException, BusinessException
 
 
 class StandaloneReqController:
@@ -33,11 +34,11 @@ class StandaloneReqController:
         total = q.count()
         items = q.order_by(StandaloneReqModel.created_at.desc()).offset((page - 1) * size).limit(size).all()
 
-        creator_nos = {r.creator for r in items if r.creator}
+        work_nos = {r.creator for r in items if r.creator} | {r.reviewer for r in items if r.reviewer}
         name_map = {}
-        if creator_nos:
+        if work_nos:
             users = db.session.query(UserProfileModel.work_no, UserProfileModel.name).filter(
-                UserProfileModel.work_no.in_(creator_nos)
+                UserProfileModel.work_no.in_(work_nos)
             ).all()
             name_map = {u.work_no: u.name for u in users}
 
@@ -52,8 +53,9 @@ class StandaloneReqController:
         data = []
         for r in items:
             d = r.to_dict()
-            d["creator_nm"] = name_map.get(r.creator, r.creator or "")
-            d["system_nm"]  = sys_map.get(r.system_id, "")
+            d["creator_nm"]  = name_map.get(r.creator, r.creator or "")
+            d["reviewer_nm"] = name_map.get(r.reviewer, r.reviewer or "") if r.reviewer else ""
+            d["system_nm"]   = sys_map.get(r.system_id, "")
             data.append(d)
 
         return {"data_list": data, "total_count": total, "page": page, "size": size}
@@ -73,6 +75,9 @@ class StandaloneReqController:
             creator=creator,
             responsible=json.dumps(resp, ensure_ascii=False),
             expected_end_date=payload.get("expected_end_date", ""),
+            expected_benefit=payload.get("expected_benefit", ""),
+            benefit_amount=payload.get("benefit_amount"),
+            benefit_unit=payload.get("benefit_unit", "元/年"),
         )
         db.session.add(r)
         db.session.commit()
@@ -104,6 +109,12 @@ class StandaloneReqController:
             r.system_id = payload["system_id"]
         if "expected_end_date" in payload:
             r.expected_end_date = payload["expected_end_date"]
+        if "expected_benefit" in payload:
+            r.expected_benefit = payload["expected_benefit"]
+        if "benefit_amount" in payload:
+            r.benefit_amount = payload["benefit_amount"]
+        if "benefit_unit" in payload:
+            r.benefit_unit = payload["benefit_unit"]
         r.updated_at = CommonTools.get_now()
         db.session.commit()
         return r.to_dict()
@@ -117,6 +128,170 @@ class StandaloneReqController:
         r.updated_at = CommonTools.get_now()
         db.session.commit()
         return True
+
+    # ── 審核流程 ────────────────────────────────────────────────────────────────
+
+    def _build_approval_nodes(self, reviewer: list, user_map: dict) -> list:
+        """構建審批節點列表"""
+        nodes = []
+        for i, wk in enumerate(reviewer):
+            u = user_map.get(wk)
+            nodes.append({
+                "node_id": f"{CommonTools.get_now().replace(' ', '')}_{i}",
+                "order": i + 1,
+                "approver": u.name if u else wk,
+                "approver_work_no": wk,
+                "status": 0,
+                "is_countersign": False,
+                "approved_at": None,
+                "comment": None,
+            })
+        return nodes
+
+    def submit_review(self, req_id: str, payload: dict, work_no: str):
+        """提交審核：草稿(0) → 審核中(1)，reviewer 可以是 str 或 list"""
+        r = db.session.query(StandaloneReqModel).filter_by(id=req_id).first()
+        if not r or r.req_status == 9:
+            raise ResourceNotFoundException(resource_type="需求")
+        if r.req_status != 0:
+            raise BusinessException(msg="只有草稿狀態的需求才能提交審核")
+        reviewer = payload.get("reviewer", [])
+        if isinstance(reviewer, str):
+            reviewer = [reviewer] if reviewer else []
+        if not reviewer:
+            raise BusinessException(msg="請選擇審核人")
+
+        all_wks = list({work_no} | set(reviewer))
+        user_map = {
+            u.work_no: u
+            for u in db.session.query(UserProfileModel).filter(
+                UserProfileModel.work_no.in_(all_wks)
+            ).all()
+        }
+        nodes = self._build_approval_nodes(reviewer, user_map)
+        submitter_profile = user_map.get(work_no)
+        submitter_name = submitter_profile.name if submitter_profile else work_no
+
+        # 取得系統名稱作為申請描述
+        sys = db.session.query(SystemModel).filter_by(id=r.system_id).first()
+        sys_nm = sys.sys_nm if sys else ""
+        desc = f"[{sys_nm}] {r.req_nm}" if sys_nm else r.req_nm
+
+        apply = ReviewApplyModel(
+            requirement_id=req_id,
+            system_id=r.system_id,
+            apply_type="系統需求審核",
+            apply_type_code="standalone_req_review",
+            submitter=work_no,
+            submitter_name=submitter_name,
+            reviewer=json.dumps(reviewer, ensure_ascii=False),
+            priority=r.priority,
+            description=desc,
+            approval_nodes_json=json.dumps(nodes, ensure_ascii=False),
+        )
+        db.session.add(apply)
+
+        r.req_status = 1
+        r.reviewer = reviewer[0]
+        r.reviewer_chain_json = json.dumps(reviewer, ensure_ascii=False)
+        r.updated_at = CommonTools.get_now()
+        db.session.commit()
+
+        # 通知第一位審核人
+        from controllers.notification_controller import push_notification
+        first_reviewers = [n["approver_work_no"] for n in nodes if n.get("order") == 1]
+        push_notification(
+            first_reviewers,
+            title="您有新的系統需求審核待處理",
+            desc=f"系統需求「{r.req_nm}」已提交審核，請及時處理。",
+            link_type="review",
+            link_id=apply.id,
+        )
+        return r.to_dict()
+
+    def batch_submit_review(self, payload: dict, work_no: str):
+        """批量提交審核：多筆草稿需求統一使用同一審核鏈"""
+        req_ids = payload.get("req_ids", [])
+        reviewer = payload.get("reviewer", [])
+        if isinstance(reviewer, str):
+            reviewer = [reviewer] if reviewer else []
+        if not req_ids:
+            raise BusinessException(msg="請選擇需求")
+        if not reviewer:
+            raise BusinessException(msg="請選擇審核人")
+
+        reqs = db.session.query(StandaloneReqModel).filter(
+            StandaloneReqModel.id.in_(req_ids),
+            StandaloneReqModel.req_status == 0,
+        ).all()
+        if not reqs:
+            raise BusinessException(msg="選中的需求均不在草稿狀態")
+
+        all_wks = list({work_no} | set(reviewer))
+        user_map = {
+            u.work_no: u
+            for u in db.session.query(UserProfileModel).filter(
+                UserProfileModel.work_no.in_(all_wks)
+            ).all()
+        }
+        nodes = self._build_approval_nodes(reviewer, user_map)
+        submitter_profile = user_map.get(work_no)
+        submitter_name = submitter_profile.name if submitter_profile else work_no
+        desc = "、".join(r.req_nm for r in reqs)
+        reviewer_chain_json = json.dumps(reviewer, ensure_ascii=False)
+
+        # 取得系統ID（批量時所有需求應屬同一系統）
+        system_id = reqs[0].system_id if reqs else None
+        apply = ReviewApplyModel(
+            requirement_ids_json=json.dumps([r.id for r in reqs], ensure_ascii=False),
+            system_id=system_id,
+            apply_type="系統需求批量審核",
+            apply_type_code="standalone_req_batch_review",
+            submitter=work_no,
+            submitter_name=submitter_name,
+            reviewer=reviewer_chain_json,
+            priority=max((r.priority for r in reqs), default=2),
+            description=desc,
+            approval_nodes_json=json.dumps(nodes, ensure_ascii=False),
+        )
+        db.session.add(apply)
+
+        now = CommonTools.get_now()
+        for r in reqs:
+            r.req_status = 1
+            r.reviewer = reviewer[0]
+            r.reviewer_chain_json = reviewer_chain_json
+            r.updated_at = now
+        db.session.commit()
+
+        from controllers.notification_controller import push_notification
+        first_reviewers = [n["approver_work_no"] for n in nodes if n.get("order") == 1]
+        push_notification(
+            first_reviewers,
+            title="您有新的系統需求批量審核待處理",
+            desc=f"{len(reqs)} 條系統需求已批量提交審核，請及時處理。",
+            link_type="review",
+            link_id=apply.id,
+        )
+        return {"updated": [r.id for r in reqs], "count": len(reqs)}
+
+    def review_result(self, req_id: str, payload: dict, work_no: str):
+        """審核結果：審核中(1) → 已通過(2) 或 已拒絕(3)"""
+        r = db.session.query(StandaloneReqModel).filter_by(id=req_id).first()
+        if not r or r.req_status == 9:
+            raise ResourceNotFoundException(resource_type="需求")
+        if r.req_status != 1:
+            raise BusinessException(msg="只有審核中的需求才能進行審核操作")
+        action = payload.get("action", "")
+        if action == "approve":
+            r.req_status = 2
+        elif action == "reject":
+            r.req_status = 3
+        else:
+            raise BusinessException(msg="無效的操作類型")
+        r.updated_at = CommonTools.get_now()
+        db.session.commit()
+        return r.to_dict()
 
     # ── 文件管理 ────────────────────────────────────────────────────────────────
 

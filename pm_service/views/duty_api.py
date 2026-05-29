@@ -63,6 +63,29 @@ class DutyDetailApi(MethodView):
         return response_result()
 
 
+@blp.route("/batch_req_task_review")
+class DutyBatchReqTaskReviewApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def post(self):
+        """批量提交需求任務新增審核"""
+        work_no = get_identity()
+        payload = request.get_json() or {}
+        duty_ids = payload.get("duty_ids", [])
+        return response_result(content=ctrl.batch_submit_req_task_review(duty_ids, payload, work_no))
+
+
+@blp.route("/<string:duty_id>/req_task_review")
+class DutyReqTaskReviewApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def post(self, duty_id):
+        """提交需求任務新增審核"""
+        work_no = get_identity()
+        payload = request.get_json() or {}
+        return response_result(content=ctrl.submit_req_task_review(duty_id, payload, work_no))
+
+
 @blp.route("/<string:duty_id>/reschedule")
 class DutyRescheduleApi(MethodView):
     @jwt_required()

@@ -2,15 +2,16 @@ import React, { useEffect, useState, useCallback } from 'react'
 import {
   Drawer, Descriptions, Button, Tag, Progress, Spin, Empty, Avatar,
   Typography, Space, Form, Input, InputNumber, Upload, Timeline,
-  Card, Steps, Modal, Select, Popconfirm, AutoComplete, Tooltip,
+  Card, Steps, Modal, Select, Popconfirm, AutoComplete, Tooltip, Divider,
 } from 'antd'
 import type { UploadFile } from 'antd'
-import { PlusIcon, PaperClipIcon } from '@heroicons/react/24/outline'
+import { PlusIcon, PaperClipIcon, TrashIcon } from '@heroicons/react/24/outline'
 import { userApi } from '@/api/user.api'
 import { systemApi, type SystemItem } from '@/api/system.api'
+import { standaloneReqApi } from '@/api/standalone_req.api'
 import AttachmentPreview from '@/components/ui/AttachmentPreview'
 import FilePreviewModal from '@/features/project/FilePreviewModal'
-import type { FileInfo, TemporaryDuty } from '@/types/api.types'
+import type { FileInfo, TemporaryDuty, UserProfile } from '@/types/api.types'
 import { useAppSelector } from '@/hooks/redux'
 import { useWorkNoToName } from '@/hooks/useWorkNoToName'
 import { dutyApi } from '@/api/duty.api'
@@ -23,8 +24,8 @@ import dayjs from 'dayjs'
 
 const { Text } = Typography
 
-const DUTY_STEPS = ['進行中', '完結審核', '已完結']
-const statusToStep = (s: number) => ({ 1: 0, 2: 1, 3: 2 }[s] ?? 0)
+const DUTY_STEPS = ['未開始', '進行中', '完結審核', '已完結']
+const statusToStep = (s: number) => ({ 6: 0, 1: 1, 2: 2, 3: 3 }[s] ?? 0)
 const PRIORITY_COLORS = ['', '#22c55e', '#f59e0b', '#ef4444', '#7c3aed']
 
 const DaysLeftBadge: React.FC<{ date?: string }> = ({ date }) => {
@@ -94,6 +95,22 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
   const [rescheduleForm]                              = Form.useForm()
   const [isRescheduling, setIsRescheduling]           = useState(false)
 
+  // 進度達100%提示
+  const [show100Prompt, setShow100Prompt] = useState(false)
+
+  // 需求任務完結確認（需求責任人資訊）
+  const [reqResponsible,         setReqResponsible]         = useState<string[]>([])
+  const [showReqCompleteConfirm, setShowReqCompleteConfirm] = useState(false)
+
+  // 需求任務提交審核
+  const [showReqReviewModal,        setShowReqReviewModal]        = useState(false)
+  const [reqReviewers,              setReqReviewers]              = useState<UserProfile[]>([])
+  const [reqReviewersLoading,       setReqReviewersLoading]       = useState(false)
+  const [reqReviewSearch,           setReqReviewSearch]           = useState('')
+  const [reqReviewSearchResults,    setReqReviewSearchResults]    = useState<UserProfile[]>([])
+  const [reqReviewSearchLoading,    setReqReviewSearchLoading]    = useState(false)
+  const [reqReviewSaving,           setReqReviewSaving]           = useState(false)
+
   useEffect(() => {
     if (!open || !dutyId) { setDuty(null); setRecords([]); return }
     setLoading(true)
@@ -105,17 +122,33 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
       dutyApi.getProgress(dutyId, { page: 1, size: 50 }),
       dailyLogApi.taskEntries('duty', dutyId),
     ]).then(([dutyRes, progRes, logRes]) => {
-      setDuty(dutyRes.content as TemporaryDuty)
+      const loadedDuty = dutyRes.content as TemporaryDuty
+      setDuty(loadedDuty)
       const rawRecords = ((progRes.content as { data_list?: Record<string, unknown>[] }).data_list) ?? []
       setRecords(rawRecords.map((r) => ({ ...r, cooperator: normalizeCooperator(r.cooperator) })))
       setLogEntries(logRes.content ?? [])
+      // 載入需求責任人（用於完結審核邏輯）
+      if (loadedDuty.standalone_req_id) {
+        standaloneReqApi.get(loadedDuty.standalone_req_id).then((reqRes) => {
+          const req = reqRes.content as { responsible?: string[] }
+          setReqResponsible(req.responsible ?? [])
+        }).catch(() => { setReqResponsible([]) })
+      } else {
+        setReqResponsible([])
+      }
     }).catch(() => {}).finally(() => setLoading(false))
   }, [open, dutyId])
 
   const reloadDuty = useCallback(async () => {
     if (!dutyId) return
     const res = await dutyApi.get(dutyId)
-    setDuty(res.content as TemporaryDuty)
+    const loaded = res.content as TemporaryDuty
+    setDuty(loaded)
+    if (loaded.standalone_req_id) {
+      standaloneReqApi.get(loaded.standalone_req_id).then((r) => {
+        setReqResponsible((r.content as { responsible?: string[] }).responsible ?? [])
+      }).catch(() => {})
+    }
   }, [dutyId])
 
   const doAction = useCallback(async (action: () => Promise<unknown>) => {
@@ -210,10 +243,16 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
   }, [duty, activateForm, reloadDuty])
 
   const openSubmitModal = useCallback(async () => {
-    setSelectedReviewers([])
-    setShowSubmitModal(true)
-    ensureUserOptions()
-  }, [ensureUserOptions])
+    if (duty?.standalone_req_id) {
+      // 需求任務：由後端自動決定審核人或直接完結，只需確認
+      setShowReqCompleteConfirm(true)
+    } else {
+      // AR任務：手動選審核人
+      setSelectedReviewers([])
+      setShowSubmitModal(true)
+      ensureUserOptions()
+    }
+  }, [duty?.standalone_req_id, ensureUserOptions])
 
   const handleReschedule = useCallback(async () => {
     const values = await rescheduleForm.validateFields()
@@ -240,6 +279,58 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
     } catch { /* global */ }
     finally { setIsActing(false) }
   }, [dutyId, selectedReviewers, reloadDuty])
+
+  const handleReqCompleteConfirm = useCallback(async () => {
+    if (!dutyId) return
+    setIsActing(true)
+    try {
+      const res = await dutyApi.submitCompletion(dutyId, [])
+      const c = res.content as { direct?: boolean }
+      showToast.success(c.direct ? '任務已直接完結' : '已提交完結審核，等待需求責任人審核')
+      setShowReqCompleteConfirm(false)
+      await reloadDuty()
+    } catch { /* global */ }
+    finally { setIsActing(false) }
+  }, [dutyId, reloadDuty])
+
+  const openReqReviewModal = useCallback(async () => {
+    setReqReviewers([])
+    setReqReviewSearch('')
+    setReqReviewSearchResults([])
+    setShowReqReviewModal(true)
+    setReqReviewersLoading(true)
+    try {
+      const res = await userApi.getSupervisors(workNo ?? '')
+      setReqReviewers((Array.isArray(res.content) ? res.content : []) as UserProfile[])
+    } catch { /* ignore */ }
+    finally { setReqReviewersLoading(false) }
+  }, [workNo])
+
+  const handleReqReviewSearchChange = async (keyword: string) => {
+    setReqReviewSearch(keyword)
+    if (!keyword.trim()) { setReqReviewSearchResults([]); return }
+    setReqReviewSearchLoading(true)
+    try {
+      const res = await userApi.list({ keyword, size: 10 })
+      const c = res.content as { data_list?: UserProfile[] }
+      setReqReviewSearchResults(c.data_list ?? [])
+    } catch { /* ignore */ }
+    finally { setReqReviewSearchLoading(false) }
+  }
+
+  const handleSubmitReqReview = useCallback(async () => {
+    if (!duty || reqReviewers.length === 0) return
+    setReqReviewSaving(true)
+    try {
+      await dutyApi.submitReqTaskReview(duty.id, {
+        reviewer: reqReviewers.map((r) => r.work_no),
+      })
+      showToast.success('已提交審核')
+      setShowReqReviewModal(false)
+      await reloadDuty()
+    } catch { /* global */ }
+    finally { setReqReviewSaving(false) }
+  }, [duty, reqReviewers, reloadDuty])
 
   const loadProgress = async () => {
     if (!dutyId) return
@@ -270,9 +361,11 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
       showToast.success('進度更新成功')
       setShowForm(false); form.resetFields(); setFileList([])
       loadProgress()
-      // 刷新整体进度
       const dutyRes = await dutyApi.get(dutyId)
       setDuty(dutyRes.content as TemporaryDuty)
+      if (Number(values.progress) === 100) {
+        setShow100Prompt(true)
+      }
     } catch { /* global */ }
     finally { setIsSaving(false) }
   }
@@ -306,6 +399,15 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
         ) : 'AR詳情'
       }
       styles={{ body: { padding: '16px 24px', overflowY: 'auto' } }}
+      extra={
+        duty && (duty.status === 1 || duty.status === 6) &&
+        (duty.responsible ?? []).some((w) => w.toLowerCase() === (workNo?.toLowerCase() ?? '')) && (
+          <Button type="primary" icon={<PlusIcon className="w-4 h-4" />} size="small"
+            style={{ background: '#2563eb' }} onClick={() => { setShowForm((v) => !v); ensureUserOptions() }}>
+            更新進度
+          </Button>
+        )
+      }
       destroyOnHidden
     >
       {loading ? (
@@ -339,29 +441,29 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
                 {duty.status === 0 && canAct && (
                   <Button size="small" onClick={openEditModal}>編輯資訊</Button>
                 )}
-                {/* 激活：草稿 + 建立人或負責人 */}
-                {duty.status === 0 && canAct && (
+                {/* 需求任務（standalone_req_id）：草稿 → 提交審核（不可自行激活） */}
+                {duty.status === 0 && canAct && duty.standalone_req_id && (
+                  <Button type="primary" size="small"
+                    style={{ background: '#7c3aed' }}
+                    onClick={openReqReviewModal}>
+                    提交審核
+                  </Button>
+                )}
+                {/* 普通AR任務：草稿 + 建立人或負責人 → 激活 */}
+                {duty.status === 0 && canAct && !duty.standalone_req_id && (
                   <Button type="primary" size="small" loading={isActing}
                     style={{ background: '#2563eb' }}
                     onClick={openActivateModal}>
                     激活任務
                   </Button>
                 )}
-                {/* 延期：超時 + 進行中/搁置 + 建立人或負責人 */}
-                {isOverdue && [1, 8].includes(duty.status) && canAct && (
+                {/* 延期：超時 + 進行中/未開始/搁置 + 建立人或負責人 */}
+                {isOverdue && [1, 6, 8].includes(duty.status) && canAct && (
                   <Button size="small" danger onClick={() => {
                     rescheduleForm.setFieldsValue({ new_end_date: '', reason: '' })
                     setShowRescheduleModal(true)
                   }}>
                     延期
-                  </Button>
-                )}
-                {/* 提交完結：進行中 + 負責人 */}
-                {duty.status === 1 && isResponsible && (
-                  <Button type="primary" size="small" loading={isActing}
-                    style={{ background: '#16a34a' }}
-                    onClick={openSubmitModal}>
-                    提交完結
                   </Button>
                 )}
                 {/* 擱置：進行中 + 建立人 */}
@@ -382,7 +484,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
           })()}
 
           {/* Status steps */}
-          {duty.status >= 1 && duty.status <= 3 && (
+          {(duty.status === 6 || (duty.status >= 1 && duty.status <= 3)) && (
             <Card bordered={false} className="shadow-sm" styles={{ body: { padding: '14px 20px' } }}>
               <Steps size="small" current={statusToStep(duty.status)}
                 items={DUTY_STEPS.map((t) => ({ title: <span style={{ fontSize: 12 }}>{t}</span> }))} />
@@ -474,14 +576,6 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
                   </span>
                 )}
               </span>
-            }
-            extra={
-              duty.status === 1 && (duty.responsible ?? []).some((w) => w.toLowerCase() === (workNo?.toLowerCase() ?? '')) && (
-                <Button type="primary" icon={<PlusIcon className="w-4 h-4" />} size="small"
-                  style={{ background: '#2563eb' }} onClick={() => { setShowForm((v) => !v); ensureUserOptions() }}>
-                  更新進度
-                </Button>
-              )
             }
           >
             {showForm && (
@@ -889,6 +983,146 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
           </Form.Item>
         </Form>
       </Modal>
+
+      {/* 需求任務提交審核 Modal */}
+      <Modal
+        title="提交需求任務審核"
+        open={showReqReviewModal}
+        onCancel={() => setShowReqReviewModal(false)}
+        footer={null} width={520} destroyOnClose
+      >
+        <div className="mt-4 space-y-4">
+          <div className="text-xs text-slate-400">審核人將依序審核，通過後任務將進入進行中狀態。</div>
+          <div>
+            <div className="text-sm font-medium text-slate-600 mb-2">審核流程</div>
+            {reqReviewersLoading ? (
+              <div className="flex justify-center py-4"><Spin size="small" /></div>
+            ) : reqReviewers.length === 0 ? (
+              <div className="border border-dashed border-slate-300 rounded-lg py-5 text-center text-slate-400 text-sm">
+                尚未添加審核人，請搜尋並加入
+              </div>
+            ) : (
+              <div className="border border-slate-200 rounded-lg overflow-hidden">
+                {reqReviewers.map((r, i) => (
+                  <div key={r.work_no} className="flex items-center gap-3 px-3 py-2.5 border-b border-slate-100 last:border-b-0 bg-white hover:bg-slate-50 transition-colors">
+                    <div className="w-6 h-6 rounded-full bg-blue-600 text-white text-xs flex items-center justify-center flex-shrink-0 font-semibold">{i + 1}</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-slate-800">{r.name}</div>
+                      <div className="text-xs text-slate-400 truncate">{r.department}{r.position ? ` · ${r.position}` : ''} · {r.work_no}</div>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <Button size="small" type="text" disabled={i === 0}
+                        onClick={() => setReqReviewers((prev) => { const a = [...prev]; [a[i], a[i-1]] = [a[i-1], a[i]]; return a })}
+                        style={{ padding: '0 4px', fontSize: 12, color: i === 0 ? '#cbd5e1' : '#64748b' }}>↑</Button>
+                      <Button size="small" type="text" disabled={i === reqReviewers.length - 1}
+                        onClick={() => setReqReviewers((prev) => { const a = [...prev]; [a[i], a[i+1]] = [a[i+1], a[i]]; return a })}
+                        style={{ padding: '0 4px', fontSize: 12, color: i === reqReviewers.length - 1 ? '#cbd5e1' : '#64748b' }}>↓</Button>
+                      <Button size="small" type="text" danger icon={<TrashIcon className="w-3.5 h-3.5" />}
+                        onClick={() => setReqReviewers((prev) => prev.filter((u) => u.work_no !== r.work_no))} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div>
+            <div className="text-sm font-medium text-slate-600 mb-2">加簽審核人</div>
+            <div className="relative">
+              <Input placeholder="輸入姓名或工號搜尋" value={reqReviewSearch}
+                onChange={(e) => handleReqReviewSearchChange(e.target.value)}
+                prefix={reqReviewSearchLoading ? <Spin size="small" /> : undefined} allowClear />
+              {reqReviewSearchResults.length > 0 && (
+                <div className="absolute z-50 top-full left-0 right-0 mt-1 border border-slate-200 rounded-lg bg-white shadow-lg overflow-hidden">
+                  {reqReviewSearchResults.map((u) => {
+                    const already = reqReviewers.some((r) => r.work_no === u.work_no)
+                    return (
+                      <div key={u.work_no}
+                        className={`flex items-center gap-3 px-3 py-2 border-b border-slate-50 last:border-b-0 transition-colors ${already ? 'opacity-40 cursor-not-allowed' : 'hover:bg-blue-50 cursor-pointer'}`}
+                        onClick={() => {
+                          if (already) return
+                          setReqReviewers((prev) => [...prev, u])
+                          setReqReviewSearch('')
+                          setReqReviewSearchResults([])
+                        }}>
+                        <div className="w-7 h-7 rounded-full bg-slate-200 flex items-center justify-center text-xs font-semibold text-slate-600 flex-shrink-0">{u.name.charAt(0)}</div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium text-slate-800">{u.name}</div>
+                          <div className="text-xs text-slate-400">{u.department}{u.position ? ` · ${u.position}` : ''} · {u.work_no}</div>
+                        </div>
+                        {already && <span className="text-xs text-slate-400">已添加</span>}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+          <Divider style={{ margin: '8px 0' }} />
+          <div className="flex justify-end gap-3">
+            <Button onClick={() => setShowReqReviewModal(false)}>取消</Button>
+            <Button type="primary" loading={reqReviewSaving} disabled={reqReviewers.length === 0}
+              style={{ background: '#7c3aed' }}
+              onClick={handleSubmitReqReview}>
+              提交審核
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* 進度100%完結提示 Modal */}
+      {(() => {
+        const isReqTask = !!duty?.standalone_req_id
+        const isReqResp = isReqTask && reqResponsible.some((w) => w.toLowerCase() === (workNo ?? '').toLowerCase())
+        return (
+          <Modal
+            title={
+              <div className="flex items-center gap-2">
+                <span className="text-lg">🎉</span>
+                <span>任務進度已達100%</span>
+              </div>
+            }
+            open={show100Prompt}
+            onOk={() => { setShow100Prompt(false); openSubmitModal() }}
+            onCancel={() => setShow100Prompt(false)}
+            okText={isReqResp ? '確認完結' : '立即提交完結'}
+            cancelText="稍後再說"
+            okButtonProps={{ style: { background: '#16a34a' } }}
+            width={400}
+          >
+            <p className="text-sm text-slate-600 mt-2">
+              {isReqTask
+                ? isReqResp
+                  ? '您是此需求的責任人，確認後任務將直接標記為「已完結」，無需審核。'
+                  : `任務完結申請將提交給需求責任人（${reqResponsible.map((w) => toName(w) || w).join('、')}）審核通過後完結。`
+                : '是否立即提交完結審核，讓審核人確認任務完成？'}
+            </p>
+          </Modal>
+        )
+      })()}
+
+      {/* 需求任務完結確認 Modal（非100%觸發，由 openSubmitModal 直接開啟） */}
+      {(() => {
+        const isReqResp = reqResponsible.some((w) => w.toLowerCase() === (workNo ?? '').toLowerCase())
+        return (
+          <Modal
+            title="確認完結任務"
+            open={showReqCompleteConfirm}
+            onOk={handleReqCompleteConfirm}
+            onCancel={() => setShowReqCompleteConfirm(false)}
+            okText={isReqResp ? '直接完結' : '提交審核'}
+            cancelText="取消"
+            confirmLoading={isActing}
+            okButtonProps={{ style: { background: '#16a34a' } }}
+            width={400}
+          >
+            <p className="text-sm text-slate-600 mt-2">
+              {isReqResp
+                ? '您是此需求的責任人，確認後任務將直接標記為「已完結」，無需審核。'
+                : `任務完結申請將提交給需求責任人（${reqResponsible.map((w) => toName(w) || w).join('、')}）審核通過後完結。`}
+            </p>
+          </Modal>
+        )
+      })()}
     </Drawer>
     </>
   )

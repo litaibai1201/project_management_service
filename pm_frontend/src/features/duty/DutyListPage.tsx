@@ -143,8 +143,9 @@ const DutyListPage: React.FC = () => {
 
   // ── AR state ────────────────────────────────────────────────────────
   const dutyView = isManagerView ? 'all' : 'mine'
-  const [groupMode, setGroupMode]     = useState<'flat' | 'grouped'>('grouped')
-  const [filterGroup, setFilterGroup] = useState<string | null>(null)
+  const [groupMode, setGroupMode]       = useState<'flat' | 'grouped'>('grouped')
+  const [dutyOpenGroups, setDutyOpenGroups] = useState<string[]>([])
+  const [filterGroup, setFilterGroup]   = useState<string | null>(null)
   const [showHeld, setShowHeld]       = useState(false)
   const [dutyPersonal, setDutyPersonal] = useState<'all' | 'mine'>('all')
   const [selectedDutyId, setSelectedDutyId] = useState<string | null>(null)
@@ -659,7 +660,8 @@ const DutyListPage: React.FC = () => {
                       <Empty description="暫無任務" className="py-12" />
                     ) : (
                       <Collapse
-                        defaultActiveKey={groupedDuties.map((g) => g.name)}
+                        activeKey={dutyOpenGroups}
+                        onChange={(keys) => setDutyOpenGroups(Array.isArray(keys) ? keys : [keys])}
                         className="bg-transparent border-0"
                         expandIconPosition="start"
                       >

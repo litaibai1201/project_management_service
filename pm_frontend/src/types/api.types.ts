@@ -258,8 +258,8 @@ export interface FileInfo {
 
 // ─── Temporary Duty ───────────────────────────────────────────────────────────
 
-export type DutyStatus = 0 | 1 | 2 | 3 | 8 | 9
-// 0=草稿 1=進行中 2=完結審核 3=已完結 8=擱置 9=刪除
+export type DutyStatus = 0 | 1 | 2 | 3 | 5 | 6 | 8 | 9
+// 0=草稿 1=進行中 2=完結審核 3=已完結 5=審核中 6=未開始 8=擱置 9=刪除
 
 export interface TemporaryDuty {
   id: string
@@ -325,6 +325,8 @@ export interface ApplyRecord {
   priority: number
   description?: string
   created_at: string
+  system_id?: string
+  system_nm?: string
   project_nm?: string
   function_nm?: string
   duty_nm?: string

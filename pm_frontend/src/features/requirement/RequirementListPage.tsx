@@ -39,10 +39,11 @@ const PROJ_REQ_STATUS_MAP: Record<number, { label: string; color: string }> = {
 }
 
 const SYS_REQ_STATUS_MAP: Record<number, { label: string; color: string }> = {
-  0: { label: '待處理', color: 'default'    },
-  1: { label: '進行中', color: 'processing' },
-  2: { label: '已完成', color: 'success'    },
-  9: { label: '已刪除', color: 'error'      },
+  0: { label: '草稿',   color: 'default'    },
+  1: { label: '審核中', color: 'processing' },
+  2: { label: '已通過', color: 'success'    },
+  3: { label: '已拒絕', color: 'error'      },
+  8: { label: '搁置',   color: 'warning'    },
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
@@ -155,6 +156,9 @@ const RequirementListPage: React.FC = () => {
       priority:          r.priority,
       responsible:       r.responsible,
       expected_end_date: r.expected_end_date,
+      expected_benefit:  r.expected_benefit,
+      benefit_amount:    r.benefit_amount,
+      benefit_unit:      r.benefit_unit ?? '元/年',
     })
     loadUsers(); loadSystems()
     setShowForm(true)
@@ -170,6 +174,9 @@ const RequirementListPage: React.FC = () => {
         priority:          values.priority as number,
         responsible:       values.responsible as string[] | undefined,
         expected_end_date: values.expected_end_date as string | undefined,
+        expected_benefit:  values.expected_benefit as string | undefined,
+        benefit_amount:    values.benefit_amount as number | null | undefined,
+        benefit_unit:      values.benefit_unit as string | undefined,
       }
       if (editTarget) {
         await standaloneReqApi.update(editTarget.id, payload)
@@ -305,20 +312,27 @@ const RequirementListPage: React.FC = () => {
       ),
     },
     {
+      title: '建立時間', dataIndex: 'created_at', width: 110,
+      render: (v: string) => <span className="text-slate-400 text-xs">{v ? v.slice(0, 10) : '—'}</span>,
+    },
+    {
       title: '操作', key: 'action', width: 80, fixed: 'right',
-      render: (_: unknown, r: StandaloneReq) => (
-        <Space size={0}>
-          <Tooltip title="編輯">
-            <Button type="text" size="small" icon={<PencilSquareIcon className="w-4 h-4" />}
-              onClick={() => openEdit(r)} />
-          </Tooltip>
-          <Popconfirm title="確定刪除？" onConfirm={() => handleDelete(r.id)} okText="刪除" cancelText="取消" okButtonProps={{ danger: true }}>
-            <Tooltip title="刪除">
-              <Button type="text" size="small" danger icon={<TrashIcon className="w-4 h-4" />} />
+      render: (_: unknown, r: StandaloneReq) => {
+        if (r.status !== 0) return null
+        return (
+          <Space size={0}>
+            <Tooltip title="編輯">
+              <Button type="text" size="small" icon={<PencilSquareIcon className="w-4 h-4" />}
+                onClick={() => openEdit(r)} />
             </Tooltip>
-          </Popconfirm>
-        </Space>
-      ),
+            <Popconfirm title="確定刪除？" onConfirm={() => handleDelete(r.id)} okText="刪除" cancelText="取消" okButtonProps={{ danger: true }}>
+              <Tooltip title="刪除">
+                <Button type="text" size="small" danger icon={<TrashIcon className="w-4 h-4" />} />
+              </Tooltip>
+            </Popconfirm>
+          </Space>
+        )
+      },
     },
   ]
 
@@ -459,10 +473,21 @@ const RequirementListPage: React.FC = () => {
             <Form.Item name="priority" label="優先級" rules={[{ required: true }]} initialValue={2}>
               <Select options={[{ value: 1, label: '低' }, { value: 2, label: '中' }, { value: 3, label: '高' }, { value: 4, label: '緊急' }]} />
             </Form.Item>
-            <Form.Item name="expected_end_date" label="預計完成日期">
+            <Form.Item name="expected_end_date" label="期望完成時間">
               <Input type="date" />
             </Form.Item>
           </div>
+          <div className="grid grid-cols-2 gap-x-4">
+            <Form.Item name="benefit_amount" label="預估效益數量">
+              <Input type="number" min={0} placeholder="如：10" />
+            </Form.Item>
+            <Form.Item name="benefit_unit" label="效益單位" initialValue="元/年">
+              <Select options={[{ value: '元/年', label: '元/年' }, { value: '人/年', label: '人/年' }, { value: '工時/年', label: '工時/年' }]} />
+            </Form.Item>
+          </div>
+          <Form.Item name="expected_benefit" label="效益說明">
+            <Input.TextArea placeholder="選填" autoSize={{ minRows: 2, maxRows: 6 }} style={{ resize: 'vertical' }} />
+          </Form.Item>
           <Form.Item name="responsible" label="負責人">
             <Select
               mode="multiple" placeholder="選擇負責人"

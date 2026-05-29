@@ -102,6 +102,39 @@ class ReqFilesApi(MethodView):
         return response_result(content=ctrl.remove_file(req_id, file_id))
 
 
+@blp.route("/batch_submit_review")
+class ReqBatchSubmitReviewApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def post(self):
+        """批量提交审核"""
+        work_no = get_identity()
+        payload = request.get_json() or {}
+        return response_result(content=ctrl.batch_submit_review(payload, work_no))
+
+
+@blp.route("/<string:req_id>/submit_review")
+class ReqSubmitReviewApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def post(self, req_id):
+        """提交审核"""
+        work_no = get_identity()
+        payload = request.get_json() or {}
+        return response_result(content=ctrl.submit_review(req_id, payload, work_no))
+
+
+@blp.route("/<string:req_id>/review_result")
+class ReqReviewResultApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def post(self, req_id):
+        """审核结果（通过/拒绝）"""
+        work_no = get_identity()
+        payload = request.get_json() or {}
+        return response_result(content=ctrl.review_result(req_id, payload, work_no))
+
+
 @blp.route("/<string:req_id>/files/<string:file_id>/preview")
 class ReqFilePreviewApi(MethodView):
     @jwt_required()

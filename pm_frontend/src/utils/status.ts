@@ -30,6 +30,8 @@ export const DUTY_STATUS_MAP: Record<number, { label: string; color: string; dot
   1: { label: '進行中',   color: 'processing', dot: '#2563eb' },
   2: { label: '完結審核', color: 'orange',     dot: '#d97706' },
   3: { label: '已完結',   color: 'success',    dot: '#15803d' },
+  5: { label: '審核中',   color: 'purple',     dot: '#7c3aed' },
+  6: { label: '未開始',   color: 'cyan',       dot: '#0891b2' },
   8: { label: '擱置',     color: 'warning',    dot: '#f59e0b' },
   9: { label: '刪除',     color: 'error',      dot: '#dc2626' },
 }

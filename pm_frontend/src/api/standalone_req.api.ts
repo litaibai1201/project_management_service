@@ -13,13 +13,18 @@ export interface StandaloneReq {
   req_nm:            string
   describe:          string
   priority:          number
-  status:            number   // 0=待處理 1=進行中 2=已完成 9=已刪除
+  status:            number   // 0=草稿 1=審核中 2=已通過 3=已拒絕 8=搁置 9=已刪除
   system_id:         string
   system_nm?:        string
   creator:           string
   creator_nm?:       string
+  reviewer:          string
+  reviewer_nm?:      string
   responsible:       string[]
   expected_end_date: string
+  expected_benefit?: string
+  benefit_amount?:   number | null
+  benefit_unit?:     string
   files:             ReqFileInfo[]
   created_at:        string
   updated_at:        string
@@ -42,6 +47,9 @@ export interface CreateStandaloneReqPayload {
   priority?:          number
   responsible?:       string[]
   expected_end_date?: string
+  expected_benefit?:  string
+  benefit_amount?:    number | null
+  benefit_unit?:      string
 }
 
 export interface StandaloneReqListResult {
@@ -75,4 +83,13 @@ export const standaloneReqApi = {
 
   deleteFile: (reqId: string, fileId: string): Promise<ApiResponse<ReqFileInfo[]>> =>
     del(`/standalone_req/${reqId}/files`, { data: { file_id: fileId } }),
+
+  submitReview: (reqId: string, reviewer: string[]): Promise<ApiResponse<StandaloneReq>> =>
+    post(`/standalone_req/${reqId}/submit_review`, { reviewer }),
+
+  batchSubmitReview: (reqIds: string[], reviewer: string[]): Promise<ApiResponse<{ updated: string[]; count: number }>> =>
+    post('/standalone_req/batch_submit_review', { req_ids: reqIds, reviewer }),
+
+  reviewResult: (reqId: string, action: 'approve' | 'reject'): Promise<ApiResponse<StandaloneReq>> =>
+    post(`/standalone_req/${reqId}/review_result`, { action }),
 }

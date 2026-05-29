@@ -455,6 +455,7 @@ class ReviewApplyModel(BaseMixinModel):
     requirement_id      = db.Column(db.String(32), comment="关联需求ID（单条）")
     requirement_ids_json = db.Column(db.Text, nullable=True, comment="批量关联需求ID列表（JSON）")
     function_ids_json   = db.Column(db.Text, nullable=True, comment="批量关联任务ID列表（JSON）")
+    system_id           = db.Column(db.String(32), comment="关联系统ID（系统需求审核用）")
     apply_type = db.Column(db.String(64), comment="申请类型(中文)")
     apply_type_code = db.Column(db.String(32), comment="申请类型编码")
     submitter = db.Column(db.String(32), nullable=False, comment="提交人工号")
@@ -473,7 +474,7 @@ class ReviewApplyModel(BaseMixinModel):
     description = db.Column(db.Text)
     approval_nodes_json = db.Column(db.Text, comment="审批节点(JSON)")
 
-    def to_dict(self, project_nm=None, function_nm=None, duty_nm=None):
+    def to_dict(self, project_nm=None, function_nm=None, duty_nm=None, system_nm=None):
         nodes = []
         if self.approval_nodes_json:
             try:
@@ -497,8 +498,9 @@ class ReviewApplyModel(BaseMixinModel):
             "reviewer": reviewers, "status": self.apply_status, "priority": self.priority,
             "description": self.description or "", "approval_nodes": nodes,
             "created_at": self.created_at,
+            "system_id": self.system_id or "",
             "project_nm": project_nm or "", "function_nm": function_nm or "",
-            "duty_nm": duty_nm or "",
+            "duty_nm": duty_nm or "", "system_nm": system_nm or "",
         }
 
 
@@ -729,12 +731,17 @@ class StandaloneReqModel(BaseMixinModel):
     req_nm            = db.Column(db.String(128), nullable=False, comment="需求名称")
     describe          = db.Column(db.Text, comment="需求描述")
     priority          = db.Column(db.Integer, default=2, comment="优先级(1低2中3高4紧急)")
-    # 0=待處理 1=進行中 2=已完成 9=已刪除
+    # 0=草稿 1=審核中 2=已通過 3=已拒絕 8=搁置 9=已刪除
     req_status        = db.Column(db.Integer, default=0, comment="需求状态")
     system_id         = db.Column(db.String(32), nullable=False, comment="关联系统ID")
     creator           = db.Column(db.String(32), comment="创建人工号")
-    responsible       = db.Column(db.Text, comment="负责人工号JSON数组")
+    reviewer           = db.Column(db.String(32), comment="审核人工号(首位)")
+    reviewer_chain_json= db.Column(db.Text, comment="审核链工号JSON数组")
+    responsible        = db.Column(db.Text, comment="负责人工号JSON数组")
     expected_end_date = db.Column(db.String(10), comment="预计完成日期")
+    expected_benefit  = db.Column(db.Text,       comment="预估效益描述")
+    benefit_amount    = db.Column(db.Float,      comment="预估效益数量")
+    benefit_unit      = db.Column(db.String(10), default="元/年", comment="效益单位(元/年|人/年)")
     files_json        = db.Column(db.Text, comment="附件JSON数组")
     created_at        = db.Column(db.String(19), default=CommonTools.get_now, nullable=False)
     updated_at        = db.Column(db.String(19), default=CommonTools.get_now, onupdate=CommonTools.get_now)
@@ -757,8 +764,13 @@ class StandaloneReqModel(BaseMixinModel):
             "status":             self.req_status,
             "system_id":          self.system_id or "",
             "creator":            self.creator or "",
+            "reviewer":           self.reviewer or "",
+            "reviewer_chain":     json.loads(self.reviewer_chain_json) if self.reviewer_chain_json else [],
             "responsible":        resp,
             "expected_end_date":  self.expected_end_date or "",
+            "expected_benefit":   self.expected_benefit or "",
+            "benefit_amount":     self.benefit_amount,
+            "benefit_unit":       self.benefit_unit or "元/年",
             "files":              json.loads(self.files_json) if self.files_json else [],
             "created_at":         self.created_at or "",
             "updated_at":         self.updated_at or "",
