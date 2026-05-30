@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Table, Button, Input, Select, Space, Tooltip, Popconfirm,
-  Modal, Form, Tag, Avatar, Card, Tabs,
+  Modal, Form, Tag, Avatar, Card, Tabs, Progress,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { PlusIcon, PencilSquareIcon, TrashIcon, ArrowsPointingOutIcon } from '@heroicons/react/24/outline'
@@ -33,16 +33,18 @@ const DaysLeftBadge: React.FC<{ date?: string }> = ({ date }) => {
 const PROJ_REQ_STATUS_MAP: Record<number, { label: string; color: string }> = {
   0: { label: '草稿',   color: 'default'    },
   1: { label: '審核中', color: 'processing' },
-  2: { label: '已通過', color: 'success'    },
+  2: { label: '進行中', color: 'blue'       },
   3: { label: '已拒絕', color: 'error'      },
+  4: { label: '已完結', color: 'success'    },
   8: { label: '搁置',   color: 'warning'    },
 }
 
 const SYS_REQ_STATUS_MAP: Record<number, { label: string; color: string }> = {
   0: { label: '草稿',   color: 'default'    },
   1: { label: '審核中', color: 'processing' },
-  2: { label: '已通過', color: 'success'    },
+  2: { label: '進行中', color: 'blue'       },
   3: { label: '已拒絕', color: 'error'      },
+  4: { label: '已完結', color: 'success'    },
   8: { label: '搁置',   color: 'warning'    },
 }
 
@@ -242,6 +244,33 @@ const RequirementListPage: React.FC = () => {
       },
     },
     {
+      title: '進度', dataIndex: 'progress', width: 110,
+      render: (v: number, r: ProjectReqItem) => {
+        if (r.status !== 2 && r.status !== 4) return <span className="text-slate-300 text-xs">—</span>
+        return (
+          <div className="flex items-center gap-2">
+            <Progress percent={v ?? 0} size="small" showInfo={false} style={{ flex: 1 }}
+              strokeColor={(v ?? 0) >= 100 ? '#16a34a' : '#2563eb'} trailColor="#f1f5f9" />
+            <span className="text-xs text-slate-400">{v ?? 0}%</span>
+          </div>
+        )
+      },
+    },
+    {
+      title: '負責人', dataIndex: 'responsible', width: 130,
+      render: (v: string[]) => (
+        <Avatar.Group max={{ count: 3 }} size="small">
+          {(v ?? []).map((wn) => (
+            <Tooltip key={wn} title={`${toName(wn)} (${wn})`}>
+              <Avatar size="small" style={{ background: '#2563eb', fontSize: 10 }}>
+                {toName(wn)?.[0] ?? wn[0]}
+              </Avatar>
+            </Tooltip>
+          ))}
+        </Avatar.Group>
+      ),
+    },
+    {
       title: '期望完成', dataIndex: 'expected_end_date', width: 110,
       render: (v: string) => <DaysLeftBadge date={v} />,
     },
@@ -286,6 +315,16 @@ const RequirementListPage: React.FC = () => {
         const p = PRIORITY_MAP[v]
         return p ? <Tag color={p.color} style={{ fontSize: 11 }}>{p.label}</Tag> : <span>{v}</span>
       },
+    },
+    {
+      title: '進度', dataIndex: 'progress', width: 110,
+      render: (v: number) => (
+        <div className="flex items-center gap-2">
+          <Progress percent={v ?? 0} size="small" showInfo={false} style={{ flex: 1 }}
+            strokeColor={(v ?? 0) >= 100 ? '#16a34a' : '#2563eb'} trailColor="#f1f5f9" />
+          <span className="text-xs text-slate-400">{v ?? 0}%</span>
+        </div>
+      ),
     },
     {
       title: '負責人', dataIndex: 'responsible', width: 130,

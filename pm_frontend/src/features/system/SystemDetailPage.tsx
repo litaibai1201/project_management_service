@@ -8,8 +8,9 @@ import {
 import type { ColumnsType } from 'antd/es/table'
 import {
   ArrowLeftIcon, PlusIcon, PencilSquareIcon, TrashIcon,
-  PaperClipIcon, ArrowsPointingOutIcon, UserCircleIcon, FolderIcon, EyeIcon,
+  PaperClipIcon, ArrowsPointingOutIcon, UserCircleIcon, FolderIcon, EyeIcon, XMarkIcon,
 } from '@heroicons/react/24/outline'
+import type { InputRef } from 'antd'
 import { systemApi, type SystemItem } from '@/api/system.api'
 import { standaloneReqApi, type StandaloneReq } from '@/api/standalone_req.api'
 import AttachmentPreview from '@/components/ui/AttachmentPreview'
@@ -32,8 +33,9 @@ const { Link } = Typography
 const REQ_STATUS_MAP: Record<number, { label: string; color: string }> = {
   0: { label: '草稿',   color: 'default'    },
   1: { label: '審核中', color: 'processing' },
-  2: { label: '已通過', color: 'success'    },
+  2: { label: '進行中', color: 'blue'       },
   3: { label: '已拒絕', color: 'error'      },
+  4: { label: '已完結', color: 'success'    },
   8: { label: '搁置',   color: 'warning'    },
   9: { label: '已刪除', color: 'error'      },
 }
@@ -118,7 +120,7 @@ const SystemDetailPage: React.FC = () => {
   // true = 批量模式
   const [batchReviewMode,     setBatchReviewMode]      = useState(false)
 
-  // 建立 AR 任務 Modal (僅 status=2 已通過)
+  // 建立 AR 任務 Modal (僅 status=2 進行中)
   const [dutyTargetReq,    setDutyTargetReq]    = useState<StandaloneReq | null>(null)
   const [showCreateDuty,   setShowCreateDuty]   = useState(false)
   const [createDutySaving, setCreateDutySaving] = useState(false)
@@ -146,6 +148,15 @@ const SystemDetailPage: React.FC = () => {
   const [expandedReqKeys, setExpandedReqKeys]  = useState<string[]>([])
   // AR任務分組展開狀態（受控）
   const [arOpenGroups,    setArOpenGroups]     = useState<string[]>([])
+
+  // ── 快速設定任務負責人 ─────────────────────────────────────────────────────
+  const [quickDutyResp,      setQuickDutyResp]      = useState<{ did: string; persons: UserProfile[] } | null>(null)
+  const [quickDutySaving,    setQuickDutySaving]    = useState(false)
+  const [dutyRespKw,         setDutyRespKw]         = useState('')
+  const [dutyRespResult,     setDutyRespResult]     = useState<UserProfile | null | false>(null)
+  const [dutyRespSearching,  setDutyRespSearching]  = useState(false)
+  const [dutyRespPreloading, setDutyRespPreloading] = useState(false)
+  const dutyRespRef = useRef<InputRef>(null)
 
   const loadSystem = useCallback(async () => {
     if (!id) return
@@ -283,6 +294,40 @@ const SystemDetailPage: React.FC = () => {
       handleReqUpdated()
     } catch (err: unknown) { showToast.error((err as string) || '操作失敗') }
     finally { setEditSaving(false) }
+  }
+
+  const handleDutyRespSearch = async (kw: string) => {
+    const trimmed = kw.trim().toLowerCase()
+    if (trimmed.length < 4) { setDutyRespResult(null); return }
+    setDutyRespSearching(true)
+    setDutyRespResult(null)
+    try {
+      const res = await userApi.getQuiet(trimmed)
+      setDutyRespResult(res.content ?? false)
+    } catch {
+      setDutyRespResult(false)
+    } finally {
+      setDutyRespSearching(false)
+      dutyRespRef.current?.focus()
+    }
+  }
+
+  useEffect(() => {
+    if (dutyRespKw.trim().length < 4) { setDutyRespResult(null); return }
+    const t = setTimeout(() => handleDutyRespSearch(dutyRespKw), 600)
+    return () => clearTimeout(t)
+  }, [dutyRespKw])
+
+  const handleQuickSetDutyResp = async () => {
+    if (!quickDutyResp) return
+    setQuickDutySaving(true)
+    try {
+      await dutyApi.allocate(quickDutyResp.did, { responsible: quickDutyResp.persons.map((p) => p.work_no) })
+      showToast.success('負責人已更新')
+      setQuickDutyResp(null)
+      loadDuties()
+    } catch { /* global */ }
+    finally { setQuickDutySaving(false) }
   }
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -467,7 +512,15 @@ const groupedByReq = useMemo(() => {
       })
       const subGroups = [...groupMap.entries()].map(([gName, gItems]) => ({ name: gName, items: gItems }))
       const avgProgress  = items.length ? Math.round(items.reduce((s, d) => s + (d.progress ?? 0), 0) / items.length) : 0
-      const overdueCount = items.filter((d) => d.expected_end_date && new Date(d.expected_end_date) < new Date() && d.status !== 4).length
+      const overdueCount = items.filter((d) => {
+        if (d.status === 3) {
+          // 已完結：實際完成日期晚於預計完成日期才算超時
+          const endDate = d.end_time ? d.end_time.slice(0, 10) : null
+          return endDate && d.expected_end_date && endDate > d.expected_end_date
+        }
+        // 未完結：預計完成日期早於今天
+        return d.expected_end_date && d.expected_end_date < new Date().toISOString().slice(0, 10)
+      }).length
       return { key: req.id, reqNm: req.req_nm, expectedEndDate: req.expected_end_date, responsible: req.responsible ?? [], subGroups, count: items.length, avgProgress, overdueCount }
     })
   }, [displayedReqDuties, reqList])
@@ -494,6 +547,16 @@ const groupedByReq = useMemo(() => {
         const p = PRIORITY_MAP[v]
         return p ? <Tag color={p.color} style={{ fontSize: 11 }}>{p.label}</Tag> : <span>{v}</span>
       },
+    },
+    {
+      title: '進度', dataIndex: 'progress', width: 110,
+      render: (v: number) => (
+        <div className="flex items-center gap-2">
+          <Progress percent={v ?? 0} size="small" showInfo={false} style={{ flex: 1 }}
+            strokeColor={v >= 100 ? '#16a34a' : '#2563eb'} trailColor="#f1f5f9" />
+          <span className="text-xs text-slate-400">{v ?? 0}%</span>
+        </div>
+      ),
     },
     {
       title: '期望完成', dataIndex: 'expected_end_date', width: 100,
@@ -526,7 +589,7 @@ const groupedByReq = useMemo(() => {
     {
       title: '操作', key: 'action', width: 160, fixed: 'right',
       render: (_: unknown, r: StandaloneReq) => {
-        // 只有草稿(0)才可編輯/刪除/上傳；已通過(2)可建立任務；其他狀態僅唯讀
+        // 只有草稿(0)才可編輯/刪除/上傳；進行中(2)可建立任務；其他狀態僅唯讀
         if (r.status === 0) {
           return (
             <Space size={4}>
@@ -604,27 +667,59 @@ const groupedByReq = useMemo(() => {
       ),
     },
     {
-      title: '負責人', dataIndex: 'responsible', width: 150,
-      render: (v: string[]) => {
+      title: '負責人', dataIndex: 'responsible', width: 160,
+      render: (v: string[], record: TemporaryDuty) => {
+        const req = reqList.find((rq) => rq.id === record.standalone_req_id)
+        const canEdit = req ? (req.responsible ?? []).some((wn) => wn.toLowerCase() === workNo.toLowerCase()) : false
         const list = v ?? []
-        if (list.length === 0) return <span className="text-slate-300 text-xs">—</span>
-        const shown = list.slice(0, 3)
-        return (
-          <div className="flex items-center gap-1.5">
-            <div style={{ display: 'flex' }}>
-              {shown.map((wn, i) => (
-                <Tooltip key={wn} title={`${toName(wn)} (${wn})`}>
-                  <Avatar size="small"
-                    style={{ marginLeft: i > 0 ? -6 : 0, border: '2px solid #fff', background: '#2563eb', fontSize: 10, zIndex: shown.length - i }}>
-                    {toName(wn)?.[0] ?? wn[0]}
-                  </Avatar>
-                </Tooltip>
-              ))}
+        const COLORS = ['#7c3aed', '#2563eb', '#059669', '#d97706', '#dc2626']
+        const openPicker = async () => {
+          setDutyRespKw(''); setDutyRespResult(null)
+          setQuickDutyResp({ did: record.id, persons: [] })
+          if (list.length > 0) {
+            setDutyRespPreloading(true)
+            const profiles = await Promise.all(list.map(async (wn) => {
+              try { return (await userApi.get(wn)).content as UserProfile }
+              catch { return { work_no: wn, name: wn, department: '' } as UserProfile }
+            }))
+            setQuickDutyResp({ did: record.id, persons: profiles })
+            setDutyRespPreloading(false)
+          }
+        }
+        if (list.length > 0) {
+          const shown = list.slice(0, 3)
+          const extra = list.length - shown.length
+          return (
+            <div className="flex items-center gap-1.5 group">
+              <div className="flex items-center">
+                {shown.map((wn, i) => (
+                  <Tooltip key={wn} title={`${toName(wn)} (${wn})`}>
+                    <Avatar size={22} style={{ background: COLORS[i % COLORS.length], fontSize: 10, fontWeight: 700, border: '2px solid white', marginLeft: i > 0 ? -6 : 0, zIndex: shown.length - i }}>
+                      {toName(wn)?.[0]?.toUpperCase() ?? wn[0]}
+                    </Avatar>
+                  </Tooltip>
+                ))}
+                {extra > 0 && (
+                  <Avatar size={22} style={{ background: '#94a3b8', fontSize: 10, border: '2px solid white', marginLeft: -6 }}>+{extra}</Avatar>
+                )}
+              </div>
+              <span className="text-xs text-slate-600">{toName(list[0]) || list[0]}{list.length > 1 ? ` 等${list.length}人` : ''}</span>
+              {canEdit && (
+                <button className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-blue-500 border-0 outline-none bg-transparent p-0 cursor-pointer" onClick={openPicker} title="修改負責人">
+                  <PencilSquareIcon className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
-            <span className="text-xs text-slate-600 truncate">
-              {toName(list[0]) || list[0]}{list.length > 1 ? ` 等${list.length}人` : ''}
-            </span>
-          </div>
+          )
+        }
+        if (!canEdit) return <span className="text-slate-300 text-xs">—</span>
+        return (
+          <button
+            className="flex items-center gap-1 text-xs text-slate-400 hover:text-blue-500 hover:bg-blue-50 px-2 py-0.5 rounded-full border border-dashed border-slate-300 hover:border-blue-300 transition-colors"
+            onClick={openPicker}
+          >
+            <PlusIcon className="w-3 h-3" />指定負責人
+          </button>
         )
       },
     },
@@ -633,8 +728,18 @@ const groupedByReq = useMemo(() => {
       render: (v: string) => <span className="text-xs text-slate-500">{v || '—'}</span>,
     },
     {
-      title: '實際完成', dataIndex: 'end_time', width: 100,
-      render: (v: string) => <span className="text-xs text-slate-400">{v || '—'}</span>,
+      title: '實際完成', dataIndex: 'end_time', width: 110,
+      render: (v: string, record: TemporaryDuty) => {
+        if (!v) return <span className="text-slate-300 text-xs">—</span>
+        const date = v.slice(0, 10)
+        const exp = record.expected_end_date
+        const isLate = exp && date > exp
+        return (
+          <span className={isLate ? 'text-red-500 text-xs font-medium' : 'text-green-600 text-xs font-medium'}>
+            {date}{isLate ? ' ⚠' : ' ✓'}
+          </span>
+        )
+      },
     },
     {
       title: '操作', key: 'action', width: 60, fixed: 'right',
@@ -934,6 +1039,15 @@ const groupedByReq = useMemo(() => {
                     <div className="flex justify-center py-8"><Spin /></div>
                   ) : groupedByReq.length === 0 ? (
                     <Empty description="暫無需求任務" className="py-8" />
+                  ) : reqDutyGroupMode === 'flat' ? (
+                    <Table<TemporaryDuty> rowKey="id" columns={dutyColumns}
+                      dataSource={displayedReqDuties}
+                      pagination={false} size="small" scroll={{ x: 800 }}
+                      rowSelection={{
+                        selectedRowKeys: selectedReqDutyIds,
+                        onChange: (keys) => setSelectedReqDutyIds(keys as string[]),
+                        getCheckboxProps: (r) => ({ disabled: r.status !== 0 }),
+                      }} />
                   ) : (
                     <Collapse activeKey={expandedReqKeys} onChange={(keys) => setExpandedReqKeys(keys as string[])}
                       className="bg-transparent border-0" expandIconPosition="start">
@@ -1520,6 +1634,98 @@ const groupedByReq = useMemo(() => {
       >
         <RichTextEditor value={dutyExpandDraft} onChange={setDutyExpandDraft} placeholder="請輸入任務描述..." minHeight={480} />
       </Modal>
+      {/* 快速設定任務負責人 Modal */}
+      <Modal
+        title="設定任務負責人"
+        open={!!quickDutyResp}
+        onCancel={() => setQuickDutyResp(null)}
+        onOk={handleQuickSetDutyResp}
+        okText="確認儲存"
+        confirmLoading={quickDutySaving}
+        okButtonProps={{ style: { background: '#2563eb' } }}
+        width={440}
+        destroyOnHidden
+      >
+        <div className="py-3 space-y-4">
+          <div>
+            <div className="text-sm font-medium text-slate-700 mb-2">透過工號搜尋人員</div>
+            <Input
+              ref={dutyRespRef}
+              value={dutyRespKw}
+              onChange={(e) => setDutyRespKw(e.target.value)}
+              placeholder="輸入工號，自動搜索（如：EMP001）"
+              suffix={dutyRespSearching ? <Spin size="small" /> : null}
+              autoFocus
+            />
+            {dutyRespResult === false && (
+              <div className="mt-2 text-xs text-red-500 flex items-center gap-1">
+                <XMarkIcon className="w-3.5 h-3.5" />查無此工號，請確認後重試
+              </div>
+            )}
+            {dutyRespResult && typeof dutyRespResult === 'object' && (
+              <div className="mt-2 flex items-center justify-between bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+                <div className="flex items-center gap-2">
+                  <Avatar size={28} style={{ background: '#2563eb', fontSize: 11, fontWeight: 700 }}>
+                    {(dutyRespResult as UserProfile).name?.[0]?.toUpperCase()}
+                  </Avatar>
+                  <div>
+                    <div className="text-sm font-medium text-slate-800">{(dutyRespResult as UserProfile).name}</div>
+                    <div className="text-xs text-slate-400">{(dutyRespResult as UserProfile).work_no} · {(dutyRespResult as UserProfile).department}</div>
+                  </div>
+                </div>
+                <Button
+                  size="small" type="primary" style={{ background: '#2563eb' }}
+                  disabled={quickDutyResp?.persons.some((p) => p.work_no === (dutyRespResult as UserProfile).work_no)}
+                  onClick={() => {
+                    const person = dutyRespResult as UserProfile
+                    if (!quickDutyResp?.persons.some((p) => p.work_no === person.work_no)) {
+                      setQuickDutyResp((prev) => prev ? { ...prev, persons: [...prev.persons, person] } : null)
+                    }
+                    setDutyRespKw(''); setDutyRespResult(null)
+                  }}
+                >
+                  {quickDutyResp?.persons.some((p) => p.work_no === (dutyRespResult as UserProfile).work_no) ? '已加入' : '加入'}
+                </Button>
+              </div>
+            )}
+          </div>
+          <div>
+            <div className="text-sm font-medium text-slate-700 mb-2">
+              已選負責人
+              {quickDutyResp && quickDutyResp.persons.length > 0 && (
+                <span className="ml-1.5 text-xs font-normal text-slate-400">（共 {quickDutyResp.persons.length} 人，儲存後生效）</span>
+              )}
+            </div>
+            {dutyRespPreloading ? (
+              <div className="flex items-center justify-center py-5 text-slate-400 text-xs gap-2"><Spin size="small" />載入中…</div>
+            ) : !quickDutyResp || quickDutyResp.persons.length === 0 ? (
+              <div className="border border-dashed border-slate-200 rounded-lg py-5 text-center text-slate-400 text-xs">尚未加入任何負責人</div>
+            ) : (
+              <div className="space-y-1.5">
+                {quickDutyResp.persons.map((p, i) => (
+                  <div key={p.work_no} className="flex items-center gap-2.5 bg-slate-50 rounded-lg px-3 py-2">
+                    <div className="w-5 h-5 rounded-full bg-violet-100 text-violet-600 text-[10px] font-bold flex items-center justify-center flex-shrink-0">{i + 1}</div>
+                    <Avatar size={24} style={{ background: '#7c3aed', fontSize: 10, fontWeight: 700, flexShrink: 0 }}>
+                      {p.name?.[0]?.toUpperCase()}
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm font-medium text-slate-700">{p.name}</span>
+                      <span className="text-xs text-slate-400 ml-1.5">{p.work_no} · {p.department}</span>
+                    </div>
+                    <button
+                      className="text-red-400 hover:text-red-600 transition-colors flex-shrink-0 border-0 outline-none bg-transparent p-0 cursor-pointer"
+                      onClick={() => setQuickDutyResp((prev) => prev ? { ...prev, persons: prev.persons.filter((x) => x.work_no !== p.work_no) } : null)}
+                    >
+                      <XMarkIcon className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </Modal>
+
       <DutyDetailDrawer
         open={!!selectedDutyId}
         dutyId={selectedDutyId}

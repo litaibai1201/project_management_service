@@ -10,6 +10,7 @@ import { userApi } from '@/api/user.api'
 import { systemApi, type SystemItem } from '@/api/system.api'
 import { standaloneReqApi } from '@/api/standalone_req.api'
 import AttachmentPreview from '@/components/ui/AttachmentPreview'
+import RichTextContent from '@/components/common/RichTextContent'
 import FilePreviewModal from '@/features/project/FilePreviewModal'
 import type { FileInfo, TemporaryDuty, UserProfile } from '@/types/api.types'
 import { useAppSelector } from '@/hooks/redux'
@@ -400,13 +401,45 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
       }
       styles={{ body: { padding: '16px 24px', overflowY: 'auto' } }}
       extra={
-        duty && (duty.status === 1 || duty.status === 6) &&
-        (duty.responsible ?? []).some((w) => w.toLowerCase() === (workNo?.toLowerCase() ?? '')) && (
-          <Button type="primary" icon={<PlusIcon className="w-4 h-4" />} size="small"
-            style={{ background: '#2563eb' }} onClick={() => { setShowForm((v) => !v); ensureUserOptions() }}>
-            更新進度
-          </Button>
-        )
+        duty && (() => {
+          const isCreator = workNo?.toLowerCase() === duty.creator?.toLowerCase()
+          const isResponsible = (duty.responsible ?? []).some((w) => w.toLowerCase() === (workNo?.toLowerCase() ?? ''))
+          const canAct = isCreator || isResponsible
+          const canReqHold = duty.standalone_req_id
+            ? reqResponsible.some((w) => w.toLowerCase() === (workNo ?? '').toLowerCase())
+            : canAct
+          const isOverdue = duty.expected_end_date && duty.expected_end_date < new Date().toISOString().slice(0, 10)
+          return (
+            <div className="flex gap-2">
+              {/* 延期：超時 + 進行中/未開始（非搁置）+ 需求任務需求責任人/普通AR建立人或負責人 */}
+              {isOverdue && [1, 6].includes(duty.status) && canReqHold && (
+                <Button size="small" onClick={() => {
+                  rescheduleForm.setFieldsValue({ new_end_date: '', reason: '' })
+                  setShowRescheduleModal(true)
+                }}>延期</Button>
+              )}
+              {/* 擱置 */}
+              {[1, 6].includes(duty.status) && canReqHold && (
+                <Popconfirm title="確認擱置此任務？" onConfirm={() => doAction(() => dutyApi.hold(duty.id))} okText="確認" cancelText="取消">
+                  <Button size="small" loading={isActing}>擱置</Button>
+                </Popconfirm>
+              )}
+              {/* 恢復 */}
+              {duty.status === 8 && canReqHold && (
+                <Button size="small" loading={isActing} onClick={() => doAction(() => dutyApi.resume(duty.id))}>
+                  恢復進行中
+                </Button>
+              )}
+              {/* 更新進度 */}
+              {(duty.status === 1 || duty.status === 6) && isResponsible && (
+                <Button type="primary" icon={<PlusIcon className="w-4 h-4" />} size="small"
+                  style={{ background: '#2563eb' }} onClick={() => { setShowForm((v) => !v); ensureUserOptions() }}>
+                  更新進度
+                </Button>
+              )}
+            </div>
+          )
+        })()
       }
       destroyOnHidden
     >
@@ -428,55 +461,23 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
             <DaysLeftBadge date={duty.expected_end_date} />
           </Space>
 
-          {/* Action buttons */}
+          {/* Action buttons — 草稿階段操作 */}
           {(() => {
             const isCreator = workNo?.toLowerCase() === duty.creator?.toLowerCase()
             const isResponsible = (duty.responsible ?? []).some((w) => w.toLowerCase() === (workNo?.toLowerCase() ?? ''))
-            const effectiveEnd = duty.expected_end_date
-            const isOverdue = effectiveEnd && new Date(effectiveEnd) < new Date(new Date().toISOString().slice(0, 10))
             const canAct = isCreator || isResponsible
+            if (duty.status !== 0 || !canAct) return null
             return (
               <div className="flex flex-wrap gap-2 mb-1">
-                {/* 編輯：草稿 + 建立人或負責人 */}
-                {duty.status === 0 && canAct && (
-                  <Button size="small" onClick={openEditModal}>編輯資訊</Button>
-                )}
-                {/* 需求任務（standalone_req_id）：草稿 → 提交審核（不可自行激活） */}
-                {duty.status === 0 && canAct && duty.standalone_req_id && (
-                  <Button type="primary" size="small"
-                    style={{ background: '#7c3aed' }}
-                    onClick={openReqReviewModal}>
+                <Button size="small" onClick={openEditModal}>編輯資訊</Button>
+                {duty.standalone_req_id && (
+                  <Button type="primary" size="small" style={{ background: '#7c3aed' }} onClick={openReqReviewModal}>
                     提交審核
                   </Button>
                 )}
-                {/* 普通AR任務：草稿 + 建立人或負責人 → 激活 */}
-                {duty.status === 0 && canAct && !duty.standalone_req_id && (
-                  <Button type="primary" size="small" loading={isActing}
-                    style={{ background: '#2563eb' }}
-                    onClick={openActivateModal}>
+                {!duty.standalone_req_id && (
+                  <Button type="primary" size="small" loading={isActing} style={{ background: '#2563eb' }} onClick={openActivateModal}>
                     激活任務
-                  </Button>
-                )}
-                {/* 延期：超時 + 進行中/未開始/搁置 + 建立人或負責人 */}
-                {isOverdue && [1, 6, 8].includes(duty.status) && canAct && (
-                  <Button size="small" danger onClick={() => {
-                    rescheduleForm.setFieldsValue({ new_end_date: '', reason: '' })
-                    setShowRescheduleModal(true)
-                  }}>
-                    延期
-                  </Button>
-                )}
-                {/* 擱置：進行中 + 建立人 */}
-                {duty.status === 1 && isCreator && (
-                  <Popconfirm title="確認擱置此任務？" onConfirm={() => doAction(() => dutyApi.hold(duty.id))} okText="確認" cancelText="取消">
-                    <Button size="small" loading={isActing}>擱置</Button>
-                  </Popconfirm>
-                )}
-                {/* 恢復：擱置 + 建立人 */}
-                {duty.status === 8 && isCreator && (
-                  <Button size="small" loading={isActing}
-                    onClick={() => doAction(() => dutyApi.resume(duty.id))}>
-                    恢復進行中
                   </Button>
                 )}
               </div>
@@ -537,7 +538,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
                 </Descriptions.Item>
               )}
               {duty.describe && (
-                <Descriptions.Item label="描述" span={2}>{duty.describe}</Descriptions.Item>
+                <Descriptions.Item label="描述" span={2}><RichTextContent html={duty.describe} /></Descriptions.Item>
               )}
             </Descriptions>
           </Card>

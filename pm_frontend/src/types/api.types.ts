@@ -296,14 +296,15 @@ export interface CreateDutyPayload {
 }
 
 export interface DutyListQuery {
-  page:              number
-  size?:             number
-  keyword?:          string
-  status?:           number
-  priority?:         number
-  responsible?:      string
+  page:               number
+  size?:              number
+  keyword?:           string
+  status?:            number
+  priority?:          number
+  responsible?:       string
   standalone_req_id?: string
-  system_id?:        string
+  system_id?:         string
+  scope?:             'mine' | 'supervisor'
 }
 
 // ─── Review / Apply ───────────────────────────────────────────────────────────
@@ -446,8 +447,8 @@ export interface CountersignPayload {
 
 // ─── Requirement ──────────────────────────────────────────────────────────────
 
-export type RequirementStatus = 0 | 1 | 2 | 3 | 8 | 9
-// 0=草稿 1=審核中 2=已通過 3=已拒絕 8=搁置 9=已刪除
+export type RequirementStatus = 0 | 1 | 2 | 3 | 4 | 8 | 9
+// 0=草稿 1=審核中 2=已通過 3=已拒絕 4=已完結 8=搁置 9=已刪除
 
 export interface Requirement {
   id: string
@@ -456,6 +457,8 @@ export interface Requirement {
   describe?: string
   priority: number
   status: RequirementStatus
+  progress?: number
+  responsible?: string[]
   creator: string
   creator_nm?: string
   expected_benefit?: string
@@ -471,6 +474,7 @@ export interface CreateRequirementPayload {
   req_nm: string
   describe?: string
   priority: number
+  responsible?: string[]
   expected_benefit?: string
   benefit_amount?: number
   benefit_unit?: string

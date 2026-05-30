@@ -34,6 +34,7 @@ class DutyCreateApi(MethodView):
         """创建AR"""
         work_no = get_identity()
         payload = request.form.to_dict()
+        payload["responsible"] = request.form.getlist("responsible")
         return response_result(content=ctrl.create_duty(payload, creator=work_no))
 
 
@@ -51,6 +52,7 @@ class DutyDetailApi(MethodView):
         """更新AR"""
         work_no = get_identity()
         payload = request.form.to_dict()
+        payload["responsible"] = request.form.getlist("responsible")
         ctrl.update_duty(duty_id, payload, work_no=work_no)
         return response_result()
 

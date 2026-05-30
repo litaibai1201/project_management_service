@@ -276,7 +276,7 @@ class StandaloneReqController:
         return {"updated": [r.id for r in reqs], "count": len(reqs)}
 
     def review_result(self, req_id: str, payload: dict, work_no: str):
-        """審核結果：審核中(1) → 已通過(2) 或 已拒絕(3)"""
+        """審核結果：審核中(1) → 進行中(2) 或 已拒絕(3)"""
         r = db.session.query(StandaloneReqModel).filter_by(id=req_id).first()
         if not r or r.req_status == 9:
             raise ResourceNotFoundException(resource_type="需求")

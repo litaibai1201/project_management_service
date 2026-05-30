@@ -1,10 +1,11 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react'
 import {
   Drawer, Descriptions, Progress, Button, Form, Input, InputNumber,
-  Timeline, Avatar, Typography, Tag, Upload, Spin, Divider, Steps, Select, Modal, Popover, Tooltip,
+  Timeline, Avatar, Typography, Tag, Upload, Spin, Divider, Steps, Select, Modal, Popover, Tooltip, Popconfirm,
 } from 'antd'
 import { PlusIcon, PaperClipIcon, PencilSquareIcon, CalendarDaysIcon, ClockIcon, ArrowsPointingOutIcon } from '@heroicons/react/24/outline'
 import RichTextEditor from '@/components/common/RichTextEditor'
+import RichTextContent from '@/components/common/RichTextContent'
 import AttachmentPreview from '@/components/ui/AttachmentPreview'
 import FilePreviewModal from './FilePreviewModal'
 import type { UploadFile } from 'antd'
@@ -87,9 +88,7 @@ const RescheduleButton: React.FC<{
         </div>
       }
     >
-      <Button size="small" type="text" danger className="mb-3" icon={<ClockIcon className="w-3.5 h-3.5" />}>
-        任務已超期，點擊延期
-      </Button>
+      <Button size="small">延期</Button>
     </Popover>
   )
 }
@@ -288,6 +287,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
   const isResponsible     = (funcData?.responsible ?? []).map((r) => r.toLowerCase()).includes(workNo.toLowerCase())
   const canUpdateProgress = projectStatus === 5 && !isCompleted && !isReviewing && isResponsible
   const canEdit           = isProjectPm && !isCompleted
+  const canHold           = !!projectPm && workNo.toLowerCase() === projectPm.toLowerCase() && projectStatus === 5
 
   const token = tokenStorage.get()
   const withToken = (url: string) => token ? `${url}?token=${token}` : url
@@ -328,6 +328,32 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
             <Button icon={<PencilSquareIcon className="w-4 h-4" />} size="small" onClick={handleEditOpen}>
               編輯
             </Button>
+          )}
+          {!canEdit && !!projectPm && workNo.toLowerCase() === projectPm.toLowerCase() &&
+            funcData && funcData.status !== 4 && funcData.status !== 8 && funcData.status !== 9 &&
+            funcData.expected_end_date && funcData.expected_end_date < new Date().toISOString().slice(0, 10) && (
+            <RescheduleButton projectId={projectId} functionId={functionId}
+              currentEnd={funcData.expected_end_date} onSuccess={loadData} />
+          )}
+          {canHold && funcData && [1, 2].includes(funcData.status) && (
+            <Popconfirm title="確認搁置此任務？" onConfirm={async () => {
+              await projectApi.setFunctionStatus(projectId, functionId, 8)
+              showToast.success('已搁置')
+              loadData()
+              onRefresh?.()
+            }} okText="確認" cancelText="取消">
+              <Button size="small">搁置</Button>
+            </Popconfirm>
+          )}
+          {canHold && funcData?.status === 8 && (
+            <Popconfirm title="確認恢復此任務為進行中？" onConfirm={async () => {
+              await projectApi.setFunctionStatus(projectId, functionId, 2)
+              showToast.success('已恢復進行中')
+              loadData()
+              onRefresh?.()
+            }} okText="確認" cancelText="取消">
+              <Button size="small" type="primary" style={{ background: '#2563eb' }}>恢復進行中</Button>
+            </Popconfirm>
           )}
           {canUpdateProgress && (
             <Button type="primary" icon={<PlusIcon className="w-4 h-4" />} size="small"
@@ -392,19 +418,10 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
               </div>
             </Descriptions.Item>
             {funcData.describe && (
-              <Descriptions.Item label="描述" span={2}>{funcData.describe}</Descriptions.Item>
+              <Descriptions.Item label="描述" span={2}><RichTextContent html={funcData.describe} /></Descriptions.Item>
             )}
           </Descriptions>
 
-          {/* ── Reschedule (delay) button — PM only, shown when task is overdue ── */}
-          {(() => {
-            const endStr = funcData.expected_end_date
-            const isOverdue = endStr && new Date(endStr) < new Date(new Date().toISOString().slice(0, 10))
-            const taskNotClosed = funcData.status !== 4 && funcData.status !== 9
-            const isPm = !!projectPm && workNo.toLowerCase() === projectPm.toLowerCase()
-            if (!isOverdue || !taskNotClosed || !isPm) return null
-            return <RescheduleButton projectId={projectId} functionId={funcData.id} currentEnd={endStr} onSuccess={loadData} />
-          })()}
 
           {/* ── Reschedule history timeline ── */}
           {(funcData.reschedule_history ?? []).length > 0 && (

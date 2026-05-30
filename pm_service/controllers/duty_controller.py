@@ -6,21 +6,66 @@ from utils.tools import CommonTools
 from utils.exceptions import ResourceNotFoundException, PermissionException, BusinessException, ValidationException
 from dbs.mysql_db import db
 from dbs.mysql_db.model_tables import (
-    TemporaryDutyModel, DutyProgressRecordModel, ReviewApplyModel, SystemModel
+    TemporaryDutyModel, DutyProgressRecordModel, ReviewApplyModel, SystemModel, StandaloneReqModel, HierarchyModel
 )
 
 
 class DutyController:
 
+    @staticmethod
+    def _sync_req_progress(standalone_req_id: str):
+        """根据绑定任务重算需求进度，并自动切换 進行中/已完結 状态"""
+        req = db.session.query(StandaloneReqModel).filter_by(id=standalone_req_id).first()
+        if not req or req.req_status not in (2, 4):
+            return
+        duties = db.session.query(TemporaryDutyModel).filter(
+            TemporaryDutyModel.standalone_req_id == standalone_req_id,
+            TemporaryDutyModel.duty_status != 9,
+        ).all()
+        if not duties:
+            req.progress = 0
+            req.req_status = 2
+        else:
+            avg = round(sum(d.progress or 0 for d in duties) / len(duties))
+            req.progress = avg
+            req.req_status = 4 if avg >= 100 else 2
+        req.updated_at = CommonTools.get_now()
+
     def list_duties(self, payload: dict, work_no: str = None):
+        from sqlalchemy import or_
         page = payload.get("page", 1)
         size = payload.get("size", 20)
         keyword = payload.get("keyword", "")
         status = payload.get("status")
         priority = payload.get("priority")
         responsible = payload.get("responsible", "")
+        scope = payload.get("scope", "")  # 'mine' | 'supervisor' | '' (all)
 
         q = db.session.query(TemporaryDutyModel).filter(TemporaryDutyModel.duty_status != 9)
+
+        # ── 範圍篩選（僅對純 AR 任務生效；需求任務 standalone_req_id IS NOT NULL 始終保留）──
+        if scope and work_no:
+            if scope == 'mine':
+                # 非主管：需求任務全部保留；AR 任務只看自己建立或自己是責任人的
+                q = q.filter(or_(
+                    TemporaryDutyModel.standalone_req_id.isnot(None),
+                    TemporaryDutyModel.creator == work_no,
+                    TemporaryDutyModel.responsible.like(f'%"{work_no}"%'),
+                ))
+            elif scope == 'supervisor':
+                # 主管：需求任務全部保留；AR 任務看自己和下屬的
+                subordinates = [r[0] for r in db.session.query(HierarchyModel.subordinate_work_no).filter(
+                    HierarchyModel.supervisor_work_no == work_no,
+                ).all()]
+                all_nos = [work_no] + subordinates
+                creator_filters = [TemporaryDutyModel.creator == no for no in all_nos]
+                resp_filters    = [TemporaryDutyModel.responsible.like(f'%"{no}"%') for no in all_nos]
+                q = q.filter(or_(
+                    TemporaryDutyModel.standalone_req_id.isnot(None),
+                    *creator_filters,
+                    *resp_filters,
+                ))
+
         if keyword:
             q = q.filter(TemporaryDutyModel.duty_nm.like(f"%{keyword}%"))
         if status is not None:
@@ -89,6 +134,10 @@ class DutyController:
         )
         db.session.add(d)
         db.session.commit()
+        # 新增任務后重算需求进度（可能从已完結回到進行中）
+        if d.standalone_req_id:
+            self._sync_req_progress(d.standalone_req_id)
+            db.session.commit()
         # 通知非建立人的負責人
         from controllers.notification_controller import push_notification
         from dbs.mysql_db.model_tables import UserProfileModel
@@ -452,25 +501,39 @@ class DutyController:
             )
 
     def hold_duty(self, duty_id: str, work_no: str):
-        """進行中 → 擱置（建立人）"""
+        """進行中/未開始 → 擱置（需求任務：需求責任人；普通AR：建立人或負責人）"""
         d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
         if not d or d.duty_status == 9:
             raise ResourceNotFoundException(resource_type="AR")
-        if d.creator != work_no:
-            raise PermissionException("只有建立人可以擱置任務")
-        if d.duty_status != 1:
-            raise BusinessException("僅進行中狀態可擱置")
+        if d.standalone_req_id:
+            req = db.session.query(StandaloneReqModel).filter_by(id=d.standalone_req_id).first()
+            req_responsible = json.loads(req.responsible) if req and req.responsible else []
+            if work_no not in req_responsible:
+                raise PermissionException("只有需求責任人可以擱置需求任務")
+        else:
+            responsible = json.loads(d.responsible) if d.responsible else []
+            if d.creator != work_no and work_no not in responsible:
+                raise PermissionException("只有建立人或負責人可以擱置任務")
+        if d.duty_status not in (1, 6):
+            raise BusinessException("僅進行中或未開始狀態可擱置")
         d.duty_status = 8
         d.update_at = CommonTools.get_now()
         db.session.commit()
 
     def resume_duty(self, duty_id: str, work_no: str):
-        """擱置 → 進行中（建立人）"""
+        """擱置 → 進行中（需求任務：需求責任人；普通AR：建立人或負責人）"""
         d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
         if not d or d.duty_status == 9:
             raise ResourceNotFoundException(resource_type="AR")
-        if d.creator != work_no:
-            raise PermissionException("只有建立人可以恢復任務")
+        if d.standalone_req_id:
+            req = db.session.query(StandaloneReqModel).filter_by(id=d.standalone_req_id).first()
+            req_responsible = json.loads(req.responsible) if req and req.responsible else []
+            if work_no not in req_responsible:
+                raise PermissionException("只有需求責任人可以恢復需求任務")
+        else:
+            responsible = json.loads(d.responsible) if d.responsible else []
+            if d.creator != work_no and work_no not in responsible:
+                raise PermissionException("只有建立人或負責人可以恢復任務")
         if d.duty_status != 8:
             raise BusinessException("僅擱置狀態可恢復")
         d.duty_status = 1
@@ -705,6 +768,10 @@ class DutyController:
         d.progress = payload["progress"]
         d.update_at = CommonTools.get_now()
         db.session.commit()
+        # 同步需求进度（如属于需求任务）
+        if d.standalone_req_id:
+            self._sync_req_progress(d.standalone_req_id)
+            db.session.commit()
 
     def get_review_list(self, page=1, size=20, work_no=None):
         from controllers.project_controller import ProjectController

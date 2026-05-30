@@ -13,7 +13,7 @@ export interface StandaloneReq {
   req_nm:            string
   describe:          string
   priority:          number
-  status:            number   // 0=草稿 1=審核中 2=已通過 3=已拒絕 8=搁置 9=已刪除
+  status:            number   // 0=草稿 1=審核中 2=進行中 3=已拒絕 4=已完結 8=搁置 9=已刪除
   system_id:         string
   system_nm?:        string
   creator:           string
@@ -21,6 +21,7 @@ export interface StandaloneReq {
   reviewer:          string
   reviewer_nm?:      string
   responsible:       string[]
+  progress:          number
   expected_end_date: string
   expected_benefit?: string
   benefit_amount?:   number | null

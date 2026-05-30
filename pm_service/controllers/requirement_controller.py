@@ -6,11 +6,30 @@ from utils.tools import CommonTools
 from utils.exceptions import ResourceNotFoundException, BusinessException, PermissionException
 from dbs.mysql_db import db
 from dbs.mysql_db.model_tables import (
-    RequirementModel, ProjectDataModel, ReviewApplyModel, UserProfileModel,
+    RequirementModel, ProjectDataModel, ReviewApplyModel, UserProfileModel, FunctionDataModel,
 )
 
 
 class RequirementController:
+
+    @staticmethod
+    def _sync_project_req_progress(req_id: str):
+        """根据关联任务重算专案需求进度，并自动切换已完結状态"""
+        req = db.session.query(RequirementModel).filter_by(id=req_id).first()
+        if not req or req.req_status not in (2, 4):
+            return
+        funcs = db.session.query(FunctionDataModel).filter(
+            FunctionDataModel.requirement_id == req_id,
+            FunctionDataModel.function_status != 9,
+        ).all()
+        if not funcs:
+            req.progress = 0
+            req.req_status = 2
+        else:
+            avg = round(sum(f.progress or 0 for f in funcs) / len(funcs))
+            req.progress = avg
+            req.req_status = 4 if avg >= 100 else 2
+        req.update_at = CommonTools.get_now()
 
     # ── 列表 ────────────────────────────────────────────────────────────────────
 
@@ -110,12 +129,21 @@ class RequirementController:
         if p.project_status not in (1, 5):
             raise PermissionException(msg="只有草稿或執行中階段的專案可以新增需求")
 
+        resp = payload.get("responsible", [])
+        if isinstance(resp, str):
+            try:
+                resp = json.loads(resp)
+            except Exception:
+                resp = [resp] if resp else []
+        resp = [str(w).strip().lower() for w in (resp if isinstance(resp, list) else []) if w]
+
         req = RequirementModel(
             project_id=project_id,
             req_nm=payload["req_nm"],
             describe=payload.get("describe", ""),
             priority=payload.get("priority", 2),
             creator=creator,
+            responsible_json=json.dumps(resp, ensure_ascii=False),
             expected_benefit=payload.get("expected_benefit", ""),
             benefit_amount=payload.get("benefit_amount"),
             benefit_unit=payload.get("benefit_unit", "元/年"),
@@ -145,6 +173,15 @@ class RequirementController:
                 setattr(r, field, payload[field])
         if "files" in payload:
             r.files_json = json.dumps(payload["files"], ensure_ascii=False)
+        if "responsible" in payload:
+            resp = payload["responsible"] or []
+            if isinstance(resp, str):
+                try:
+                    resp = json.loads(resp)
+                except Exception:
+                    resp = [resp] if resp else []
+            resp = [str(w).strip().lower() for w in (resp if isinstance(resp, list) else []) if w]
+            r.responsible_json = json.dumps(resp, ensure_ascii=False)
         r.update_at = CommonTools.get_now()
         db.session.commit()
         return r.to_dict()

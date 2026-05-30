@@ -1045,6 +1045,10 @@ class ProjectController:
                     if active_funcs and proj:
                         proj.progress = sum(fn.progress or 0 for fn in active_funcs) // len(active_funcs)
                         proj.update_at = now
+                # Sync requirement progress if this function belongs to a requirement
+                if func.requirement_id:
+                    from controllers.requirement_controller import RequirementController
+                    RequirementController._sync_project_req_progress(func.requirement_id)
         # 同步更新专案状态（仅专案级别的申请）
         elif r.project_id:
             p = db.session.query(ProjectDataModel).filter_by(id=r.project_id).first()
@@ -2018,6 +2022,10 @@ class FunctionController:
             if active_funcs:
                 project.progress = sum(fn.progress or 0 for fn in active_funcs) // len(active_funcs)
                 project.update_at = now
+            # Sync requirement progress if this function belongs to a requirement
+            if f.requirement_id:
+                from controllers.requirement_controller import RequirementController
+                RequirementController._sync_project_req_progress(f.requirement_id)
             db.session.commit()
             # 通知所有责任人任务已完结
             notif_targets = [w for w in resp_snap if w != project_pm]
@@ -2319,6 +2327,10 @@ class FunctionController:
             if project:
                 project.progress = sum(int(f.progress or 0) for f in active_funcs) // len(active_funcs)
                 project.update_at = CommonTools.get_now()
+        # Sync requirement progress if this function belongs to a requirement
+        if func and func.requirement_id:
+            from controllers.requirement_controller import RequirementController
+            RequirementController._sync_project_req_progress(func.requirement_id)
         db.session.commit()
         return {"progress_id": rec.progress_id}
 

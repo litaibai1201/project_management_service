@@ -43,8 +43,9 @@ const PRIORITY_OPTIONS = [
 const REQ_STATUS_MAP: Record<number, { label: string; color: string }> = {
   0: { label: '草稿',   color: 'default'    },
   1: { label: '審核中', color: 'processing' },
-  2: { label: '已通過', color: 'success'    },
+  2: { label: '進行中', color: 'blue'       },
   3: { label: '已拒絕', color: 'error'      },
+  4: { label: '已完結', color: 'success'    },
   8: { label: '搁置',   color: 'warning'    },
 }
 
@@ -132,6 +133,7 @@ const ProjectDetailPage: React.FC = () => {
   const [shelveReqId,            setShelveReqId]            = useState<string | null>(null)
   const [reqShelveSaving,        setReqShelveSaving]        = useState(false)
   const [reqShelveForm]                                     = Form.useForm()
+  const [reqUserOptions,         setReqUserOptions]         = useState<{ value: string; label: string }[]>([])
   const [selectedReqIds,         setSelectedReqIds]         = useState<string[]>([])
   const [showBatchReview,        setShowBatchReview]        = useState(false)
   const [batchReviewSaving,      setBatchReviewSaving]      = useState(false)
@@ -1393,7 +1395,15 @@ const ProjectDetailPage: React.FC = () => {
                     [1, 5].includes(current?.status ?? 0) && !isProjectLocked && (
                     <Button type="primary" icon={<PlusIcon className="w-4 h-4" />}
                       size="small" style={{ background: '#2563eb' }}
-                      onClick={() => { setEditReq(null); reqForm.resetFields(); setShowAddReq(true) }}>
+                      onClick={() => {
+                        setEditReq(null); reqForm.resetFields(); setShowAddReq(true)
+                        if (reqUserOptions.length === 0) {
+                          userApi.list({ page: 1, size: 2000 }).then((res) => {
+                            const data = (res.content as { data_list?: { work_no: string; name: string }[] }).data_list ?? []
+                            setReqUserOptions(data.map((u) => ({ value: u.work_no, label: `${u.name}（${u.work_no}）` })))
+                          }).catch(() => {})
+                        }
+                      }}>
                       新增需求
                     </Button>
                   )}
@@ -1460,6 +1470,19 @@ const ProjectDetailPage: React.FC = () => {
                       },
                     },
                     {
+                      title: '進度', dataIndex: 'progress', width: 110,
+                      render: (v: number, req: Requirement) => {
+                        if (req.status !== 2 && req.status !== 4) return <span className="text-slate-300 text-xs">—</span>
+                        return (
+                          <div className="flex items-center gap-2">
+                            <Progress percent={v ?? 0} size="small" showInfo={false} style={{ flex: 1 }}
+                              strokeColor={(v ?? 0) >= 100 ? '#16a34a' : '#2563eb'} trailColor="#f1f5f9" />
+                            <span className="text-xs text-slate-400">{v ?? 0}%</span>
+                          </div>
+                        )
+                      },
+                    },
+                    {
                       title: '優先級', dataIndex: 'priority', width: 72,
                       render: (v: number) => { const p = PRIORITY_MAP[v]; return p ? <Tag color={p.color} style={{ fontSize: 11 }}>{p.label}</Tag> : v },
                     },
@@ -1499,11 +1522,18 @@ const ProjectDetailPage: React.FC = () => {
                                       req_nm:           req.req_nm,
                                       describe:         req.describe,
                                       priority:         req.priority,
+                                      responsible:      req.responsible ?? [],
                                       expected_benefit: req.expected_benefit,
                                       benefit_amount:   req.benefit_amount,
                                       benefit_unit:     req.benefit_unit ?? '元/年',
                                       expected_end_date: req.expected_end_date,
                                     })
+                                    if (reqUserOptions.length === 0) {
+                                      userApi.list({ page: 1, size: 2000 }).then((res) => {
+                                        const data = (res.content as { data_list?: { work_no: string; name: string }[] }).data_list ?? []
+                                        setReqUserOptions(data.map((u) => ({ value: u.work_no, label: `${u.name}（${u.work_no}）` })))
+                                      }).catch(() => {})
+                                    }
                                     setShowAddReq(true)
                                   }}
                                 />
@@ -2025,6 +2055,13 @@ const ProjectDetailPage: React.FC = () => {
               <Input type="date" />
             </Form.Item>
           </div>
+          <Form.Item name="responsible" label="負責人">
+            <Select
+              mode="multiple" placeholder="選擇負責人（選填）"
+              options={reqUserOptions} showSearch allowClear
+              filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
+            />
+          </Form.Item>
           <Form.Item label="效益數量" style={{ marginBottom: 8 }}>
             <Form.Item name="benefit_amount" noStyle>
               <InputNumber
@@ -2354,7 +2391,7 @@ const ProjectDetailPage: React.FC = () => {
               placeholder={reqLoading ? '載入中…' : requirements.length === 0 ? '暫無需求' : '選擇關聯需求（可不選）'}
               loading={reqLoading}
               disabled={reqLoading}
-              options={requirements.filter((r) => r.status === 2).map((r) => ({ value: r.id, label: r.req_nm }))}
+              options={requirements.filter((r) => r.status === 2 || r.status === 4).map((r) => ({ value: r.id, label: r.req_nm }))}
               notFoundContent={reqLoading ? '載入中…' : '暫無已通過審核的需求'}
             />
           </Form.Item>

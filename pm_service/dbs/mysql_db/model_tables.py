@@ -281,9 +281,11 @@ class RequirementModel(BaseMixinModel):
     req_nm        = db.Column(db.String(128), nullable=False, comment="需求名称")
     describe      = db.Column(db.Text, comment="需求描述")
     priority      = db.Column(db.Integer, default=2, comment="优先级(1低2中3高4紧急)")
-    # 0=草稿 1=审核中 2=已通过 3=已拒绝 9=已删除
+    # 0=草稿 1=审核中 2=已通过 3=已拒绝 4=已完结 8=搁置 9=已删除
     req_status    = db.Column(db.Integer, default=0, comment="需求状态")
+    progress      = db.Column(db.Integer, default=0, comment="进度(0-100，由关联任务自动计算)")
     creator       = db.Column(db.String(32), comment="创建人工号")
+    responsible_json  = db.Column(db.Text,       comment="负责人工号列表(JSON数组)")
     expected_benefit  = db.Column(db.Text,      comment="效益描述")
     benefit_amount    = db.Column(db.Float,      comment="预计效益数量")
     benefit_unit      = db.Column(db.String(10), default="元/年", comment="效益单位")
@@ -297,6 +299,12 @@ class RequirementModel(BaseMixinModel):
                 files = json.loads(self.files_json)
             except Exception:
                 pass
+        responsible = []
+        if self.responsible_json:
+            try:
+                responsible = json.loads(self.responsible_json)
+            except Exception:
+                pass
         return {
             "id":                   self.id,
             "project_id":           self.project_id,
@@ -304,6 +312,8 @@ class RequirementModel(BaseMixinModel):
             "describe":             self.describe or "",
             "priority":             self.priority,
             "status":               self.req_status,
+            "progress":             self.progress or 0,
+            "responsible":          responsible,
             "creator":              self.creator or "",
             "expected_benefit":     self.expected_benefit or "",
             "benefit_amount":       self.benefit_amount,
@@ -731,8 +741,9 @@ class StandaloneReqModel(BaseMixinModel):
     req_nm            = db.Column(db.String(128), nullable=False, comment="需求名称")
     describe          = db.Column(db.Text, comment="需求描述")
     priority          = db.Column(db.Integer, default=2, comment="优先级(1低2中3高4紧急)")
-    # 0=草稿 1=審核中 2=已通過 3=已拒絕 8=搁置 9=已刪除
+    # 0=草稿 1=審核中 2=進行中 3=已拒絕 4=已完結 8=搁置 9=已刪除
     req_status        = db.Column(db.Integer, default=0, comment="需求状态")
+    progress          = db.Column(db.Integer, default=0, comment="需求进度(0-100，由绑定任务自动计算)")
     system_id         = db.Column(db.String(32), nullable=False, comment="关联系统ID")
     creator           = db.Column(db.String(32), comment="创建人工号")
     reviewer           = db.Column(db.String(32), comment="审核人工号(首位)")
@@ -767,6 +778,7 @@ class StandaloneReqModel(BaseMixinModel):
             "reviewer":           self.reviewer or "",
             "reviewer_chain":     json.loads(self.reviewer_chain_json) if self.reviewer_chain_json else [],
             "responsible":        resp,
+            "progress":           self.progress or 0,
             "expected_end_date":  self.expected_end_date or "",
             "expected_benefit":   self.expected_benefit or "",
             "benefit_amount":     self.benefit_amount,

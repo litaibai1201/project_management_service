@@ -135,13 +135,13 @@ const APPLY_TYPE_META: Record<string, {
   },
   standalone_req_review: {
     what:    '申請人提交了系統需求，申請審核通過後方可建立關聯AR任務',
-    approve: '通過後，需求狀態變為「已通過」，可建立關聯此需求的AR任務',
+    approve: '通過後，需求狀態變為「進行中」，可建立關聯此需求的AR任務',
     reject:  '拒絕後，需求退回草稿狀態，申請人可修改後重新提交',
     icon:    '🖥️',
   },
   standalone_req_batch_review: {
     what:    '申請人批量提交了多條系統需求，申請一次審核通過所有需求',
-    approve: '通過後，所有需求狀態變為「已通過」，可建立關聯AR任務',
+    approve: '通過後，所有需求狀態變為「進行中」，可建立關聯AR任務',
     reject:  '拒絕後，所有需求退回草稿狀態，申請人可修改後重新提交',
     icon:    '🖥️',
   },

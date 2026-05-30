@@ -19,8 +19,9 @@ import { PROJECT_STATUS_MAP, DUTY_STATUS_MAP, FUNCTION_STATUS_MAP, PRIORITY_MAP 
 const REQ_STATUS_MAP: Record<number, { label: string; dot: string }> = {
   0: { label: '草稿',   dot: '#94a3b8' },
   1: { label: '審核中', dot: '#3b82f6' },
-  2: { label: '已通過', dot: '#16a34a' },
+  2: { label: '進行中', dot: '#2563eb' },
   3: { label: '已拒絕', dot: '#ef4444' },
+  4: { label: '已完結', dot: '#16a34a' },
   8: { label: '搁置',   dot: '#f59e0b' },
 }
 

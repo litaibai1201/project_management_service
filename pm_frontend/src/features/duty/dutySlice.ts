@@ -21,7 +21,7 @@ const initialState: DutyState = {
   isLoading:  false,
   isSaving:   false,
   error:      null,
-  query:      { page: 1, size: 10 },
+  query:      { page: 1, size: 200 },
 }
 
 export const fetchDutyListThunk = createAsyncThunk(

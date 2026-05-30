@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useCallback } from 'react'
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Table, Button, Input, Select, Space, Tooltip, Popconfirm,
@@ -6,16 +6,19 @@ import {
 } from 'antd'
 import RichTextEditor from '@/components/common/RichTextEditor'
 import type { ColumnsType } from 'antd/es/table'
+import type { InputRef } from 'antd'
 import { useResizableColumns, tableComponents } from '@/hooks/useResizableColumns'
-import { PlusIcon, MagnifyingGlassIcon, TrashIcon, EyeIcon, FolderIcon, ArrowsPointingOutIcon } from '@heroicons/react/24/outline'
+import { PlusIcon, MagnifyingGlassIcon, TrashIcon, EyeIcon, FolderIcon, ArrowsPointingOutIcon, PencilSquareIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
 import { fetchDutyListThunk, deleteDutyThunk, setDutyQuery, createDutyThunk } from './dutySlice'
-import { TemporaryDuty, ProjectFunction } from '@/types/api.types'
+import { TemporaryDuty, ProjectFunction, UserProfile } from '@/types/api.types'
 import { DUTY_STATUS_MAP, PRIORITY_MAP, FUNCTION_STATUS_MAP } from '@/utils/status'
 import { showToast } from '@/utils/toast'
 import { projectApi } from '@/api/project.api'
+import { dutyApi } from '@/api/duty.api'
 import { userApi } from '@/api/user.api'
 import { systemApi, type SystemItem } from '@/api/system.api'
+import { standaloneReqApi, type StandaloneReq } from '@/api/standalone_req.api'
 import { useWorkNoToName } from '@/hooks/useWorkNoToName'
 import FunctionDetailDrawer from '@/features/project/FunctionDetailDrawer'
 import DutyDetailDrawer from './DutyDetailDrawer'
@@ -58,7 +61,7 @@ const DutyListPage: React.FC = () => {
   const toName = useWorkNoToName()
 
   // ── Tab ───────────────────────────────────────────────────────────────────
-  const [activeTab, setActiveTab] = useState<'project' | 'duty'>('project')
+  const [activeTab, setActiveTab] = useState<'project' | 'system' | 'duty'>('project')
 
   // ── 專案任務 state ────────────────────────────────────────────────────────
   const [myFunctions,    setMyFunctions]    = useState<MyFunction[]>([])
@@ -94,7 +97,8 @@ const DutyListPage: React.FC = () => {
   )
 
   // ── 顯示控制 ─────────────────────────────────────────────────────────────
-  const [hideCompleted, setHideCompleted] = useState(true)
+  const [hideCompleted,    setHideCompleted]    = useState(true)
+  const [funcShowHeld,     setFuncShowHeld]     = useState(false)
 
   // ── 專案任務篩選結果 ───────────────────────────────────────────────────────
   const filteredMyFunctions = useMemo(() => {
@@ -103,11 +107,12 @@ const DutyListPage: React.FC = () => {
       (f.responsible ?? []).some((wn) => wn.toLowerCase() === workNo.toLowerCase())
     )
     if (hideCompleted)       result = result.filter((f) => f.status !== 4)
+    if (!funcShowHeld)       result = result.filter((f) => f.status !== 8)
     if (myFuncProject)       result = result.filter((f) => f.project_id === myFuncProject)
     if (myFuncGroup)         result = result.filter((f) => f.group1 === myFuncGroup)
     if (myFuncResponsible)   result = result.filter((f) => (f.responsible ?? []).includes(myFuncResponsible))
     return result
-  }, [myFunctions, myFuncPersonal, hideCompleted, myFuncProject, myFuncGroup, myFuncResponsible, workNo])
+  }, [myFunctions, myFuncPersonal, hideCompleted, funcShowHeld, myFuncProject, myFuncGroup, myFuncResponsible, workNo])
 
   // ── 專案任務分組視圖 ───────────────────────────────────────────────────────
   const groupedMyFunctions = useMemo(() => {
@@ -141,9 +146,31 @@ const DutyListPage: React.FC = () => {
 
   useEffect(() => { if (activeTab === 'project') loadMyFunctions(1, myFuncPageSize, myFuncStatus, myFuncScope) }, [activeTab, isManagerView])
 
+  // ── 系統任務 state ────────────────────────────────────────────────────────
+  const [sysTaskView,        setSysTaskView]        = useState<'all' | 'mine'>('all')
+  const [sysTaskGroupMode,   setSysTaskGroupMode]   = useState<'flat' | 'grouped'>('flat')
+  const [sysTaskStatus,      setSysTaskStatus]      = useState<number | undefined>()
+  const [sysTaskSystem,      setSysTaskSystem]      = useState<string | undefined>()
+  const [sysTaskReq,         setSysTaskReq]         = useState<string | undefined>()
+  const [sysTaskResponsible, setSysTaskResponsible] = useState<string | undefined>()
+  const [sysTaskGroup,       setSysTaskGroup]       = useState<string | undefined>()
+  const [sysHideCompleted,   setSysHideCompleted]   = useState(true)
+  const [sysShowHeld,        setSysShowHeld]        = useState(false)
+  const [reqNameMap,         setReqNameMap]         = useState<Record<string, string>>({})
+  const [sysOpenGroups,      setSysOpenGroups]      = useState<string[]>([])
+
+  // ── AR 快速設定負責人 ─────────────────────────────────────────────────
+  const [arQuickResp,      setArQuickResp]      = useState<{ did: string; persons: UserProfile[] } | null>(null)
+  const [arQuickSaving,    setArQuickSaving]    = useState(false)
+  const [arRespKw,         setArRespKw]         = useState('')
+  const [arRespResult,     setArRespResult]     = useState<UserProfile | null | false>(null)
+  const [arRespSearching,  setArRespSearching]  = useState(false)
+  const [arRespPreloading, setArRespPreloading] = useState(false)
+  const arRespRef = useRef<InputRef>(null)
+
   // ── AR state ────────────────────────────────────────────────────────
-  const dutyView = isManagerView ? 'all' : 'mine'
-  const [groupMode, setGroupMode]       = useState<'flat' | 'grouped'>('grouped')
+  const arScope = isManagerView ? 'supervisor' : 'mine'
+  const [groupMode, setGroupMode]       = useState<'flat' | 'grouped'>('flat')
   const [dutyOpenGroups, setDutyOpenGroups] = useState<string[]>([])
   const [filterGroup, setFilterGroup]   = useState<string | null>(null)
   const [showHeld, setShowHeld]       = useState(false)
@@ -172,7 +199,7 @@ const DutyListPage: React.FC = () => {
     }
     // 通知跳轉：切換到 duty tab 並打開指定任務抽屜
     const tab = searchParams.get('tab')
-    if (tab === 'duty') setActiveTab('duty')
+    if (tab === 'duty' || tab === 'system') setActiveTab(tab)
     const dutyId = searchParams.get('dutyId')
     if (dutyId) setSelectedDutyId(dutyId)
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -196,24 +223,79 @@ const DutyListPage: React.FC = () => {
     }
   }, [modalUserOptions.length, modalSystemOptions.length])
 
-  const myList = useMemo(
-    () => list.filter((d) =>
-      d.creator?.toLowerCase() === workNo.toLowerCase() ||
-      (d.responsible ?? []).some((wn) => wn.toLowerCase() === workNo.toLowerCase())
-    ),
-    [list, workNo],
+  // ── 系統任務計算 ──────────────────────────────────────────────────────────
+  const sysTaskList = useMemo(() => list.filter((d) => !!d.standalone_req_id), [list])
+  const displayedSysTasks = useMemo(() => {
+    let result = sysTaskView === 'mine'
+      ? sysTaskList.filter((d) => (d.responsible ?? []).some((wn) => wn.toLowerCase() === workNo.toLowerCase()))
+      : sysTaskList
+    if (sysHideCompleted)      result = result.filter((d) => d.status !== 3)
+    if (!sysShowHeld)          result = result.filter((d) => d.status !== 8)
+    if (sysTaskStatus != null) result = result.filter((d) => d.status === sysTaskStatus)
+    if (sysTaskSystem)         result = result.filter((d) => d.system_nm === sysTaskSystem)
+    if (sysTaskReq)            result = result.filter((d) => d.standalone_req_id === sysTaskReq)
+    if (sysTaskResponsible)    result = result.filter((d) => (d.responsible ?? []).includes(sysTaskResponsible))
+    if (sysTaskGroup)          result = result.filter((d) => (d.group ?? '未分組') === sysTaskGroup)
+    return result
+  }, [sysTaskList, sysTaskView, workNo, sysHideCompleted, sysShowHeld, sysTaskStatus, sysTaskSystem, sysTaskReq, sysTaskResponsible, sysTaskGroup])
+  const groupedSysTasks = useMemo(() => {
+    const map = new Map<string, TemporaryDuty[]>()
+    displayedSysTasks.forEach((d) => {
+      const g = d.group || '未分組'
+      if (!map.has(g)) map.set(g, [])
+      map.get(g)!.push(d)
+    })
+    return [...map.entries()].map(([name, items]) => ({
+      name,
+      items,
+      avgProgress: Math.round(items.reduce((s, d) => s + (d.progress ?? 0), 0) / items.length),
+      overdueCount: items.filter((d) => d.expected_end_date && dayjs(d.expected_end_date).isBefore(dayjs(), 'day') && d.status !== 3).length,
+    }))
+  }, [displayedSysTasks])
+  // filter options derived from full sysTaskList
+  const sysSystemOptions = useMemo(
+    () => Array.from(new Set(sysTaskList.map((d) => d.system_nm).filter(Boolean) as string[]))
+      .map((s) => ({ value: s, label: s })),
+    [sysTaskList],
+  )
+  const sysReqOptions = useMemo(
+    () => Array.from(new Set(sysTaskList.map((d) => d.standalone_req_id).filter(Boolean) as string[]))
+      .map((id) => ({ value: id, label: reqNameMap[id] || id })),
+    [sysTaskList, reqNameMap],
+  )
+  const sysResponsibleOptions = useMemo(
+    () => Array.from(new Set(sysTaskList.flatMap((d) => d.responsible ?? []).filter(Boolean)))
+      .map((wn) => ({ value: wn, label: toName(wn) })),
+    [sysTaskList, toName],
+  )
+  const sysGroupOptions = useMemo(
+    () => Array.from(new Set(sysTaskList.map((d) => d.group || '未分組').filter(Boolean)))
+      .map((g) => ({ value: g, label: g })),
+    [sysTaskList],
   )
 
-  // Apply view filter + personal filter + group filter
+  // Load req names when system tab is active
+  useEffect(() => {
+    if (activeTab !== 'system') return
+    standaloneReqApi.list({ page: 1, size: 500 }).then((res) => {
+      const c = res.content as { data_list: StandaloneReq[] }
+      const m: Record<string, string> = {}
+      ;(c.data_list ?? []).forEach((r) => { m[r.id] = r.req_nm })
+      setReqNameMap(m)
+    }).catch(() => {})
+  }, [activeTab])
+
+  // Apply personal filter + group filter (AR only: no standalone_req_id)
+  // scope is already applied by backend; dutyPersonal='mine' further filters to responsible-only
   const displayedList = useMemo(() => {
-    let result = dutyView === 'mine' ? myList : list
+    let result = list.filter((d) => !d.standalone_req_id)
     if (dutyPersonal === 'mine') result = result.filter((d) =>
       (d.responsible ?? []).some((wn) => wn.toLowerCase() === workNo.toLowerCase())
     )
     if (!showHeld) result = result.filter((d) => d.status !== 8)
     if (filterGroup) result = result.filter((d) => (d.group ?? '未分組') === filterGroup)
     return result
-  }, [dutyView, dutyPersonal, myList, list, filterGroup, showHeld, workNo])
+  }, [dutyPersonal, list, filterGroup, showHeld, workNo])
 
   // Unique groups from the full list
   const existingGroups = useMemo(
@@ -247,6 +329,11 @@ const DutyListPage: React.FC = () => {
     }))
   }, [displayedList])
 
+  // 同步 scope（主管/非主管）→ 觸發重新拉取
+  useEffect(() => {
+    dispatch(setDutyQuery({ scope: arScope, page: 1 }))
+  }, [dispatch, arScope])
+
   useEffect(() => { dispatch(fetchDutyListThunk(query)) }, [dispatch, query])
 
   const handleDelete = async (id: string) => {
@@ -274,6 +361,36 @@ const DutyListPage: React.FC = () => {
       setShowCreate(false); form.resetFields()
       dispatch(fetchDutyListThunk(query))
     } catch (err: unknown) { showToast.error((err as string) || '建立失敗') }
+  }
+
+  // ── AR 快速負責人搜尋 ──────────────────────────────────────────────────────
+  const handleArRespSearch = useCallback(async (kw: string) => {
+    const trimmed = kw.trim().toLowerCase()
+    if (trimmed.length < 4) { setArRespResult(null); return }
+    setArRespSearching(true); setArRespResult(null)
+    try {
+      const res = await userApi.getQuiet(trimmed)
+      setArRespResult(res.content ?? false)
+    } catch { setArRespResult(false) }
+    finally { setArRespSearching(false); arRespRef.current?.focus() }
+  }, [])
+
+  useEffect(() => {
+    if (arRespKw.trim().length < 4) { setArRespResult(null); return }
+    const t = setTimeout(() => handleArRespSearch(arRespKw), 600)
+    return () => clearTimeout(t)
+  }, [arRespKw, handleArRespSearch])
+
+  const handleQuickSetArResp = async () => {
+    if (!arQuickResp) return
+    setArQuickSaving(true)
+    try {
+      await dutyApi.allocate(arQuickResp.did, { responsible: arQuickResp.persons.map((p) => p.work_no) })
+      showToast.success('負責人已更新')
+      setArQuickResp(null)
+      dispatch(fetchDutyListThunk(query))
+    } catch { /* global */ }
+    finally { setArQuickSaving(false) }
   }
 
   // ── 專案任務 columns ──────────────────────────────────────────────────────
@@ -394,13 +511,57 @@ const DutyListPage: React.FC = () => {
       render: (v: string) => <span className="text-sm text-slate-600">{toName(v) || '—'}</span>,
     },
     {
-      title: '負責人', dataIndex: 'responsible', width: 120,
-      render: (v: string[]) => v?.length ? (
-        <div className="flex items-center gap-1.5">
-          <Avatar size={18} style={{ background: '#7c3aed', fontSize: 10, fontWeight: 600 }}>{toName(v[0])?.[0]?.toUpperCase()}</Avatar>
-          <span className="text-sm text-slate-600 truncate">{v.map((wn) => toName(wn)).join(', ')}</span>
-        </div>
-      ) : <span className="text-slate-300 text-xs">未分配</span>,
+      title: '負責人', dataIndex: 'responsible', width: 150,
+      render: (v: string[], record: TemporaryDuty) => {
+        const isCreator = record.creator?.toLowerCase() === workNo.toLowerCase()
+        const isResp = (v ?? []).some((wn) => wn.toLowerCase() === workNo.toLowerCase())
+        const canEdit = isCreator || isResp
+        const COLORS = ['#7c3aed', '#2563eb', '#059669', '#d97706', '#dc2626']
+        const openPicker = async () => {
+          setArRespKw(''); setArRespResult(null)
+          setArQuickResp({ did: record.id, persons: [] })
+          if ((v ?? []).length > 0) {
+            setArRespPreloading(true)
+            const profiles = await Promise.all((v ?? []).map(async (wn) => {
+              try { return (await userApi.get(wn)).content as UserProfile }
+              catch { return { work_no: wn, name: wn, department: '' } as UserProfile }
+            }))
+            setArQuickResp({ did: record.id, persons: profiles })
+            setArRespPreloading(false)
+          }
+        }
+        if ((v ?? []).length > 0) {
+          const shown = (v ?? []).slice(0, 3)
+          return (
+            <div className="flex items-center gap-1.5 group">
+              <div className="flex items-center">
+                {shown.map((wn, i) => (
+                  <Tooltip key={wn} title={`${toName(wn)} (${wn})`}>
+                    <Avatar size={20} style={{ background: COLORS[i % COLORS.length], fontSize: 9, fontWeight: 700, border: '2px solid white', marginLeft: i > 0 ? -6 : 0, zIndex: shown.length - i }}>
+                      {toName(wn)?.[0]?.toUpperCase() ?? wn[0]}
+                    </Avatar>
+                  </Tooltip>
+                ))}
+              </div>
+              <span className="text-sm text-slate-600 truncate">{toName(v[0]) || v[0]}{v.length > 1 ? ` 等${v.length}人` : ''}</span>
+              {canEdit && (
+                <button className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-blue-500 border-0 outline-none bg-transparent p-0 cursor-pointer flex-shrink-0" onClick={openPicker} title="修改負責人">
+                  <PencilSquareIcon className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          )
+        }
+        if (!canEdit) return <span className="text-slate-300 text-xs">未分配</span>
+        return (
+          <button
+            className="flex items-center gap-1 text-xs text-slate-400 hover:text-blue-500 hover:bg-blue-50 px-2 py-0.5 rounded-full border border-dashed border-slate-300 hover:border-blue-300 transition-colors"
+            onClick={openPicker}
+          >
+            <PlusIcon className="w-3 h-3" />指定負責人
+          </button>
+        )
+      },
     },
     {
       title: '進度', dataIndex: 'progress', width: 140,
@@ -420,17 +581,23 @@ const DutyListPage: React.FC = () => {
     },
     {
       title: '操作', key: 'action', width: 80, fixed: 'right',
-      render: (_: unknown, record) => (
-        <Space size={0}>
-          <Tooltip title="查看">
-            <Button icon={<EyeIcon className="w-4 h-4" />} size="small" type="text"
-              onClick={() => setSelectedDutyId(record.id)} />
-          </Tooltip>
-          <Popconfirm title="確認刪除此任務？" onConfirm={() => handleDelete(record.id)} okText="確認" cancelText="取消">
-            <Tooltip title="刪除"><Button icon={<TrashIcon className="w-4 h-4" />} size="small" type="text" danger /></Tooltip>
-          </Popconfirm>
-        </Space>
-      ),
+      render: (_: unknown, record) => {
+        const isCreator = record.creator?.toLowerCase() === workNo.toLowerCase()
+        const isDraft = record.status === 0
+        return (
+          <Space size={0}>
+            <Tooltip title="查看">
+              <Button icon={<EyeIcon className="w-4 h-4" />} size="small" type="text"
+                onClick={() => setSelectedDutyId(record.id)} />
+            </Tooltip>
+            {isCreator && isDraft && (
+              <Popconfirm title="確認刪除此任務？" onConfirm={() => handleDelete(record.id)} okText="確認" cancelText="取消">
+                <Tooltip title="刪除"><Button icon={<TrashIcon className="w-4 h-4" />} size="small" type="text" danger /></Tooltip>
+              </Popconfirm>
+            )}
+          </Space>
+        )
+      },
     },
   ]
 
@@ -438,6 +605,82 @@ const DutyListPage: React.FC = () => {
   const { mergeColumns: columns } = useResizableColumns(rawColumns)
   // In grouped mode, hide the group column since it's shown as the panel header
   const groupedColumns = columns.filter((c) => (c as { dataIndex?: string }).dataIndex !== 'group')
+
+  // ── 系統任務 columns ──────────────────────────────────────────────────────
+  const rawSysColumns: ColumnsType<TemporaryDuty> = [
+    {
+      title: '任務名稱', dataIndex: 'duty_nm', ellipsis: true,
+      render: (name: string, r) => {
+        const p = PRIORITY_MAP[r.priority]
+        return (
+          <div className="flex items-center gap-2">
+            <div style={{ width: 3, height: 20, borderRadius: 2, flexShrink: 0, background: p?.color ?? '#94a3b8' }} />
+            <Button type="link" style={{ padding: 0, fontWeight: 500 }} onClick={() => setSelectedDutyId(r.id)}>
+              {name}
+            </Button>
+          </div>
+        )
+      },
+    },
+    {
+      title: '所屬系統', dataIndex: 'system_nm', width: 150, ellipsis: true,
+      render: (v: string, r) => v
+        ? <Button type="link" style={{ padding: 0, fontSize: 12 }} onClick={() => navigate(`/systems/${r.system_id}`)}>{v}</Button>
+        : <span className="text-slate-300 text-xs">—</span>,
+    },
+    {
+      title: '所屬需求', dataIndex: 'standalone_req_id', width: 150, ellipsis: true,
+      render: (v: string) => v && reqNameMap[v]
+        ? <Tag color="purple" style={{ fontSize: 10 }}>{reqNameMap[v]}</Tag>
+        : <span className="text-slate-300 text-xs">—</span>,
+    },
+    {
+      title: '任務分組', dataIndex: 'group', width: 140, ellipsis: true,
+      render: (v: string) => <span className="text-slate-600 text-xs">{v || '—'}</span>,
+    },
+    {
+      title: '狀態', dataIndex: 'status', width: 100,
+      render: (v: number) => { const s = DUTY_STATUS_MAP[v]; return s ? <Tag color={s.color} style={{ fontSize: 11 }}>{s.label}</Tag> : v },
+    },
+    {
+      title: '負責人', dataIndex: 'responsible', width: 120,
+      render: (v: string[]) => (v ?? []).map((wn) => (
+        <Tag key={wn} color="purple" style={{ fontSize: 10, marginBottom: 2 }}>{toName(wn)}</Tag>
+      )),
+    },
+    {
+      title: '進度', dataIndex: 'progress', width: 130,
+      render: (v: number) => (
+        <div className="flex items-center gap-2">
+          <Progress percent={v ?? 0} size="small" showInfo={false} style={{ flex: 1 }}
+            strokeColor={v >= 80 ? '#16a34a' : '#2563eb'} trailColor="#f1f5f9" />
+          <span className="text-xs text-slate-400">{v ?? 0}%</span>
+        </div>
+      ),
+    },
+    {
+      title: '預計完成', dataIndex: 'expected_end_date', width: 120,
+      render: (v: string, r: TemporaryDuty) => {
+        if (!v || !dayjs(v).isValid()) return <span className="text-slate-300 text-xs">—</span>
+        if (r.status === 3) return <span className="days-ok">{v}</span>
+        const days = dayjs(v).diff(dayjs(), 'day')
+        if (days < 0) return <span className="days-overdue">超期 {Math.abs(days)}天</span>
+        if (days <= 3) return <span className="days-overdue">剩 {days} 天</span>
+        if (days <= 7) return <span className="days-warning">剩 {days} 天</span>
+        return <span className="days-ok">{v}</span>
+      },
+    },
+    {
+      title: '操作', key: 'action', width: 70, fixed: 'right',
+      render: (_: unknown, record) => (
+        <Tooltip title="查看詳情">
+          <Button icon={<EyeIcon className="w-4 h-4" />} size="small" type="text" onClick={() => setSelectedDutyId(record.id)} />
+        </Tooltip>
+      ),
+    },
+  ]
+  const { mergeColumns: sysColumns } = useResizableColumns(rawSysColumns)
+  const sysGroupedColumns = sysColumns.filter((c) => (c as { dataIndex?: string }).dataIndex !== 'group')
 
   return (
     <div className="p-6">
@@ -455,7 +698,7 @@ const DutyListPage: React.FC = () => {
         )}
       </div>
 
-      <Tabs activeKey={activeTab} onChange={(k) => setActiveTab(k as 'project' | 'duty')} items={[
+      <Tabs activeKey={activeTab} onChange={(k) => setActiveTab(k as 'project' | 'system' | 'duty')} items={[
         {
           key: 'project',
           label: `專案任務 (${myFuncTotal})`,
@@ -507,9 +750,15 @@ const DutyListPage: React.FC = () => {
                   onChange={(v) => setMyFuncResponsible(v)}
                   options={funcResponsibleOptions}
                 />
-                <div className="ml-auto flex items-center gap-2 text-sm text-slate-500">
-                  <Switch size="small" checked={!hideCompleted} onChange={(v) => setHideCompleted(!v)} />
-                  顯示已完結
+                <div className="ml-auto flex items-center gap-4 text-sm text-slate-500">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <Switch size="small" checked={funcShowHeld} onChange={setFuncShowHeld} />
+                    顯示搁置
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <Switch size="small" checked={!hideCompleted} onChange={(v) => setHideCompleted(!v)} />
+                    顯示已完結
+                  </label>
                 </div>
               </div>
               {myFuncView === 'flat' ? (
@@ -569,6 +818,133 @@ const DutyListPage: React.FC = () => {
           ),
         },
         {
+          key: 'system',
+          label: `系統任務 (${sysTaskList.length})`,
+          children: (
+            <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: 0 } }}>
+              <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-slate-100">
+                <Segmented
+                  value={sysTaskView}
+                  onChange={(v) => setSysTaskView(v as 'all' | 'mine')}
+                  options={[
+                    { label: '全部', value: 'all' },
+                    { label: '我的', value: 'mine' },
+                  ]}
+                />
+                <div className="w-px h-5 bg-slate-200" />
+                <Segmented
+                  size="small"
+                  value={sysTaskGroupMode}
+                  onChange={(v) => setSysTaskGroupMode(v as 'flat' | 'grouped')}
+                  options={[
+                    { label: '平面', value: 'flat' },
+                    { label: '分組', value: 'grouped' },
+                  ]}
+                />
+                <div className="w-px h-5 bg-slate-200" />
+                <Select
+                  placeholder="狀態" allowClear style={{ width: 120 }}
+                  value={sysTaskStatus}
+                  onChange={(v) => setSysTaskStatus(v)}
+                  options={Object.entries(DUTY_STATUS_MAP).map(([k, v]) => ({ value: Number(k), label: v.label }))}
+                />
+                <Select
+                  placeholder="系統" allowClear style={{ width: 140 }}
+                  value={sysTaskSystem}
+                  onChange={(v) => setSysTaskSystem(v)}
+                  options={sysSystemOptions}
+                  showSearch
+                  filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
+                />
+                <Select
+                  placeholder="需求" allowClear style={{ width: 150 }}
+                  value={sysTaskReq}
+                  onChange={(v) => setSysTaskReq(v)}
+                  options={sysReqOptions}
+                  showSearch
+                  filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
+                />
+                <Select
+                  placeholder="任務分組" allowClear style={{ width: 120 }}
+                  value={sysTaskGroup}
+                  onChange={(v) => setSysTaskGroup(v)}
+                  options={sysGroupOptions}
+                />
+                <Select
+                  placeholder="負責人" allowClear style={{ width: 120 }}
+                  value={sysTaskResponsible}
+                  onChange={(v) => setSysTaskResponsible(v)}
+                  options={sysResponsibleOptions}
+                  showSearch
+                  filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
+                />
+                <div className="ml-auto flex items-center gap-4 text-sm text-slate-500">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <Switch size="small" checked={sysShowHeld} onChange={setSysShowHeld} />
+                    顯示搁置
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <Switch size="small" checked={!sysHideCompleted} onChange={(v) => setSysHideCompleted(!v)} />
+                    顯示已完結
+                  </label>
+                </div>
+              </div>
+              {sysTaskGroupMode === 'flat' ? (
+                <Table
+                  rowKey="id"
+                  columns={sysColumns}
+                  components={tableComponents}
+                  dataSource={displayedSysTasks}
+                  loading={isLoading}
+                  size="small"
+                  scroll={{ x: 980 }}
+                  pagination={{
+                    showSizeChanger: true,
+                    pageSizeOptions: ['10', '20', '50', '100'],
+                    showTotal: (t) => `共 ${t} 筆`,
+                  }}
+                />
+              ) : (
+                <div className="p-4">
+                  {isLoading ? (
+                    <div className="flex justify-center py-12"><Spin size="large" /></div>
+                  ) : groupedSysTasks.length === 0 ? (
+                    <Empty description="暫無系統任務" className="py-12" />
+                  ) : (
+                    <Collapse
+                      activeKey={sysOpenGroups}
+                      onChange={(keys) => setSysOpenGroups(Array.isArray(keys) ? keys : [keys])}
+                      className="bg-transparent border-0"
+                      expandIconPosition="start"
+                    >
+                      {groupedSysTasks.map((g) => (
+                        <Collapse.Panel
+                          key={g.name}
+                          header={
+                            <div className="flex items-center gap-3">
+                              <FolderIcon className="w-4 h-4 text-blue-500" />
+                              <span className="font-semibold text-slate-700">{g.name}</span>
+                              <Tag color="blue" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>{g.items.length} 項</Tag>
+                              <Progress percent={g.avgProgress} size="small" showInfo={false} style={{ width: 80 }} strokeColor="#2563eb" trailColor="#e2e8f0" />
+                              <span className="text-xs text-slate-400">{g.avgProgress}%</span>
+                              {g.overdueCount > 0 && (
+                                <Tag color="error" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>超時 {g.overdueCount}</Tag>
+                              )}
+                            </div>
+                          }
+                        >
+                          <Table rowKey="id" columns={sysGroupedColumns} components={tableComponents}
+                            dataSource={g.items} pagination={false} size="small" scroll={{ x: 860 }} />
+                        </Collapse.Panel>
+                      ))}
+                    </Collapse>
+                  )}
+                </div>
+              )}
+            </Card>
+          ),
+        },
+        {
           key: 'duty',
           label: `AR (${(hideCompleted ? displayedList.filter((d) => d.status !== 3) : displayedList).length})`,
           children: (
@@ -594,10 +970,6 @@ const DutyListPage: React.FC = () => {
                     ]}
                   />
                   <div className="w-px h-5 bg-slate-200" />
-                  <Search placeholder="搜索任務名稱..." allowClear style={{ width: 200 }}
-                    prefix={<MagnifyingGlassIcon className="w-4 h-4 text-slate-400" />}
-                    onSearch={(v) => dispatch(setDutyQuery({ keyword: v, page: 1 }))}
-                  />
                   <Select placeholder="狀態" allowClear style={{ width: 120 }}
                     onChange={(v) => dispatch(setDutyQuery({ status: v, page: 1 }))}
                     options={Object.entries(DUTY_STATUS_MAP).map(([k, v]) => ({ value: Number(k), label: v.label }))}
@@ -816,6 +1188,98 @@ const DutyListPage: React.FC = () => {
         },
       ]}
     />
+    {/* AR 快速設定負責人 Modal */}
+    <Modal
+      title="設定任務負責人"
+      open={!!arQuickResp}
+      onCancel={() => setArQuickResp(null)}
+      onOk={handleQuickSetArResp}
+      okText="確認儲存"
+      confirmLoading={arQuickSaving}
+      okButtonProps={{ style: { background: '#2563eb' } }}
+      width={440}
+      destroyOnHidden
+    >
+      <div className="py-3 space-y-4">
+        <div>
+          <div className="text-sm font-medium text-slate-700 mb-2">透過工號搜尋人員</div>
+          <Input
+            ref={arRespRef}
+            value={arRespKw}
+            onChange={(e) => setArRespKw(e.target.value)}
+            placeholder="輸入工號，自動搜索（如：EMP001）"
+            suffix={arRespSearching ? <Spin size="small" /> : null}
+            autoFocus
+          />
+          {arRespResult === false && (
+            <div className="mt-2 text-xs text-red-500 flex items-center gap-1">
+              <XMarkIcon className="w-3.5 h-3.5" />查無此工號，請確認後重試
+            </div>
+          )}
+          {arRespResult && typeof arRespResult === 'object' && (
+            <div className="mt-2 flex items-center justify-between bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+              <div className="flex items-center gap-2">
+                <Avatar size={28} style={{ background: '#2563eb', fontSize: 11, fontWeight: 700 }}>
+                  {(arRespResult as UserProfile).name?.[0]?.toUpperCase()}
+                </Avatar>
+                <div>
+                  <div className="text-sm font-medium text-slate-800">{(arRespResult as UserProfile).name}</div>
+                  <div className="text-xs text-slate-400">{(arRespResult as UserProfile).work_no} · {(arRespResult as UserProfile).department}</div>
+                </div>
+              </div>
+              <Button
+                size="small" type="primary" style={{ background: '#2563eb' }}
+                disabled={arQuickResp?.persons.some((p) => p.work_no === (arRespResult as UserProfile).work_no)}
+                onClick={() => {
+                  const person = arRespResult as UserProfile
+                  if (!arQuickResp?.persons.some((p) => p.work_no === person.work_no)) {
+                    setArQuickResp((prev) => prev ? { ...prev, persons: [...prev.persons, person] } : null)
+                  }
+                  setArRespKw(''); setArRespResult(null)
+                }}
+              >
+                {arQuickResp?.persons.some((p) => p.work_no === (arRespResult as UserProfile).work_no) ? '已加入' : '加入'}
+              </Button>
+            </div>
+          )}
+        </div>
+        <div>
+          <div className="text-sm font-medium text-slate-700 mb-2">
+            已選負責人
+            {arQuickResp && arQuickResp.persons.length > 0 && (
+              <span className="ml-1.5 text-xs font-normal text-slate-400">（共 {arQuickResp.persons.length} 人，儲存後生效）</span>
+            )}
+          </div>
+          {arRespPreloading ? (
+            <div className="flex items-center justify-center py-5 text-slate-400 text-xs gap-2"><Spin size="small" />載入中…</div>
+          ) : !arQuickResp || arQuickResp.persons.length === 0 ? (
+            <div className="border border-dashed border-slate-200 rounded-lg py-5 text-center text-slate-400 text-xs">尚未加入任何負責人</div>
+          ) : (
+            <div className="space-y-1.5">
+              {arQuickResp.persons.map((p, i) => (
+                <div key={p.work_no} className="flex items-center gap-2.5 bg-slate-50 rounded-lg px-3 py-2">
+                  <div className="w-5 h-5 rounded-full bg-violet-100 text-violet-600 text-[10px] font-bold flex items-center justify-center flex-shrink-0">{i + 1}</div>
+                  <Avatar size={24} style={{ background: '#7c3aed', fontSize: 10, fontWeight: 700, flexShrink: 0 }}>
+                    {p.name?.[0]?.toUpperCase()}
+                  </Avatar>
+                  <div className="flex-1 min-w-0">
+                    <span className="text-sm font-medium text-slate-700">{p.name}</span>
+                    <span className="text-xs text-slate-400 ml-1.5">{p.work_no} · {p.department}</span>
+                  </div>
+                  <button
+                    className="text-red-400 hover:text-red-600 transition-colors flex-shrink-0 border-0 outline-none bg-transparent p-0 cursor-pointer"
+                    onClick={() => setArQuickResp((prev) => prev ? { ...prev, persons: prev.persons.filter((x) => x.work_no !== p.work_no) } : null)}
+                  >
+                    <XMarkIcon className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </Modal>
+
     <DutyDetailDrawer
       open={!!selectedDutyId}
       dutyId={selectedDutyId}
