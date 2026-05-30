@@ -29,6 +29,7 @@ import {
 import { useNavigate } from 'react-router-dom'
 import { projectApi } from '@/api/project.api'
 import { dutyApi } from '@/api/duty.api'
+import { standaloneReqApi } from '@/api/standalone_req.api'
 import { systemApi, type SystemItem } from '@/api/system.api'
 import { tokenStorage } from '@/api/httpClient'
 import AttachmentPreview from '@/components/ui/AttachmentPreview'
@@ -264,6 +265,21 @@ function buildProgressTextRuns(project: WbsProject): PptTextRun[] {
     })
   })
   return runs
+}
+
+function _dutyStatusLabel(d: TemporaryDuty): { label: string; color: string } {
+  const isOverdue = d.status !== 3 && !!d.expected_end_date && dayjs(d.expected_end_date).isBefore(dayjs(), 'day')
+  if (d.status === 3) return { label: '已完成', color: RPT_STATUS_COLOR.completed }
+  if (isOverdue) return { label: 'delay', color: RPT_STATUS_COLOR.overdue }
+  if (d.status === 1 || d.status === 2 || d.status === 5) return { label: '進行中', color: RPT_STATUS_COLOR.in_progress }
+  return { label: '未開始', color: RPT_STATUS_COLOR.not_started }
+}
+
+function _dutyListDotColor(ds: TemporaryDuty[]): string {
+  const today = dayjs()
+  if (ds.some(d => d.status !== 3 && !!d.expected_end_date && dayjs(d.expected_end_date).isBefore(today, 'day'))) return 'FF0000'
+  if (ds.every(d => d.status === 3) && ds.length > 0) return '00B050'
+  return '0070C0'
 }
 
 function _projectDotColor(project: WbsProject): string {
@@ -1277,12 +1293,145 @@ function _taskStatusLabel(task: WbsTask): { label: string; color: string } {
   return { label: '未開始', color: RPT_STATUS_COLOR.not_started }
 }
 
+const isUuidStr = (s: string) => /^[0-9a-f]{32}$/i.test(s) || /^[0-9a-f-]{36}$/i.test(s)
+
 const ReportPreviewModal: React.FC<{
   open: boolean
   projects: WbsProject[]
+  duties: TemporaryDuty[]
+  systemInfoMap: Record<string, SystemItem>
+  reqNameMap: Record<string, string>
+  reqResponsibleMap: Record<string, string[]>
+  toName: (wn: string) => string
   onClose: () => void
-}> = ({ open, projects, onClose }) => {
+}> = ({ open, projects, duties, systemInfoMap, reqNameMap, reqResponsibleMap, toName, onClose }) => {
   const [exporting, setExporting] = useState(false)
+
+  // Group duties by system / standalone AR
+  const systemDutiesMap = useMemo(() => {
+    const map = new Map<string, TemporaryDuty[]>()
+    duties.forEach((d) => {
+      if (d.system_id) {
+        if (!map.has(d.system_id)) map.set(d.system_id, [])
+        map.get(d.system_id)!.push(d)
+      }
+    })
+    return map
+  }, [duties])
+
+  const arDuties = useMemo(() => duties.filter((d) => !d.system_id), [duties])
+
+  // Only show duties whose expected_end falls within last/this/next week
+  const isDutyVisible = (d: TemporaryDuty) => computeDutyWeekTags(d).length > 0
+
+  // Render a single duty task line — mirrors renderTaskRow for projects (with reschedule info)
+  const renderDutyTask = (d: TemporaryDuty, indent: number) => {
+    const { label, color } = _dutyStatusLabel(d)
+    const lineColor = d.status === 3 ? '#00B050' : '#000'
+    const hasReschedule = (d.reschedule_count ?? 0) > 0 && !!d.original_end_date
+    const rescheduleReason = d.reschedule_history?.at(-1)?.reason
+    const dateStr = d.status === 3
+      ? `${d.end_time?.slice(0, 10) || d.expected_end_date}已完成`
+      : d.expected_end_date ? `目標${d.expected_end_date}完成` : null
+    const weekTags = computeDutyWeekTags(d)
+    return (
+      <div key={d.id} style={{ color: lineColor, paddingLeft: indent }}>
+        <span>- </span>
+        <span style={{ color, fontWeight: 700 }}>({label})</span>
+        <span> {d.duty_nm}</span>
+        {hasReschedule ? (
+          <span>
+            {' ('}
+            <s style={{ color: '#aaa', fontSize: 11 }}>{d.original_end_date}</s>
+            <span style={{ color: '#d97706', fontWeight: 700, marginLeft: 3 }}>{d.expected_end_date}</span>
+            <span style={{ color: '#d97706', fontSize: 10, marginLeft: 2 }}>延期{d.reschedule_count}次</span>
+            {')'}
+          </span>
+        ) : dateStr ? (
+          <span style={{ color: '#6b7280', marginLeft: 4 }}>({dateStr})</span>
+        ) : null}
+        {weekTags.map((wt) => (
+          <span key={wt} style={{ color: WEEK_TAG_CONFIG[wt].color, fontWeight: 700, marginLeft: 3 }}>
+            [{WEEK_TAG_CONFIG[wt].label}]
+          </span>
+        ))}
+        {hasReschedule && rescheduleReason && (
+          <div style={{ paddingLeft: 20, color: '#d97706', fontSize: 11 }}>
+            ↳ 延期原因：{rescheduleReason}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // Render duties in requirement → group → task hierarchy (mirrors project task sections)
+  const renderDutyProgress = (dutyList: TemporaryDuty[]) => {
+    const visible = dutyList.filter(isDutyVisible)
+    if (visible.length === 0) return <span style={{ color: '#94a3b8', fontSize: 12 }}>本週無進度更新</span>
+
+    // Group all duties by req (use full list for structure, filter per section)
+    const byReq = new Map<string, TemporaryDuty[]>()
+    dutyList.forEach((d) => {
+      const key = d.standalone_req_id || '__none__'
+      if (!byReq.has(key)) byReq.set(key, [])
+      byReq.get(key)!.push(d)
+    })
+
+    // Sort: named reqs first (by req name), then __none__
+    const sortedReqs = [...byReq.entries()].sort(([a], [b]) => {
+      if (a === '__none__') return 1
+      if (b === '__none__') return -1
+      return (reqNameMap[a] ?? a).localeCompare(reqNameMap[b] ?? b, 'zh-TW')
+    })
+
+    let secIdx = 0
+    return sortedReqs.map(([reqKey, reqDuties]) => {
+      const reqVisible = reqDuties.filter(isDutyVisible)
+      if (reqVisible.length === 0) return null
+      const reqNm = reqKey !== '__none__' ? (reqNameMap[reqKey] ?? null) : null
+      secIdx++
+      const num = secIdx
+
+      // Group by duty.group within req, sort: named groups first, then __nogroup__
+      const byGroup = new Map<string, TemporaryDuty[]>()
+      reqVisible.forEach((d) => {
+        const g = (d.group && !isUuidStr(d.group)) ? d.group : '__nogroup__'
+        if (!byGroup.has(g)) byGroup.set(g, [])
+        byGroup.get(g)!.push(d)
+      })
+      const sortedGroups = [...byGroup.entries()].sort(([a], [b]) => {
+        if (a === '__nogroup__') return 1
+        if (b === '__nogroup__') return -1
+        return a.localeCompare(b, 'zh-TW')
+      })
+      const singleUnnamed = sortedGroups.length === 1 && sortedGroups[0][0] === '__nogroup__'
+
+      return (
+        <div key={reqKey} style={{ marginBottom: 4 }}>
+          {reqNm && <div style={{ fontWeight: 700, color: '#002FA7' }}>{num}. {reqNm}</div>}
+          {singleUnnamed ? (
+            sortedGroups[0][1]
+              .sort((a, b) => (a.expected_end_date ?? '').localeCompare(b.expected_end_date ?? ''))
+              .map((d) => renderDutyTask(d, reqNm ? 16 : 0))
+          ) : (
+            sortedGroups.map(([grp, grpDuties]) => (
+              <div key={grp}>
+                {grp !== '__nogroup__' && (
+                  <div style={{ fontWeight: 600, color: '#374151', paddingLeft: reqNm ? 12 : 0 }}>▸ {grp}</div>
+                )}
+                {grpDuties
+                  .sort((a, b) => (a.expected_end_date ?? '').localeCompare(b.expected_end_date ?? ''))
+                  .map((d) => renderDutyTask(d, reqNm ? (grp !== '__nogroup__' ? 24 : 16) : (grp !== '__nogroup__' ? 16 : 0)))}
+              </div>
+            ))
+          )}
+        </div>
+      )
+    })
+  }
+
+  const TD_MID: React.CSSProperties = { verticalAlign: 'middle', border: '1px solid #B4C6E7', color: '#000' }
+  const TD_CENTER: React.CSSProperties = { ...TD_MID, textAlign: 'center', whiteSpace: 'nowrap' }
 
   const handleExportPptx = async () => {
     setExporting(true)
@@ -1590,6 +1739,67 @@ const ReportPreviewModal: React.FC<{
                   </tr>
                 )
               })}
+              {/* ── System rows ── */}
+              {/* ── System rows ── */}
+              {[...systemDutiesMap.entries()].map(([sysId, sysDuties], sysIdx) => {
+                const sysInfo = systemInfoMap[sysId]
+                const sysNm = sysInfo?.sys_nm ?? (sysDuties[0]?.system_nm ?? sysId)
+                const maintainers = (sysInfo?.maintainers ?? []).length > 0
+                  ? (sysInfo.maintainers as string[]).map((wn) => toName(wn) || wn).join('、')
+                  : '—'
+                // DRI = unique responsible from linked standalone reqs (需求负责人)
+                const reqIds = [...new Set(sysDuties.map((d) => d.standalone_req_id).filter(Boolean) as string[])]
+                const dri = reqIds.length > 0
+                  ? [...new Set(reqIds.flatMap((rid) => reqResponsibleMap[rid] ?? []))]
+                      .map((wn) => toName(wn) || wn).join('、') || '—'
+                  : [...new Set(sysDuties.flatMap((d) => d.responsible ?? []))]
+                      .map((wn) => toName(wn) || wn).join('、') || '—'
+                const dotClr = `#${_dutyListDotColor(sysDuties)}`
+                return (
+                  <tr key={`sys-${sysId}`}>
+                    <td style={{ ...TD_CENTER, fontSize: 18 }}><span style={{ color: dotClr }}>●</span></td>
+                    <td style={TD_CENTER}>{projects.length + sysIdx + 1}</td>
+                    <td style={TD_MID}>
+                      {sysNm}
+                      <span style={{ marginLeft: 4, fontSize: 10, color: '#7c3aed', fontWeight: 700 }}>[系統]</span>
+                    </td>
+                    <td style={TD_MID}>{maintainers}</td>
+                    <td style={TD_MID}>{dri}</td>
+                    <td style={TD_CENTER}>—</td>
+                    <td style={TD_CENTER}>—</td>
+                    <td style={{ verticalAlign: 'top', border: '1px solid #B4C6E7', lineHeight: 1.8 }}>
+                      {renderDutyProgress(sysDuties)}
+                    </td>
+                  </tr>
+                )
+              })}
+
+              {/* ── AR Tasks row ── */}
+              {arDuties.length > 0 && (() => {
+                const creators = [...new Set(arDuties.map((d) => d.creator))]
+                  .map((wn) => toName(wn) || wn).join('、') || '—'
+                const responsible = [...new Set(arDuties.flatMap((d) => d.responsible ?? []))]
+                  .map((wn) => toName(wn) || wn).join('、') || '—'
+                const dotClr = `#${_dutyListDotColor(arDuties)}`
+                const rowIdx = projects.length + systemDutiesMap.size + 1
+                return (
+                  <tr key="ar-duties">
+                    <td style={{ ...TD_CENTER, fontSize: 18 }}><span style={{ color: dotClr }}>●</span></td>
+                    <td style={TD_CENTER}>{rowIdx}</td>
+                    <td style={TD_MID}>
+                      AR 任務
+                      <span style={{ marginLeft: 4, fontSize: 10, color: '#d97706', fontWeight: 700 }}>[AR]</span>
+                    </td>
+                    <td style={TD_MID}>{creators}</td>
+                    <td style={TD_MID}>{responsible}</td>
+                    <td style={TD_CENTER}>—</td>
+                    <td style={TD_CENTER}>—</td>
+                    <td style={{ verticalAlign: 'top', border: '1px solid #B4C6E7', lineHeight: 1.8 }}>
+                      {renderDutyProgress(arDuties)}
+                    </td>
+                  </tr>
+                )
+              })()}
             </tbody>
           </table>
 
@@ -1633,6 +1843,7 @@ const DutyTaskRow: React.FC<{
   onResolveNote?: (noteId: string) => void
   onDeleteNote?: (noteId: string) => void
 }> = ({ duty: d, onSelect, onWeekTagClick, notes = [], onAddNote, onResolveNote, onDeleteNote }) => {
+  const toName       = useWorkNoToName()
   const isOverdue    = d.status !== 3 && !!d.expected_end_date && dayjs(d.expected_end_date).isBefore(dayjs(), 'day')
   const isCompleted  = d.status === 3
   const isInProgress = d.status === 1 || d.status === 2
@@ -1674,7 +1885,7 @@ const DutyTaskRow: React.FC<{
           <div className="flex items-center gap-2 mt-0.5">
             {d.responsible && d.responsible.length > 0 && (
               <span className="text-[10px] text-slate-400">
-                {d.responsible.slice(0, 2).join(', ')}{d.responsible.length > 2 ? ` +${d.responsible.length - 2}` : ''}
+                {d.responsible.slice(0, 2).map((r) => toName(r) || r).join('、')}{d.responsible.length > 2 ? ` +${d.responsible.length - 2}` : ''}
               </span>
             )}
             {d.progress > 0 && <span className="text-[10px] text-slate-400">{d.progress}%</span>}
@@ -1963,6 +2174,7 @@ const DutyCard: React.FC<{
 
 const WbsOverviewPage: React.FC = () => {
   const isManager = useAppSelector((s) => s.auth.isSupervisor)
+  const toName    = useWorkNoToName()
 
   const [wbsData, setWbsData] = useState<WbsProject[]>([])
   const [weekFilter, setWeekFilter] = useState<WeekFilter>('all')
@@ -1976,6 +2188,8 @@ const WbsOverviewPage: React.FC = () => {
   const [allDuties, setAllDuties] = useState<TemporaryDuty[]>([])
   const [selectedDutyId, setSelectedDutyId] = useState<string | null>(null)
   const [systemInfoMap, setSystemInfoMap] = useState<Record<string, SystemItem>>({})
+  const [reqNameMap, setReqNameMap] = useState<Record<string, string>>({})
+  const [reqResponsibleMap, setReqResponsibleMap] = useState<Record<string, string[]>>({})
 
   // Load WBS data
   useEffect(() => {
@@ -1994,7 +2208,7 @@ const WbsOverviewPage: React.FC = () => {
       .catch(() => {})
   }, [])
 
-  // Load system info for system-bound duties
+  // Load system info and standalone req names
   useEffect(() => {
     systemApi.list({ page: 1, size: 1000 })
       .then((res) => {
@@ -2002,6 +2216,16 @@ const WbsOverviewPage: React.FC = () => {
         const map: Record<string, SystemItem> = {}
         list.forEach((s) => { map[s.id] = s })
         setSystemInfoMap(map)
+      })
+      .catch(() => {})
+    standaloneReqApi.list({ page: 1, size: 2000 })
+      .then((res) => {
+        const list = (res.content as any).data_list ?? []
+        const nameMap: Record<string, string> = {}
+        const respMap: Record<string, string[]> = {}
+        list.forEach((r: any) => { nameMap[r.id] = r.req_nm; respMap[r.id] = r.responsible ?? [] })
+        setReqNameMap(nameMap)
+        setReqResponsibleMap(respMap)
       })
       .catch(() => {})
   }, [])
@@ -2548,6 +2772,11 @@ const WbsOverviewPage: React.FC = () => {
       <ReportPreviewModal
         open={previewOpen}
         projects={wbsData}
+        duties={allDuties}
+        systemInfoMap={systemInfoMap}
+        reqNameMap={reqNameMap}
+        reqResponsibleMap={reqResponsibleMap}
+        toName={toName}
         onClose={() => setPreviewOpen(false)}
       />
 
