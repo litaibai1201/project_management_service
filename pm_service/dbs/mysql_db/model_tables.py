@@ -291,6 +291,7 @@ class RequirementModel(BaseMixinModel):
     benefit_unit      = db.Column(db.String(10), default="元/年", comment="效益单位")
     files_json            = db.Column(db.Text,       comment="附件列表(JSON数组 [{name,url,size}])")
     expected_end_date     = db.Column(db.String(10), comment="预计结束日期")
+    is_addon              = db.Column(db.Boolean, default=False, comment="是否追加需求(效益独立计算)")
 
     def to_dict(self):
         files = []
@@ -318,6 +319,7 @@ class RequirementModel(BaseMixinModel):
             "expected_benefit":     self.expected_benefit or "",
             "benefit_amount":       self.benefit_amount,
             "benefit_unit":         self.benefit_unit or "元/年",
+            "is_addon":             bool(self.is_addon),
             "files":                files,
             "expected_end_date":    self.expected_end_date or "",
             "created_at":           self.created_at,

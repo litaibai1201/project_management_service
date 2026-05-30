@@ -485,7 +485,8 @@ class UserController:
         """团队统计（主管视角）：聚合所有下属的专案 / 任务 / 待处理数据"""
         import datetime
         from dbs.mysql_db.model_tables import (
-            FunctionDataModel, TemporaryDutyModel, ProjectDataModel, ReviewApplyModel
+            FunctionDataModel, TemporaryDutyModel, ProjectDataModel, ReviewApplyModel,
+            RequirementModel, StandaloneReqModel,
         )
 
         subordinates = self.get_subordinates(work_no, all_levels=True)
@@ -583,37 +584,130 @@ class UserController:
             ReviewApplyModel.apply_status == 1,
         ).count()
 
-        # ── 效益统计（按单位分组，仅统计当年完结专案）────────────────────────
+        # ── 效益统计（按单位分组，仅统计当年完结专案 + 当年完结独立需求）──────
+        # 规则：
+        #   专案效益 = project.benefit_amount（立案效益，可为 0）
+        #             + sum(requirement.benefit_amount > 0)（后期追加需求的增量效益）
+        #   两者不重叠：立案需求效益记在专案层，追加需求一定会填自己的 benefit_amount。
+        #   独立需求层：统计当年完结（req_status=4）的独立需求效益，独立于专案单独计入。
         current_year = str(CommonTools.get_now("datetime").year)
+
+        # 查询当年完结专案
         team_projects_for_benefit = db.session.query(ProjectDataModel).filter(
             proj_filter,
             ProjectDataModel.project_status == 7,
-            ProjectDataModel.benefit_amount.isnot(None),
             ProjectDataModel.end_time.like(f"{current_year}%"),
         ).all()
-        benefit_map: dict = {}  # { unit: {expected, actual, count, projects[]} }
+
+        # 预取所有相关专案下标记为追加需求(is_addon=True)的效益（一次查询，避免 N+1）
+        all_proj_ids = [p.id for p in team_projects_for_benefit]
+        req_benefit_by_proj: dict = {}
+        if all_proj_ids:
+            addon_reqs = db.session.query(RequirementModel).filter(
+                RequirementModel.project_id.in_(all_proj_ids),
+                RequirementModel.req_status != 9,
+                RequirementModel.is_addon == True,
+                RequirementModel.benefit_amount.isnot(None),
+                RequirementModel.benefit_amount > 0,
+            ).all()
+            for r in addon_reqs:
+                req_benefit_by_proj.setdefault(r.project_id, []).append(r)
+
+        def _ensure_unit(bmap: dict, unit: str):
+            if unit not in bmap:
+                bmap[unit] = {
+                    "expected": 0.0, "actual": 0.0,
+                    "proj_expected": 0.0, "addon_expected": 0.0, "standalone_expected": 0.0,
+                    "proj_count": 0, "addon_count": 0, "standalone_count": 0,
+                    "projects": [],
+                }
+
+        benefit_map: dict = {}
+
+        # 构建专案 id -> project_nm 映射，供追加需求引用
+        proj_nm_map = {p.id: p.project_nm for p in team_projects_for_benefit}
+
         for proj in team_projects_for_benefit:
-            unit = (proj.benefit_unit or "元/年").strip()
-            if unit not in benefit_map:
-                benefit_map[unit] = {"expected": 0.0, "actual": 0.0, "count": 0, "projects": []}
-            benefit_map[unit]["expected"] += proj.benefit_amount or 0
-            benefit_map[unit]["count"]    += 1
-            if proj.actual_benefit_amount is not None:
-                benefit_map[unit]["actual"] += proj.actual_benefit_amount
+            proj_benefit = proj.benefit_amount or 0
+            addon_reqs   = req_benefit_by_proj.get(proj.id, [])
+
+            # ── 专案层效益 ────────────────────────────────────────────────────
+            if proj_benefit > 0:
+                unit = (proj.benefit_unit or "元/年").strip()
+                _ensure_unit(benefit_map, unit)
+                benefit_map[unit]["expected"]      += proj_benefit
+                benefit_map[unit]["proj_expected"] += proj_benefit
+                benefit_map[unit]["proj_count"]    += 1
+                if proj.actual_benefit_amount is not None:
+                    benefit_map[unit]["actual"] += proj.actual_benefit_amount
+                benefit_map[unit]["projects"].append({
+                    "id":       proj.id,
+                    "name":     proj.project_nm,
+                    "status":   proj.project_status,
+                    "expected": round(proj_benefit, 2),
+                    "actual":   round(proj.actual_benefit_amount, 2) if proj.actual_benefit_amount is not None else None,
+                    "type":     "project",
+                })
+
+            # ── 追加需求层效益（每条需求独立记录）───────────────────────────
+            for r in addon_reqs:
+                r_benefit = r.benefit_amount or 0
+                if r_benefit <= 0:
+                    continue
+                unit = (r.benefit_unit or "元/年").strip()
+                _ensure_unit(benefit_map, unit)
+                benefit_map[unit]["expected"]       += r_benefit
+                benefit_map[unit]["addon_expected"] += r_benefit
+                benefit_map[unit]["addon_count"]    += 1
+                benefit_map[unit]["projects"].append({
+                    "id":       r.id,
+                    "name":     f"{r.req_nm}（{proj_nm_map.get(r.project_id, '')}）",
+                    "status":   r.req_status,
+                    "expected": round(r_benefit, 2),
+                    "actual":   None,
+                    "type":     "addon_req",
+                    "proj_id":  r.project_id,
+                })
+
+        # ── 系统独立需求效益（当年完结）─────────────────────────────────────
+        standalone_reqs_benefit = db.session.query(StandaloneReqModel).filter(
+            StandaloneReqModel.req_status == 4,
+            StandaloneReqModel.benefit_amount.isnot(None),
+            StandaloneReqModel.benefit_amount > 0,
+            db.or_(
+                StandaloneReqModel.expected_end_date.like(f"{current_year}%"),
+                StandaloneReqModel.updated_at.like(f"{current_year}%"),
+            ),
+        ).all()
+
+        for req in standalone_reqs_benefit:
+            unit = (req.benefit_unit or "元/年").strip()
+            _ensure_unit(benefit_map, unit)
+            benefit_map[unit]["expected"]            += req.benefit_amount or 0
+            benefit_map[unit]["standalone_expected"] += req.benefit_amount or 0
+            benefit_map[unit]["standalone_count"]    += 1
             benefit_map[unit]["projects"].append({
-                "id":       proj.id,
-                "name":     proj.project_nm,
-                "status":   proj.project_status,
-                "expected": round(proj.benefit_amount or 0, 2),
-                "actual":   round(proj.actual_benefit_amount, 2) if proj.actual_benefit_amount is not None else None,
+                "id":       req.id,
+                "name":     req.req_nm,
+                "status":   req.req_status,
+                "expected": round(req.benefit_amount or 0, 2),
+                "actual":   None,
+                "type":     "standalone_req",
             })
+
         team_benefit = [
             {
-                "unit":     unit,
-                "expected": round(v["expected"], 2),
-                "actual":   round(v["actual"],   2),
-                "count":    v["count"],
-                "projects": v["projects"],
+                "unit":                unit,
+                "expected":            round(v["expected"], 2),
+                "actual":              round(v["actual"],   2),
+                "proj_expected":       round(v["proj_expected"],       2),
+                "addon_expected":      round(v["addon_expected"],      2),
+                "standalone_expected": round(v["standalone_expected"], 2),
+                "proj_count":          v["proj_count"],
+                "addon_count":         v["addon_count"],
+                "standalone_count":    v["standalone_count"],
+                "count":               v["proj_count"] + v["addon_count"] + v["standalone_count"],
+                "projects":            v["projects"],
             }
             for unit, v in benefit_map.items()
         ]

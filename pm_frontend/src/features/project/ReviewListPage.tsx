@@ -18,6 +18,7 @@ import { userApi } from '@/api/user.api'
 import { standaloneReqApi, type StandaloneReq } from '@/api/standalone_req.api'
 import { systemApi, type SystemItem } from '@/api/system.api'
 import { ApplyRecord, Project, ProjectFile, ProjectFunction, ProgressRecord, FileInfo, ReviewPayload, Requirement, TemporaryDuty } from '@/types/api.types'
+import { PRIORITY_MAP } from '@/utils/status'
 import { showToast } from '@/utils/toast'
 import FilePreviewModal from './FilePreviewModal'
 import { tokenStorage } from '@/api/httpClient'
@@ -745,9 +746,9 @@ const ReviewDetailDrawer: React.FC<{
                       ))
                     : '—'}
                 </span>
-                {PRIORITY_LABEL[funcDetail.priority] && (
-                  <span className="text-xs" style={{ color: PRIORITY_LABEL[funcDetail.priority].color }}>
-                    優先：{PRIORITY_LABEL[funcDetail.priority].label}
+                {PRIORITY_MAP[funcDetail.priority] && (
+                  <span className="text-xs" style={{ color: PRIORITY_MAP[funcDetail.priority].color }}>
+                    優先：{PRIORITY_MAP[funcDetail.priority].label}
                   </span>
                 )}
                 {funcDetail.expected_start_date && (
@@ -918,8 +919,8 @@ const ReviewDetailDrawer: React.FC<{
                           )}
                         </div>
                         <div className="px-3 py-2.5">
-                          {PRIORITY_LABEL[req.priority]
-                            ? <span className="font-medium" style={{ color: PRIORITY_LABEL[req.priority].color }}>{PRIORITY_LABEL[req.priority].label}</span>
+                          {PRIORITY_MAP[req.priority]
+                            ? <span className="font-medium" style={{ color: PRIORITY_MAP[req.priority].color }}>{PRIORITY_MAP[req.priority].label}</span>
                             : '—'}
                         </div>
                         <div className="px-3 py-2.5 text-slate-600">
@@ -1007,8 +1008,8 @@ const ReviewDetailDrawer: React.FC<{
                     style={{ gridTemplateColumns: '2fr 70px 90px 1.5fr 2fr' }}>
                     <div className="px-3 py-2.5 text-slate-800 font-medium truncate">{req.req_nm}</div>
                     <div className="px-3 py-2.5">
-                      {PRIORITY_LABEL[req.priority]
-                        ? <span className="font-medium" style={{ color: PRIORITY_LABEL[req.priority].color }}>{PRIORITY_LABEL[req.priority].label}</span>
+                      {PRIORITY_MAP[req.priority]
+                        ? <span className="font-medium" style={{ color: PRIORITY_MAP[req.priority].color }}>{PRIORITY_MAP[req.priority].label}</span>
                         : '—'}
                     </div>
                     <div className="px-3 py-2.5 text-slate-500 tabular-nums">{req.expected_end_date || '—'}</div>
@@ -1105,8 +1106,8 @@ const ReviewDetailDrawer: React.FC<{
                             {hasFiles && <span className="text-[10px] text-slate-400 font-normal flex-shrink-0">（{(req.files ?? []).length} 個附件）</span>}
                           </div>
                           <div className="px-3 py-2.5">
-                            {PRIORITY_LABEL[req.priority]
-                              ? <span className="font-medium" style={{ color: PRIORITY_LABEL[req.priority].color }}>{PRIORITY_LABEL[req.priority].label}</span>
+                            {PRIORITY_MAP[req.priority]
+                              ? <span className="font-medium" style={{ color: PRIORITY_MAP[req.priority].color }}>{PRIORITY_MAP[req.priority].label}</span>
                               : '—'}
                           </div>
                           <div className="px-3 py-2.5 text-slate-600">

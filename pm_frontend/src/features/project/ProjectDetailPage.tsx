@@ -5,7 +5,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Tabs, Descriptions, Button, Tag, Progress, Spin, Empty, Table,
   Space, Tooltip, Popconfirm, Modal, Form, Input, Select, Steps, Avatar,
-  Timeline, Card, Segmented, Collapse, AutoComplete, DatePicker, InputNumber, Divider, Upload,
+  Timeline, Card, Segmented, Collapse, AutoComplete, DatePicker, InputNumber, Divider, Upload, Switch,
 } from 'antd'
 import type { InputRef } from 'antd'
 import { PencilSquareIcon as EditIcon, PencilSquareIcon } from '@heroicons/react/24/outline'
@@ -1396,7 +1396,10 @@ const ProjectDetailPage: React.FC = () => {
                     <Button type="primary" icon={<PlusIcon className="w-4 h-4" />}
                       size="small" style={{ background: '#2563eb' }}
                       onClick={() => {
-                        setEditReq(null); reqForm.resetFields(); setShowAddReq(true)
+                        setEditReq(null)
+                        reqForm.resetFields()
+                        reqForm.setFieldValue('is_addon', (current?.status ?? 1) !== 1)
+                        setShowAddReq(true)
                         if (reqUserOptions.length === 0) {
                           userApi.list({ page: 1, size: 2000 }).then((res) => {
                             const data = (res.content as { data_list?: { work_no: string; name: string }[] }).data_list ?? []
@@ -1441,6 +1444,7 @@ const ProjectDetailPage: React.FC = () => {
                               {req.benefit_amount != null ? `${req.benefit_amount} ${req.benefit_unit ?? '元/年'}` : ''}
                               {req.expected_benefit ? `  ${req.expected_benefit}` : ''}
                             </span>
+                            {req.is_addon && <Tag color="orange" className="ml-2 text-xs">追加需求</Tag>}
                           </div>
                         )}
                         {(req.files?.length ?? 0) > 0 && (
@@ -1526,6 +1530,7 @@ const ProjectDetailPage: React.FC = () => {
                                       expected_benefit: req.expected_benefit,
                                       benefit_amount:   req.benefit_amount,
                                       benefit_unit:     req.benefit_unit ?? '元/年',
+                                      is_addon:         req.is_addon ?? false,
                                       expected_end_date: req.expected_end_date,
                                     })
                                     if (reqUserOptions.length === 0) {
@@ -2082,6 +2087,10 @@ const ProjectDetailPage: React.FC = () => {
           <Form.Item name="expected_benefit" label="效益說明">
             <Input.TextArea rows={3} placeholder="文字說明（選填）" />
           </Form.Item>
+          <Form.Item name="is_addon" label="需求類型" valuePropName="checked" initialValue={false}>
+            <Switch checkedChildren="追加需求" unCheckedChildren="立案需求" />
+          </Form.Item>
+          <div className="text-xs text-slate-400 -mt-3 mb-3 ml-1">追加需求的效益金額會獨立計入專案效益合計；立案需求的效益已含在專案中，不重複計算。</div>
           {/* 附件上傳（僅編輯已存在需求時顯示） */}
           {editReq && (
             <div className="mt-1">

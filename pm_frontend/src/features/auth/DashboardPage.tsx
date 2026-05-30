@@ -23,6 +23,8 @@ dayjs.extend(isoWeek)
 import { projectApi } from '@/api/project.api'
 import { authApi, type AlertTask, type WeeklyActivityItem, type NewsItem } from '@/api/auth.api'
 import { dailyLogApi, type BackendDailyLogSummary } from '@/api/daily_log.api'
+import { standaloneReqApi } from '@/api/standalone_req.api'
+import { dutyApi } from '@/api/duty.api'
 import { notificationApi } from '@/api/notification.api'
 import type { ProjectListItem, UserStatistical, TeamStatistical, TeamBenefitGroup, ApplyRecord, ProjectFunction } from '@/types/api.types'
 import { FUNCTION_STATUS_MAP } from '@/utils/status'
@@ -36,6 +38,8 @@ import { useResizableColumns, tableComponents } from '@/hooks/useResizableColumn
 
 // ─── Types for dashboard data ─────────────────────────────────────────────────
 type MonthLogEntry = { hours: number; ot: number; status: 'confirmed' | 'submitted' | 'draft' }
+interface ReqStats { total: number; in_progress: number; completed: number; pending: number }
+interface ArTaskStats { total: number; in_progress: number; completed: number; overdue: number; suspended: number }
 interface MemberWorkStat {
   work_no: string; name: string; total_hours: number
   completed_tasks: number; in_progress_tasks: number; overdue_tasks: number
@@ -423,7 +427,6 @@ const BenefitCard: React.FC<BenefitCardProps> = ({ benefit }) => (
           <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full mb-1">
             {group.unit}
           </span>
-          <div className="text-[11px] text-slate-400 mb-1">{group.count} 個專案</div>
           <div className="tabular-nums font-black text-blue-600 text-center leading-none" style={{ fontSize: 'clamp(16px, 3.5vh, 36px)' }}>
             {_fmtBenefitNum(group.expected)}
           </div>
@@ -442,7 +445,7 @@ interface BenefitDetailCardProps {
 }
 
 const BenefitDetailCard: React.FC<BenefitDetailCardProps> = ({ benefit, navigate }) => {
-  const statusLabel = (s: number) => {
+  const projStatusLabel = (s: number) => {
     const m: Record<number, [string, string]> = {
       5: ['執行中', '#2563eb'], 7: ['已完結', '#16a34a'], 8: ['擱置', '#94a3b8'],
     }
@@ -453,6 +456,12 @@ const BenefitDetailCard: React.FC<BenefitDetailCardProps> = ({ benefit, navigate
     )
   }
 
+  const SECTIONS: { type: 'project' | 'addon_req' | 'standalone_req'; label: string; color: string; amtKey: keyof typeof benefit[0] }[] = [
+    { type: 'project',      label: '專案效益',    color: '#2563eb', amtKey: 'proj_expected'       },
+    { type: 'addon_req',    label: '追加需求效益', color: '#ea580c', amtKey: 'addon_expected'      },
+    { type: 'standalone_req', label: '系統需求效益', color: '#7c3aed', amtKey: 'standalone_expected' },
+  ]
+
   return (
     <Card className="h-full"
       title={
@@ -460,7 +469,7 @@ const BenefitDetailCard: React.FC<BenefitDetailCardProps> = ({ benefit, navigate
           <div className="w-5 h-5 rounded bg-blue-100 flex items-center justify-center">
             <span className="text-[10px] text-blue-600 font-bold">¥</span>
           </div>
-          <span className="text-sm font-semibold text-slate-600">效益專案明細</span>
+          <span className="text-sm font-semibold text-slate-600">年度效益明細</span>
         </div>
       }
       styles={{ body: { padding: '12px 16px', overflow: 'auto', height: 'calc(100% - 57px)' } }}>
@@ -469,33 +478,48 @@ const BenefitDetailCard: React.FC<BenefitDetailCardProps> = ({ benefit, navigate
         : benefit.map((group, idx) => (
           <div key={group.unit}>
             {idx > 0 && <div className="border-t border-slate-100 my-3" />}
-            {/* 分组标题 */}
-            <div className="flex items-center gap-2 mb-2">
+            {/* 单位组标题 */}
+            <div className="flex items-center gap-2 mb-3">
               <span className="text-xs font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
                 {group.unit}
               </span>
-              <span className="text-[11px] text-slate-400">{group.count} 個專案</span>
               <span className="ml-auto text-xs font-semibold text-blue-600 tabular-nums">
                 共 {_fmtBenefitNum(group.expected)} {group.unit}
               </span>
             </div>
-            {/* 专案列表 */}
-            <div className="flex flex-col gap-1.5">
-              {group.projects.map((proj) => (
-                <div key={proj.id}
-                  className="rounded-lg bg-slate-50 px-3 py-2 hover:bg-slate-100 transition-colors cursor-pointer"
-                  onClick={() => navigate(`/projects/${proj.id}`)}>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium text-slate-700 truncate flex-1">{proj.name}</span>
-                    {statusLabel(proj.status)}
-                    <span className="font-semibold text-blue-600 tabular-nums text-xs flex-shrink-0">
-                      {_fmtBenefitNum(proj.expected)}
-                      <span className="text-[10px] font-normal text-slate-400 ml-0.5">{group.unit}</span>
+            {/* 按类型分组显示 */}
+            {SECTIONS.map(({ type, label, color, amtKey }) => {
+              const items = group.projects.filter((p) => p.type === type)
+              if (items.length === 0) return null
+              return (
+                <div key={type} className="mb-3">
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
+                      style={{ background: `${color}18`, color }}>{label}</span>
+                    <span className="text-[10px] text-slate-400 tabular-nums ml-auto">
+                      {_fmtBenefitNum(group[amtKey] as number)} {group.unit}
                     </span>
                   </div>
+                  <div className="flex flex-col gap-1">
+                    {items.map((item) => (
+                      <div key={item.id}
+                        className={`rounded-lg px-3 py-2 transition-colors flex items-center gap-2 ${type !== 'standalone_req' ? 'hover:bg-slate-100 cursor-pointer' : ''} bg-slate-50`}
+                        onClick={() => {
+                          if (type === 'project') navigate(`/projects/${item.id}`)
+                          else if (type === 'addon_req' && item.proj_id) navigate(`/projects/${item.proj_id}`)
+                        }}>
+                        <span className="text-xs font-medium text-slate-700 truncate flex-1">{item.name}</span>
+                        {type === 'project' && projStatusLabel(item.status)}
+                        <span className="font-semibold tabular-nums text-xs flex-shrink-0" style={{ color }}>
+                          {_fmtBenefitNum(item.expected)}
+                          <span className="text-[10px] font-normal text-slate-400 ml-0.5">{group.unit}</span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              ))}
-            </div>
+              )
+            })}
           </div>
         ))
       }
@@ -722,6 +746,8 @@ const DashboardPage: React.FC = () => {
     completed: unknown[]; overdue: unknown[]; daily_logs: Array<{ log_date: string; status: number }>
   }>>([])
   const [logLoading,       setLogLoading]       = useState(false)
+  const [reqStats,         setReqStats]         = useState<ReqStats | null>(null)
+  const [arTaskStats,      setArTaskStats]       = useState<ArTaskStats | null>(null)
 
   useEffect(() => { dispatch(fetchIndexThunk()) }, [dispatch])
 
@@ -818,6 +844,38 @@ const DashboardPage: React.FC = () => {
         .then((res) => {
           const list = (res as { content?: { data_list?: NewsItem[] } }).content?.data_list ?? []
           setLatestNews(list)
+        })
+        .catch(() => {})
+    }
+
+    if (visible.has('team_requirement')) {
+      standaloneReqApi.list({ page: 1, size: 2000 })
+        .then((res) => {
+          const list = (res.content as any).data_list ?? []
+          const active = list.filter((r: any) => r.status !== 9)
+          setReqStats({
+            total:       active.length,
+            in_progress: active.filter((r: any) => r.status === 2).length,
+            completed:   active.filter((r: any) => r.status === 4).length,
+            pending:     active.filter((r: any) => r.status === 1 || r.status === 5).length,
+          })
+        })
+        .catch(() => {})
+    }
+
+    if (visible.has('team_ar_task')) {
+      const today = new Date().toISOString().slice(0, 10)
+      dutyApi.list({ page: 1, size: 2000 })
+        .then((res) => {
+          const list = (res.content as any).data_list ?? []
+          const active = list.filter((d: any) => d.status !== 9)
+          setArTaskStats({
+            total:       active.length,
+            in_progress: active.filter((d: any) => d.status === 1).length,
+            completed:   active.filter((d: any) => d.status === 3).length,
+            overdue:     active.filter((d: any) => d.status !== 3 && d.expected_end_date && d.expected_end_date < today).length,
+            suspended:   active.filter((d: any) => d.status === 8).length,
+          })
         })
         .catch(() => {})
     }
@@ -967,7 +1025,7 @@ const DashboardPage: React.FC = () => {
                   <span className="text-sm font-semibold text-slate-600">團隊專案</span>
                 </div>
                 <div className="flex divide-x divide-slate-100">
-                  <div className="flex-1 text-center pr-3"><div className="text-2xl font-bold text-slate-700">{teamStat?.team_project.total ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">總專案數</div></div>
+                  <div className="flex-1 text-center pr-3"><div className="text-2xl font-bold text-slate-700">{teamStat?.team_project.total ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">總計</div></div>
                   <div className="flex-1 text-center px-3"><div className="text-2xl font-bold text-blue-600">{teamStat?.team_project.in_progress ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">進行中</div></div>
                   <div className="flex-1 text-center pl-3"><div className="text-2xl font-bold text-green-600">{teamStat?.team_project.completed ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">已完結</div></div>
                 </div>
@@ -981,7 +1039,8 @@ const DashboardPage: React.FC = () => {
                   <span className="text-sm font-semibold text-slate-600">團隊任務</span>
                 </div>
                 <div className="flex divide-x divide-slate-100">
-                  <div className="flex-1 text-center pr-2"><div className="text-xl font-bold text-blue-600">{teamStat?.team_task.in_progress ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">進行中</div></div>
+                  <div className="flex-1 text-center pr-2"><div className="text-xl font-bold text-slate-700">{teamStat?.team_task.total ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">總計</div></div>
+                  <div className="flex-1 text-center px-2"><div className="text-xl font-bold text-blue-600">{teamStat?.team_task.in_progress ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">進行中</div></div>
                   <div className="flex-1 text-center px-2"><div className={`text-xl font-bold ${(teamStat?.team_task.overdue ?? 0) > 0 ? 'text-red-500' : 'text-slate-400'}`}>{teamStat?.team_task.overdue ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">已超時</div></div>
                   <div className="flex-1 text-center px-2"><div className={`text-xl font-bold ${(teamStat?.team_task.urgent ?? 0) > 0 ? 'text-orange-500' : 'text-slate-400'}`}>{teamStat?.team_task.urgent ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">臨期</div></div>
                   <div className="flex-1 text-center pl-2"><div className="text-xl font-bold text-slate-500">{teamStat?.team_task.not_started ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">未開始</div></div>
@@ -1009,6 +1068,64 @@ const DashboardPage: React.FC = () => {
                   <span className="text-sm font-semibold text-slate-600">下屬人數</span>
                 </div>
                 <div className="text-3xl font-bold text-slate-700 text-center">{memberStats.length}</div>
+              </Card>
+            )
+
+            case 'team_requirement': return !isManager ? null : (
+              <Card className="h-full" styles={{ body: { padding: '16px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%', overflow: 'hidden' } }}>
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="w-7 h-7 rounded-lg bg-purple-100 flex items-center justify-center"><ClipboardDocumentListIcon className="w-4 h-4 text-purple-600" /></div>
+                  <span className="text-sm font-semibold text-slate-600">需求總覽</span>
+                </div>
+                <div className="flex divide-x divide-slate-100">
+                  <div className="flex-1 text-center pr-2">
+                    <div className="text-2xl font-bold text-slate-700">{reqStats?.total ?? 0}</div>
+                    <div className="text-xs text-slate-400 mt-0.5">總計</div>
+                  </div>
+                  <div className="flex-1 text-center px-2">
+                    <div className="text-2xl font-bold text-blue-600">{reqStats?.in_progress ?? 0}</div>
+                    <div className="text-xs text-slate-400 mt-0.5">進行中</div>
+                  </div>
+                  <div className="flex-1 text-center px-2">
+                    <div className="text-2xl font-bold text-green-600">{reqStats?.completed ?? 0}</div>
+                    <div className="text-xs text-slate-400 mt-0.5">已完結</div>
+                  </div>
+                  <div className="flex-1 text-center pl-2">
+                    <div className={`text-2xl font-bold ${(reqStats?.pending ?? 0) > 0 ? 'text-orange-500' : 'text-slate-400'}`}>{reqStats?.pending ?? 0}</div>
+                    <div className="text-xs text-slate-400 mt-0.5">審核中</div>
+                  </div>
+                </div>
+              </Card>
+            )
+
+            case 'team_ar_task': return !isManager ? null : (
+              <Card className="h-full" styles={{ body: { padding: '16px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%', overflow: 'hidden' } }}>
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-7 h-7 rounded-lg bg-amber-100 flex items-center justify-center"><BellIcon className="w-4 h-4 text-amber-600" /></div>
+                  <span className="text-sm font-semibold text-slate-600">AR 任務</span>
+                </div>
+                <div className="flex divide-x divide-slate-100">
+                  <div className="flex-1 text-center pr-2">
+                    <div className="text-xl font-bold text-slate-700">{arTaskStats?.total ?? 0}</div>
+                    <div className="text-xs text-slate-400 mt-0.5">總計</div>
+                  </div>
+                  <div className="flex-1 text-center px-2">
+                    <div className="text-xl font-bold text-blue-600">{arTaskStats?.in_progress ?? 0}</div>
+                    <div className="text-xs text-slate-400 mt-0.5">進行中</div>
+                  </div>
+                  <div className="flex-1 text-center px-2">
+                    <div className="text-xl font-bold text-green-600">{arTaskStats?.completed ?? 0}</div>
+                    <div className="text-xs text-slate-400 mt-0.5">已完結</div>
+                  </div>
+                  <div className="flex-1 text-center px-2">
+                    <div className={`text-xl font-bold ${(arTaskStats?.overdue ?? 0) > 0 ? 'text-red-500' : 'text-slate-400'}`}>{arTaskStats?.overdue ?? 0}</div>
+                    <div className="text-xs text-slate-400 mt-0.5">超時</div>
+                  </div>
+                  <div className="flex-1 text-center pl-2">
+                    <div className={`text-xl font-bold ${(arTaskStats?.suspended ?? 0) > 0 ? 'text-orange-400' : 'text-slate-400'}`}>{arTaskStats?.suspended ?? 0}</div>
+                    <div className="text-xs text-slate-400 mt-0.5">擱置</div>
+                  </div>
+                </div>
               </Card>
             )
 

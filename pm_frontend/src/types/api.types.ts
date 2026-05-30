@@ -63,14 +63,22 @@ export interface TeamBenefitProject {
   status:   number
   expected: number
   actual:   number | null
+  type:     'project' | 'addon_req' | 'standalone_req'
+  proj_id?: string   // for addon_req: the parent project id
 }
 
 export interface TeamBenefitGroup {
-  unit:     string
-  expected: number
-  actual:   number
-  count:    number
-  projects: TeamBenefitProject[]
+  unit:                string
+  expected:            number
+  actual:              number
+  count:               number
+  proj_count:          number
+  addon_count:         number
+  standalone_count:    number
+  proj_expected:       number
+  addon_expected:      number
+  standalone_expected: number
+  projects:            TeamBenefitProject[]
 }
 
 export interface TeamStatistical {
@@ -464,6 +472,7 @@ export interface Requirement {
   expected_benefit?: string
   benefit_amount?: number | null
   benefit_unit?: string
+  is_addon?: boolean
   files?: FileInfo[]
   expected_end_date?: string
   created_at: string
@@ -478,6 +487,7 @@ export interface CreateRequirementPayload {
   expected_benefit?: string
   benefit_amount?: number
   benefit_unit?: string
+  is_addon?: boolean
   expected_end_date?: string
 }
 

@@ -97,6 +97,14 @@ const WIDGET_CATEGORIES: Record<DashboardViewType, Category[]> = {
         { id: 'team_benefit_detail', title: '效益專案明細', desc: '列出各專案預計效益及狀態', color: '#3b82f6' },
       ],
     },
+    {
+      key: 'req_ar',
+      label: '需求/AR',
+      widgets: [
+        { id: 'team_requirement', title: '需求總覽',    desc: '統計需求總數及各狀態數量', color: '#7c3aed' },
+        { id: 'team_ar_task',     title: 'AR 任務統計', desc: '統計AR任務總數及各狀態數量', color: '#d97706' },
+      ],
+    },
   ],
 }
 

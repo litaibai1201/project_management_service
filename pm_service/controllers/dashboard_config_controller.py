@@ -36,6 +36,8 @@ WIDGET_CATALOG = {
         {"widget_id": "team_review_types",     "label": "審批類型分佈",   "removable": True},
         {"widget_id": "team_benefit",          "label": "年度效益統計",   "removable": True},
         {"widget_id": "team_benefit_detail",   "label": "效益專案明細",   "removable": True},
+        {"widget_id": "team_requirement",      "label": "需求總覽",       "removable": True},
+        {"widget_id": "team_ar_task",          "label": "AR 任務統計",    "removable": True},
     ],
 }
 

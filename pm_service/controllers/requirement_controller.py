@@ -147,6 +147,7 @@ class RequirementController:
             expected_benefit=payload.get("expected_benefit", ""),
             benefit_amount=payload.get("benefit_amount"),
             benefit_unit=payload.get("benefit_unit", "元/年"),
+            is_addon=bool(payload.get("is_addon", False)),
             files_json=json.dumps(payload.get("files", []), ensure_ascii=False),
             expected_end_date=payload.get("expected_end_date", ""),
         )
@@ -171,6 +172,8 @@ class RequirementController:
                       "benefit_amount", "benefit_unit", "expected_end_date"):
             if field in payload and payload[field] is not None:
                 setattr(r, field, payload[field])
+        if "is_addon" in payload:
+            r.is_addon = bool(payload["is_addon"])
         if "files" in payload:
             r.files_json = json.dumps(payload["files"], ensure_ascii=False)
         if "responsible" in payload:
