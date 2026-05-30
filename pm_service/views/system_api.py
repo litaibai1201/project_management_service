@@ -28,6 +28,15 @@ def _require_admin():
         raise PermissionException(msg="仅管理员可执行此操作")
 
 
+@blp.route("/report_stats")
+class SystemReportStatsApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgRawSchema)
+    def get(self):
+        """系统需求与任务统计报表"""
+        return response_result(content=ctrl.get_report_stats())
+
+
 @blp.route("/list")
 class SystemListApi(MethodView):
     @jwt_required()

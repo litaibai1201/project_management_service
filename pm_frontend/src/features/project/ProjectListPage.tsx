@@ -2,24 +2,27 @@ import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Table, Button, Input, Select, Space, Tooltip, Popconfirm,
-  Progress, Tag, Avatar, Card, Badge,
+  Progress, Tag, Avatar, Card, Badge, Modal, Spin, Empty,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import {
   PlusIcon, MagnifyingGlassIcon, TrashIcon, EyeIcon,
-  Squares2X2Icon, ListBulletIcon,
+  Squares2X2Icon, ListBulletIcon, TableCellsIcon,
 } from '@heroicons/react/24/outline'
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
 import { useWorkNoToName } from '@/hooks/useWorkNoToName'
 import {
   fetchProjectListThunk, deleteProjectThunk, setQuery, fetchProjectGroupsThunk,
 } from './projectSlice'
-import { ProjectListItem } from '@/types/api.types'
+import { ProjectListItem, ProjectFunction } from '@/types/api.types'
 import { PROJECT_STATUS_MAP, PRIORITY_MAP } from '@/utils/status'
 import CreateProjectModal from './CreateProjectModal'
+import WbsTable from '@/components/common/WbsTable'
+import { projectApi, requirementApi } from '@/api/project.api'
 import { showToast } from '@/utils/toast'
 import dayjs from 'dayjs'
 import { useResizableColumns, tableComponents } from '@/hooks/useResizableColumns'
+
 
 const { Search } = Input
 
@@ -150,6 +153,25 @@ const ProjectListPage: React.FC = () => {
   const toName = useWorkNoToName()
   const [showCreate, setShowCreate] = useState(false)
   const [viewMode,   setViewMode]   = useState<'table' | 'kanban'>('table')
+  const [wbsProject,      setWbsProject]      = useState<ProjectListItem | null>(null)
+  const [wbsFunctions,    setWbsFunctions]    = useState<ProjectFunction[]>([])
+  const [wbsRequirements, setWbsRequirements] = useState<any[]>([])
+  const [wbsLoading,      setWbsLoading]      = useState(false)
+
+  const openProjectWbs = async (project: ProjectListItem) => {
+    setWbsProject(project)
+    setWbsFunctions([])
+    setWbsRequirements([])
+    setWbsLoading(true)
+    try {
+      const [funcRes, reqRes] = await Promise.all([
+        projectApi.functionList(project.id, { page: 1, size: 500 }),
+        requirementApi.list(project.id),
+      ])
+      setWbsFunctions((funcRes.content as any).data_list ?? [])
+      setWbsRequirements((reqRes.content as any) ?? [])
+    } catch { } finally { setWbsLoading(false) }
+  }
 
   useEffect(() => { dispatch(fetchProjectGroupsThunk()) }, [dispatch])
   useEffect(() => { dispatch(fetchProjectListThunk(query)) }, [dispatch, query, isManagerView])
@@ -212,6 +234,18 @@ const ProjectListPage: React.FC = () => {
       title: '預計完成', dataIndex: 'expected_end_date', width: 120,
       render: (v: string, row: ProjectListItem) => <DaysLeftBadge date={v} status={row.status} />,
       sorter: true,
+    },
+    {
+      title: 'WBS', key: 'wbs', width: 60,
+      render: (_: unknown, record) => (
+        <Tooltip title="查看WBS">
+          <Button
+            type="text" size="small"
+            icon={<TableCellsIcon className="w-4 h-4" />}
+            onClick={(e) => { e.stopPropagation(); openProjectWbs(record) }}
+          />
+        </Tooltip>
+      ),
     },
     {
       title: '操作', key: 'action', fixed: 'right', width: 80,
@@ -305,6 +339,23 @@ const ProjectListPage: React.FC = () => {
           onSuccess={() => { setShowCreate(false); dispatch(fetchProjectListThunk(query)) }}
         />
       )}
+
+      <Modal
+        open={!!wbsProject}
+        onCancel={() => setWbsProject(null)}
+        footer={null}
+        title={wbsProject?.project_nm ?? 'WBS'}
+        width={860}
+        destroyOnClose
+      >
+        {wbsLoading ? (
+          <div className="flex items-center justify-center py-12"><Spin /></div>
+        ) : wbsFunctions.length === 0 ? (
+          <Empty description="暫無任務" />
+        ) : (
+          <WbsTable functions={wbsFunctions} toName={toName} requirements={wbsRequirements} defaultExpanded />
+        )}
+      </Modal>
     </div>
   )
 }

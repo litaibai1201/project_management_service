@@ -68,6 +68,100 @@ class SystemController:
         ]
         return d
 
+    def get_report_stats(self):
+        """按系统维度统计需求与任务数据（进度+延期）"""
+        from datetime import date as _date
+        from dbs.mysql_db.model_tables import StandaloneReqModel, TemporaryDutyModel
+
+        systems = db.session.query(SystemModel).filter(SystemModel.sys_status != 9).order_by(SystemModel.sys_nm.asc()).all()
+        system_ids = [s.id for s in systems]
+        today = str(_date.today())
+
+        reqs = db.session.query(StandaloneReqModel).filter(
+            StandaloneReqModel.system_id.in_(system_ids),
+            StandaloneReqModel.req_status != 9,
+        ).all()
+
+        duties = db.session.query(TemporaryDutyModel).filter(
+            TemporaryDutyModel.system_id.in_(system_ids),
+            TemporaryDutyModel.duty_status != 9,
+        ).all()
+
+        req_by_sys: dict = {}
+        for r in reqs:
+            req_by_sys.setdefault(r.system_id, []).append(r)
+
+        duty_by_sys: dict = {}
+        for d in duties:
+            if d.system_id:
+                duty_by_sys.setdefault(d.system_id, []).append(d)
+
+        result = []
+        for s in systems:
+            sys_reqs   = req_by_sys.get(s.id, [])
+            sys_duties = duty_by_sys.get(s.id, [])
+
+            # ── 需求统计 ─────────────────────────────────────────────────────
+            # 除已完結(4)外，其余所有状态均视为"进行中"
+            req_total       = len(sys_reqs)
+            req_in_progress = sum(1 for r in sys_reqs if r.req_status != 4)
+            req_completed   = sum(1 for r in sys_reqs if r.req_status == 4)
+            req_completion_rate = round(req_completed / req_total * 100) if req_total > 0 else 0
+            # 进行中需求中已超期的（有截止日且已过期）
+            req_overdue = sum(
+                1 for r in sys_reqs
+                if r.req_status != 4 and r.expected_end_date and r.expected_end_date < today
+            )
+
+            # ── 任务统计 ─────────────────────────────────────────────────────
+            # 草稿(0) 单独计算；进行中(1)；完結審核(2)/審核中(5)/未開始(6) 单独计算
+            # 已完結(3)；搁置(8)
+            task_total        = len(sys_duties)
+            task_draft        = sum(1 for d in sys_duties if d.duty_status == 0)
+            task_not_started  = sum(1 for d in sys_duties if d.duty_status == 6)
+            task_in_progress  = sum(1 for d in sys_duties if d.duty_status == 1)
+            task_completed    = sum(1 for d in sys_duties if d.duty_status == 3)
+            task_shelved      = sum(1 for d in sys_duties if d.duty_status == 8)
+            # 待处理：所有未完成/未删除/未搁置的任务（含草稿/进行中/审核中/未开始等）
+            task_pending      = sum(1 for d in sys_duties if d.duty_status not in (3, 8))
+            task_completion_rate = round(task_completed / task_total * 100) if task_total > 0 else 0
+            # 延期：未完成/未搁置任务中已超期的
+            task_overdue_incomplete = sum(
+                1 for d in sys_duties
+                if d.duty_status not in (3, 8) and d.expected_end_date and d.expected_end_date < today
+            )
+            # 延期已完成：已完結但超过截止日的
+            task_overdue_complete = sum(
+                1 for d in sys_duties
+                if d.duty_status == 3 and d.expected_end_date and d.expected_end_date < today
+            )
+            task_overdue_rate = round(task_overdue_incomplete / task_pending * 100) if task_pending > 0 else 0
+
+            result.append({
+                "system_id":   s.id,
+                "sys_nm":      s.sys_nm,
+                "sys_group":   s.sys_group or "",
+                # 需求
+                "req_total":          req_total,
+                "req_in_progress":    req_in_progress,
+                "req_completed":      req_completed,
+                "req_completion_rate": req_completion_rate,
+                "req_overdue":        req_overdue,
+                # 任务
+                "task_total":               task_total,
+                "task_draft":               task_draft,
+                "task_not_started":         task_not_started,
+                "task_in_progress":         task_in_progress,
+                "task_completed":           task_completed,
+                "task_shelved":             task_shelved,
+                "task_pending":             task_pending,
+                "task_completion_rate":     task_completion_rate,
+                "task_overdue_incomplete":  task_overdue_incomplete,
+                "task_overdue_complete":    task_overdue_complete,
+                "task_overdue_rate":        task_overdue_rate,
+            })
+        return result
+
     def create_system(self, payload: dict):
         maintainers = payload.get("maintainers", [])
         if isinstance(maintainers, str):

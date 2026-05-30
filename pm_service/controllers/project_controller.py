@@ -1577,8 +1577,8 @@ class ProjectController:
         # 按專案聚合任務統計
         from collections import defaultdict
         stats_map: dict = defaultdict(lambda: {
-            "total": 0, "not_started": 0, "in_progress": 0, "completed": 0,
-            "overdue_incomplete": 0, "overdue_complete": 0,
+            "total": 0, "draft": 0, "not_started": 0, "in_progress": 0,
+            "completed": 0, "shelved": 0, "overdue_incomplete": 0, "overdue_complete": 0,
         })
         for f in functions:
             s = stats_map[f.project_id]
@@ -1587,7 +1587,6 @@ class ProjectController:
             is_past_due = bool(end and end < today)
             if f.function_status == 4:
                 s["completed"] += 1
-                # 已完成但原本預計完工日已過（曾延期完成）
                 orig_end = f.expected_end_date
                 if orig_end and orig_end < today:
                     s["overdue_complete"] += 1
@@ -1595,7 +1594,13 @@ class ProjectController:
                 s["in_progress"] += 1
                 if is_past_due:
                     s["overdue_incomplete"] += 1
-            else:  # 1 = 待開始, 8 = 搁置
+            elif f.function_status == 0:
+                s["draft"] += 1
+                if is_past_due:
+                    s["overdue_incomplete"] += 1
+            elif f.function_status == 8:
+                s["shelved"] += 1
+            else:  # 1 = 未開始
                 s["not_started"] += 1
                 if is_past_due:
                     s["overdue_incomplete"] += 1
@@ -1605,7 +1610,7 @@ class ProjectController:
             st = stats_map[p.id]
             total = st["total"]
             completed = st["completed"]
-            pending = st["not_started"] + st["in_progress"]
+            pending = st["draft"] + st["not_started"] + st["in_progress"]
             overdue_total = st["overdue_incomplete"] + st["overdue_complete"]
             completion_rate = round(completed / total * 100, 1) if total > 0 else 0.0
             overdue_rate = round(overdue_total / total * 100, 1) if total > 0 else 0.0
@@ -1615,9 +1620,11 @@ class ProjectController:
                 "status":            p.project_status,
                 "total":             total,
                 "pending":           pending,
+                "draft":             st["draft"],
                 "not_started":       st["not_started"],
                 "in_progress":       st["in_progress"],
                 "completed":         completed,
+                "shelved":           st["shelved"],
                 "overdue_incomplete": st["overdue_incomplete"],
                 "overdue_complete":  st["overdue_complete"],
                 "completion_rate":   completion_rate,
@@ -1629,16 +1636,16 @@ class ProjectController:
     def get_member_report_stats(self) -> list:
         """
         成員報表統計
-        返回每位負責人的任務狀態統計
+        返回每位負責人的任務狀態統計（含專案任務、系統任務、AR任務）
         """
         import json
         from datetime import date as date_type
         from collections import defaultdict
-        from dbs.mysql_db.model_tables import UserProfileModel
+        from dbs.mysql_db.model_tables import UserProfileModel, TemporaryDutyModel
 
         today = date_type.today().isoformat()
 
-        # 查詢所有有效功能任務（不含刪除、不含草稿/刪除專案）
+        # ── 專案任務 (FunctionDataModel) ─────────────────────────────────────
         active_project_ids = [
             p.id for p in db.session.query(ProjectDataModel.id)
             .filter(
@@ -1657,19 +1664,30 @@ class ProjectController:
             .all()
         ) if active_project_ids else []
 
+        # ── 系統任務 + AR任務 (TemporaryDutyModel) ───────────────────────────
+        duties = db.session.query(TemporaryDutyModel).filter(
+            TemporaryDutyModel.duty_status != 9,
+            TemporaryDutyModel.status == 1,
+        ).all()
+
         stats_map: dict = defaultdict(lambda: {
             "total": 0, "not_started": 0, "in_progress": 0, "completed": 0,
-            "overdue_incomplete": 0, "overdue_complete": 0,
+            "shelved": 0, "overdue_incomplete": 0, "overdue_complete": 0,
         })
 
         all_work_nos: set = set()
+
+        def _parse_responsible(raw) -> list:
+            if not raw:
+                return []
+            try:
+                return json.loads(raw)
+            except (ValueError, TypeError):
+                return []
+
+        # 統計專案任務
         for f in functions:
-            responsible = []
-            if f.responsible:
-                try:
-                    responsible = json.loads(f.responsible)
-                except (ValueError, TypeError):
-                    pass
+            responsible = _parse_responsible(f.responsible)
             if not responsible:
                 continue
             end = f.latest_expected_end_date or f.expected_end_date
@@ -1687,7 +1705,36 @@ class ProjectController:
                     s["in_progress"] += 1
                     if is_past_due:
                         s["overdue_incomplete"] += 1
+                elif f.function_status == 8:
+                    s["shelved"] += 1
                 else:
+                    s["not_started"] += 1
+                    if is_past_due:
+                        s["overdue_incomplete"] += 1
+
+        # 統計系統任務 + AR任務
+        for d in duties:
+            responsible = _parse_responsible(d.responsible)
+            if not responsible:
+                continue
+            end = d.latest_expected_end_date or d.expected_end_date
+            is_past_due = bool(end and end < today)
+            orig_end = d.expected_end_date
+            for wn in responsible:
+                all_work_nos.add(wn)
+                s = stats_map[wn]
+                s["total"] += 1
+                if d.duty_status == 3:
+                    s["completed"] += 1
+                    if orig_end and orig_end < today:
+                        s["overdue_complete"] += 1
+                elif d.duty_status in (1, 2):
+                    s["in_progress"] += 1
+                    if is_past_due:
+                        s["overdue_incomplete"] += 1
+                elif d.duty_status == 8:
+                    s["shelved"] += 1
+                else:  # 0=草稿
                     s["not_started"] += 1
                     if is_past_due:
                         s["overdue_incomplete"] += 1
@@ -1714,6 +1761,7 @@ class ProjectController:
                 "not_started":       st["not_started"],
                 "in_progress":       st["in_progress"],
                 "completed":         completed,
+                "shelved":           st["shelved"],
                 "overdue_incomplete": st["overdue_incomplete"],
                 "overdue_complete":  st["overdue_complete"],
                 "completion_rate":   round(completed / total * 100, 1) if total > 0 else 0.0,
@@ -2207,6 +2255,7 @@ class FunctionController:
         size = payload.get("size", 20)
         keyword = payload.get("keyword", "")
         status = payload.get("status")
+        requirement_id = payload.get("requirement_id")
         q = db.session.query(FunctionDataModel).filter_by(project_id=project_id).filter(
             FunctionDataModel.function_status != 9
         )
@@ -2214,6 +2263,8 @@ class FunctionController:
             q = q.filter(FunctionDataModel.function_nm.like(f"%{keyword}%"))
         if status is not None:
             q = q.filter(FunctionDataModel.function_status == status)
+        if requirement_id:
+            q = q.filter(FunctionDataModel.requirement_id == requirement_id)
         total = q.count()
         funcs = q.offset((page - 1) * size).limit(size).all()
 

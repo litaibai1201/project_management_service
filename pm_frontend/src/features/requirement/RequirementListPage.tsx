@@ -2,13 +2,17 @@ import React, { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Table, Button, Input, Select, Space, Tooltip, Popconfirm,
-  Modal, Form, Tag, Avatar, Card, Tabs, Progress,
+  Modal, Form, Tag, Avatar, Card, Tabs, Progress, Spin, Empty,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { PlusIcon, PencilSquareIcon, TrashIcon, ArrowsPointingOutIcon } from '@heroicons/react/24/outline'
+import { PlusIcon, PencilSquareIcon, TrashIcon, ArrowsPointingOutIcon, TableCellsIcon } from '@heroicons/react/24/outline'
 import { standaloneReqApi, type StandaloneReq } from '@/api/standalone_req.api'
-import { requirementApi, type ProjectReqItem } from '@/api/project.api'
+import { dutyApi } from '@/api/duty.api'
+import { requirementApi, projectApi, type ProjectReqItem } from '@/api/project.api'
+import type { ProjectFunction, TemporaryDuty } from '@/types/api.types'
 import RichTextEditor from '@/components/common/RichTextEditor'
+import WbsTable from '@/components/common/WbsTable'
+import DutyWbsTable from '@/components/common/DutyWbsTable'
 import { userApi } from '@/api/user.api'
 import { systemApi, type SystemItem } from '@/api/system.api'
 import { PRIORITY_MAP } from '@/utils/status'
@@ -74,6 +78,36 @@ const RequirementListPage: React.FC = () => {
   const [reqKeyword,  setReqKeyword]  = useState('')
   const [reqStatus,   setReqStatus]   = useState<number | undefined>()
   const [reqPriority, setReqPriority] = useState<number | undefined>()
+
+  // ── 專案需求 WBS Modal ────────────────────────────────────────────────────
+  const [wbsReq,       setWbsReq]       = useState<ProjectReqItem | null>(null)
+  const [wbsFunctions, setWbsFunctions] = useState<ProjectFunction[]>([])
+  const [wbsLoading,   setWbsLoading]   = useState(false)
+
+  const openWbs = async (req: ProjectReqItem) => {
+    setWbsReq(req)
+    setWbsFunctions([])
+    setWbsLoading(true)
+    try {
+      const res = await projectApi.functionList(req.project_id, { page: 1, size: 500, requirement_id: req.id })
+      setWbsFunctions((res.content as any).data_list ?? [])
+    } catch { /* global */ } finally { setWbsLoading(false) }
+  }
+
+  // ── 系統需求 WBS Modal ────────────────────────────────────────────────────
+  const [sysWbsReq,    setSysWbsReq]    = useState<StandaloneReq | null>(null)
+  const [sysWbsDuties, setSysWbsDuties] = useState<TemporaryDuty[]>([])
+  const [sysWbsLoading, setSysWbsLoading] = useState(false)
+
+  const openSysWbs = async (req: StandaloneReq) => {
+    setSysWbsReq(req)
+    setSysWbsDuties([])
+    setSysWbsLoading(true)
+    try {
+      const res = await dutyApi.list({ page: 1, size: 500, standalone_req_id: req.id })
+      setSysWbsDuties((res.content as any).data_list ?? [])
+    } catch { /* global */ } finally { setSysWbsLoading(false) }
+  }
 
   // ── 系統需求 表單 ─────────────────────────────────────────────────────────
   const [showForm,      setShowForm]      = useState(false)
@@ -215,7 +249,7 @@ const RequirementListPage: React.FC = () => {
 
   const projColumns: ColumnsType<ProjectReqItem> = [
     {
-      title: '需求名稱', dataIndex: 'req_nm', ellipsis: true,
+      title: '需求名稱', dataIndex: 'req_nm', width: 200, ellipsis: true,
       render: (v: string, r: ProjectReqItem) => (
         <Button type="link" style={{ padding: 0, fontWeight: 500 }}
           onClick={() => navigate(`/projects/${r.project_id}?req=${r.id}`)}>
@@ -224,27 +258,27 @@ const RequirementListPage: React.FC = () => {
       ),
     },
     {
-      title: '所屬專案', dataIndex: 'project_nm', width: 180, ellipsis: true,
+      title: '所屬專案', dataIndex: 'project_nm', width: 150, ellipsis: true,
       render: (v: string) => v
         ? <Tag color="blue" style={{ fontSize: 11 }}>{v}</Tag>
         : <span className="text-slate-300 text-xs">—</span>,
     },
     {
-      title: '狀態', dataIndex: 'status', width: 90,
+      title: '狀態', dataIndex: 'status', width: 88,
       render: (v: number) => {
         const c = PROJ_REQ_STATUS_MAP[v] ?? { label: String(v), color: 'default' }
         return <Tag color={c.color} style={{ fontSize: 11 }}>{c.label}</Tag>
       },
     },
     {
-      title: '優先級', dataIndex: 'priority', width: 72,
+      title: '優先級', dataIndex: 'priority', width: 80,
       render: (v: number) => {
         const p = PRIORITY_MAP[v]
         return p ? <Tag color={p.color} style={{ fontSize: 11 }}>{p.label}</Tag> : <span>{v}</span>
       },
     },
     {
-      title: '進度', dataIndex: 'progress', width: 110,
+      title: '進度', dataIndex: 'progress', width: 130,
       render: (v: number, r: ProjectReqItem) => {
         if (r.status !== 2 && r.status !== 4) return <span className="text-slate-300 text-xs">—</span>
         return (
@@ -257,32 +291,21 @@ const RequirementListPage: React.FC = () => {
       },
     },
     {
-      title: '負責人', dataIndex: 'responsible', width: 130,
-      render: (v: string[]) => (
-        <Avatar.Group max={{ count: 3 }} size="small">
-          {(v ?? []).map((wn) => (
-            <Tooltip key={wn} title={`${toName(wn)} (${wn})`}>
-              <Avatar size="small" style={{ background: '#2563eb', fontSize: 10 }}>
-                {toName(wn)?.[0] ?? wn[0]}
-              </Avatar>
-            </Tooltip>
-          ))}
-        </Avatar.Group>
-      ),
-    },
-    {
-      title: '期望完成', dataIndex: 'expected_end_date', width: 110,
+      title: '期望完成', dataIndex: 'expected_end_date', width: 120,
       render: (v: string) => <DaysLeftBadge date={v} />,
     },
     {
-      title: '建立人', dataIndex: 'creator_nm', width: 90,
-      render: (v: string, r: ProjectReqItem) => (
-        <span className="text-slate-500 text-sm">{v || toName(r.creator) || r.creator}</span>
-      ),
+      title: '建立時間', dataIndex: 'created_at', width: 105,
+      render: (v: string) => <span className="text-slate-400 text-xs">{v ? v.slice(0, 10) : '—'}</span>,
     },
     {
-      title: '建立時間', dataIndex: 'created_at', width: 110,
-      render: (v: string) => <span className="text-slate-400 text-xs">{v ? v.slice(0, 10) : '—'}</span>,
+      title: 'WBS', key: 'wbs', width: 60, align: 'center' as const,
+      render: (_: unknown, r: ProjectReqItem) => (
+        <Tooltip title="查看 WBS 排程">
+          <Button size="small" type="text" icon={<TableCellsIcon className="w-4 h-4" />}
+            onClick={() => openWbs(r)} />
+        </Tooltip>
+      ),
     },
   ]
 
@@ -355,6 +378,15 @@ const RequirementListPage: React.FC = () => {
       render: (v: string) => <span className="text-slate-400 text-xs">{v ? v.slice(0, 10) : '—'}</span>,
     },
     {
+      title: 'WBS', key: 'wbs', width: 60, align: 'center' as const,
+      render: (_: unknown, r: StandaloneReq) => (
+        <Tooltip title="查看 WBS 排程">
+          <Button size="small" type="text" icon={<TableCellsIcon className="w-4 h-4" />}
+            onClick={() => openSysWbs(r)} />
+        </Tooltip>
+      ),
+    },
+    {
       title: '操作', key: 'action', width: 80, fixed: 'right',
       render: (_: unknown, r: StandaloneReq) => {
         if (r.status !== 0) return null
@@ -383,6 +415,58 @@ const RequirementListPage: React.FC = () => {
         <h1 className="text-2xl font-bold text-slate-800">需求列表</h1>
         <p className="text-slate-400 text-sm mt-0.5">管理專案需求與系統需求</p>
       </div>
+
+      {/* 專案需求 WBS Modal */}
+      <Modal
+        open={!!wbsReq}
+        onCancel={() => setWbsReq(null)}
+        footer={null}
+        width={900}
+        title={
+          <span className="text-slate-800 font-semibold">
+            WBS 排程
+            {wbsReq && <span className="text-slate-400 font-normal ml-2 text-sm">— {wbsReq.req_nm}</span>}
+          </span>
+        }
+        destroyOnClose
+      >
+        {wbsLoading ? (
+          <div className="flex justify-center py-12"><Spin /></div>
+        ) : wbsFunctions.length === 0 ? (
+          <Empty description="此需求尚無關聯任務" className="py-10" />
+        ) : (
+          <WbsTable functions={wbsFunctions} toName={toName} defaultExpanded
+            requirements={wbsReq ? [wbsReq as any] : []} />
+        )}
+      </Modal>
+
+      {/* 系統需求 WBS Modal */}
+      <Modal
+        open={!!sysWbsReq}
+        onCancel={() => setSysWbsReq(null)}
+        footer={null}
+        width={900}
+        title={
+          <span className="text-slate-800 font-semibold">
+            WBS 排程
+            {sysWbsReq && <span className="text-slate-400 font-normal ml-2 text-sm">— {sysWbsReq.req_nm}</span>}
+          </span>
+        }
+        destroyOnClose
+      >
+        {sysWbsLoading ? (
+          <div className="flex justify-center py-12"><Spin /></div>
+        ) : sysWbsDuties.length === 0 ? (
+          <Empty description="此需求尚無關聯任務" className="py-10" />
+        ) : (
+          <DutyWbsTable
+            duties={sysWbsDuties}
+            toName={toName}
+            reqNameMap={sysWbsReq ? { [sysWbsReq.id]: sysWbsReq.req_nm } : {}}
+            defaultExpanded
+          />
+        )}
+      </Modal>
 
       <Tabs
         type="card"

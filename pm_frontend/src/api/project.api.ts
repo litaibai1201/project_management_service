@@ -33,6 +33,7 @@ export interface MemberReportStat {
   not_started:        number
   in_progress:        number
   completed:          number
+  shelved:            number
   overdue_incomplete: number
   overdue_complete:   number
   completion_rate:    number
@@ -45,9 +46,11 @@ export interface ProjectReportStat {
   status:             number
   total:              number
   pending:            number
+  draft:              number
   not_started:        number
   in_progress:        number
   completed:          number
+  shelved:            number
   overdue_incomplete: number
   overdue_complete:   number
   completion_rate:    number
@@ -199,7 +202,7 @@ export const projectApi = {
     post(`/project/${pid}/functions/task_addition_review`, { function_ids: functionIds, reviewer }),
 
   /** POST /api/project/:pid/function_list */
-  functionList: (pid: string, payload: { page: number; size?: number; keyword?: string; status?: number }) =>
+  functionList: (pid: string, payload: { page: number; size?: number; keyword?: string; status?: number; requirement_id?: string }) =>
     post(`/project/${pid}/function_list`, payload),
 
   // ─── Progress ────────────────────────────────────────────────────────────────

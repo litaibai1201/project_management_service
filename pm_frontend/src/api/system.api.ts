@@ -54,9 +54,36 @@ export interface CreateSystemPayload {
   deploy_info?:  DeployRow[]
 }
 
+export interface SystemReportStat {
+  system_id: string
+  sys_nm:    string
+  sys_group: string
+  // 需求統計（除已完結外均視為進行中）
+  req_total:           number
+  req_in_progress:     number
+  req_completed:       number
+  req_completion_rate: number
+  req_overdue:         number
+  // 任務統計（草稿單列；1/2/5/6 視為進行中；3=完成；8=搁置）
+  task_total:              number
+  task_draft:              number
+  task_not_started:        number
+  task_in_progress:        number
+  task_completed:          number
+  task_shelved:            number
+  task_pending:            number
+  task_completion_rate:    number
+  task_overdue_incomplete: number
+  task_overdue_complete:   number
+  task_overdue_rate:       number
+}
+
 export const systemApi = {
   list: (payload: SystemListQuery): Promise<ApiResponse<{ data_list: SystemItem[]; total_count: number; page: number; size: number }>> =>
     post('/system/list', payload),
+
+  reportStats: (): Promise<ApiResponse<SystemReportStat[]>> =>
+    get('/system/report_stats'),
 
   get: (id: string): Promise<ApiResponse<SystemItem>> =>
     get(`/system/${id}`),
