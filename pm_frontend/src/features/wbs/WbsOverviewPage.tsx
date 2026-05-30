@@ -1302,10 +1302,22 @@ const ReportPreviewModal: React.FC<{
   systemInfoMap: Record<string, SystemItem>
   reqNameMap: Record<string, string>
   reqResponsibleMap: Record<string, string[]>
+  meetingNotes: Record<string, MeetingNote[]>
+  dutyNotes: Record<string, MeetingNote[]>
   toName: (wn: string) => string
   onClose: () => void
-}> = ({ open, projects, duties, systemInfoMap, reqNameMap, reqResponsibleMap, toName, onClose }) => {
+}> = ({ open, projects, duties, systemInfoMap, reqNameMap, reqResponsibleMap, meetingNotes, dutyNotes, toName, onClose }) => {
   const [exporting, setExporting] = useState(false)
+
+  // ── Pending-note helpers ──────────────────────────────────────────────────
+  const getDutyPendingNotes = useCallback((d: TemporaryDuty): MeetingNote[] => {
+    const noteKey = d.system_id || 'ar_standalone'
+    return (dutyNotes[noteKey] ?? []).filter((n) => n.taskId === d.id && n.status === 'pending')
+  }, [dutyNotes])
+
+  const getTaskPendingNotes = useCallback((projectId: string, taskId: string): MeetingNote[] => {
+    return (meetingNotes[projectId] ?? []).filter((n) => n.taskId === taskId && n.status === 'pending')
+  }, [meetingNotes])
 
   // Group duties by system / standalone AR
   const systemDutiesMap = useMemo(() => {
@@ -1321,8 +1333,11 @@ const ReportPreviewModal: React.FC<{
 
   const arDuties = useMemo(() => duties.filter((d) => !d.system_id), [duties])
 
-  // Only show duties whose expected_end falls within last/this/next week
-  const isDutyVisible = (d: TemporaryDuty) => computeDutyWeekTags(d).length > 0
+  // Only show duties whose expected_end falls within last/this/next week,
+  // OR that have pending meeting notes (force-show for accountability — approach A)
+  const isDutyVisible = useCallback((d: TemporaryDuty) =>
+    computeDutyWeekTags(d).length > 0 || getDutyPendingNotes(d).length > 0
+  , [getDutyPendingNotes])
 
   // Render a single duty task line — mirrors renderTaskRow for projects (with reschedule info)
   const renderDutyTask = (d: TemporaryDuty, indent: number) => {
@@ -1334,32 +1349,44 @@ const ReportPreviewModal: React.FC<{
       ? `${d.end_time?.slice(0, 10) || d.expected_end_date}已完成`
       : d.expected_end_date ? `目標${d.expected_end_date}完成` : null
     const weekTags = computeDutyWeekTags(d)
+    const pendingNotes = getDutyPendingNotes(d)
+    const isOutsideWindow = weekTags.length === 0
     return (
-      <div key={d.id} style={{ color: lineColor, paddingLeft: indent }}>
-        <span>- </span>
-        <span style={{ color, fontWeight: 700 }}>({label})</span>
-        <span> {d.duty_nm}</span>
-        {hasReschedule ? (
-          <span>
-            {' ('}
-            <s style={{ color: '#aaa', fontSize: 11 }}>{d.original_end_date}</s>
-            <span style={{ color: '#d97706', fontWeight: 700, marginLeft: 3 }}>{d.expected_end_date}</span>
-            <span style={{ color: '#d97706', fontSize: 10, marginLeft: 2 }}>延期{d.reschedule_count}次</span>
-            {')'}
-          </span>
-        ) : dateStr ? (
-          <span style={{ color: '#6b7280', marginLeft: 4 }}>({dateStr})</span>
-        ) : null}
-        {weekTags.map((wt) => (
-          <span key={wt} style={{ color: WEEK_TAG_CONFIG[wt].color, fontWeight: 700, marginLeft: 3 }}>
-            [{WEEK_TAG_CONFIG[wt].label}]
-          </span>
-        ))}
-        {hasReschedule && rescheduleReason && (
-          <div style={{ paddingLeft: 20, color: '#d97706', fontSize: 11 }}>
-            ↳ 延期原因：{rescheduleReason}
+      <div key={d.id} style={{ paddingLeft: indent, marginBottom: pendingNotes.length > 0 ? 4 : 0 }}>
+        <div style={{ color: isOutsideWindow ? '#6b7280' : lineColor }}>
+          <span>- </span>
+          <span style={{ color, fontWeight: 700 }}>({label})</span>
+          <span> {d.duty_nm}</span>
+          {hasReschedule ? (
+            <span>
+              {' ('}
+              <s style={{ color: '#aaa', fontSize: 11 }}>{d.original_end_date}</s>
+              <span style={{ color: '#d97706', fontWeight: 700, marginLeft: 3 }}>{d.expected_end_date}</span>
+              <span style={{ color: '#d97706', fontSize: 10, marginLeft: 2 }}>延期{d.reschedule_count}次</span>
+              {')'}
+            </span>
+          ) : dateStr ? (
+            <span style={{ color: '#6b7280', marginLeft: 4 }}>({dateStr})</span>
+          ) : null}
+          {weekTags.map((wt) => (
+            <span key={wt} style={{ color: WEEK_TAG_CONFIG[wt].color, fontWeight: 700, marginLeft: 3 }}>
+              [{WEEK_TAG_CONFIG[wt].label}]
+            </span>
+          ))}
+          {isOutsideWindow && pendingNotes.length > 0 && (
+            <span style={{ color: '#d97706', fontSize: 10, marginLeft: 4 }}>[含待處理備注]</span>
+          )}
+          {hasReschedule && rescheduleReason && (
+            <div style={{ paddingLeft: 20, color: '#d97706', fontSize: 11 }}>
+              ↳ 延期原因：{rescheduleReason}
+            </div>
+          )}
+        </div>
+        {pendingNotes.map((n) => (
+          <div key={n.id} style={{ paddingLeft: 16, marginTop: 2, color: '#92400e', fontSize: 11, background: '#fffbeb', borderLeft: '3px solid #f59e0b', paddingTop: 2, paddingBottom: 2 }}>
+            💬 [{n.type}] {n.content}
           </div>
-        )}
+        ))}
       </div>
     )
   }
@@ -1579,7 +1606,8 @@ const ReportPreviewModal: React.FC<{
                           task.week_tag.length > 0 ||
                           (task.is_overdue && task.status !== 'completed') ||
                           task.is_suspended ||
-                          isRecentComplete(task)
+                          isRecentComplete(task) ||
+                          getTaskPendingNotes(project.id, task.id).length > 0
 
                         const allItems = project.functions.flatMap((func) =>
                           func.tasks.filter(isVisible).map((task) => ({ task, funcName: func.name, funcId: func.id }))
@@ -1601,29 +1629,41 @@ const ReportPreviewModal: React.FC<{
                           const dateStr = task.status === 'completed'
                             ? `${task.actual_end || task.expected_end}已完成`
                             : task.expected_end ? `目標${task.expected_end}完成` : null
+                          const taskPendingNotes = getTaskPendingNotes(project.id, task.id)
+                          const isOutsideWindow = task.week_tag.length === 0 && !task.is_overdue && !task.is_suspended && !isRecentComplete(task)
                           return (
-                            <div key={task.id} style={{ color: lineColor, paddingLeft: indent }}>
-                              <span>- </span>
-                              <span style={{ color, fontWeight: 700 }}>({label})</span>
-                              {task.is_suspended && <span style={{ color: '#6b7280', fontWeight: 700 }}> [搁置]</span>}
-                              <span> {task.name}</span>
-                              {hasReschedule ? (
-                                <span>
-                                  {' ('}
-                                  <s style={{ color: '#aaa', fontSize: 11 }}>{task.original_end}</s>
-                                  <span style={{ color: '#d97706', fontWeight: 700, marginLeft: 3 }}>{task.expected_end}</span>
-                                  <span style={{ color: '#d97706', fontSize: 10, marginLeft: 2 }}>延期{task.reschedule_count}次</span>
-                                  {')'}
-                                </span>
-                              ) : dateStr ? (
-                                <span style={{ color: '#6b7280', marginLeft: 4 }}>({dateStr})</span>
-                              ) : null}
-                              {renderWeekTags(task)}
-                              {hasReschedule && task.reschedule_reason && (
-                                <div style={{ paddingLeft: 20, color: '#d97706', fontSize: 11 }}>
-                                  ↳ 延期原因：{task.reschedule_reason}
+                            <div key={task.id} style={{ paddingLeft: indent, marginBottom: taskPendingNotes.length > 0 ? 4 : 0 }}>
+                              <div style={{ color: isOutsideWindow ? '#6b7280' : lineColor }}>
+                                <span>- </span>
+                                <span style={{ color, fontWeight: 700 }}>({label})</span>
+                                {task.is_suspended && <span style={{ color: '#6b7280', fontWeight: 700 }}> [搁置]</span>}
+                                <span> {task.name}</span>
+                                {hasReschedule ? (
+                                  <span>
+                                    {' ('}
+                                    <s style={{ color: '#aaa', fontSize: 11 }}>{task.original_end}</s>
+                                    <span style={{ color: '#d97706', fontWeight: 700, marginLeft: 3 }}>{task.expected_end}</span>
+                                    <span style={{ color: '#d97706', fontSize: 10, marginLeft: 2 }}>延期{task.reschedule_count}次</span>
+                                    {')'}
+                                  </span>
+                                ) : dateStr ? (
+                                  <span style={{ color: '#6b7280', marginLeft: 4 }}>({dateStr})</span>
+                                ) : null}
+                                {renderWeekTags(task)}
+                                {isOutsideWindow && taskPendingNotes.length > 0 && (
+                                  <span style={{ color: '#d97706', fontSize: 10, marginLeft: 4 }}>[含待處理備注]</span>
+                                )}
+                                {hasReschedule && task.reschedule_reason && (
+                                  <div style={{ paddingLeft: 20, color: '#d97706', fontSize: 11 }}>
+                                    ↳ 延期原因：{task.reschedule_reason}
+                                  </div>
+                                )}
+                              </div>
+                              {taskPendingNotes.map((n) => (
+                                <div key={n.id} style={{ paddingLeft: 16, marginTop: 2, color: '#92400e', fontSize: 11, background: '#fffbeb', borderLeft: '3px solid #f59e0b', paddingTop: 2, paddingBottom: 2 }}>
+                                  💬 [{n.type}] {n.content}
                                 </div>
-                              )}
+                              ))}
                             </div>
                           )
                         }
@@ -1802,6 +1842,62 @@ const ReportPreviewModal: React.FC<{
               })()}
             </tbody>
           </table>
+
+          {/* ── B: Pending notes summary ───────────────────────────────── */}
+          {(() => {
+            // Collect all pending notes across projects, systems, AR
+            type PendingEntry = { source: string; taskName?: string; type: NoteType; content: string; author: string; createdAt: string }
+            const entries: PendingEntry[] = []
+
+            // Project notes
+            projects.forEach((p) => {
+              const notes = meetingNotes[p.id] ?? []
+              notes.filter((n) => n.status === 'pending').forEach((n) => {
+                entries.push({ source: p.name, taskName: n.taskName ?? undefined, type: n.type, content: n.content, author: n.author, createdAt: n.createdAt })
+              })
+            })
+            // System / AR duty notes
+            const dutyNoteKeys = new Set<string>()
+            duties.forEach((d) => dutyNoteKeys.add(d.system_id || 'ar_standalone'))
+            dutyNoteKeys.forEach((key) => {
+              const notes = dutyNotes[key] ?? []
+              const sourceName = key === 'ar_standalone' ? 'AR 任務'
+                : (systemInfoMap[key]?.sys_nm ?? key)
+              notes.filter((n) => n.status === 'pending').forEach((n) => {
+                entries.push({ source: sourceName, taskName: n.taskName ?? undefined, type: n.type, content: n.content, author: n.author, createdAt: n.createdAt })
+              })
+            })
+
+            if (entries.length === 0) return null
+            return (
+              <div style={{ marginTop: 20, border: '1px solid #fde68a', borderRadius: 6, overflow: 'hidden' }}>
+                <div style={{ background: '#fef3c7', padding: '6px 12px', fontWeight: 700, fontSize: 13, color: '#92400e', borderBottom: '1px solid #fde68a' }}>
+                  待處理會議備注（共 {entries.length} 條）
+                </div>
+                <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ background: '#fffbeb' }}>
+                      {['來源', '相關任務', '類型', '內容', '記錄人', '時間'].map((h) => (
+                        <th key={h} style={{ border: '1px solid #fde68a', padding: '4px 8px', textAlign: 'left', color: '#92400e', fontWeight: 600 }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {entries.map((e, i) => (
+                      <tr key={i} style={{ background: i % 2 === 1 ? '#fffbeb' : '#fff' }}>
+                        <td style={{ border: '1px solid #fde68a', padding: '4px 8px', color: '#374151', whiteSpace: 'nowrap' }}>{e.source}</td>
+                        <td style={{ border: '1px solid #fde68a', padding: '4px 8px', color: '#6b7280' }}>{e.taskName ?? '—'}</td>
+                        <td style={{ border: '1px solid #fde68a', padding: '4px 8px', color: '#92400e', whiteSpace: 'nowrap' }}>{e.type}</td>
+                        <td style={{ border: '1px solid #fde68a', padding: '4px 8px', color: '#111827' }}>{e.content}</td>
+                        <td style={{ border: '1px solid #fde68a', padding: '4px 8px', color: '#6b7280', whiteSpace: 'nowrap' }}>{e.author}</td>
+                        <td style={{ border: '1px solid #fde68a', padding: '4px 8px', color: '#6b7280', whiteSpace: 'nowrap' }}>{dayjs(e.createdAt).format('MM/DD HH:mm')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          })()}
 
           {/* Footer matching master */}
           <div style={{ marginTop: 16, paddingLeft: 8, fontSize: 11, color: '#FF0000', fontWeight: 700 }}>
@@ -2776,6 +2872,8 @@ const WbsOverviewPage: React.FC = () => {
         systemInfoMap={systemInfoMap}
         reqNameMap={reqNameMap}
         reqResponsibleMap={reqResponsibleMap}
+        meetingNotes={meetingNotes}
+        dutyNotes={dutyNotes}
         toName={toName}
         onClose={() => setPreviewOpen(false)}
       />
