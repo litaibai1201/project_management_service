@@ -141,9 +141,9 @@ const SystemDetailPage: React.FC = () => {
 
   // 需求任務 / AR任務 tab 視圖狀態
   const [reqDutyView,      setReqDutyView]      = useState<'all' | 'mine'>('all')
-  const [reqDutyGroupMode, setReqDutyGroupMode] = useState<'flat' | 'grouped'>('grouped')
+  const [reqDutyGroupMode, setReqDutyGroupMode] = useState<'flat' | 'grouped'>('flat')
   const [arDutyView,       setArDutyView]       = useState<'all' | 'mine'>('all')
-  const [arDutyGroupMode,  setArDutyGroupMode]  = useState<'flat' | 'grouped'>('grouped')
+  const [arDutyGroupMode,  setArDutyGroupMode]  = useState<'flat' | 'grouped'>('flat')
   // 需求任務分組展開狀態（受控，避免 loadDuties 後自動折疊）
   const [expandedReqKeys, setExpandedReqKeys]  = useState<string[]>([])
   // AR任務分組展開狀態（受控）

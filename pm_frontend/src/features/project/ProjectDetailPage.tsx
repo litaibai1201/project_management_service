@@ -89,7 +89,7 @@ const ProjectDetailPage: React.FC = () => {
 
   const [functions,          setFunctions]          = useState<ProjectFunction[]>([])
   const [funcView,           setFuncView]           = useState<'all' | 'mine'>('all')
-  const [funcGroupMode,      setFuncGroupMode]      = useState<'flat' | 'grouped' | 'by_req'>('by_req')
+  const [funcGroupMode,      setFuncGroupMode]      = useState<'flat' | 'grouped' | 'by_req'>('flat')
   const [funcLoading,        setFuncLoading]        = useState(false)
   const [funcPage,           setFuncPage]           = useState(1)
   const [funcPageSize,       setFuncPageSize]       = useState(100)

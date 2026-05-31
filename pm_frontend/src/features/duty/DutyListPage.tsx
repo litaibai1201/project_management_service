@@ -965,8 +965,8 @@ const DutyListPage: React.FC = () => {
                     value={groupMode}
                     onChange={(v) => setGroupMode(v as 'flat' | 'grouped')}
                     options={[
-                      { label: '分組', value: 'grouped' },
                       { label: '平面', value: 'flat'    },
+                      { label: '分組', value: 'grouped' },
                     ]}
                   />
                   <div className="w-px h-5 bg-slate-200" />
