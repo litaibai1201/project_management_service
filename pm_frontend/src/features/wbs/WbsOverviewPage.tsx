@@ -32,6 +32,7 @@ import { dutyApi } from '@/api/duty.api'
 import { standaloneReqApi } from '@/api/standalone_req.api'
 import { systemApi, type SystemItem } from '@/api/system.api'
 import { tokenStorage } from '@/api/httpClient'
+import RichTextContent from '@/components/common/RichTextContent'
 import AttachmentPreview from '@/components/ui/AttachmentPreview'
 import { useWorkNoToName } from '@/hooks/useWorkNoToName'
 import FunctionDetailDrawer from '@/features/project/FunctionDetailDrawer'
@@ -157,7 +158,7 @@ function exportWbsCSV(projects: WbsProject[]) {
         p.name, f.name, t.name, t.assignee, STATUS_CONFIG[t.status].label,
         String(t.progress), t.expected_end, t.actual_end ?? '',
         String(t.days_overdue ?? ''), t.week_tag.map((wt) => WEEK_TAG_CONFIG[wt].label).join('+'),
-        t.latest_update ?? '',
+        (t.latest_update ?? '').replace(/<[^>]*>/g, ''),
       ])
     )
   )
@@ -260,7 +261,7 @@ function buildProgressTextRuns(project: WbsProject): PptTextRun[] {
       }
       if (task.latest_update && task.status !== 'completed' && !task.is_suspended) {
         runs.push({ text: '\n' })
-        runs.push(_run(`       - ${task.latest_update}`, { color: '000000' }))
+        runs.push(_run(`       - ${task.latest_update.replace(/<[^>]*>/g, '')}`, { color: '000000' }))
       }
     })
   })
@@ -829,9 +830,10 @@ const TaskRow: React.FC<{
           </div>
           {/* Latest update for overdue / in_progress */}
           {task.latest_update && (task.is_overdue || task.status === 'in_progress') && (
-            <p className={`text-[10px] mt-1 leading-relaxed ${isOverdue ? 'text-red-500' : 'text-slate-400'}`}>
-              最新進度：{task.latest_update}
-            </p>
+            <div className={`text-[10px] mt-1 leading-relaxed ${isOverdue ? 'text-red-500' : 'text-slate-400'}`}>
+              <span className="font-medium">最新進度：</span>
+              <RichTextContent html={task.latest_update} />
+            </div>
           )}
         </div>
 
