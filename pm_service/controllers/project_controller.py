@@ -796,10 +796,11 @@ class ProjectController:
                 None,
             )
             if next_node:
+                submitter_display = r.submitter_name or r.submitter or ""
                 push_notification(
                     [next_node["approver_work_no"]],
                     title="您有新的審核申請待處理",
-                    desc=f"「{r.apply_type}」輪到您審核，請前往審核管理查看",
+                    desc=f"「{r.apply_type}」輪到您審核，提交人：{submitter_display}，請前往審核管理查看",
                     link_type="review",
                     link_id=review_id,
                 )
@@ -815,7 +816,7 @@ class ProjectController:
 
         # requirement_review / requirement_shelve 审批更新需求状态
         if r.apply_type_code in ('requirement_review', 'requirement_shelve') and r.requirement_id:
-            from dbs.mysql_db.model_tables import RequirementModel
+            from dbs.mysql_db.model_tables import RequirementModel, UserProfileModel
             req = db.session.query(RequirementModel).filter_by(id=r.requirement_id).first()
             if req:
                 if r.apply_type_code == 'requirement_review':
@@ -829,27 +830,51 @@ class ProjectController:
                     # 拒絕/退回 → 需求狀態不變（仍是已通過）
                 req.update_at = now
             db.session.commit()
+
+            # 取得上下文資訊
+            proj = db.session.query(ProjectDataModel).filter_by(id=r.project_id).first() if r.project_id else None
+            proj_nm = proj.project_nm if proj else ""
+            approver_u = db.session.query(UserProfileModel).filter_by(work_no=approver_work_no).first() if approver_work_no else None
+            approver_nm = approver_u.name if approver_u else approver_work_no
+            responsible = []
+            if req and req.responsible_json:
+                try:
+                    responsible = json.loads(req.responsible_json)
+                except Exception:
+                    pass
+
             from controllers.notification_controller import push_notification
             result_text = "已通過" if final_status == 2 else ("已被退回" if final_status == 4 else "已被拒絕")
             type_text = "搁置申請" if r.apply_type_code == 'requirement_shelve' else "審核申請"
+            notif_desc = f"【{proj_nm}】需求「{r.description}」{type_text}{result_text}，審核人：{approver_nm}"
             push_notification(
                 [r.submitter],
                 title=f"您的需求{type_text}{result_text}",
-                desc=f"需求「{r.description}」{type_text}{result_text}",
+                desc=notif_desc,
                 link_type="project",
                 link_id=r.project_id or "",
             )
+            extra = [w for w in responsible if w != r.submitter]
+            if extra:
+                push_notification(
+                    extra,
+                    title=f"需求{type_text}{result_text}",
+                    desc=notif_desc,
+                    link_type="project",
+                    link_id=r.project_id or "",
+                )
             return
 
         # requirement_batch_review 批量需求审批
         if r.apply_type_code == 'requirement_batch_review' and r.requirement_ids_json:
             import json as _json
-            from dbs.mysql_db.model_tables import RequirementModel
+            from dbs.mysql_db.model_tables import RequirementModel, UserProfileModel
             req_ids = []
             try:
                 req_ids = _json.loads(r.requirement_ids_json)
             except Exception:
                 pass
+            reqs = []
             if req_ids:
                 reqs = db.session.query(RequirementModel).filter(
                     RequirementModel.id.in_(req_ids)
@@ -861,20 +886,44 @@ class ProjectController:
                         req.req_status = 0
                     req.update_at = now
             db.session.commit()
+
+            proj = db.session.query(ProjectDataModel).filter_by(id=r.project_id).first() if r.project_id else None
+            proj_nm = proj.project_nm if proj else ""
+            approver_u = db.session.query(UserProfileModel).filter_by(work_no=approver_work_no).first() if approver_work_no else None
+            approver_nm = approver_u.name if approver_u else approver_work_no
+            # 彙整所有需求負責人
+            all_resp: set = set()
+            for req in reqs:
+                if req.responsible_json:
+                    try:
+                        all_resp.update(json.loads(req.responsible_json))
+                    except Exception:
+                        pass
+
             from controllers.notification_controller import push_notification
             result_text = "已通過" if final_status == 2 else ("已被退回" if final_status == 4 else "已被拒絕")
+            notif_desc = f"【{proj_nm}】{len(reqs)} 條需求批量審核{result_text}，審核人：{approver_nm}"
             push_notification(
                 [r.submitter],
                 title=f"您的需求批量審核申請{result_text}",
-                desc=f"批量需求審核「{r.description}」{result_text}",
+                desc=notif_desc,
                 link_type="project",
                 link_id=r.project_id or "",
             )
+            extra = [w for w in all_resp if w != r.submitter]
+            if extra:
+                push_notification(
+                    extra,
+                    title=f"需求批量審核{result_text}",
+                    desc=notif_desc,
+                    link_type="project",
+                    link_id=r.project_id or "",
+                )
             return
 
         # standalone_req_review 系統需求審核（單條）
         if r.apply_type_code == 'standalone_req_review' and r.requirement_id:
-            from dbs.mysql_db.model_tables import StandaloneReqModel
+            from dbs.mysql_db.model_tables import StandaloneReqModel, SystemModel, UserProfileModel
             req = db.session.query(StandaloneReqModel).filter_by(id=r.requirement_id).first()
             if req:
                 if final_status == 2:
@@ -883,25 +932,48 @@ class ProjectController:
                     req.req_status = 0
                 req.updated_at = now
             db.session.commit()
+
+            sys_obj = db.session.query(SystemModel).filter_by(id=r.system_id).first() if r.system_id else None
+            sys_nm = sys_obj.sys_nm if sys_obj else ""
+            approver_u = db.session.query(UserProfileModel).filter_by(work_no=approver_work_no).first() if approver_work_no else None
+            approver_nm = approver_u.name if approver_u else approver_work_no
+            responsible = []
+            if req and req.responsible:
+                try:
+                    responsible = json.loads(req.responsible)
+                except Exception:
+                    pass
+
             from controllers.notification_controller import push_notification
             result_text = "已通過" if final_status == 2 else ("已被退回" if final_status == 4 else "已被拒絕")
+            notif_desc = f"【{sys_nm}】系統需求「{r.description}」審核{result_text}，審核人：{approver_nm}" if sys_nm else f"系統需求「{r.description}」審核{result_text}，審核人：{approver_nm}"
             push_notification(
                 [r.submitter],
                 title=f"您的系統需求審核申請{result_text}",
-                desc=f"系統需求「{r.description}」審核{result_text}",
+                desc=notif_desc,
                 link_type="review",
                 link_id=review_id,
             )
+            extra = [w for w in responsible if w != r.submitter]
+            if extra:
+                push_notification(
+                    extra,
+                    title=f"系統需求審核{result_text}",
+                    desc=notif_desc,
+                    link_type="review",
+                    link_id=review_id,
+                )
             return
 
         # standalone_req_batch_review 系統需求批量審核
         if r.apply_type_code == 'standalone_req_batch_review' and r.requirement_ids_json:
             import json as _json
-            from dbs.mysql_db.model_tables import StandaloneReqModel
+            from dbs.mysql_db.model_tables import StandaloneReqModel, SystemModel, UserProfileModel
             try:
                 req_ids = _json.loads(r.requirement_ids_json)
             except Exception:
                 req_ids = []
+            reqs = []
             if req_ids:
                 reqs = db.session.query(StandaloneReqModel).filter(
                     StandaloneReqModel.id.in_(req_ids)
@@ -913,15 +985,38 @@ class ProjectController:
                         req.req_status = 0
                     req.updated_at = now
             db.session.commit()
+
+            sys_obj = db.session.query(SystemModel).filter_by(id=r.system_id).first() if r.system_id else None
+            sys_nm = sys_obj.sys_nm if sys_obj else ""
+            approver_u = db.session.query(UserProfileModel).filter_by(work_no=approver_work_no).first() if approver_work_no else None
+            approver_nm = approver_u.name if approver_u else approver_work_no
+            all_resp: set = set()
+            for req in reqs:
+                if req.responsible:
+                    try:
+                        all_resp.update(json.loads(req.responsible))
+                    except Exception:
+                        pass
+
             from controllers.notification_controller import push_notification
             result_text = "已通過" if final_status == 2 else ("已被退回" if final_status == 4 else "已被拒絕")
+            notif_desc = f"【{sys_nm}】{len(reqs)} 條系統需求批量審核{result_text}，審核人：{approver_nm}" if sys_nm else f"{len(reqs)} 條系統需求批量審核{result_text}，審核人：{approver_nm}"
             push_notification(
                 [r.submitter],
                 title=f"您的系統需求批量審核申請{result_text}",
-                desc=f"批量系統需求審核「{r.description}」{result_text}",
+                desc=notif_desc,
                 link_type="review",
                 link_id=review_id,
             )
+            extra = [w for w in all_resp if w != r.submitter]
+            if extra:
+                push_notification(
+                    extra,
+                    title=f"系統需求批量審核{result_text}",
+                    desc=notif_desc,
+                    link_type="review",
+                    link_id=review_id,
+                )
             return
 
         # task_addition_review 執行階段新增任務審批
@@ -965,10 +1060,14 @@ class ProjectController:
                         link_type="project",
                         link_id=r.project_id or "",
                     )
+            _proj = db.session.query(ProjectDataModel).filter_by(id=r.project_id).first() if r.project_id else None
+            _proj_nm = _proj.project_nm if _proj else ""
+            _approver_u = db.session.query(UserProfileModel).filter_by(work_no=approver_work_no).first() if approver_work_no else None
+            _approver_nm = _approver_u.name if _approver_u else approver_work_no
             push_notification(
                 [r.submitter],
                 title=f"您的任務新增審核申請{result_text}",
-                desc=f"新增任務審核申請{result_text}",
+                desc=f"【{_proj_nm}】新增任務審核申請{result_text}，審核人：{_approver_nm}" if _proj_nm else f"新增任務審核申請{result_text}，審核人：{_approver_nm}",
                 link_type="project",
                 link_id=r.project_id or "",
             )
@@ -1082,10 +1181,17 @@ class ProjectController:
         # 通知提交人審核結果
         from controllers.notification_controller import push_notification
         result_text = "已通過" if final_status == 2 else ("已被退回" if final_status == 4 else "已被拒絕")
+        _approver_u2 = db.session.query(UserProfileModel).filter_by(work_no=approver_work_no).first() if approver_work_no else None
+        _approver_nm2 = _approver_u2.name if _approver_u2 else approver_work_no
+        _ctx2 = ""
+        if r.project_id:
+            _p2 = db.session.query(ProjectDataModel).filter_by(id=r.project_id).first()
+            if _p2:
+                _ctx2 = f"【{_p2.project_nm}】"
         push_notification(
             [r.submitter],
             title=f"您的申請{result_text}",
-            desc=f"「{r.apply_type}」{result_text}",
+            desc=f"{_ctx2}「{r.apply_type}」{result_text}，審核人：{_approver_nm2}",
             link_type="project" if r.project_id else "duty",
             link_id=r.project_id or r.duty_id or "",
         )
@@ -1821,12 +1927,17 @@ class FunctionController:
         # 通知负责人（排除创建者本人；草稿任務等審核通過再通知）
         if initial_status != 0:
             from controllers.notification_controller import push_notification
+            from dbs.mysql_db.model_tables import UserProfileModel as _UPM2
+            _creator_u = db.session.query(_UPM2).filter_by(work_no=creator).first()
+            _creator_nm = _creator_u.name if _creator_u else creator
+            _p = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
+            _p_nm = _p.project_nm if _p else ""
             notif_targets = [w for w in resp if w != creator]
             if notif_targets:
                 push_notification(
                     recipients=notif_targets,
                     title="您已被指派為功能任務負責人",
-                    desc=f"任務「{f.function_nm}」已指派您為負責人，請及時跟進。",
+                    desc=f"【{_p_nm}】任務「{f.function_nm}」已指派您為負責人，建立人：{_creator_nm}" if _p_nm else f"任務「{f.function_nm}」已指派您為負責人，建立人：{_creator_nm}",
                     link_type="project",
                     link_id=project_id,
                 )

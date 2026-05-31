@@ -66,9 +66,9 @@ def deliver_notification(self, recipients: list, title: str, desc: str = "",
 
 @celery_app.app.task(name="tasks.notification.deadline_alert")
 def deadline_alert() -> dict:
-    """每天 09:00 检查未完成任务：距截止日期 ≤ 3 天时通知负责人（涵盖功能任务和AR）"""
+    """每天 09:00 检查未完成任务：距截止日期 ≤ 3 天时通知负责人（涵盖功能任务、AR、系统需求）"""
     from dbs.mysql_db import db
-    from dbs.mysql_db.model_tables import FunctionDataModel, TemporaryDutyModel, ProjectDataModel
+    from dbs.mysql_db.model_tables import FunctionDataModel, TemporaryDutyModel, ProjectDataModel, StandaloneReqModel, SystemModel
     from controllers.notification_controller import push_notification
 
     today = date.today()
@@ -124,6 +124,32 @@ def deadline_alert() -> dict:
             )
             notified += len(resp)
 
+        # ── 系統需求 ─────────────────────────────────────────────────────
+        standalone_reqs = (
+            db.session.query(StandaloneReqModel)
+            .filter(StandaloneReqModel.req_status == 2)  # 進行中
+            .filter(StandaloneReqModel.expected_end_date.isnot(None))
+            .filter(StandaloneReqModel.expected_end_date != "")
+            .all()
+        )
+        for req in standalone_reqs:
+            end_date = req.expected_end_date or ""
+            if not end_date or not (today_str <= end_date <= threshold_str):
+                continue
+            resp = json.loads(req.responsible) if req.responsible else []
+            if not resp:
+                continue
+            sys_obj = db.session.query(SystemModel).filter_by(id=req.system_id).first() if req.system_id else None
+            sys_nm = sys_obj.sys_nm if sys_obj else ""
+            push_notification(
+                recipients=resp,
+                title="系統需求即將到期提醒",
+                desc=f"【{sys_nm}】需求「{req.req_nm}」將於 {end_date} 到期，請儘快完成。" if sys_nm else f"需求「{req.req_nm}」將於 {end_date} 到期，請儘快完成。",
+                link_type="standalone_req",
+                link_id=req.id,
+            )
+            notified += len(resp)
+
         logger.info(f"[deadline_alert] 已發送到期提醒，通知人次: {notified}")
     except Exception as e:
         logger.error("deadline_alert 任務執行失敗", category="error",
@@ -137,7 +163,7 @@ def deadline_alert() -> dict:
 def overdue_alert() -> dict:
     """每天 09:00 检查已逾期（截止日 < 今天、未完成）任务，通知负责人；功能任务同时通知专案PM"""
     from dbs.mysql_db import db
-    from dbs.mysql_db.model_tables import FunctionDataModel, TemporaryDutyModel, ProjectDataModel
+    from dbs.mysql_db.model_tables import FunctionDataModel, TemporaryDutyModel, ProjectDataModel, StandaloneReqModel, SystemModel
     from controllers.notification_controller import push_notification
 
     today_str = date.today().isoformat()
@@ -189,6 +215,32 @@ def overdue_alert() -> dict:
                 desc=f"AR「{d.duty_nm}」已逾期（截止日：{end_date}），請儘快處理。",
                 link_type="duty",
                 link_id=d.id,
+            )
+            notified += len(resp)
+
+        # ── 系統需求 ─────────────────────────────────────────────────────
+        standalone_reqs = (
+            db.session.query(StandaloneReqModel)
+            .filter(StandaloneReqModel.req_status == 2)  # 進行中
+            .filter(StandaloneReqModel.expected_end_date.isnot(None))
+            .filter(StandaloneReqModel.expected_end_date != "")
+            .all()
+        )
+        for req in standalone_reqs:
+            end_date = req.expected_end_date or ""
+            if not end_date or end_date >= today_str:
+                continue
+            resp = json.loads(req.responsible) if req.responsible else []
+            if not resp:
+                continue
+            sys_obj = db.session.query(SystemModel).filter_by(id=req.system_id).first() if req.system_id else None
+            sys_nm = sys_obj.sys_nm if sys_obj else ""
+            push_notification(
+                recipients=resp,
+                title="系統需求逾期提醒",
+                desc=f"【{sys_nm}】需求「{req.req_nm}」已逾期（截止日：{end_date}），請儘快處理。" if sys_nm else f"需求「{req.req_nm}」已逾期（截止日：{end_date}），請儘快處理。",
+                link_type="standalone_req",
+                link_id=req.id,
             )
             notified += len(resp)
 

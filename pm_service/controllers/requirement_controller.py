@@ -153,6 +153,21 @@ class RequirementController:
         )
         db.session.add(req)
         db.session.commit()
+
+        # 通知非建立人的負責人
+        notif_targets = [w for w in resp if w != creator]
+        if notif_targets:
+            from controllers.notification_controller import push_notification
+            creator_user = db.session.query(UserProfileModel).filter_by(work_no=creator).first()
+            creator_nm = creator_user.name if creator_user else creator
+            push_notification(
+                notif_targets,
+                title="您被指定為需求負責人",
+                desc=f"【{p.project_nm}】需求「{req.req_nm}」，建立人：{creator_nm}",
+                link_type="project",
+                link_id=project_id,
+            )
+
         return req.to_dict()
 
     # ── 更新 ────────────────────────────────────────────────────────────────────

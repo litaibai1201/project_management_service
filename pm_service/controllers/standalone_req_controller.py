@@ -81,6 +81,23 @@ class StandaloneReqController:
         )
         db.session.add(r)
         db.session.commit()
+
+        # 通知非建立人的負責人
+        notif_targets = [w for w in resp if w != creator]
+        if notif_targets:
+            from controllers.notification_controller import push_notification
+            sys_obj = db.session.query(SystemModel).filter_by(id=r.system_id).first() if r.system_id else None
+            sys_nm = sys_obj.sys_nm if sys_obj else ""
+            creator_u = db.session.query(UserProfileModel).filter_by(work_no=creator).first()
+            creator_nm = creator_u.name if creator_u else creator
+            push_notification(
+                notif_targets,
+                title="您被指定為系統需求負責人",
+                desc=f"【{sys_nm}】需求「{r.req_nm}」，建立人：{creator_nm}" if sys_nm else f"需求「{r.req_nm}」，建立人：{creator_nm}",
+                link_type="standalone_req",
+                link_id=r.id,
+            )
+
         return r.to_dict()
 
     def update_req(self, req_id: str, payload: dict, work_no: str):
@@ -95,6 +112,7 @@ class StandaloneReqController:
             r.describe = payload["describe"]
         if "priority" in payload:
             r.priority = int(payload["priority"])
+        old_status = r.req_status
         if "status" in payload:
             r.req_status = int(payload["status"])
         if "responsible" in payload:
@@ -117,6 +135,32 @@ class StandaloneReqController:
             r.benefit_unit = payload["benefit_unit"]
         r.updated_at = CommonTools.get_now()
         db.session.commit()
+
+        # 狀態變為進行中(2)或完結(4)時通知負責人
+        new_status = r.req_status
+        if new_status != old_status and new_status in (2, 4):
+            resp = []
+            if r.responsible:
+                try:
+                    resp = json.loads(r.responsible)
+                except Exception:
+                    pass
+            notif_targets = [w for w in resp if w != work_no]
+            if notif_targets:
+                from controllers.notification_controller import push_notification
+                sys_obj = db.session.query(SystemModel).filter_by(id=r.system_id).first() if r.system_id else None
+                sys_nm = sys_obj.sys_nm if sys_obj else ""
+                operator_u = db.session.query(UserProfileModel).filter_by(work_no=work_no).first()
+                operator_nm = operator_u.name if operator_u else work_no
+                status_label = "進行中" if new_status == 2 else "已完結"
+                push_notification(
+                    notif_targets,
+                    title=f"系統需求狀態已更新為「{status_label}」",
+                    desc=f"【{sys_nm}】需求「{r.req_nm}」已更新為{status_label}，操作人：{operator_nm}" if sys_nm else f"需求「{r.req_nm}」已更新為{status_label}，操作人：{operator_nm}",
+                    link_type="standalone_req",
+                    link_id=r.id,
+                )
+
         return r.to_dict()
 
     def delete_req(self, req_id: str, work_no: str):

@@ -221,10 +221,12 @@ class DutyController:
 
         from controllers.notification_controller import push_notification
         first_reviewers = [n["approver_work_no"] for n in nodes if n.get("order") == 1]
+        _ctx = f"【{sys_nm}】" if sys_nm else ""
+        _req = f"需求「{req_nm}」" if req_nm else ""
         push_notification(
             first_reviewers,
             title="您有新的需求任務新增待審核",
-            desc=f"需求任務「{d.duty_nm}」已提交審核，請及時處理。",
+            desc=f"{_ctx}{_req}任務「{d.duty_nm}」已提交審核，提交人：{submitter_name}，請及時處理。",
             link_type="review",
             link_id=apply.id,
         )
@@ -343,13 +345,16 @@ class DutyController:
         db.session.commit()
         if resp_changed and (new_resp or removed_resp):
             from controllers.notification_controller import push_notification
+            from dbs.mysql_db.model_tables import UserProfileModel
             creator = d.creator
+            op_u = db.session.query(UserProfileModel).filter_by(work_no=work_no).first()
+            op_nm = op_u.name if op_u else work_no
             # 通知新增负责人
             if new_resp:
                 push_notification(
                     recipients=new_resp,
                     title="您已被指定為AR負責人",
-                    desc=f"「{d.duty_nm}」已指派您為負責人，請及時跟進。",
+                    desc=f"「{d.duty_nm}」已指派您為負責人，操作人：{op_nm}",
                     link_type="duty",
                     link_id=d.id,
                 )
@@ -359,7 +364,7 @@ class DutyController:
                 push_notification(
                     recipients=existing_resp,
                     title="您負責的任務新增了負責人",
-                    desc=f"「{d.duty_nm}」加入了新的負責人，請注意協作。",
+                    desc=f"「{d.duty_nm}」加入了新的負責人，操作人：{op_nm}",
                     link_type="duty",
                     link_id=d.id,
                 )
@@ -368,7 +373,7 @@ class DutyController:
                 push_notification(
                     recipients=removed_resp,
                     title="您已被移除AR負責人",
-                    desc=f"「{d.duty_nm}」已將您從負責人名單中移除。",
+                    desc=f"「{d.duty_nm}」已將您從負責人名單中移除，操作人：{op_nm}",
                     link_type="duty",
                     link_id=d.id,
                 )
@@ -378,7 +383,7 @@ class DutyController:
                 push_notification(
                     recipients=[creator],
                     title="AR負責人已調整",
-                    desc=f"「{d.duty_nm}」的負責人已更新。",
+                    desc=f"「{d.duty_nm}」的負責人已更新，操作人：{op_nm}",
                     link_type="duty",
                     link_id=d.id,
                 )
@@ -426,7 +431,10 @@ class DutyController:
         db.session.commit()
         # 延期通知：责任人操作 → 通知建立人 + 其他责任人；建立人操作 → 通知所有责任人
         from controllers.notification_controller import push_notification
-        notif_msg = f"「{d.duty_nm}」已延期至 {new_end_date}，原因：{reason}"
+        from dbs.mysql_db.model_tables import UserProfileModel as _UPM
+        op_u = db.session.query(_UPM).filter_by(work_no=operator).first()
+        op_nm = op_u.name if op_u else operator
+        notif_msg = f"「{d.duty_nm}」已延期至 {new_end_date}，原因：{reason}，操作人：{op_nm}"
         if is_responsible and not is_creator:
             # 责任人操作：通知建立人 + 其他责任人
             notif_targets = [d.creator] + [w for w in responsible if w.lower() != operator.lower()]
@@ -490,12 +498,15 @@ class DutyController:
         db.session.commit()
         # 通知负责人（排除激活人本身）
         from controllers.notification_controller import push_notification
+        from dbs.mysql_db.model_tables import UserProfileModel
+        op_u = db.session.query(UserProfileModel).filter_by(work_no=work_no).first()
+        op_nm = op_u.name if op_u else work_no
         notif_targets = [w for w in responsible if w != work_no]
         if notif_targets:
             push_notification(
                 recipients=notif_targets,
                 title="您負責的AR已激活",
-                desc=f"「{d.duty_nm}」已開始進行，請及時跟進。",
+                desc=f"「{d.duty_nm}」已開始進行，激活人：{op_nm}",
                 link_type="duty",
                 link_id=d.id,
             )
@@ -520,6 +531,20 @@ class DutyController:
         d.update_at = CommonTools.get_now()
         db.session.commit()
 
+        # 通知建立人（排除操作人本身）
+        if d.creator and d.creator != work_no:
+            from controllers.notification_controller import push_notification
+            from dbs.mysql_db.model_tables import UserProfileModel
+            op_u = db.session.query(UserProfileModel).filter_by(work_no=work_no).first()
+            op_nm = op_u.name if op_u else work_no
+            push_notification(
+                [d.creator],
+                title="您建立的AR已被擱置",
+                desc=f"AR「{d.duty_nm}」已被擱置，操作人：{op_nm}",
+                link_type="duty",
+                link_id=d.id,
+            )
+
     def resume_duty(self, duty_id: str, work_no: str):
         """擱置 → 進行中（需求任務：需求責任人；普通AR：建立人或負責人）"""
         d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
@@ -539,6 +564,20 @@ class DutyController:
         d.duty_status = 1
         d.update_at = CommonTools.get_now()
         db.session.commit()
+
+        # 通知建立人（排除操作人本身）
+        if d.creator and d.creator != work_no:
+            from controllers.notification_controller import push_notification
+            from dbs.mysql_db.model_tables import UserProfileModel
+            op_u = db.session.query(UserProfileModel).filter_by(work_no=work_no).first()
+            op_nm = op_u.name if op_u else work_no
+            push_notification(
+                [d.creator],
+                title="您建立的AR已恢復進行中",
+                desc=f"AR「{d.duty_nm}」已恢復進行，操作人：{op_nm}",
+                link_type="duty",
+                link_id=d.id,
+            )
 
     def submit_completion(self, duty_id: str, work_no: str, reviewer: list, submitter_name: str = ""):
         """提交完結審核。
@@ -866,18 +905,40 @@ class DutyController:
         r.apply_status = final_status
         r.update_at = now
 
-        if r.duty_id and final_status == 2:
+        d = None
+        if r.duty_id:
             d = db.session.query(TemporaryDutyModel).filter_by(id=r.duty_id).first()
             if d:
-                d.duty_status = 3  # 已完結
-                d.end_time = now
-                d.update_at = now
-        elif r.duty_id and final_status in (3, 4):
-            d = db.session.query(TemporaryDutyModel).filter_by(id=r.duty_id).first()
-            if d:
-                d.duty_status = 1  # 退回進行中
-                d.update_at = now
+                if final_status == 2:
+                    d.duty_status = 3  # 已完結
+                    d.end_time = now
+                    d.update_at = now
+                elif final_status in (3, 4):
+                    d.duty_status = 1  # 退回進行中
+                    d.update_at = now
         db.session.commit()
+
+        # 通知提交人（負責人）審批結果
+        if r.duty_id and d and r.submitter:
+            from controllers.notification_controller import push_notification
+            from dbs.mysql_db.model_tables import UserProfileModel
+            approver_node = next(
+                (n for n in sorted(
+                    json.loads(r.approval_nodes_json) if r.approval_nodes_json else [],
+                    key=lambda n: n.get("order", 0), reverse=True
+                ) if n.get("status") != 0),
+                None,
+            )
+            approver_nm = approver_node["approver"] if approver_node else ""
+            result_text = "已通過，任務完結" if final_status == 2 else ("已被退回，請繼續跟進" if final_status in (3, 4) else "")
+            if result_text:
+                push_notification(
+                    [r.submitter],
+                    title=f"您的AR完結審核{result_text.split('，')[0]}",
+                    desc=f"AR「{d.duty_nm}」完結審核{result_text}，審核人：{approver_nm}",
+                    link_type="duty",
+                    link_id=d.id,
+                )
 
     def countersign_review(self, review_id: str, approver_work_no: str, approver_name: str):
         r = db.session.query(ReviewApplyModel).filter_by(id=review_id).first()
