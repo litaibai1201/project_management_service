@@ -217,6 +217,48 @@ class DutyProgressApi(MethodView):
         return response_result()
 
 
+# ─── Inline Image Upload (富文本進度說明圖片) ────────────────────────────────────
+
+@blp.route("/progress-inline-image")
+class ProgressInlineImageUploadApi(MethodView):
+    @jwt_required()
+    def post(self):
+        """上傳進度說明富文本內嵌圖片，回傳可訪問 URL"""
+        import os, uuid as _uuid
+        from flask import abort
+        from configs.base import BaseConfig
+
+        file = request.files.get('image')
+        if not file or not file.filename:
+            abort(400)
+        ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
+        if ext not in {'png', 'jpg', 'jpeg', 'gif', 'webp'}:
+            abort(400)
+        fid = _uuid.uuid4().hex
+        filename = f'{fid}.{ext}'
+        save_dir = os.path.join(os.path.abspath(BaseConfig.UPLOAD_DIR), 'progress_inline_images')
+        os.makedirs(save_dir, exist_ok=True)
+        file.save(os.path.join(save_dir, filename))
+        return response_result(content={'url': f'/api/temporary_duty/progress-inline-image/{filename}'})
+
+
+@blp.route("/progress-inline-image/<string:filename>")
+class ProgressInlineImageServeApi(MethodView):
+    def get(self, filename):
+        """取得進度說明富文本內嵌圖片"""
+        import os
+        from flask import send_file, abort
+        from configs.base import BaseConfig
+
+        if '/' in filename or '\\' in filename or '..' in filename:
+            abort(400)
+        save_dir = os.path.join(os.path.abspath(BaseConfig.UPLOAD_DIR), 'progress_inline_images')
+        abs_path = os.path.join(save_dir, filename)
+        if not os.path.exists(abs_path):
+            abort(404)
+        return send_file(abs_path, as_attachment=False)
+
+
 @blp.route("/<string:duty_id>/progress/<string:progress_id>/files/<string:file_id>/preview")
 class DutyProgressFilePreviewApi(MethodView):
     @jwt_required()

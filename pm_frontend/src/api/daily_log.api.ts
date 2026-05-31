@@ -23,6 +23,8 @@ export interface BackendTaskItem {
   expected_end_date?: string       // 任務預計結束日期 YYYY-MM-DD
   group1?: string                  // 任務分組 level-1
   group2?: string                  // 任務分組 level-2
+  system_nm?: string               // 所屬系統名稱（duty 類型且有系統關聯時使用）
+  requirement_nm?: string          // 所屬需求名稱（project/duty 類型有需求關聯時使用）
 }
 
 /** Backend: free_items 條目（會議 / 培訓 / CR/AR / 其他） */
@@ -113,9 +115,9 @@ export function entriesToBackend(
   logDate: string,
 ): CreateDailyLogPayload {
   const task_items: BackendTaskItem[] = entries
-    .filter((e) => e.work_category === 'project' || e.work_category === 'duty')
+    .filter((e) => e.work_category === 'project' || e.work_category === 'duty' || e.work_category === 'system_req')
     .map((e) => ({
-      task_type:      e.work_category as 'project' | 'duty',
+      task_type:      (e.work_category === 'project' ? 'project' : 'duty') as 'project' | 'duty',
       task_id:        e.work_category === 'project' ? (e.function_id ?? '') : (e.duty_id ?? ''),
       task_nm:        e.work_category === 'project' ? (e.function_nm ?? '') : (e.duty_nm ?? ''),
       work_hours:     e.hours,
@@ -133,10 +135,12 @@ export function entriesToBackend(
       expected_end_date:    e.expected_end_date,
       group1:               e.group1,
       group2:               e.group2,
+      system_nm:            e.system_nm || undefined,
+      requirement_nm:       e.requirement_nm || undefined,
     }))
 
   const free_items: BackendFreeItem[] = entries
-    .filter((e) => e.work_category !== 'project' && e.work_category !== 'duty')
+    .filter((e) => e.work_category !== 'project' && e.work_category !== 'duty' && e.work_category !== 'system_req')
     .map((e) => ({
       category:       e.work_category,
       description:    e.description,
@@ -162,13 +166,15 @@ export function entriesToBackend(
 export function backendDetailToLog(raw: BackendDailyLogDetail): DailyLog {
   const taskEntries: DailyLogEntry[] = (raw.task_items ?? []).map((t, i) => ({
     entry_id:      `t-${i}-${t.task_id}`,
-    work_category: t.task_type,
+    work_category: t.task_type === 'duty' && t.system_nm ? 'system_req' : t.task_type,
     project_id:    t.task_type === 'project' ? (t.project_id ?? undefined) : undefined,
     project_nm:    t.task_type === 'project' ? (t.project_nm ?? undefined) : undefined,
     function_id:   t.task_type === 'project' ? t.task_id : undefined,
     function_nm:   t.task_type === 'project' ? t.task_nm : undefined,
-    duty_id:       t.task_type === 'duty' ? t.task_id : undefined,
-    duty_nm:       t.task_type === 'duty' ? t.task_nm : undefined,
+    duty_id:        t.task_type === 'duty' ? t.task_id : undefined,
+    duty_nm:        t.task_type === 'duty' ? t.task_nm : undefined,
+    system_nm:      t.task_type === 'duty' ? (t.system_nm || undefined) : undefined,
+    requirement_nm: t.requirement_nm || undefined,
     description:         t.description,
     hours:               Number(t.work_hours),
     progress:            t.progress,
@@ -299,4 +305,7 @@ export interface SuggestItem {
   expected_end_date?:   string
   /** 原始提交人工號（合作人視角時與當前用戶不同） */
   submitter?: string
+  system_id?: string
+  system_nm?: string
+  requirement_nm?: string
 }

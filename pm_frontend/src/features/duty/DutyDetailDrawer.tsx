@@ -5,12 +5,13 @@ import {
   Card, Steps, Modal, Select, Popconfirm, AutoComplete, Tooltip, Divider,
 } from 'antd'
 import type { UploadFile } from 'antd'
-import { PlusIcon, PaperClipIcon, TrashIcon } from '@heroicons/react/24/outline'
+import { PlusIcon, PaperClipIcon, TrashIcon, ArrowsPointingOutIcon } from '@heroicons/react/24/outline'
 import { userApi } from '@/api/user.api'
 import { systemApi, type SystemItem } from '@/api/system.api'
 import { standaloneReqApi } from '@/api/standalone_req.api'
 import AttachmentPreview from '@/components/ui/AttachmentPreview'
 import RichTextContent from '@/components/common/RichTextContent'
+import RichTextEditor from '@/components/common/RichTextEditor'
 import FilePreviewModal from '@/features/project/FilePreviewModal'
 import type { FileInfo, TemporaryDuty, UserProfile } from '@/types/api.types'
 import { useAppSelector } from '@/hooks/redux'
@@ -95,6 +96,10 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
   const [showRescheduleModal, setShowRescheduleModal] = useState(false)
   const [rescheduleForm]                              = Form.useForm()
   const [isRescheduling, setIsRescheduling]           = useState(false)
+
+  // 進度說明展開編輯
+  const [expandOpen,  setExpandOpen]  = useState(false)
+  const [expandDraft, setExpandDraft] = useState('')
 
   // 進度達100%提示
   const [show100Prompt, setShow100Prompt] = useState(false)
@@ -346,6 +351,11 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
     } catch { /* global */ }
   }
 
+  const handleImageUpload = React.useCallback(async (file: File): Promise<string> => {
+    const result = await dutyApi.uploadInlineImage(file)
+    return result.url
+  }, [])
+
   const handleSubmit = async (values: Record<string, unknown>) => {
     if (!dutyId) return
     setIsSaving(true)
@@ -590,8 +600,31 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
                       <InputNumber min={0} step={0.5} style={{ width: '100%' }} addonAfter="h" />
                     </Form.Item>
                   </div>
-                  <Form.Item name="progress_record" label="進度說明">
-                    <Input.TextArea rows={2} placeholder="本次完成了哪些工作..." />
+                  <Form.Item
+                    name="progress_record"
+                    label={
+                      <div className="flex items-center justify-between w-full">
+                        <span>進度說明</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const cur = form.getFieldValue('progress_record') ?? ''
+                            setExpandDraft(cur)
+                            setExpandOpen(true)
+                          }}
+                          className="flex items-center gap-1 text-xs text-slate-500 hover:text-blue-600 border border-slate-200 rounded-md px-2 py-0.5 hover:border-blue-300 bg-white transition-colors ml-2"
+                        >
+                          <ArrowsPointingOutIcon className="w-3.5 h-3.5" />
+                          展開編輯
+                        </button>
+                      </div>
+                    }
+                  >
+                    <RichTextEditor
+                      placeholder="本次完成了哪些工作...（支援格式化文字與圖片混排）"
+                      minHeight={120}
+                      onImageUpload={handleImageUpload}
+                    />
                   </Form.Item>
                   <Form.Item name="cooperator" label="合作人">
                     <Select
@@ -603,8 +636,8 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
                       allowClear
                     />
                   </Form.Item>
-                  <Form.Item label="附件">
-                    <Upload fileList={fileList} onChange={({ fileList: fl }) => setFileList(fl)} beforeUpload={() => false} multiple>
+                  <Form.Item label="附件（非圖片文件）">
+                    <Upload fileList={fileList} onChange={({ fileList: fl }) => setFileList(fl)} beforeUpload={() => false} multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.rar,.txt,.md">
                       <Button icon={<PaperClipIcon className="w-4 h-4" />} size="small">選擇附件</Button>
                     </Upload>
                   </Form.Item>
@@ -711,11 +744,15 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
                             const origText = String(item.progress_record)
                             const firstUpdDesc = ownUpdates[0]?.description ?? ''
                             const origChanged = ownUpdates.length > 0 && firstUpdDesc !== origText
-                            return (
+                            return origChanged ? (
                               <p className="text-sm mt-1 mb-0 leading-snug"
-                                style={{ color: origChanged ? '#94a3b8' : '#475569', textDecoration: origChanged ? 'line-through' : 'none', margin: '4px 0 0 0' }}>
-                                {origText}
+                                style={{ color: '#94a3b8', textDecoration: 'line-through', margin: '4px 0 0 0' }}>
+                                {origText.replace(/<[^>]*>/g, '')}
                               </p>
+                            ) : (
+                              <div className="mt-1" style={{ margin: '4px 0 0 0' }}>
+                                <RichTextContent html={origText} onImageClick={(src) => setPreviewFile({ name: src.split('/').pop()?.split('?')[0] ?? 'image.png', url: src })} />
+                              </div>
                             )
                           })()}
                           {/* 提交人自己的日誌更新鏈 */}
@@ -738,14 +775,20 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
                                 {idx > 0 && descChanged && (
                                   <p className="text-sm leading-tight"
                                     style={{ color: '#94a3b8', textDecoration: 'line-through', margin: '2px 0 0 0' }}>
-                                    {ownUpdates[idx - 1].description}
+                                    {(ownUpdates[idx - 1].description ?? '').replace(/<[^>]*>/g, '')}
                                   </p>
                                 )}
                                 {descChanged && (
-                                  <p className="text-sm leading-tight"
-                                    style={{ color: isLatest ? '#334155' : '#94a3b8', textDecoration: isLatest ? 'none' : 'line-through', margin: '2px 0 0 0' }}>
-                                    {upd.description}
-                                  </p>
+                                  isLatest ? (
+                                    <div style={{ margin: '2px 0 0 0' }}>
+                                      <RichTextContent html={upd.description} onImageClick={(src) => setPreviewFile({ name: src.split('/').pop()?.split('?')[0] ?? 'image.png', url: src })} />
+                                    </div>
+                                  ) : (
+                                    <p className="text-sm leading-tight"
+                                      style={{ color: '#94a3b8', textDecoration: 'line-through', margin: '2px 0 0 0' }}>
+                                      {(upd.description ?? '').replace(/<[^>]*>/g, '')}
+                                    </p>
+                                  )
                                 )}
                                 {hasFileDiff && (
                                   <div className="mt-1 space-y-1">
@@ -793,7 +836,9 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
                                   </div>
                                 </div>
                                 {upd.description && (
-                                  <p className="text-sm text-slate-600 leading-snug" style={{ margin: '0 0 4px 0' }}>{upd.description}</p>
+                                  <div style={{ margin: '4px 0' }}>
+                                    <RichTextContent html={upd.description} onImageClick={(src) => setPreviewFile({ name: src.split('/').pop()?.split('?')[0] ?? 'image.png', url: src })} />
+                                  </div>
                                 )}
                                 {newFiles.length > 0 && (() => { const sf = splitFiles(newFiles as { name: string; url: string; size?: number }[]); return <AttachmentPreview files={sf.files} images={sf.images} onPreview={setPreviewFile} /> })()}
                                 <span className="text-xs text-slate-300 block">{upd.log_date}{upd.record_time ? ` ${upd.record_time}` : ''}</span>
@@ -828,7 +873,11 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
                               <Tag color="green" style={{ fontSize: 10, padding: '0 5px', lineHeight: '16px', margin: 0 }}>日誌新增</Tag>
                             </div>
                           </div>
-                          {e.description && <p className="text-sm text-slate-600 mt-1 mb-1 leading-tight">{e.description}</p>}
+                          {e.description && (
+                            <div className="mt-1 mb-1">
+                              <RichTextContent html={e.description} onImageClick={(src) => setPreviewFile({ name: src.split('/').pop()?.split('?')[0] ?? 'image.png', url: src })} />
+                            </div>
+                          )}
                           {(() => { const sf = splitFiles(e.files as { name: string; url: string; size?: number }[] | undefined); return <AttachmentPreview files={sf.files} images={sf.images} onPreview={setPreviewFile} /> })()}
                           <span className="text-xs text-slate-300 mt-1 block">{displayTime}</span>
                         </div>
@@ -1124,6 +1173,34 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
           </Modal>
         )
       })()}
+
+      {/* 進度說明展開編輯 Modal */}
+      <Modal
+        open={expandOpen}
+        title="進度說明"
+        onCancel={() => setExpandOpen(false)}
+        width="80vw"
+        style={{ top: 40, maxWidth: 1100 }}
+        styles={{ body: { padding: '16px 24px 24px' } }}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button onClick={() => setExpandOpen(false)}>取消</Button>
+            <Button type="primary" style={{ background: '#2563eb' }} onClick={() => {
+              form.setFieldValue('progress_record', expandDraft)
+              setExpandOpen(false)
+            }}>完成</Button>
+          </div>
+        }
+        destroyOnClose
+      >
+        <RichTextEditor
+          value={expandDraft}
+          onChange={setExpandDraft}
+          placeholder="本次完成了哪些工作...（支援格式化文字與圖片混排）"
+          minHeight={480}
+          onImageUpload={handleImageUpload}
+        />
+      </Modal>
     </Drawer>
     </>
   )

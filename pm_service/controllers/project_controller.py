@@ -2413,10 +2413,24 @@ class FunctionController:
         if needs_commit:
             db.session.commit()
 
+        # Batch-load requirement names for functions that have a requirement_id
+        req_ids = list({f.requirement_id for f in funcs if f.requirement_id})
+        req_nm_map = {}
+        if req_ids:
+            from dbs.mysql_db.model_tables import RequirementModel
+            reqs = db.session.query(RequirementModel).filter(RequirementModel.id.in_(req_ids)).all()
+            req_nm_map = {r.id: r.req_nm for r in reqs}
+
+        result = []
+        for f in funcs:
+            d = f.to_dict()
+            d["requirement_nm"] = req_nm_map.get(f.requirement_id, "") if f.requirement_id else ""
+            result.append(d)
+
         return {
             "total_count": total,
             "total_page": (total + size - 1) // size,
-            "data_list": [f.to_dict() for f in funcs],
+            "data_list": result,
         }
 
     def _progress_upload_dir(self, project_id: str, progress_id: str) -> str:

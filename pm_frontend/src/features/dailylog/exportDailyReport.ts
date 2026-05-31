@@ -106,7 +106,7 @@ function cell(paras: Paragraph[], colW: number, highlight?: string): TableCell {
   })
 }
 
-function fileParas(files: FileMeta[]): Paragraph[] {
+function fileParas(files: FileMeta[], indentLeft = 0): Paragraph[] {
   const result: Paragraph[] = []
   const token = tokenStorage.get()
 
@@ -114,16 +114,15 @@ function fileParas(files: FileMeta[]): Paragraph[] {
     const imgType = toImgType(f.ext)
 
     if (imgType && f.buffer && f.width && f.height) {
-      // Image → embed directly
       try {
         result.push(new Paragraph({
           children: [new ImageRun({ data: f.buffer, transformation: { width: f.width, height: f.height }, type: imgType })],
+          indent: indentLeft ? { left: indentLeft } : undefined,
         }))
       } catch {
-        result.push(p(tr(`[圖片: ${f.name}]`)))
+        result.push(new Paragraph({ children: [tr(`[圖片: ${f.name}]`)], indent: indentLeft ? { left: indentLeft } : undefined }))
       }
     } else {
-      // Non-image document → clickable hyperlink so user can open/download from Word
       const base = f.url.startsWith('http')
         ? f.url
         : `${window.location.origin}${f.url.startsWith('/') ? '' : '/'}${f.url}`
@@ -134,21 +133,109 @@ function fileParas(files: FileMeta[]): Paragraph[] {
           tr('📎 '),
           new ExternalHyperlink({
             link,
-            children: [
-              new TextRun({
-                text: f.name,
-                font: FONT,
-                size: FONT_SIZE,
-                color: '2563EB',   // blue
-                underline: { type: 'single' },
-              }),
-            ],
+            children: [new TextRun({ text: f.name, font: FONT, size: FONT_SIZE, color: '2563EB', underline: { type: 'single' } })],
           }),
         ],
+        indent: indentLeft ? { left: indentLeft } : undefined,
       }))
     }
   }
   return result
+}
+
+// ─── HTML → DOCX blocks ───────────────────────────────────────────────────────
+
+/** An inline run within one paragraph */
+type InlineRun =
+  | { type: 'text'; text: string }
+  | { type: 'img';  src: string; widthPx?: number }
+
+/** One visual paragraph = ordered list of inline runs (text + images) */
+type DocxBlock = InlineRun[]
+
+/** Parse HTML into paragraphs preserving inline image positions. */
+function parseHtmlForExport(html: string): DocxBlock[] {
+  if (!html || html === '<p></p>') return []
+  const isHtml = /<[a-z][\s\S]*>/i.test(html)
+  if (!isHtml) {
+    return html.split('\n').filter((l) => l.trim()).map((l) => ([{ type: 'text' as const, text: l.trim() }]))
+  }
+
+  const dom    = new DOMParser().parseFromString(html, 'text/html')
+  const blocks: DocxBlock[] = []
+
+  /** Recursively collect inline runs from a node */
+  function inlineRuns(node: Node): InlineRun[] {
+    const runs: InlineRun[] = []
+    if (node.nodeType === Node.TEXT_NODE) {
+      const t = node.textContent?.trim()
+      if (t) runs.push({ type: 'text', text: t })
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+      const el  = node as Element
+      const tag = el.tagName.toUpperCase()
+      if (tag === 'IMG') {
+        const src = el.getAttribute('src')
+        if (src) {
+          const wAttr = el.getAttribute('width') ?? el.style?.width ?? ''
+          runs.push({ type: 'img', src, widthPx: parseInt(wAttr) || undefined })
+        }
+      } else {
+        el.childNodes.forEach((c) => runs.push(...inlineRuns(c)))
+      }
+    }
+    return runs
+  }
+
+  function processBlock(node: Node) {
+    if (node.nodeType !== Node.ELEMENT_NODE) return
+    const el  = node as Element
+    const tag = el.tagName.toUpperCase()
+
+    if (['P', 'H1', 'H2', 'H3', 'H4', 'DIV', 'BLOCKQUOTE', 'PRE'].includes(tag)) {
+      const runs: InlineRun[] = []
+      el.childNodes.forEach((c) => runs.push(...inlineRuns(c)))
+      if (runs.length) blocks.push(runs)
+      return
+    }
+    if (['UL', 'OL'].includes(tag)) {
+      el.querySelectorAll('li').forEach((li) => {
+        const runs = Array.from(li.childNodes).flatMap((c) => inlineRuns(c))
+        if (runs.length) {
+          blocks.push([{ type: 'text', text: '• ' }, ...runs])
+        }
+      })
+      return
+    }
+    el.childNodes.forEach(processBlock)
+  }
+
+  dom.body.childNodes.forEach(processBlock)
+  return blocks
+}
+
+/** Extract all img src values from an HTML string. */
+function extractInlineImgSrcs(html: string): string[] {
+  const srcs: string[] = []
+  const re = /<img[^>]+src="([^"]+)"/gi
+  let m: RegExpExecArray | null
+  while ((m = re.exec(html)) !== null) srcs.push(m[1])
+  return srcs
+}
+
+type InlineImgMap = Map<string, { buffer: ArrayBuffer; width: number; height: number }>
+
+/** Pre-fetch all inline images found in a list of HTML descriptions. */
+async function prefetchInlineImages(descriptions: string[]): Promise<InlineImgMap> {
+  const map: InlineImgMap = new Map()
+  const srcs = [...new Set(descriptions.flatMap(extractInlineImgSrcs))]
+  await Promise.all(srcs.map(async (src) => {
+    const buf = await fetchBlob(src)
+    if (buf) {
+      const size = await getImageSize(buf, 400)
+      map.set(src, { buffer: buf, ...size })
+    }
+  }))
+  return map
 }
 
 // ─── Format helpers ───────────────────────────────────────────────────────────
@@ -157,71 +244,179 @@ function fmtHours(h: number): string {
   return parseFloat(h.toFixed(2)) + 'h'
 }
 
-interface EntryLine {
+// ─── Hierarchy types ──────────────────────────────────────────────────────────
+
+interface ExportEntry {
   description: string
-  hours: number
-  files: FileMeta[]
+  hours:       number
+  files:       FileMeta[]
+  date?:       string   // range report only
 }
 
-interface TaskGroup {
-  taskNm: string
-  /** Latest progress across all entries (highest value wins) */
-  progress?: number | null
-  /** Sum of all entry hours */
+interface ExportTask {
+  taskKey:    string
+  taskNm:     string
+  progress?:  number | null
   totalHours: number
-  entries: EntryLine[]
+  entries:    ExportEntry[]
+}
+
+interface ExportGroup {
+  groupNm:    string
+  tasks:      ExportTask[]
+  totalHours: number
+}
+
+interface ExportRequirement {
+  reqNm:      string
+  groups:     ExportGroup[]
+  totalHours: number
+}
+
+type RawExportItem = {
+  taskId:      string
+  taskNm:      string
+  reqNm:       string
+  groupNm:     string
+  progress?:   number | null
+  hours:       number
+  description: string
+  files:       FileMeta[]
+  date?:       string
 }
 
 /**
- * Group raw log entries by task ID so multiple progress records for the same
- * task become one numbered item with multiple description lines.
+ * Build a Requirement → Group → Task hierarchy from flat items.
+ * Same logic as buildRequirements() in DailyLogPage — task key is authoritative,
+ * first non-empty reqNm/groupNm wins for canonical placement.
  */
-function groupByTask(
-  items: { taskId: string; taskNm: string; progress?: number | null; hours: number; description: string; files: FileMeta[] }[],
-): TaskGroup[] {
-  const order: string[] = []
-  const map = new Map<string, TaskGroup>()
-
+function buildExportHierarchy(items: RawExportItem[]): ExportRequirement[] {
+  // Step 1: aggregate all entries by task key
+  const taskMap = new Map<string, { taskNm: string; reqNm: string; groupNm: string; progress?: number | null; totalHours: number; entries: ExportEntry[] }>()
   for (const item of items) {
-    if (!map.has(item.taskId)) {
-      order.push(item.taskId)
-      map.set(item.taskId, { taskNm: item.taskNm, progress: item.progress, totalHours: 0, entries: [] })
+    if (!taskMap.has(item.taskId)) {
+      taskMap.set(item.taskId, { taskNm: item.taskNm, reqNm: item.reqNm, groupNm: item.groupNm, progress: item.progress, totalHours: 0, entries: [] })
     }
-    const g = map.get(item.taskId)!
+    const g = taskMap.get(item.taskId)!
     g.totalHours += item.hours
-    // Keep latest (highest) progress
-    if (item.progress != null && (g.progress == null || item.progress > g.progress)) {
-      g.progress = item.progress
-    }
-    g.entries.push({ description: item.description, hours: item.hours, files: item.files })
+    if (item.progress != null && (g.progress == null || item.progress > g.progress)) g.progress = item.progress
+    if (!g.reqNm   && item.reqNm)   g.reqNm   = item.reqNm
+    if (!g.groupNm && item.groupNm) g.groupNm = item.groupNm
+    g.entries.push({ description: item.description, hours: item.hours, files: item.files, date: item.date })
   }
 
-  return order.map(id => map.get(id)!)
+  // Step 2: group by requirement → group
+  const reqMap = new Map<string, { reqNm: string; grpMap: Map<string, { groupNm: string; taskIds: string[] }> }>()
+  for (const [taskId, task] of taskMap) {
+    const rk = task.reqNm || '__no_req__'
+    if (!reqMap.has(rk)) reqMap.set(rk, { reqNm: task.reqNm, grpMap: new Map() })
+    const req = reqMap.get(rk)!
+    const gk  = task.groupNm || '__no_group__'
+    if (!req.grpMap.has(gk)) req.grpMap.set(gk, { groupNm: task.groupNm, taskIds: [] })
+    req.grpMap.get(gk)!.taskIds.push(taskId)
+  }
+
+  // Step 3: assemble result
+  const result: ExportRequirement[] = []
+  for (const [, req] of reqMap) {
+    const groups: ExportGroup[] = []
+    for (const [, grp] of req.grpMap) {
+      const tasks: ExportTask[] = grp.taskIds.map((id) => {
+        const t = taskMap.get(id)!
+        return { taskKey: id, taskNm: t.taskNm, progress: t.progress, totalHours: t.totalHours, entries: t.entries }
+      })
+      groups.push({ groupNm: grp.groupNm, tasks, totalHours: tasks.reduce((s, t) => s + t.totalHours, 0) })
+    }
+    groups.sort((a, b) => (!a.groupNm && b.groupNm ? 1 : a.groupNm && !b.groupNm ? -1 : 0))
+    result.push({ reqNm: req.reqNm, groups, totalHours: groups.reduce((s, g) => s + g.totalHours, 0) })
+  }
+  result.sort((a, b) => (!a.reqNm && b.reqNm ? 1 : a.reqNm && !b.reqNm ? -1 : a.reqNm.localeCompare(b.reqNm)))
+  return result
 }
 
-/** Build right-cell paragraphs for a group of task groups */
-function buildRightParas(taskGroups: TaskGroup[]): Paragraph[] {
+/** Resolve one img run into an ImageRun (returns null if fetch failed). */
+function resolveImageRun(run: { src: string; widthPx?: number }, imgMap: InlineImgMap): ImageRun | null {
+  const data = imgMap.get(run.src)
+  if (!data) return null
+  let { width, height } = data
+  if (run.widthPx && run.widthPx !== data.width) {
+    const scale = run.widthPx / data.width
+    width  = run.widthPx
+    height = Math.round(data.height * scale)
+  }
+  const ext     = run.src.split('?')[0].split('.').pop()?.toLowerCase() ?? 'png'
+  const imgType = toImgType(ext) ?? 'png'
+  try {
+    return new ImageRun({ data: data.buffer, transformation: { width, height }, type: imgType })
+  } catch { return null }
+}
+
+/**
+ * Convert one DocxBlock (= one HTML paragraph) into a DOCX Paragraph.
+ * prefix / suffix are plain-text strings inserted before/after the block's runs.
+ * trFn allows callers to control TextRun styling (e.g. colour for today's entries).
+ */
+function blockToParagraph(
+  block: DocxBlock,
+  imgMap: InlineImgMap,
+  prefix: string,
+  suffix: string,
+  trFn: (text: string) => TextRun,
+  indentLeft = 0,
+): Paragraph {
+  const children: (TextRun | ImageRun)[] = []
+  if (prefix) children.push(trFn(prefix))
+  for (const run of block) {
+    if (run.type === 'text') {
+      children.push(trFn(run.text))
+    } else {
+      const img = resolveImageRun(run, imgMap)
+      if (img) children.push(img)
+    }
+  }
+  if (suffix) children.push(trFn(suffix))
+  return new Paragraph({ children, alignment: AlignmentType.LEFT, indent: indentLeft ? { left: indentLeft } : undefined })
+}
+
+/** Build right-cell paragraphs using Requirement → Group → Task hierarchy */
+function buildRightParas(requirements: ExportRequirement[], imgMap: InlineImgMap): Paragraph[] {
   const paras: Paragraph[] = []
 
-  taskGroups.forEach((task, i) => {
-    const taskIdx  = i + 1
-    const progPart = task.progress != null ? `当前进度: ${task.progress}%，` : ''
-    paras.push(p(tr(`${taskIdx}. ${task.taskNm}(${progPart}总耗时：${fmtHours(task.totalHours)})`)))
+  for (const req of requirements) {
+    if (req.reqNm) {
+      paras.push(new Paragraph({ children: [tr(`【需求】${req.reqNm}`, true)], alignment: AlignmentType.LEFT }))
+    }
+    const hasReq     = !!req.reqNm
+    const hasAnyGrp  = req.groups.some((g) => g.groupNm)
+    const grpIndent  = hasReq  ? 200 : 0
+    const taskIndent = grpIndent + (hasAnyGrp ? 200 : 0)
+    const entryIndent = taskIndent + 200
 
-    task.entries.forEach(entry => {
-      const descLines = entry.description.split('\n').map(l => l.trim()).filter(Boolean)
-      if (descLines.length) {
-        descLines.forEach((line, li) => {
-          const suffix = li === descLines.length - 1 ? `(耗时：${fmtHours(entry.hours)})` : ''
-          paras.push(p(tr(`  - ${line}${suffix}`)))
-        })
-      } else {
-        // No description — still show the hours line
-        paras.push(p(tr(`  - (耗时：${fmtHours(entry.hours)})`)))
+    for (const grp of req.groups) {
+      if (grp.groupNm) {
+        paras.push(new Paragraph({ children: [tr(`【分組】${grp.groupNm}`, true)], indent: { left: grpIndent }, alignment: AlignmentType.LEFT }))
       }
-      paras.push(...fileParas(entry.files))
-    })
-  })
+      grp.tasks.forEach((task, ti) => {
+        const progPart = task.progress != null ? `当前进度: ${task.progress}%，` : ''
+        paras.push(new Paragraph({
+          children: [tr(`${ti + 1}. ${task.taskNm}(${progPart}总耗时：${fmtHours(task.totalHours)})`, true)],
+          indent: { left: taskIndent }, alignment: AlignmentType.LEFT,
+        }))
+        task.entries.forEach((entry) => {
+          const blocks = parseHtmlForExport(entry.description)
+          if (blocks.length === 0) {
+            paras.push(new Paragraph({ children: [tr('- ')], indent: { left: entryIndent }, alignment: AlignmentType.LEFT }))
+          } else {
+            blocks.forEach((block, bi) => {
+              const prefix = bi === 0 ? '- ' : '  '
+              paras.push(blockToParagraph(block, imgMap, prefix, '', tr, entryIndent))
+            })
+          }
+          paras.push(...fileParas(entry.files, entryIndent))
+        })
+      })
+    }
+  }
 
   if (!paras.length) paras.push(p(tr('')))
   return paras
@@ -273,14 +468,18 @@ export async function exportDailyReport(opts: ExportDailyReportOptions): Promise
   }
 
   // ── Pre-fetch images (all groups in parallel) ──────────────────────────
-  // Flatten all entries for parallel fetch, then reassemble
-  const allEntries = [...entries]
-  const allFiles   = await Promise.all(allEntries.map(e => prefetchFiles(e.files)))
-  const fileMap    = new Map(allEntries.map((e, i) => [e.entry_id, allFiles[i]]))
+  const allEntries  = [...entries]
+  const [allFiles, inlineImgMap] = await Promise.all([
+    Promise.all(allEntries.map(e => prefetchFiles(e.files))),
+    prefetchInlineImages(allEntries.map(e => e.description ?? '')),
+  ])
+  const fileMap = new Map(allEntries.map((e, i) => [e.entry_id, allFiles[i]]))
 
   const toRawItem = (e: DailyLogEntry, taskId: string, taskNm: string) => ({
     taskId,
     taskNm,
+    reqNm:       e.requirement_nm ?? '',
+    groupNm:     e.group1 ? (e.group2 ? `${e.group1} / ${e.group2}` : e.group1) : (e.group2 ?? ''),
     progress:    e.progress,
     hours:       e.hours,
     description: e.description,
@@ -293,40 +492,40 @@ export async function exportDailyReport(opts: ExportDailyReportOptions): Promise
 
   // Project groups — within each project, further group by function_id
   for (const [projNm, items] of projectGroups) {
-    const taskGroups = groupByTask(
+    const hierarchy = buildExportHierarchy(
       items.map(e => toRawItem(e, e.function_id ?? e.entry_id, e.function_nm || ''))
     )
     dataRows.push(new TableRow({ children: [
       cell([p(tr(`${sectionIdx}. ${projNm}`, true))], COL_LEFT),
-      cell(buildRightParas(taskGroups), COL_RIGHT),
+      cell(buildRightParas(hierarchy, inlineImgMap), COL_RIGHT),
     ]}))
     sectionIdx++
   }
 
   // Duty group — group by duty_id
   if (dutyGroup.length) {
-    const taskGroups = groupByTask(
+    const hierarchy = buildExportHierarchy(
       dutyGroup.map(e => toRawItem(e, e.duty_id ?? e.entry_id, e.duty_nm || ''))
     )
     dataRows.push(new TableRow({ children: [
       cell([p(tr(`${sectionIdx}. AR`, true))], COL_LEFT),
-      cell(buildRightParas(taskGroups), COL_RIGHT),
+      cell(buildRightParas(hierarchy, inlineImgMap), COL_RIGHT),
     ]}))
     sectionIdx++
   }
 
   // Other (meeting, training, CR/AR, etc.) — each entry is its own task
   if (otherGroup.length) {
-    const taskGroups = groupByTask(
+    const hierarchy = buildExportHierarchy(
       otherGroup.map(e => toRawItem(
         e,
-        e.entry_id,   // no shared task id, treat each entry independently
+        e.entry_id,
         CATEGORY_LABEL[e.work_category] || e.work_category,
       ))
     )
     dataRows.push(new TableRow({ children: [
       cell([p(tr(`${sectionIdx}. 其他`, true))], COL_LEFT),
-      cell(buildRightParas(taskGroups), COL_RIGHT),
+      cell(buildRightParas(hierarchy, inlineImgMap), COL_RIGHT),
     ]}))
   }
 
@@ -396,81 +595,56 @@ function fullDateLabel(dateStr: string): string {
   return `${y}年${m}月${day}日（週${WEEKDAY_ZH[d.getDay()]}）`
 }
 
-interface EntryLineWithDate {
-  date:        string
-  description: string
-  hours:       number
-  files:       FileMeta[]
-}
-
-interface TaskGroupWithDate {
-  taskNm:     string
-  progress?:  number | null
-  totalHours: number
-  entries:    EntryLineWithDate[]
-}
-
-/** Same as groupByTask but carries the date per entry */
-function groupByTaskWithDate(
-  items: { taskId: string; taskNm: string; progress?: number | null; hours: number; description: string; files: FileMeta[]; date: string }[],
-): TaskGroupWithDate[] {
-  const order: string[] = []
-  const map = new Map<string, TaskGroupWithDate>()
-
-  for (const item of items) {
-    if (!map.has(item.taskId)) {
-      order.push(item.taskId)
-      map.set(item.taskId, { taskNm: item.taskNm, progress: item.progress, totalHours: 0, entries: [] })
-    }
-    const g = map.get(item.taskId)!
-    g.totalHours += item.hours
-    if (item.progress != null && (g.progress == null || item.progress > g.progress)) {
-      g.progress = item.progress
-    }
-    g.entries.push({ date: item.date, description: item.description, hours: item.hours, files: item.files })
-  }
-
-  return order.map(id => map.get(id)!)
-}
 
 function trHighlight(text: string, highlight = false): TextRun {
   return new TextRun({ text, font: FONT, size: FONT_SIZE, ...(highlight ? { color: 'F59E0B' } : {}) })
 }
 
-/** Build right-cell paragraphs for range report (entries carry a date prefix, today highlighted) */
-function buildRangeRightParas(taskGroups: TaskGroupWithDate[], today: string): Paragraph[] {
+/** Build right-cell paragraphs for range report using Requirement → Group → Task hierarchy */
+function buildRangeRightParas(requirements: ExportRequirement[], today: string, imgMap: InlineImgMap): Paragraph[] {
   const paras: Paragraph[] = []
 
-  taskGroups.forEach((task, i) => {
-    const taskIdx  = i + 1
-    const progPart = task.progress != null ? `当前进度: ${task.progress}%，` : ''
-    paras.push(p(tr(`${taskIdx}. ${task.taskNm}(${progPart}总耗时：${fmtHours(task.totalHours)})`)))
+  for (const req of requirements) {
+    if (req.reqNm) {
+      paras.push(new Paragraph({ children: [tr(`【需求】${req.reqNm}`, true)], alignment: AlignmentType.LEFT }))
+    }
+    const hasReq     = !!req.reqNm
+    const hasAnyGrp  = req.groups.some((g) => g.groupNm)
+    const grpIndent  = hasReq  ? 200 : 0
+    const taskIndent = grpIndent + (hasAnyGrp ? 200 : 0)
+    const entryIndent = taskIndent + 200
 
-    // Sort entries chronologically
-    const sorted = [...task.entries].sort((a, b) => a.date.localeCompare(b.date))
-    sorted.forEach(entry => {
-      const isToday   = entry.date === today
-      const datePfx   = `[${shortDateLabel(entry.date)}] `
-      const descLines = entry.description.split('\n').map(l => l.trim()).filter(Boolean)
-
-      if (descLines.length) {
-        descLines.forEach((line, li) => {
-          const suffix = li === descLines.length - 1 ? `(耗时：${fmtHours(entry.hours)})` : ''
-          const prefix = li === 0 ? `  - ${datePfx}` : '       '
-          paras.push(new Paragraph({
-            children: [trHighlight(`${prefix}${line}${suffix}`, isToday)],
-            alignment: AlignmentType.LEFT,
-          }))
-        })
-      } else {
-        paras.push(new Paragraph({
-          children: [trHighlight(`  - ${datePfx}(耗时：${fmtHours(entry.hours)})`, isToday)],
-          alignment: AlignmentType.LEFT,
-        }))
+    for (const grp of req.groups) {
+      if (grp.groupNm) {
+        paras.push(new Paragraph({ children: [tr(`【分組】${grp.groupNm}`, true)], indent: { left: grpIndent }, alignment: AlignmentType.LEFT }))
       }
-      paras.push(...fileParas(entry.files))
-    })
-  })
+      grp.tasks.forEach((task, ti) => {
+        const progPart = task.progress != null ? `当前进度: ${task.progress}%，` : ''
+        paras.push(new Paragraph({
+          children: [tr(`${ti + 1}. ${task.taskNm}(${progPart}总耗时：${fmtHours(task.totalHours)})`, true)],
+          indent: { left: taskIndent }, alignment: AlignmentType.LEFT,
+        }))
+
+        const sorted = [...task.entries].sort((a, b) => (a.date ?? '').localeCompare(b.date ?? ''))
+        sorted.forEach((entry) => {
+          const isToday = entry.date === today
+          const datePfx = entry.date ? `[${shortDateLabel(entry.date)}] ` : ''
+          const hlTr    = (text: string) => trHighlight(text, isToday)
+          const blocks  = parseHtmlForExport(entry.description)
+
+          if (blocks.length === 0) {
+            paras.push(new Paragraph({ children: [hlTr(`- ${datePfx}`)], indent: { left: entryIndent }, alignment: AlignmentType.LEFT }))
+          } else {
+            blocks.forEach((block, bi) => {
+              const prefix = bi === 0 ? `- ${datePfx}` : '  '
+              paras.push(blockToParagraph(block, imgMap, prefix, '', hlTr, entryIndent))
+            })
+          }
+          paras.push(...fileParas(entry.files, entryIndent))
+        })
+      })
+    }
+  }
 
   if (!paras.length) paras.push(p(tr('')))
   return paras
@@ -484,8 +658,11 @@ export async function exportRangeReport(opts: ExportRangeReportOptions): Promise
   const allDated: DatedEntry[] = days.flatMap(d => d.entries.map(e => ({ ...e, _date: d.date })))
 
   // ── Pre-fetch all images in parallel ─────────────────────────────────
-  const allFiles = await Promise.all(allDated.map(e => prefetchFiles(e.files)))
-  const fileMap  = new Map(allDated.map((e, i) => [e.entry_id, allFiles[i]]))
+  const [allFiles, inlineImgMap] = await Promise.all([
+    Promise.all(allDated.map(e => prefetchFiles(e.files))),
+    prefetchInlineImages(allDated.map(e => e.description ?? '')),
+  ])
+  const fileMap = new Map(allDated.map((e, i) => [e.entry_id, allFiles[i]]))
 
   // ── Group by project / duty / other across all days ───────────────────
   const projectGroups = new Map<string, DatedEntry[]>()
@@ -506,6 +683,8 @@ export async function exportRangeReport(opts: ExportRangeReportOptions): Promise
   const toRawItem = (e: DatedEntry, taskId: string, taskNm: string) => ({
     taskId,
     taskNm,
+    reqNm:       e.requirement_nm ?? '',
+    groupNm:     e.group1 ? (e.group2 ? `${e.group1} / ${e.group2}` : e.group1) : (e.group2 ?? ''),
     progress:    e.progress,
     hours:       e.hours,
     description: e.description,
@@ -518,28 +697,28 @@ export async function exportRangeReport(opts: ExportRangeReportOptions): Promise
   let sectionIdx = 1
 
   for (const [projNm, items] of projectGroups) {
-    const taskGroups = groupByTaskWithDate(items.map(e => toRawItem(e, e.function_id ?? e.entry_id, e.function_nm || '')))
+    const hierarchy = buildExportHierarchy(items.map(e => toRawItem(e, e.function_id ?? e.entry_id, e.function_nm || '')))
     dataRows.push(new TableRow({ children: [
       cell([p(tr(`${sectionIdx}. ${projNm}`, true))], COL_LEFT),
-      cell(buildRangeRightParas(taskGroups, today), COL_RIGHT),
+      cell(buildRangeRightParas(hierarchy, today, inlineImgMap), COL_RIGHT),
     ]}))
     sectionIdx++
   }
 
   if (dutyGroup.length) {
-    const taskGroups = groupByTaskWithDate(dutyGroup.map(e => toRawItem(e, e.duty_id ?? e.entry_id, e.duty_nm || '')))
+    const hierarchy = buildExportHierarchy(dutyGroup.map(e => toRawItem(e, e.duty_id ?? e.entry_id, e.duty_nm || '')))
     dataRows.push(new TableRow({ children: [
       cell([p(tr(`${sectionIdx}. AR`, true))], COL_LEFT),
-      cell(buildRangeRightParas(taskGroups, today), COL_RIGHT),
+      cell(buildRangeRightParas(hierarchy, today, inlineImgMap), COL_RIGHT),
     ]}))
     sectionIdx++
   }
 
   if (otherGroup.length) {
-    const taskGroups = groupByTaskWithDate(otherGroup.map(e => toRawItem(e, e.work_category, CATEGORY_LABEL[e.work_category] || e.work_category)))
+    const hierarchy = buildExportHierarchy(otherGroup.map(e => toRawItem(e, e.work_category, CATEGORY_LABEL[e.work_category] || e.work_category)))
     dataRows.push(new TableRow({ children: [
       cell([p(tr(`${sectionIdx}. 其他`, true))], COL_LEFT),
-      cell(buildRangeRightParas(taskGroups, today), COL_RIGHT),
+      cell(buildRangeRightParas(hierarchy, today, inlineImgMap), COL_RIGHT),
     ]}))
   }
 

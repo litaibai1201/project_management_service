@@ -493,7 +493,7 @@ export interface CreateRequirementPayload {
 
 // ─── Daily Log ────────────────────────────────────────────────────────────────
 
-export type WorkCategory = 'project' | 'cr_ar' | 'training' | 'meeting' | 'duty' | 'other'
+export type WorkCategory = 'project' | 'system_req' | 'cr_ar' | 'training' | 'meeting' | 'duty' | 'other'
 
 export interface DailyLogEntry {
   entry_id:        string
@@ -508,9 +508,11 @@ export interface DailyLogEntry {
   project_nm?:     string
   function_id?:    string
   function_nm?:    string
-  duty_id?:        string
-  duty_nm?:        string
-  bu_unit?:        string
+  duty_id?:         string
+  duty_nm?:         string
+  system_nm?:       string
+  requirement_nm?:  string
+  bu_unit?:         string
   group1?:         string
   group2?:         string
   files?:          { name: string; url: string; size?: number }[]

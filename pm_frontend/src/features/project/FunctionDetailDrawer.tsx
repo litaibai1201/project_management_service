@@ -131,6 +131,8 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
   const [editSaving,      setEditSaving]      = useState(false)
   const [editExpandOpen,  setEditExpandOpen]  = useState(false)
   const [editExpandDraft, setEditExpandDraft] = useState('')
+  const [progExpandOpen,  setProgExpandOpen]  = useState(false)
+  const [progExpandDraft, setProgExpandDraft] = useState('')
   const [fileList,        setFileList]        = useState<UploadFile[]>([])
   const [form]       = Form.useForm()
   const [editForm]   = Form.useForm()
@@ -208,6 +210,12 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
     observer.observe(el)
     return () => observer.disconnect()
   }, [loadMoreProgress])
+
+  const handleImageUpload = React.useCallback(async (file: File): Promise<string> => {
+    const { dutyApi } = await import('@/api/duty.api')
+    const result = await dutyApi.uploadInlineImage(file)
+    return result.url
+  }, [])
 
   const handleSubmit = async (values: Record<string, unknown>) => {
     setIsSaving(true)
@@ -463,8 +471,31 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
                     <InputNumber min={0} step={0.5} style={{ width: '100%' }} addonAfter="h" />
                   </Form.Item>
                 </div>
-                <Form.Item name="progress_record" label="進度說明">
-                  <Input.TextArea rows={2} placeholder="本次完成了哪些工作..." />
+                <Form.Item
+                  name="progress_record"
+                  label={
+                    <div className="flex items-center justify-between w-full">
+                      <span>進度說明</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const cur = form.getFieldValue('progress_record') ?? ''
+                          setProgExpandDraft(cur)
+                          setProgExpandOpen(true)
+                        }}
+                        className="flex items-center gap-1 text-xs text-slate-500 hover:text-blue-600 border border-slate-200 rounded-md px-2 py-0.5 hover:border-blue-300 bg-white transition-colors ml-2"
+                      >
+                        <ArrowsPointingOutIcon className="w-3.5 h-3.5" />
+                        展開編輯
+                      </button>
+                    </div>
+                  }
+                >
+                  <RichTextEditor
+                    placeholder="本次完成了哪些工作...（支援格式化文字與圖片混排）"
+                    minHeight={120}
+                    onImageUpload={handleImageUpload}
+                  />
                 </Form.Item>
                 <Form.Item name="cooperator" label="合作人">
                   <Select
@@ -476,7 +507,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
                     allowClear
                   />
                 </Form.Item>
-                <Form.Item label="附件">
+                <Form.Item label="附件（非圖片文件）">
                   <Upload
                     fileList={fileList}
                     onChange={({ fileList: fl }) => setFileList(fl)}
@@ -489,6 +520,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
                       return false
                     }}
                     multiple
+                    accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.rar,.txt,.md"
                   >
                     <Button icon={<PaperClipIcon className="w-4 h-4" />} size="small">選擇附件</Button>
                   </Upload>
@@ -613,11 +645,15 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
                             {item.progress_record && (() => {
                               const firstUpdDesc = ownUpdates[0]?.description ?? ''
                               const origChanged  = ownUpdates.length > 0 && firstUpdDesc !== item.progress_record
-                              return (
+                              return origChanged ? (
                                 <p className="text-sm mt-1 mb-0 leading-snug"
-                                  style={{ color: origChanged ? '#94a3b8' : '#475569', textDecoration: origChanged ? 'line-through' : 'none', margin: '4px 0 0 0' }}>
-                                  {item.progress_record}
+                                  style={{ color: '#94a3b8', textDecoration: 'line-through', margin: '4px 0 0 0' }}>
+                                  {item.progress_record.replace(/<[^>]*>/g, '')}
                                 </p>
+                              ) : (
+                                <div className="mt-1" style={{ margin: '4px 0 0 0' }}>
+                                  <RichTextContent html={item.progress_record} onImageClick={(src) => setPreviewFile({ name: src.split('/').pop()?.split('?')[0] ?? 'image.png', url: src })} />
+                                </div>
                               )
                             })()}
                             {/* 提交人自己的日誌更新鏈 */}
@@ -640,14 +676,20 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
                                   {idx > 0 && descChanged && (
                                     <p className="text-sm leading-tight"
                                       style={{ color: '#94a3b8', textDecoration: 'line-through', margin: '2px 0 0 0' }}>
-                                      {ownUpdates[idx - 1].description}
+                                      {(ownUpdates[idx - 1].description ?? '').replace(/<[^>]*>/g, '')}
                                     </p>
                                   )}
                                   {descChanged && (
-                                    <p className="text-sm leading-tight"
-                                      style={{ color: isLatest ? '#334155' : '#94a3b8', textDecoration: isLatest ? 'none' : 'line-through', margin: '2px 0 0 0' }}>
-                                      {upd.description}
-                                    </p>
+                                    isLatest ? (
+                                      <div style={{ margin: '2px 0 0 0' }}>
+                                        <RichTextContent html={upd.description} onImageClick={(src) => setPreviewFile({ name: src.split('/').pop()?.split('?')[0] ?? 'image.png', url: src })} />
+                                      </div>
+                                    ) : (
+                                      <p className="text-sm leading-tight"
+                                        style={{ color: '#94a3b8', textDecoration: 'line-through', margin: '2px 0 0 0' }}>
+                                        {(upd.description ?? '').replace(/<[^>]*>/g, '')}
+                                      </p>
+                                    )
                                   )}
                                   {hasFileDiff && (
                                     <div className="mt-1 space-y-1">
@@ -696,7 +738,9 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
                                     </div>
                                   </div>
                                   {upd.description && (
-                                    <p className="text-sm text-slate-600 leading-snug" style={{ margin: '0 0 4px 0' }}>{upd.description}</p>
+                                    <div style={{ margin: '4px 0' }}>
+                                      <RichTextContent html={upd.description} onImageClick={(src) => setPreviewFile({ name: src.split('/').pop()?.split('?')[0] ?? 'image.png', url: src })} />
+                                    </div>
                                   )}
                                   {newFiles.length > 0 && (() => { const sf = splitFiles(newFiles); return <AttachmentPreview files={sf.files} images={sf.images} onPreview={setPreviewFile} /> })()}
                                   <span className="text-xs text-slate-300 block">{upd.log_date}{upd.record_time ? ` ${upd.record_time}` : ''}</span>
@@ -738,7 +782,9 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
                               </div>
                             </div>
                             {entry.description && (
-                              <p className="text-sm text-slate-600 mt-1 mb-1 leading-tight">{entry.description}</p>
+                              <div className="mt-1 mb-1">
+                                <RichTextContent html={entry.description} onImageClick={(src) => setPreviewFile({ name: src.split('/').pop()?.split('?')[0] ?? 'image.png', url: src })} />
+                              </div>
                             )}
                             {/* 附件 */}
                             {(() => { const sf = splitFiles(entry.files); return <AttachmentPreview files={sf.files} images={sf.images} onPreview={setPreviewFile} /> })()}
@@ -869,6 +915,33 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
         onChange={setEditExpandDraft}
         placeholder="請描述功能需求（支援標題、列表、粗體等格式）"
         minHeight={480}
+      />
+    </Modal>
+    {/* ── 進度說明展開編輯 Modal ───────────────────────────────────────────── */}
+    <Modal
+      open={progExpandOpen}
+      title="進度說明"
+      onCancel={() => setProgExpandOpen(false)}
+      width="80vw"
+      style={{ top: 40, maxWidth: 1100 }}
+      styles={{ body: { padding: '16px 24px 24px' } }}
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button onClick={() => setProgExpandOpen(false)}>取消</Button>
+          <Button type="primary" style={{ background: '#2563eb' }} onClick={() => {
+            form.setFieldValue('progress_record', progExpandDraft)
+            setProgExpandOpen(false)
+          }}>完成</Button>
+        </div>
+      }
+      destroyOnClose
+    >
+      <RichTextEditor
+        value={progExpandDraft}
+        onChange={setProgExpandDraft}
+        placeholder="本次完成了哪些工作...（支援格式化文字與圖片混排）"
+        minHeight={480}
+        onImageUpload={handleImageUpload}
       />
     </Modal>
     </>

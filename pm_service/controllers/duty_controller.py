@@ -26,7 +26,7 @@ class DutyController:
             req.progress = 0
             req.req_status = 2
         else:
-            avg = round(sum(d.progress or 0 for d in duties) / len(duties))
+            avg = round(sum(int(d.progress or 0) for d in duties) / len(duties))
             req.progress = avg
             req.req_status = 4 if avg >= 100 else 2
         req.updated_at = CommonTools.get_now()
@@ -87,9 +87,15 @@ class DutyController:
         if sys_ids:
             syss = db.session.query(SystemModel.id, SystemModel.sys_nm).filter(SystemModel.id.in_(sys_ids)).all()
             sys_map = {s.id: s.sys_nm for s in syss}
+        req_ids = list({d.standalone_req_id for d in duties if d.standalone_req_id})
+        req_nm_map = {}
+        if req_ids:
+            reqs = db.session.query(StandaloneReqModel.id, StandaloneReqModel.req_nm).filter(StandaloneReqModel.id.in_(req_ids)).all()
+            req_nm_map = {r.id: r.req_nm for r in reqs}
         def _enrich(d):
             r = d.to_dict()
             r['system_nm'] = sys_map.get(d.system_id, '') if d.system_id else ''
+            r['requirement_nm'] = req_nm_map.get(d.standalone_req_id, '') if d.standalone_req_id else ''
             return r
         return {
             "total_count": total,
@@ -979,13 +985,29 @@ class DutyController:
             db.session.query(TemporaryDutyModel)
             .filter(
                 TemporaryDutyModel.responsible.like(f"%{work_no}%"),
-                TemporaryDutyModel.duty_status.in_([0, 1]),
+                TemporaryDutyModel.duty_status.in_([0, 1, 6]),
             )
         )
         total = q.count()
         duties = q.offset((page-1)*size).limit(size).all()
+        sys_ids = list({d.system_id for d in duties if d.system_id})
+        sys_map = {}
+        if sys_ids:
+            syss = db.session.query(SystemModel.id, SystemModel.sys_nm).filter(SystemModel.id.in_(sys_ids)).all()
+            sys_map = {s.id: s.sys_nm for s in syss}
+        req_ids = list({d.standalone_req_id for d in duties if d.standalone_req_id})
+        req_nm_map = {}
+        if req_ids:
+            reqs = db.session.query(StandaloneReqModel.id, StandaloneReqModel.req_nm).filter(StandaloneReqModel.id.in_(req_ids)).all()
+            req_nm_map = {r.id: r.req_nm for r in reqs}
+        result = []
+        for d in duties:
+            r = d.to_dict()
+            r['system_nm'] = sys_map.get(d.system_id, '') if d.system_id else ''
+            r['requirement_nm'] = req_nm_map.get(d.standalone_req_id, '') if d.standalone_req_id else ''
+            result.append(r)
         return {
             "total_count": total,
             "total_page": (total + size - 1) // size,
-            "data_list": [d.to_dict() for d in duties],
+            "data_list": result,
         }

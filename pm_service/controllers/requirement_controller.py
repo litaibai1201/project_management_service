@@ -26,7 +26,7 @@ class RequirementController:
             req.progress = 0
             req.req_status = 2
         else:
-            avg = round(sum(f.progress or 0 for f in funcs) / len(funcs))
+            avg = round(sum(int(f.progress or 0) for f in funcs) / len(funcs))
             req.progress = avg
             req.req_status = 4 if avg >= 100 else 2
         req.update_at = CommonTools.get_now()

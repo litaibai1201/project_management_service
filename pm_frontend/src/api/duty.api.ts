@@ -125,6 +125,13 @@ export const dutyApi = {
   taskList: (params?: { page?: number; size?: number }) =>
     get('/temporary_duty/tasklist', { params }),
 
+  /** POST /api/temporary_duty/progress-inline-image — 上傳富文本進度說明圖片 */
+  uploadInlineImage: (file: File): Promise<{ url: string }> => {
+    const fd = new FormData()
+    fd.append('image', file)
+    return postForm('/temporary_duty/progress-inline-image', fd).then((r) => (r as ApiResponse<{ url: string }>).content as { url: string })
+  },
+
   /** POST /api/temporary_duty/batch_req_task_review */
   batchSubmitReqTaskReview: (
     dutyIds: string[],

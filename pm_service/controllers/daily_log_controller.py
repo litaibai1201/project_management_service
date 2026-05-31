@@ -189,7 +189,7 @@ class DailyLogController:
             ).order_by(ProgressRecordDataModel.created_at.asc()).all()
         )
         func_ids = list({r.function_id for r in func_recs})
-        func_map, proj_map = {}, {}
+        func_map, proj_map, req_nm_map = {}, {}, {}
         if func_ids:
             funcs = db.session.query(FunctionDataModel).filter(FunctionDataModel.id.in_(func_ids)).all()
             func_map = {f.id: f for f in funcs}
@@ -197,6 +197,11 @@ class DailyLogController:
             if proj_ids:
                 projs = db.session.query(ProjectDataModel).filter(ProjectDataModel.id.in_(proj_ids)).all()
                 proj_map = {p.id: p.project_nm for p in projs}
+            req_ids = list({f.requirement_id for f in funcs if f.requirement_id})
+            if req_ids:
+                from dbs.mysql_db.model_tables import RequirementModel
+                reqs = db.session.query(RequirementModel.id, RequirementModel.req_nm).filter(RequirementModel.id.in_(req_ids)).all()
+                req_nm_map = {r.id: r.req_nm for r in reqs}
         for r in func_recs:
             func = func_map.get(r.function_id)
             try:
@@ -215,6 +220,7 @@ class DailyLogController:
                 "group2":              func.group2 if func else "",
                 "expected_start_date": str(func.expected_start_date) if func and func.expected_start_date else None,
                 "expected_end_date":   str(func.expected_end_date) if func and func.expected_end_date else None,
+                "requirement_nm":      req_nm_map.get(func.requirement_id, "") if func and func.requirement_id else None,
                 "work_hours":          float(r.time_consum or 0),
                 "description":         r.progress_record or "",
                 "progress":            int(r.progress or 0),
@@ -240,6 +246,13 @@ class DailyLogController:
         if duty_ids:
             duties = db.session.query(TemporaryDutyModel).filter(TemporaryDutyModel.id.in_(duty_ids)).all()
             duty_obj_map = {d.id: d for d in duties}
+        # Batch-load system names for duties that have system_id
+        from dbs.mysql_db.model_tables import SystemModel
+        duty_sys_ids = list({d.system_id for d in duty_obj_map.values() if d.system_id})
+        duty_sys_map = {}
+        if duty_sys_ids:
+            syss = db.session.query(SystemModel.id, SystemModel.sys_nm).filter(SystemModel.id.in_(duty_sys_ids)).all()
+            duty_sys_map = {s.id: s.sys_nm for s in syss}
         for r in duty_recs:
             try:
                 raw_files = json.loads(r.files_json or "[]")
@@ -250,11 +263,15 @@ class DailyLogController:
             duty_obj = duty_obj_map.get(r.duty_id)
             # Use the duty's current progress (TemporaryDutyModel.progress) — always the latest
             current_progress = duty_obj.progress if duty_obj else None
+            system_id = duty_obj.system_id if duty_obj else None
             result.append({
                 "task_type":   "duty",
                 "task_id":     r.duty_id,
                 "task_nm":     duty_obj.duty_nm if duty_obj else "",
                 "project_nm":  None,
+                "system_id":   system_id,
+                "system_nm":   duty_sys_map.get(system_id, "") if system_id else None,
+                "group1":      duty_obj.group if duty_obj and duty_obj.group else None,
                 "work_hours":  float(r.time_consum or 0),
                 "description": r.progress_record or "",
                 "progress":    int(current_progress) if current_progress is not None else None,
@@ -338,7 +355,68 @@ class DailyLogController:
 
     def _to_detail(self, doc: dict):
         base = self._to_summary(doc)
-        base["task_items"] = doc.get("task_items", [])
+        task_items = [dict(item) for item in doc.get("task_items", [])]
+        # Enrich duty task items with system_nm (backward compat: items saved before this field existed)
+        duty_items_needing_sys = [
+            item for item in task_items
+            if item.get("task_type") == "duty" and not item.get("system_nm")
+        ]
+        if duty_items_needing_sys:
+            duty_task_ids = list({item["task_id"] for item in duty_items_needing_sys})
+            duties = db.session.query(
+                TemporaryDutyModel.id, TemporaryDutyModel.system_id
+            ).filter(TemporaryDutyModel.id.in_(duty_task_ids)).all()
+            duty_sys_map = {d.id: d.system_id for d in duties if d.system_id}
+            if duty_sys_map:
+                from dbs.mysql_db.model_tables import SystemModel
+                sys_ids = list(set(duty_sys_map.values()))
+                syss = db.session.query(SystemModel.id, SystemModel.sys_nm).filter(SystemModel.id.in_(sys_ids)).all()
+                sys_nm_map = {s.id: s.sys_nm for s in syss}
+                for item in task_items:
+                    if item.get("task_type") == "duty" and item.get("task_id") in duty_sys_map:
+                        sys_id = duty_sys_map[item["task_id"]]
+                        item["system_nm"] = sys_nm_map.get(sys_id, "")
+        # Enrich project task items with requirement_nm (backward compat)
+        proj_items_needing_req = [
+            item for item in task_items
+            if item.get("task_type") == "project" and not item.get("requirement_nm")
+        ]
+        if proj_items_needing_req:
+            func_task_ids = list({item["task_id"] for item in proj_items_needing_req})
+            funcs = db.session.query(
+                FunctionDataModel.id, FunctionDataModel.requirement_id
+            ).filter(FunctionDataModel.id.in_(func_task_ids)).all()
+            func_req_map = {f.id: f.requirement_id for f in funcs if f.requirement_id}
+            if func_req_map:
+                from dbs.mysql_db.model_tables import RequirementModel
+                req_ids = list(set(func_req_map.values()))
+                reqs = db.session.query(RequirementModel.id, RequirementModel.req_nm).filter(RequirementModel.id.in_(req_ids)).all()
+                req_nm_map = {r.id: r.req_nm for r in reqs}
+                for item in task_items:
+                    if item.get("task_type") == "project" and item.get("task_id") in func_req_map:
+                        req_id = func_req_map[item["task_id"]]
+                        item["requirement_nm"] = req_nm_map.get(req_id, "")
+        # Enrich duty task items with requirement_nm (backward compat)
+        duty_items_needing_req = [
+            item for item in task_items
+            if item.get("task_type") == "duty" and not item.get("requirement_nm")
+        ]
+        if duty_items_needing_req:
+            duty_task_ids = list({item["task_id"] for item in duty_items_needing_req})
+            duties_req = db.session.query(
+                TemporaryDutyModel.id, TemporaryDutyModel.standalone_req_id
+            ).filter(TemporaryDutyModel.id.in_(duty_task_ids)).all()
+            duty_req_map = {d.id: d.standalone_req_id for d in duties_req if d.standalone_req_id}
+            if duty_req_map:
+                from dbs.mysql_db.model_tables import StandaloneReqModel
+                req_ids = list(set(duty_req_map.values()))
+                reqs = db.session.query(StandaloneReqModel.id, StandaloneReqModel.req_nm).filter(StandaloneReqModel.id.in_(req_ids)).all()
+                req_nm_map = {r.id: r.req_nm for r in reqs}
+                for item in task_items:
+                    if item.get("task_type") == "duty" and item.get("task_id") in duty_req_map:
+                        req_id = duty_req_map[item["task_id"]]
+                        item["requirement_nm"] = req_nm_map.get(req_id, "")
+        base["task_items"] = task_items
         base["free_items"] = doc.get("free_items", [])
         base["remark"]     = doc.get("remark", "")
         return base

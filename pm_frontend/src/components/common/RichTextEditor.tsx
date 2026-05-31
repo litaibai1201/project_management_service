@@ -1,5 +1,5 @@
-import React from 'react'
-import { useEditor, EditorContent } from '@tiptap/react'
+import React, { useRef, useCallback } from 'react'
+import { useEditor, EditorContent, ReactNodeViewRenderer, NodeViewWrapper } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Underline from '@tiptap/extension-underline'
 import TextAlign from '@tiptap/extension-text-align'
@@ -9,6 +9,7 @@ import { Color } from '@tiptap/extension-color'
 import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
 import Placeholder from '@tiptap/extension-placeholder'
+import Image from '@tiptap/extension-image'
 import { Select } from 'antd'
 
 // ─── Toolbar Button ───────────────────────────────────────────────────────────
@@ -105,6 +106,100 @@ const BlockquoteIcon = () => (
   </svg>
 )
 
+const ImageIcon = () => (
+  <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+    <rect x="2" y="4" width="16" height="12" rx="2" fillOpacity="0.15" stroke="currentColor" strokeWidth="1.2" fill="none" />
+    <circle cx="7" cy="8" r="1.5" />
+    <path d="M2.5 14.5 L6.5 10.5 L9.5 13 L13 9 L17.5 14.5" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinejoin="round" strokeLinecap="round" />
+  </svg>
+)
+
+// ─── Resizable Image Node View ───────────────────────────────────────────────
+
+interface ResizableImageViewProps {
+  node: { attrs: { src: string; alt?: string; title?: string; width?: string } }
+  updateAttributes: (attrs: Record<string, unknown>) => void
+  selected: boolean
+}
+
+const ResizableImageView: React.FC<ResizableImageViewProps> = ({ node, updateAttributes, selected }) => {
+  const { src, alt, title, width } = node.attrs
+  const containerRef = useRef<HTMLSpanElement>(null)
+
+  const onMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const startX = e.clientX
+    const img = containerRef.current?.querySelector('img')
+    const startW = img?.offsetWidth ?? 300
+
+    const onMove = (ev: MouseEvent) => {
+      const newW = Math.max(80, startW + ev.clientX - startX)
+      updateAttributes({ width: `${newW}px` })
+    }
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }, [updateAttributes])
+
+  return (
+    <NodeViewWrapper as="span" style={{ display: 'inline-block', verticalAlign: 'bottom' }}>
+      <span ref={containerRef} style={{ display: 'inline-block', position: 'relative', maxWidth: '100%' }}>
+        <img
+          src={src}
+          alt={alt ?? ''}
+          title={title ?? undefined}
+          style={{
+            display: 'block',
+            width: width ?? 'auto',
+            maxWidth: '100%',
+            borderRadius: 6,
+            outline: selected ? '2px solid #3b82f6' : '2px solid transparent',
+            outlineOffset: 1,
+            transition: 'outline 0.1s',
+          }}
+        />
+        {selected && (
+          <div
+            onMouseDown={onMouseDown}
+            title="拖曳調整圖片寬度"
+            style={{
+              position: 'absolute',
+              right: 0,
+              bottom: 0,
+              width: 14,
+              height: 14,
+              background: '#3b82f6',
+              borderRadius: '50% 0 4px 0',
+              cursor: 'se-resize',
+              zIndex: 10,
+            }}
+          />
+        )}
+      </span>
+    </NodeViewWrapper>
+  )
+}
+
+const ResizableImage = Image.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      width: {
+        default: null,
+        renderHTML: (attrs) => attrs.width ? { width: attrs.width } : {},
+        parseHTML: (el) => (el as HTMLElement).style.width || (el as HTMLElement).getAttribute('width') || null,
+      },
+    }
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(ResizableImageView)
+  },
+})
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 interface RichTextEditorProps {
@@ -112,6 +207,8 @@ interface RichTextEditorProps {
   onChange?: (html: string) => void
   placeholder?: string
   minHeight?: number
+  /** 提供後工具列會顯示圖片按鈕，呼叫後應回傳圖片 URL */
+  onImageUpload?: (file: File) => Promise<string>
 }
 
 const RichTextEditor: React.FC<RichTextEditorProps> = ({
@@ -119,7 +216,10 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
   onChange,
   placeholder = '請輸入描述...',
   minHeight = 150,
+  onImageUpload,
 }) => {
+  const imgInputRef = React.useRef<HTMLInputElement>(null)
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
@@ -131,14 +231,29 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
       TaskList,
       TaskItem.configure({ nested: true }),
       Placeholder.configure({ placeholder }),
+      ResizableImage.configure({ inline: true, allowBase64: false }),
     ],
+    editorProps: {
+      handlePaste: (view, event) => {
+        if (!onImageUpload) return false
+        const items = Array.from(event.clipboardData?.items ?? [])
+        const imgItem = items.find((i) => i.type.startsWith('image/'))
+        if (!imgItem) return false
+        event.preventDefault()
+        const file = imgItem.getAsFile()
+        if (!file) return false
+        onImageUpload(file).then((url) => {
+          view.dispatch(view.state.tr.replaceSelectionWith(
+            view.state.schema.nodes.image.create({ src: url })
+          ))
+        })
+        return true
+      },
+    },
     content: value || '',
     onUpdate: ({ editor }) => {
       const html = editor.getHTML()
       onChange?.(html === '<p></p>' ? '' : html)
-    },
-    editorProps: {
-      attributes: { style: `min-height: ${minHeight}px` },
     },
   })
 
@@ -249,10 +364,35 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
         <ToolBtn active={editor.isActive('blockquote')} onClick={() => editor.chain().focus().toggleBlockquote().run()} title="引用">
           <BlockquoteIcon />
         </ToolBtn>
+
+        {/* Image upload — only shown when onImageUpload is provided */}
+        {onImageUpload && (
+          <>
+            <Sep />
+            <ToolBtn onClick={() => imgInputRef.current?.click()} title="插入圖片">
+              <ImageIcon />
+            </ToolBtn>
+            <input
+              ref={imgInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/gif,image/webp"
+              style={{ display: 'none' }}
+              onChange={async (e) => {
+                const file = e.target.files?.[0]
+                e.target.value = ''
+                if (!file) return
+                try {
+                  const url = await onImageUpload(file)
+                  editor.chain().focus().setImage({ src: url }).run()
+                } catch { /* ignore */ }
+              }}
+            />
+          </>
+        )}
       </div>
 
       {/* ── Editor area ── */}
-      <EditorContent editor={editor} className="rte-content" />
+      <EditorContent editor={editor} className="rte-content" style={{ minHeight }} />
     </div>
   )
 }
