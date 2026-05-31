@@ -1787,7 +1787,7 @@ const ProjectDetailPage: React.FC = () => {
                               <span className="font-medium text-slate-700 text-sm">{name}</span>
                               {fnm && <span className="text-slate-500 text-sm"> · {fnm}</span>}
                               <span className="text-slate-400 text-sm"> {String(d.action ?? '')}</span>
-                              {note && <div className="text-xs text-slate-500 mt-0.5">{note}</div>}
+                              {note && <div className="text-xs text-slate-500 mt-0.5"><RichTextContent html={note} /></div>}
                               <div className="text-xs text-slate-300 mt-0.5">{String(d.created_at ?? '')}</div>
                             </div>
                           ),

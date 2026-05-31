@@ -3,6 +3,8 @@
 import json
 from dbs.mysql_db import db
 from dbs.mysql_db.model_tables import StandaloneReqModel, UserProfileModel, SystemModel, ReviewApplyModel
+import os
+from configs.base import BaseConfig
 from utils.tools import CommonTools
 from utils.exceptions import ResourceNotFoundException, BusinessException
 
@@ -357,7 +359,7 @@ class StandaloneReqController:
         if ext not in ALLOWED_EXT:
             raise BusinessException(msg=f"不支持的文件类型: {ext}")
 
-        base_dir = current_app.config.get("UPLOAD_FOLDER", "uploads")
+        base_dir = os.path.abspath(BaseConfig.UPLOAD_DIR)
         upload_dir = os.path.join(base_dir, "standalone_req", req_id)
         os.makedirs(upload_dir, exist_ok=True)
 
@@ -398,7 +400,7 @@ class StandaloneReqController:
         file_info = next((f for f in files if f.get("file_id") == file_id), None)
         if not file_info:
             raise ResourceNotFoundException(resource_type="附件")
-        base_dir = current_app.config.get("UPLOAD_FOLDER", "uploads")
+        base_dir = os.path.abspath(BaseConfig.UPLOAD_DIR)
         ext = file_info["name"].rsplit(".", 1)[-1] if "." in file_info["name"] else "bin"
         abs_path = os.path.join(base_dir, "standalone_req", req_id, f"{file_id}.{ext}")
         return abs_path, file_info["name"]

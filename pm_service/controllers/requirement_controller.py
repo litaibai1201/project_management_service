@@ -2,6 +2,7 @@
 """需求控制器"""
 import json
 
+from configs.base import BaseConfig
 from utils.tools import CommonTools
 from utils.exceptions import ResourceNotFoundException, BusinessException, PermissionException
 from dbs.mysql_db import db
@@ -464,7 +465,7 @@ class RequirementController:
         if ext not in ALLOWED_EXT:
             raise BusinessException(msg=f"不支持的文件类型: {ext}")
 
-        base_dir = current_app.config.get("UPLOAD_FOLDER", "uploads")
+        base_dir = os.path.abspath(BaseConfig.UPLOAD_DIR)
         upload_dir = os.path.join(base_dir, "requirements", req_id)
         os.makedirs(upload_dir, exist_ok=True)
 
@@ -506,7 +507,7 @@ class RequirementController:
         file_info = next((f for f in files if f.get("file_id") == file_id), None)
         if not file_info:
             raise ResourceNotFoundException(resource_type="附件")
-        base_dir = current_app.config.get("UPLOAD_FOLDER", "uploads")
+        base_dir = os.path.abspath(BaseConfig.UPLOAD_DIR)
         stored_url = file_info["url"]  # /uploads/requirements/{req_id}/{file_id}.ext
         rel_path = stored_url.lstrip("/")
         abs_path = os.path.join(os.path.dirname(base_dir), rel_path) if not os.path.isabs(base_dir) else stored_url
