@@ -117,7 +117,7 @@ def close_redis_client() -> None:
 # 为了与旧代码兼容，导出客户端
 redis_client = type('RedisClientProxy', (), {
     'init_app': lambda self, app: init_redis_client(app),
-    'get': lambda self: get_redis_client(),
+    'get_client': lambda self: get_redis_client(),
     '__getattr__': lambda self, name: getattr(get_redis_client(), name),
 })()
 

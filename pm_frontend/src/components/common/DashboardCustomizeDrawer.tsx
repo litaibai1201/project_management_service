@@ -4,107 +4,68 @@ import type { MenuProps } from 'antd'
 import { XMarkIcon, CheckIcon, EllipsisVerticalIcon, ArrowPathIcon } from '@heroicons/react/24/outline'
 import type { UseDashboardConfigReturn, WidgetEntry } from '@/hooks/useDashboardConfig'
 import type { DashboardViewType } from '@/types/api.types'
+import { useTranslation } from 'react-i18next'
 
 // ── Widget metadata ────────────────────────────────────────────────────────────
 
 interface WidgetMeta {
   id: string
-  title: string
-  desc: string
+  titleKey: string
+  descKey: string
   color: string
 }
 
-interface Category {
+interface CategoryDef {
   key: string
-  label: string
+  labelKey: string
   widgets: WidgetMeta[]
 }
 
-const WIDGET_CATEGORIES: Record<DashboardViewType, Category[]> = {
+const WIDGET_DEFS: Record<DashboardViewType, CategoryDef[]> = {
   personal: [
-    {
-      key: 'project',
-      label: '項目',
-      widgets: [
-        { id: 'project_stats',      title: '專案統計',      desc: '展示專案進度與狀態概覽',     color: '#3b82f6' },
-        { id: 'my_projects',        title: '我參與的專案',  desc: '展示我參與的專案列表',       color: '#3b82f6' },
-      ],
-    },
-    {
-      key: 'task',
-      label: '任務',
-      widgets: [
-        { id: 'task_stats',         title: '任務統計',      desc: '展示任務完成情況',           color: '#22c55e' },
-        { id: 'my_tasks',           title: '我負責的任務',  desc: '展示我負責的AR列表',   color: '#22c55e' },
-        { id: 'pending_review',     title: '待處理',        desc: '展示待處理數量概覽',         color: '#f59e0b' },
-        { id: 'my_pending_review',  title: '待我審批',      desc: '展示待我審批的申請列表',     color: '#f59e0b' },
-      ],
-    },
-    {
-      key: 'hours',
-      label: '工時',
-      widgets: [
-        { id: 'activity_chart',     title: '工時趨勢',      desc: '展示近期工時趨勢圖',         color: '#8b5cf6' },
-        { id: 'monthly_attendance', title: '月出勤日曆',    desc: '展示本月工時日曆',           color: '#8b5cf6' },
-      ],
-    },
-    {
-      key: 'log',
-      label: '日誌',
-      widgets: [
-        { id: 'daily_log',          title: '工作日誌',      desc: '展示今日工作日誌填寫狀態',   color: '#06b6d4' },
-      ],
-    },
-    {
-      key: 'other',
-      label: '其他',
-      widgets: [
-        { id: 'latest_news',        title: '最新消息',      desc: '展示系統最新動態',           color: '#64748b' },
-      ],
-    },
+    { key: 'project', labelKey: 'widget.catProject', widgets: [
+      { id: 'project_stats',      titleKey: 'widget.projectStats',     descKey: 'widget.projectStatsDesc',     color: '#3b82f6' },
+      { id: 'my_projects',        titleKey: 'widget.myProjects',       descKey: 'widget.myProjectsDesc',       color: '#3b82f6' },
+    ]},
+    { key: 'task', labelKey: 'widget.catTask', widgets: [
+      { id: 'task_stats',         titleKey: 'widget.taskStats',        descKey: 'widget.taskStatsDesc',        color: '#22c55e' },
+      { id: 'my_tasks',           titleKey: 'widget.myTasks',          descKey: 'widget.myTasksDesc',          color: '#22c55e' },
+      { id: 'pending_review',     titleKey: 'widget.pendingReview',    descKey: 'widget.pendingReviewDesc',    color: '#f59e0b' },
+      { id: 'my_pending_review',  titleKey: 'widget.myPendingReview',  descKey: 'widget.myPendingReviewDesc',  color: '#f59e0b' },
+    ]},
+    { key: 'hours', labelKey: 'widget.catHours', widgets: [
+      { id: 'activity_chart',     titleKey: 'widget.activityChart',    descKey: 'widget.activityChartDesc',    color: '#8b5cf6' },
+      { id: 'monthly_attendance', titleKey: 'widget.monthlyAttendance',descKey: 'widget.monthlyAttendanceDesc',color: '#8b5cf6' },
+    ]},
+    { key: 'log', labelKey: 'widget.catLog', widgets: [
+      { id: 'daily_log',          titleKey: 'widget.dailyLog',         descKey: 'widget.dailyLogDesc',         color: '#06b6d4' },
+    ]},
+    { key: 'other', labelKey: 'widget.catOther', widgets: [
+      { id: 'latest_news',        titleKey: 'widget.latestNews',       descKey: 'widget.latestNewsDesc',       color: '#64748b' },
+    ]},
   ],
   manager: [
-    {
-      key: 'project',
-      label: '項目',
-      widgets: [
-        { id: 'team_project',        title: '團隊專案',      desc: '展示團隊專案整體情況',    color: '#3b82f6' },
-      ],
-    },
-    {
-      key: 'task',
-      label: '任務',
-      widgets: [
-        { id: 'team_task',           title: '團隊任務',      desc: '展示團隊任務狀態',        color: '#22c55e' },
-        { id: 'team_pending',        title: '待處理',        desc: '展示團隊待處理事項',      color: '#f59e0b' },
-      ],
-    },
-    {
-      key: 'member',
-      label: '成員',
-      widgets: [
-        { id: 'team_size',           title: '團隊規模',      desc: '展示團隊人員數量',        color: '#ec4899' },
-        { id: 'daily_report_status', title: '日報提交情況',  desc: '展示成員日誌提交狀態',    color: '#06b6d4' },
-        { id: 'member_task_chart',   title: '成員任務圖',    desc: '展示各成員任務分布圖表',  color: '#8b5cf6' },
-        { id: 'member_detail',       title: '成員明細',      desc: '展示成員任務詳情列表',    color: '#64748b' },
-      ],
-    },
-    {
-      key: 'benefit',
-      label: '效益',
-      widgets: [
-        { id: 'team_benefit',        title: '年度效益統計', desc: '按單位匯總團隊專案預計年度效益', color: '#3b82f6' },
-        { id: 'team_benefit_detail', title: '效益專案明細', desc: '列出各專案預計效益及狀態', color: '#3b82f6' },
-      ],
-    },
-    {
-      key: 'req_ar',
-      label: '需求/AR',
-      widgets: [
-        { id: 'team_requirement', title: '需求總覽',    desc: '統計需求總數及各狀態數量', color: '#7c3aed' },
-        { id: 'team_ar_task',     title: 'AR 任務統計', desc: '統計AR任務總數及各狀態數量', color: '#d97706' },
-      ],
-    },
+    { key: 'project', labelKey: 'widget.catProject', widgets: [
+      { id: 'team_project',        titleKey: 'widget.teamProject',      descKey: 'widget.teamProjectDesc',     color: '#3b82f6' },
+    ]},
+    { key: 'task', labelKey: 'widget.catTask', widgets: [
+      { id: 'team_task',           titleKey: 'widget.teamTask',         descKey: 'widget.teamTaskDesc',        color: '#22c55e' },
+      { id: 'team_pending',        titleKey: 'widget.teamPending',      descKey: 'widget.teamPendingDesc',     color: '#f59e0b' },
+    ]},
+    { key: 'member', labelKey: 'widget.catMember', widgets: [
+      { id: 'team_size',           titleKey: 'widget.teamSize',         descKey: 'widget.teamSizeDesc',        color: '#ec4899' },
+      { id: 'daily_report_status', titleKey: 'widget.dailyReportStatus',descKey: 'widget.dailyReportStatusDesc',color: '#06b6d4' },
+      { id: 'member_task_chart',   titleKey: 'widget.memberTaskChart',  descKey: 'widget.memberTaskChartDesc', color: '#8b5cf6' },
+      { id: 'member_detail',       titleKey: 'widget.memberDetail',     descKey: 'widget.memberDetailDesc',    color: '#64748b' },
+    ]},
+    { key: 'benefit', labelKey: 'widget.catBenefit', widgets: [
+      { id: 'team_benefit',        titleKey: 'widget.teamBenefit',      descKey: 'widget.teamBenefitDesc',     color: '#3b82f6' },
+      { id: 'team_benefit_detail', titleKey: 'widget.teamBenefitDetail',descKey: 'widget.teamBenefitDetailDesc',color: '#3b82f6' },
+    ]},
+    { key: 'req_ar', labelKey: 'widget.catReqAr', widgets: [
+      { id: 'team_requirement', titleKey: 'widget.teamRequirement',  descKey: 'widget.teamRequirementDesc', color: '#7c3aed' },
+      { id: 'team_ar_task',     titleKey: 'widget.teamArTask',       descKey: 'widget.teamArTaskDesc',      color: '#d97706' },
+    ]},
   ],
 }
 
@@ -138,10 +99,15 @@ interface AddCardModalProps {
 export const AddCardModal: React.FC<AddCardModalProps> = ({
   open, onClose, viewType, allWidgets, onShow, onHide,
 }) => {
+  const { t } = useTranslation()
   const [activeCategory, setActiveCategory] = useState<string>('')
   const [pendingVisible, setPendingVisible] = useState<Set<string>>(new Set())
 
-  const categories = WIDGET_CATEGORIES[viewType] ?? WIDGET_CATEGORIES.personal
+  const categories = (WIDGET_DEFS[viewType] ?? WIDGET_DEFS.personal).map((c) => ({
+    ...c,
+    label: t(c.labelKey),
+    widgets: c.widgets.map((w) => ({ ...w, title: t(w.titleKey), desc: t(w.descKey) })),
+  }))
 
   useEffect(() => {
     if (open) {
@@ -176,12 +142,12 @@ export const AddCardModal: React.FC<AddCardModalProps> = ({
     <Modal
       open={open}
       onCancel={onClose}
-      title="添加卡片"
+      title={t('widget.addCard')}
       width={680}
       footer={
         <div className="flex justify-end gap-2 pt-1">
-          <Button onClick={onClose}>取消</Button>
-          <Button type="primary" onClick={handleConfirm}>確定</Button>
+          <Button onClick={onClose}>{t('common.cancel')}</Button>
+          <Button type="primary" onClick={handleConfirm}>{t('common.confirm')}</Button>
         </div>
       }
       styles={{ body: { padding: '16px 0 0 0' } }}
@@ -210,7 +176,7 @@ export const AddCardModal: React.FC<AddCardModalProps> = ({
 
         {/* Right: card grid */}
         <div className="flex-1 px-5 pb-4 overflow-y-auto">
-          <p className="text-xs text-slate-400 mb-3">點擊卡片切換顯示狀態</p>
+          <p className="text-xs text-slate-400 mb-3">{t('widget.clickToToggle')}</p>
           <div className="grid grid-cols-2 gap-3">
             {currentCat?.widgets.map((meta) => {
               const entry     = allWidgets.find((w) => w.widget_id === meta.id)
@@ -254,16 +220,17 @@ export const WidgetMenu: React.FC<{
   onHide:    (id: string) => void
   onRefresh: () => void
 }> = ({ widgetId, removable, onHide, onRefresh }) => {
+  const { t } = useTranslation()
   const items: MenuProps['items'] = [
     {
       key:   'refresh',
-      label: '刷新',
+      label: t('common.refresh'),
       icon:  <ArrowPathIcon className="w-3.5 h-3.5" />,
       onClick: () => onRefresh(),
     },
     ...(removable ? [{
       key:     'remove',
-      label:   '移除',
+      label:   t('widget.remove'),
       danger:  true,
       icon:    <XMarkIcon className="w-3.5 h-3.5" />,
       onClick: () => onHide(widgetId),

@@ -5,6 +5,8 @@ import { LockClosedIcon, UserIcon } from '@heroicons/react/24/outline'
 import { loginThunk } from './authSlice'
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
 import { showToast } from '@/utils/toast'
+import { useTranslation } from 'react-i18next'
+import LanguageSwitcher from '@/components/common/LanguageSwitcher'
 
 interface LoginFormValues {
   work_no:  string
@@ -30,23 +32,27 @@ const LoginPage: React.FC = () => {
   const navigate  = useNavigate()
   const isLoading = useAppSelector((s) => s.auth.isLoading)
   const [form] = Form.useForm<LoginFormValues>()
+  const { t } = useTranslation()
 
   const handleSubmit = async (values: LoginFormValues) => {
     try {
       const result = await dispatch(loginThunk(values)).unwrap()
-      showToast.success('登入成功')
+      showToast.success(t('auth.loginSuccess'))
       if (result.is_admin) {
         navigate('/admin', { replace: true })
       } else {
         navigate('/', { replace: true })
       }
     } catch (err: unknown) {
-      showToast.error((err as string) || '登入失敗，請確認帳號密碼')
+      showToast.error((err as string) || t('auth.loginFailed'))
     }
   }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-blue-100 flex items-center justify-center p-4">
+      <div className="absolute top-4 right-4">
+        <LanguageSwitcher />
+      </div>
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-10">
 
         {/* Logo / Title */}
@@ -57,8 +63,8 @@ const LoginPage: React.FC = () => {
                 d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
             </svg>
           </div>
-          <h1 className="text-2xl font-bold text-gray-800">專案管理系統</h1>
-          <p className="text-gray-500 mt-1 text-sm">請使用工號登入</p>
+          <h1 className="text-2xl font-bold text-gray-800">{t('auth.appTitle')}</h1>
+          <p className="text-gray-500 mt-1 text-sm">{t('auth.loginHint')}</p>
         </div>
 
         <Form
@@ -69,33 +75,33 @@ const LoginPage: React.FC = () => {
         >
           <Form.Item
             name="work_no"
-            label="工號"
-            rules={[{ required: true, message: '請輸入工號' }]}
+            label={t('auth.workNo')}
+            rules={[{ required: true, message: t('auth.workNoRequired') }]}
             normalize={(v) => (v || '').toLowerCase()}
           >
             <Input
               prefix={<UserIcon className="w-4 h-4 text-gray-400" />}
-              placeholder="請輸入工號"
+              placeholder={t('auth.workNoPlaceholder')}
               size="large"
             />
           </Form.Item>
 
           <Form.Item
             name="password"
-            label="密碼"
-            rules={[{ required: true, message: '請輸入密碼' }]}
+            label={t('auth.password')}
+            rules={[{ required: true, message: t('auth.passwordRequired') }]}
           >
             <Input.Password
               prefix={<LockClosedIcon className="w-4 h-4 text-gray-400" />}
-              placeholder="請輸入密碼"
+              placeholder={t('auth.passwordPlaceholder')}
               size="large"
             />
           </Form.Item>
 
           <Form.Item
             name="location"
-            label="登入地點"
-            rules={[{ required: true, message: '請選擇登入地點' }]}
+            label={t('auth.location')}
+            rules={[{ required: true, message: t('auth.locationRequired') }]}
           >
             <Select
               size="large"
@@ -112,7 +118,7 @@ const LoginPage: React.FC = () => {
               loading={isLoading}
               className="bg-blue-600 hover:bg-blue-700 h-11 text-base font-medium"
             >
-              登入
+              {t('auth.login')}
             </Button>
           </Form.Item>
         </Form>

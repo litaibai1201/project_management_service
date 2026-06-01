@@ -19,6 +19,8 @@ import { PRIORITY_MAP } from '@/utils/status'
 import { showToast } from '@/utils/toast'
 import { useWorkNoToName } from '@/hooks/useWorkNoToName'
 import dayjs from 'dayjs'
+import { useTranslation } from 'react-i18next'
+import DateInput from '@/components/common/DateInput'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -26,35 +28,37 @@ const isHtml = (v: string) => /<[a-z][\s\S]*>/i.test(v)
 const stripHtml = (html: string) => html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
 
 const DaysLeftBadge: React.FC<{ date?: string }> = ({ date }) => {
+  const { t } = useTranslation()
   if (!date) return <span className="text-slate-300 text-xs">—</span>
   const days = dayjs(date).diff(dayjs(), 'day')
-  if (days < 0)  return <span className="days-overdue">超期 {Math.abs(days)}天</span>
-  if (days <= 3) return <span className="days-overdue">剩 {days} 天</span>
-  if (days <= 7) return <span className="days-warning">剩 {days} 天</span>
+  if (days < 0)  return <span className="days-overdue">{t('common.daysOverdue', { days: Math.abs(days) })}</span>
+  if (days <= 3) return <span className="days-overdue">{t('common.daysLeft', { days })}</span>
+  if (days <= 7) return <span className="days-warning">{t('common.daysLeft', { days })}</span>
   return <span className="days-ok">{date}</span>
 }
 
-const PROJ_REQ_STATUS_MAP: Record<number, { label: string; color: string }> = {
-  0: { label: '草稿',   color: 'default'    },
-  1: { label: '審核中', color: 'processing' },
-  2: { label: '進行中', color: 'blue'       },
-  3: { label: '已拒絕', color: 'error'      },
-  4: { label: '已完結', color: 'success'    },
-  8: { label: '搁置',   color: 'warning'    },
+const REQ_STATUS_COLORS: Record<number, string> = {
+  0: 'default',
+  1: 'processing',
+  2: 'blue',
+  3: 'error',
+  4: 'success',
+  8: 'warning',
 }
 
-const SYS_REQ_STATUS_MAP: Record<number, { label: string; color: string }> = {
-  0: { label: '草稿',   color: 'default'    },
-  1: { label: '審核中', color: 'processing' },
-  2: { label: '進行中', color: 'blue'       },
-  3: { label: '已拒絕', color: 'error'      },
-  4: { label: '已完結', color: 'success'    },
-  8: { label: '搁置',   color: 'warning'    },
+const REQ_STATUS_KEYS: Record<number, string> = {
+  0: 'requirement.statusDraft',
+  1: 'requirement.statusReviewing',
+  2: 'requirement.statusInProgress',
+  3: 'requirement.statusRejected',
+  4: 'requirement.statusCompleted',
+  8: 'requirement.statusShelved',
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 const RequirementListPage: React.FC = () => {
+  const { t } = useTranslation()
   const toName   = useWorkNoToName()
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState<'project' | 'system'>('project')
@@ -216,24 +220,24 @@ const RequirementListPage: React.FC = () => {
       }
       if (editTarget) {
         await standaloneReqApi.update(editTarget.id, payload)
-        showToast.success('已更新')
+        showToast.success(t('requirement.updated'))
       } else {
         await standaloneReqApi.create(payload)
-        showToast.success('需求建立成功')
+        showToast.success(t('requirement.createSuccess'))
       }
       setShowForm(false)
       form.resetFields()
       loadSysReqs(editTarget ? reqPage : 1)
-    } catch (err: unknown) { showToast.error((err as string) || '操作失敗') }
+    } catch (err: unknown) { showToast.error((err as string) || t('common.error')) }
     finally { setReqSaving(false) }
   }
 
   const handleDelete = async (id: string) => {
     try {
       await standaloneReqApi.delete(id)
-      showToast.success('已刪除')
+      showToast.success(t('common.deleteSuccess'))
       loadSysReqs(reqPage)
-    } catch { showToast.error('刪除失敗') }
+    } catch { showToast.error(t('common.deleteFailed')) }
   }
 
   const handleOpenExpand = () => {
@@ -249,7 +253,7 @@ const RequirementListPage: React.FC = () => {
 
   const projColumns: ColumnsType<ProjectReqItem> = [
     {
-      title: '需求名稱', dataIndex: 'req_nm', width: 200, ellipsis: true,
+      title: t('requirement.name'), dataIndex: 'req_nm', width: 200, ellipsis: true,
       render: (v: string, r: ProjectReqItem) => (
         <Button type="link" style={{ padding: 0, fontWeight: 500 }}
           onClick={() => navigate(`/projects/${r.project_id}?req=${r.id}`)}>
@@ -258,27 +262,26 @@ const RequirementListPage: React.FC = () => {
       ),
     },
     {
-      title: '所屬專案', dataIndex: 'project_nm', width: 150, ellipsis: true,
+      title: t('nav.projectList'), dataIndex: 'project_nm', width: 150, ellipsis: true,
       render: (v: string) => v
         ? <Tag color="blue" style={{ fontSize: 11 }}>{v}</Tag>
         : <span className="text-slate-300 text-xs">—</span>,
     },
     {
-      title: '狀態', dataIndex: 'status', width: 88,
+      title: t('common.status'), dataIndex: 'status', width: 88,
       render: (v: number) => {
-        const c = PROJ_REQ_STATUS_MAP[v] ?? { label: String(v), color: 'default' }
-        return <Tag color={c.color} style={{ fontSize: 11 }}>{c.label}</Tag>
+        return <Tag color={REQ_STATUS_COLORS[v] ?? 'default'} style={{ fontSize: 11 }}>{REQ_STATUS_KEYS[v] ? t(REQ_STATUS_KEYS[v]) : String(v)}</Tag>
       },
     },
     {
-      title: '優先級', dataIndex: 'priority', width: 80,
+      title: t('common.priority'), dataIndex: 'priority', width: 80,
       render: (v: number) => {
         const p = PRIORITY_MAP[v]
         return p ? <Tag color={p.color} style={{ fontSize: 11 }}>{p.label}</Tag> : <span>{v}</span>
       },
     },
     {
-      title: '進度', dataIndex: 'progress', width: 130,
+      title: t('common.progress'), dataIndex: 'progress', width: 130,
       render: (v: number, r: ProjectReqItem) => {
         if (r.status !== 2 && r.status !== 4) return <span className="text-slate-300 text-xs">—</span>
         return (
@@ -291,17 +294,17 @@ const RequirementListPage: React.FC = () => {
       },
     },
     {
-      title: '期望完成', dataIndex: 'expected_end_date', width: 120,
+      title: t('common.expectedEndDate'), dataIndex: 'expected_end_date', width: 120,
       render: (v: string) => <DaysLeftBadge date={v} />,
     },
     {
-      title: '建立時間', dataIndex: 'created_at', width: 105,
+      title: t('common.createdAt'), dataIndex: 'created_at', width: 105,
       render: (v: string) => <span className="text-slate-400 text-xs">{v ? v.slice(0, 10) : '—'}</span>,
     },
     {
       title: 'WBS', key: 'wbs', width: 60, align: 'center' as const,
       render: (_: unknown, r: ProjectReqItem) => (
-        <Tooltip title="查看 WBS 排程">
+        <Tooltip title={t('requirement.viewWbs')}>
           <Button size="small" type="text" icon={<TableCellsIcon className="w-4 h-4" />}
             onClick={() => openWbs(r)} />
         </Tooltip>
@@ -311,7 +314,7 @@ const RequirementListPage: React.FC = () => {
 
   const sysColumns: ColumnsType<StandaloneReq> = [
     {
-      title: '需求名稱', dataIndex: 'req_nm', ellipsis: true,
+      title: t('requirement.name'), dataIndex: 'req_nm', ellipsis: true,
       render: (v: string, r: StandaloneReq) => (
         <Button type="link" style={{ padding: 0, fontWeight: 500 }}
           onClick={() => navigate(`/systems/${r.system_id}?req=${r.id}`)}>
@@ -320,27 +323,26 @@ const RequirementListPage: React.FC = () => {
       ),
     },
     {
-      title: '關聯系統', dataIndex: 'system_nm', width: 140, ellipsis: true,
+      title: t('nav.systemMgmt'), dataIndex: 'system_nm', width: 140, ellipsis: true,
       render: (v: string) => v
         ? <Tag color="purple" style={{ fontSize: 11 }}>{v}</Tag>
         : <span className="text-slate-300 text-xs">—</span>,
     },
     {
-      title: '狀態', dataIndex: 'status', width: 90,
+      title: t('common.status'), dataIndex: 'status', width: 90,
       render: (v: number) => {
-        const c = SYS_REQ_STATUS_MAP[v] ?? { label: String(v), color: 'default' }
-        return <Tag color={c.color} style={{ fontSize: 11 }}>{c.label}</Tag>
+        return <Tag color={REQ_STATUS_COLORS[v] ?? 'default'} style={{ fontSize: 11 }}>{REQ_STATUS_KEYS[v] ? t(REQ_STATUS_KEYS[v]) : String(v)}</Tag>
       },
     },
     {
-      title: '優先級', dataIndex: 'priority', width: 72,
+      title: t('common.priority'), dataIndex: 'priority', width: 72,
       render: (v: number) => {
         const p = PRIORITY_MAP[v]
         return p ? <Tag color={p.color} style={{ fontSize: 11 }}>{p.label}</Tag> : <span>{v}</span>
       },
     },
     {
-      title: '進度', dataIndex: 'progress', width: 110,
+      title: t('common.progress'), dataIndex: 'progress', width: 110,
       render: (v: number) => (
         <div className="flex items-center gap-2">
           <Progress percent={v ?? 0} size="small" showInfo={false} style={{ flex: 1 }}
@@ -350,7 +352,7 @@ const RequirementListPage: React.FC = () => {
       ),
     },
     {
-      title: '負責人', dataIndex: 'responsible', width: 130,
+      title: t('function.assignee'), dataIndex: 'responsible', width: 130,
       render: (v: string[]) => (
         <Avatar.Group max={{ count: 3 }} size="small">
           {(v ?? []).map((wn) => (
@@ -364,40 +366,40 @@ const RequirementListPage: React.FC = () => {
       ),
     },
     {
-      title: '期望完成', dataIndex: 'expected_end_date', width: 110,
+      title: t('common.expectedEndDate'), dataIndex: 'expected_end_date', width: 110,
       render: (v: string) => <DaysLeftBadge date={v} />,
     },
     {
-      title: '建立人', dataIndex: 'creator_nm', width: 90,
+      title: t('user.name'), dataIndex: 'creator_nm', width: 90,
       render: (v: string, r: StandaloneReq) => (
         <span className="text-slate-500 text-sm">{v || toName(r.creator) || r.creator}</span>
       ),
     },
     {
-      title: '建立時間', dataIndex: 'created_at', width: 110,
+      title: t('common.createdAt'), dataIndex: 'created_at', width: 110,
       render: (v: string) => <span className="text-slate-400 text-xs">{v ? v.slice(0, 10) : '—'}</span>,
     },
     {
       title: 'WBS', key: 'wbs', width: 60, align: 'center' as const,
       render: (_: unknown, r: StandaloneReq) => (
-        <Tooltip title="查看 WBS 排程">
+        <Tooltip title={t('requirement.viewWbs')}>
           <Button size="small" type="text" icon={<TableCellsIcon className="w-4 h-4" />}
             onClick={() => openSysWbs(r)} />
         </Tooltip>
       ),
     },
     {
-      title: '操作', key: 'action', width: 80, fixed: 'right',
+      title: t('common.operation'), key: 'action', width: 80, fixed: 'right',
       render: (_: unknown, r: StandaloneReq) => {
         if (r.status !== 0) return null
         return (
           <Space size={0}>
-            <Tooltip title="編輯">
+            <Tooltip title={t('common.edit')}>
               <Button type="text" size="small" icon={<PencilSquareIcon className="w-4 h-4" />}
                 onClick={() => openEdit(r)} />
             </Tooltip>
-            <Popconfirm title="確定刪除？" onConfirm={() => handleDelete(r.id)} okText="刪除" cancelText="取消" okButtonProps={{ danger: true }}>
-              <Tooltip title="刪除">
+            <Popconfirm title={t('common.confirmDelete')} onConfirm={() => handleDelete(r.id)} okText={t('common.delete')} cancelText={t('common.cancel')} okButtonProps={{ danger: true }}>
+              <Tooltip title={t('common.delete')}>
                 <Button type="text" size="small" danger icon={<TrashIcon className="w-4 h-4" />} />
               </Tooltip>
             </Popconfirm>
@@ -412,8 +414,8 @@ const RequirementListPage: React.FC = () => {
   return (
     <div className="p-6">
       <div className="mb-5">
-        <h1 className="text-2xl font-bold text-slate-800">需求列表</h1>
-        <p className="text-slate-400 text-sm mt-0.5">管理專案需求與系統需求</p>
+        <h1 className="text-2xl font-bold text-slate-800">{t('requirement.title')}</h1>
+        <p className="text-slate-400 text-sm mt-0.5">{t('requirement.subtitle')}</p>
       </div>
 
       {/* 專案需求 WBS Modal */}
@@ -424,7 +426,7 @@ const RequirementListPage: React.FC = () => {
         width={900}
         title={
           <span className="text-slate-800 font-semibold">
-            WBS 排程
+            {t('requirement.wbsSchedule')}
             {wbsReq && <span className="text-slate-400 font-normal ml-2 text-sm">— {wbsReq.req_nm}</span>}
           </span>
         }
@@ -433,7 +435,7 @@ const RequirementListPage: React.FC = () => {
         {wbsLoading ? (
           <div className="flex justify-center py-12"><Spin /></div>
         ) : wbsFunctions.length === 0 ? (
-          <Empty description="此需求尚無關聯任務" className="py-10" />
+          <Empty description={t('requirement.noLinkedTasks')} className="py-10" />
         ) : (
           <WbsTable functions={wbsFunctions} toName={toName} defaultExpanded
             requirements={wbsReq ? [wbsReq as any] : []} />
@@ -448,7 +450,7 @@ const RequirementListPage: React.FC = () => {
         width={900}
         title={
           <span className="text-slate-800 font-semibold">
-            WBS 排程
+            {t('requirement.wbsSchedule')}
             {sysWbsReq && <span className="text-slate-400 font-normal ml-2 text-sm">— {sysWbsReq.req_nm}</span>}
           </span>
         }
@@ -457,7 +459,7 @@ const RequirementListPage: React.FC = () => {
         {sysWbsLoading ? (
           <div className="flex justify-center py-12"><Spin /></div>
         ) : sysWbsDuties.length === 0 ? (
-          <Empty description="此需求尚無關聯任務" className="py-10" />
+          <Empty description={t('requirement.noLinkedTasks')} className="py-10" />
         ) : (
           <DutyWbsTable
             duties={sysWbsDuties}
@@ -475,27 +477,27 @@ const RequirementListPage: React.FC = () => {
         items={[
           {
             key: 'project',
-            label: `專案需求 (${projTotal})`,
+            label: `${t('requirement.project')} (${projTotal})`,
             children: (
               <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: 0 } }}>
                 <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-slate-100">
                   <Input.Search
-                    placeholder="搜索需求名稱..."
+                    placeholder={t('requirement.searchPlaceholder')}
                     allowClear
                     style={{ width: 220 }}
                     onSearch={(v) => { setProjKeyword(v); loadProjReqs(1, projPageSize, v, projStatus, projPriority) }}
                   />
                   <Select
-                    placeholder="狀態" allowClear style={{ width: 110 }}
+                    placeholder={t('common.status')} allowClear style={{ width: 110 }}
                     value={projStatus}
                     onChange={(v) => { setProjStatus(v); loadProjReqs(1, projPageSize, projKeyword, v, projPriority) }}
-                    options={Object.entries(PROJ_REQ_STATUS_MAP).map(([k, s]) => ({ value: Number(k), label: s.label }))}
+                    options={Object.entries(REQ_STATUS_KEYS).map(([k, key]) => ({ value: Number(k), label: t(key) }))}
                   />
                   <Select
-                    placeholder="優先級" allowClear style={{ width: 110 }}
+                    placeholder={t('common.priority')} allowClear style={{ width: 110 }}
                     value={projPriority}
                     onChange={(v) => { setProjPriority(v); loadProjReqs(1, projPageSize, projKeyword, projStatus, v) }}
-                    options={[{ value: 1, label: '低' }, { value: 2, label: '中' }, { value: 3, label: '高' }, { value: 4, label: '緊急' }]}
+                    options={[{ value: 1, label: t('requirement.priorityLow') }, { value: 2, label: t('requirement.priorityMedium') }, { value: 3, label: t('requirement.priorityHigh') }, { value: 4, label: t('requirement.priorityUrgent') }]}
                   />
                 </div>
                 <Table<ProjectReqItem>
@@ -506,38 +508,38 @@ const RequirementListPage: React.FC = () => {
                   size="small"
                   pagination={{
                     current: projPage, pageSize: projPageSize, total: projTotal,
-                    showSizeChanger: true, showTotal: (t) => `共 ${t} 條`,
+                    showSizeChanger: true, showTotal: (total) => t('common.total', { count: total }),
                     onChange: (page, size) => { setProjPageSize(size); loadProjReqs(page, size) },
                   }}
                   scroll={{ x: 800 }}
-                  locale={{ emptyText: <div className="py-8 text-center text-slate-400">暫無專案需求</div> }}
+                  locale={{ emptyText: <div className="py-8 text-center text-slate-400">{t('requirement.noProjReqs')}</div> }}
                 />
               </Card>
             ),
           },
           {
             key: 'system',
-            label: `系統需求 (${reqTotal})`,
+            label: `${t('requirement.system')} (${reqTotal})`,
             children: (
               <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: 0 } }}>
                 <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-slate-100">
                   <Input.Search
-                    placeholder="搜索需求名稱..."
+                    placeholder={t('requirement.searchPlaceholder')}
                     allowClear
                     style={{ width: 220 }}
                     onSearch={(v) => { setReqKeyword(v); loadSysReqs(1, reqPageSize, v, reqStatus, reqPriority) }}
                   />
                   <Select
-                    placeholder="狀態" allowClear style={{ width: 110 }}
+                    placeholder={t('common.status')} allowClear style={{ width: 110 }}
                     value={reqStatus}
                     onChange={(v) => { setReqStatus(v); loadSysReqs(1, reqPageSize, reqKeyword, v, reqPriority) }}
-                    options={Object.entries(SYS_REQ_STATUS_MAP).map(([k, s]) => ({ value: Number(k), label: s.label }))}
+                    options={Object.entries(REQ_STATUS_KEYS).map(([k, key]) => ({ value: Number(k), label: t(key) }))}
                   />
                   <Select
-                    placeholder="優先級" allowClear style={{ width: 110 }}
+                    placeholder={t('common.priority')} allowClear style={{ width: 110 }}
                     value={reqPriority}
                     onChange={(v) => { setReqPriority(v); loadSysReqs(1, reqPageSize, reqKeyword, reqStatus, v) }}
-                    options={[{ value: 1, label: '低' }, { value: 2, label: '中' }, { value: 3, label: '高' }, { value: 4, label: '緊急' }]}
+                    options={[{ value: 1, label: t('requirement.priorityLow') }, { value: 2, label: t('requirement.priorityMedium') }, { value: 3, label: t('requirement.priorityHigh') }, { value: 4, label: t('requirement.priorityUrgent') }]}
                   />
                   <div className="ml-auto">
                     <Button
@@ -546,7 +548,7 @@ const RequirementListPage: React.FC = () => {
                       onClick={openCreate}
                       style={{ background: '#2563eb', fontWeight: 500 }}
                     >
-                      新建需求
+                      {t('requirement.create')}
                     </Button>
                   </div>
                 </div>
@@ -558,11 +560,11 @@ const RequirementListPage: React.FC = () => {
                   size="small"
                   pagination={{
                     current: reqPage, pageSize: reqPageSize, total: reqTotal,
-                    showSizeChanger: true, showTotal: (t) => `共 ${t} 條`,
+                    showSizeChanger: true, showTotal: (total) => t('common.total', { count: total }),
                     onChange: (page, size) => { setReqPageSize(size); loadSysReqs(page, size) },
                   }}
                   scroll={{ x: 860 }}
-                  locale={{ emptyText: <div className="py-8 text-center text-slate-400">暫無系統需求</div> }}
+                  locale={{ emptyText: <div className="py-8 text-center text-slate-400">{t('requirement.noSysReqs')}</div> }}
                 />
               </Card>
             ),
@@ -572,7 +574,7 @@ const RequirementListPage: React.FC = () => {
 
       {/* 系統需求 建立 / 編輯 Modal */}
       <Modal
-        title={editTarget ? `編輯需求 — ${editTarget.req_nm}` : '新建系統需求'}
+        title={editTarget ? `${t('requirement.editReq')} — ${editTarget.req_nm}` : t('requirement.createSysReq')}
         open={showForm}
         onCancel={() => { setShowForm(false); form.resetFields() }}
         footer={null}
@@ -580,12 +582,12 @@ const RequirementListPage: React.FC = () => {
         destroyOnClose
       >
         <Form form={form} layout="vertical" onFinish={handleSave} className="mt-4">
-          <Form.Item name="req_nm" label="需求名稱" rules={[{ required: true, message: '請輸入需求名稱' }]}>
-            <Input placeholder="請輸入需求名稱" />
+          <Form.Item name="req_nm" label={t('requirement.name')} rules={[{ required: true, message: t('requirement.nameRequired') }]}>
+            <Input placeholder={t('requirement.namePlaceholder')} />
           </Form.Item>
-          <Form.Item name="system_id" label="關聯系統" rules={[{ required: true, message: '請選擇關聯系統' }]}>
+          <Form.Item name="system_id" label={t('requirement.linkedSystem')} rules={[{ required: true, message: t('requirement.systemRequired') }]}>
             <Select
-              placeholder="選擇系統（必填）"
+              placeholder={t('requirement.systemPlaceholder')}
               options={systemOptions}
               showSearch
               filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
@@ -593,33 +595,33 @@ const RequirementListPage: React.FC = () => {
             />
           </Form.Item>
           <div className="grid grid-cols-2 gap-x-4">
-            <Form.Item name="priority" label="優先級" rules={[{ required: true }]} initialValue={2}>
-              <Select options={[{ value: 1, label: '低' }, { value: 2, label: '中' }, { value: 3, label: '高' }, { value: 4, label: '緊急' }]} />
+            <Form.Item name="priority" label={t('common.priority')} rules={[{ required: true }]} initialValue={2}>
+              <Select options={[{ value: 1, label: t('requirement.priorityLow') }, { value: 2, label: t('requirement.priorityMedium') }, { value: 3, label: t('requirement.priorityHigh') }, { value: 4, label: t('requirement.priorityUrgent') }]} />
             </Form.Item>
-            <Form.Item name="expected_end_date" label="期望完成時間">
-              <Input type="date" />
+            <Form.Item name="expected_end_date" label={t('requirement.expectedCompletionDate')}>
+              <DateInput/>
             </Form.Item>
           </div>
           <div className="grid grid-cols-2 gap-x-4">
-            <Form.Item name="benefit_amount" label="預估效益數量">
-              <Input type="number" min={0} placeholder="如：10" />
+            <Form.Item name="benefit_amount" label={t('requirement.benefitAmount')}>
+              <Input type="number" min={0} placeholder={t('requirement.benefitAmountPlaceholder')} />
             </Form.Item>
-            <Form.Item name="benefit_unit" label="效益單位" initialValue="元/年">
-              <Select options={[{ value: '元/年', label: '元/年' }, { value: '人/年', label: '人/年' }, { value: '工時/年', label: '工時/年' }]} />
+            <Form.Item name="benefit_unit" label={t('requirement.benefitUnit')} initialValue="元/年">
+              <Select options={[{ value: '元/年', label: t('requirement.unitYuanPerYear') }, { value: '人/年', label: t('requirement.unitPersonPerYear') }, { value: '工時/年', label: t('requirement.unitHoursPerYear') }]} />
             </Form.Item>
           </div>
-          <Form.Item name="expected_benefit" label="效益說明">
-            <Input.TextArea placeholder="選填" autoSize={{ minRows: 2, maxRows: 6 }} style={{ resize: 'vertical' }} />
+          <Form.Item name="expected_benefit" label={t('requirement.benefitDescription')}>
+            <Input.TextArea placeholder={t('common.optional')} autoSize={{ minRows: 2, maxRows: 6 }} style={{ resize: 'vertical' }} />
           </Form.Item>
-          <Form.Item name="responsible" label="負責人">
+          <Form.Item name="responsible" label={t('requirement.responsible')}>
             <Select
-              mode="multiple" placeholder="選擇負責人"
+              mode="multiple" placeholder={t('requirement.responsiblePlaceholder')}
               options={userOptions} showSearch allowClear
               filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
               onDropdownVisibleChange={(open) => { if (open) loadUsers() }}
             />
           </Form.Item>
-          <Form.Item label="需求描述">
+          <Form.Item label={t('requirement.description')}>
             <div className="flex items-center justify-between mb-1.5">
               <span />
               <button
@@ -628,7 +630,7 @@ const RequirementListPage: React.FC = () => {
                 className="flex items-center gap-1 text-xs text-slate-500 hover:text-blue-600 border border-slate-200 rounded-md px-2 py-1 hover:border-blue-300 bg-white transition-colors"
               >
                 <ArrowsPointingOutIcon className="w-3.5 h-3.5" />
-                展開富文本編輯
+                {t('requirement.expandRichText')}
               </button>
             </div>
             <Form.Item
@@ -638,18 +640,18 @@ const RequirementListPage: React.FC = () => {
             >
               <Input.TextArea
                 rows={3}
-                placeholder="請描述需求內容，或點擊右上角展開富文本編輯器..."
+                placeholder={t('requirement.describePlaceholder')}
                 style={{ resize: 'vertical', minHeight: 72 }}
               />
             </Form.Item>
             {describeValue && isHtml(describeValue as string) && (
-              <p className="text-xs text-blue-500 mt-1">已套用富文本格式，點擊「展開富文本編輯」可繼續修改</p>
+              <p className="text-xs text-blue-500 mt-1">{t('requirement.richTextApplied')}</p>
             )}
           </Form.Item>
           <div className="flex justify-end gap-3">
-            <Button onClick={() => { setShowForm(false); form.resetFields() }}>取消</Button>
+            <Button onClick={() => { setShowForm(false); form.resetFields() }}>{t('common.cancel')}</Button>
             <Button type="primary" htmlType="submit" loading={reqSaving} style={{ background: '#2563eb' }}>
-              {editTarget ? '保存' : '建立'}
+              {editTarget ? t('common.save') : t('requirement.createBtn')}
             </Button>
           </div>
         </Form>
@@ -658,16 +660,16 @@ const RequirementListPage: React.FC = () => {
       {/* 描述展開編輯 Modal */}
       <Modal
         open={expandOpen}
-        title="需求描述"
+        title={t('requirement.description')}
         onCancel={() => setExpandOpen(false)}
         width="80vw"
         style={{ top: 40, maxWidth: 1100 }}
         styles={{ body: { padding: '16px 24px 24px' } }}
         footer={
           <div className="flex justify-end gap-2">
-            <Button onClick={() => setExpandOpen(false)}>取消</Button>
+            <Button onClick={() => setExpandOpen(false)}>{t('common.cancel')}</Button>
             <Button type="primary" onClick={() => { form.setFieldValue('describe', expandDraft); setExpandOpen(false) }}
-              style={{ background: '#2563eb' }}>完成</Button>
+              style={{ background: '#2563eb' }}>{t('requirement.done')}</Button>
           </div>
         }
         destroyOnClose
@@ -675,7 +677,7 @@ const RequirementListPage: React.FC = () => {
         <RichTextEditor
           value={expandDraft}
           onChange={setExpandDraft}
-          placeholder="請輸入需求描述..."
+          placeholder={t('requirement.describePlaceholder')}
           minHeight={480}
         />
       </Modal>

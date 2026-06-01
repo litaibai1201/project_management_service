@@ -15,6 +15,7 @@ import {
 } from '@heroicons/react/24/outline'
 import dayjs from 'dayjs'
 import { projectApi } from '@/api/project.api'
+import { useTranslation } from 'react-i18next'
 
 // ─── Anomaly Types ──────────────────────────────────────────────────────────
 
@@ -36,14 +37,14 @@ interface AnomalyItem {
   resolved?: boolean
 }
 
-const TYPE_META: Record<AnomalyType, { label: string; icon: React.ReactNode; color: string }> = {
-  task_overdue:      { label: '任務超期',     icon: <ClockIcon className="w-4 h-4" />,                 color: '#dc2626' },
-  task_urgent:       { label: '任務即將超期', icon: <ExclamationTriangleIcon className="w-4 h-4" />,    color: '#d97706' },
-  no_daily_log:      { label: '日報未填',     icon: <DocumentTextIcon className="w-4 h-4" />,          color: '#f59e0b' },
-  insufficient_hours:{ label: '工時不足',     icon: <ArrowTrendingDownIcon className="w-4 h-4" />,     color: '#f97316' },
-  progress_stalled:  { label: '進度停滯',     icon: <PauseCircleIcon className="w-4 h-4" />,           color: '#8b5cf6' },
-  project_delay:     { label: '專案Delay',    icon: <ChartBarIcon className="w-4 h-4" />,              color: '#dc2626' },
-  delay_no_report:   { label: 'Delay未提報告',icon: <ShieldExclamationIcon className="w-4 h-4" />,     color: '#be123c' },
+const TYPE_STYLE: Record<AnomalyType, { icon: React.ReactNode; color: string; labelKey: string }> = {
+  task_overdue:      { icon: <ClockIcon className="w-4 h-4" />,              color: '#dc2626', labelKey: 'anomaly.taskOverdue' },
+  task_urgent:       { icon: <ExclamationTriangleIcon className="w-4 h-4" />,color: '#d97706', labelKey: 'anomaly.taskUrgent' },
+  no_daily_log:      { icon: <DocumentTextIcon className="w-4 h-4" />,       color: '#f59e0b', labelKey: 'anomaly.noDailyLog' },
+  insufficient_hours:{ icon: <ArrowTrendingDownIcon className="w-4 h-4" />,  color: '#f97316', labelKey: 'anomaly.insufficientHours' },
+  progress_stalled:  { icon: <PauseCircleIcon className="w-4 h-4" />,        color: '#8b5cf6', labelKey: 'anomaly.progressStalled' },
+  project_delay:     { icon: <ChartBarIcon className="w-4 h-4" />,           color: '#dc2626', labelKey: 'anomaly.projectDelay' },
+  delay_no_report:   { icon: <ShieldExclamationIcon className="w-4 h-4" />,  color: '#be123c', labelKey: 'anomaly.delayNoReport' },
 }
 
 // ─── Anomaly data is loaded from the API ────────────────────────────────────
@@ -51,7 +52,9 @@ const TYPE_META: Record<AnomalyType, { label: string; icon: React.ReactNode; col
 // ─── Stats Summary ──────────────────────────────────────────────────────────
 const SummaryCard: React.FC<{
   title: string; count: number; color: string; bg: string; icon: React.ReactNode; active?: boolean; onClick?: () => void
-}> = ({ title, count, color, bg, icon, active, onClick }) => (
+}> = ({ title, count, color, bg, icon, active, onClick }) => {
+  const { t } = useTranslation()
+  return (
   <div
     onClick={onClick}
     className={`bg-white rounded-xl border shadow-sm px-4 py-3 flex items-center gap-3 cursor-pointer transition-all hover:shadow-md ${active ? 'ring-2' : ''}`}
@@ -63,11 +66,12 @@ const SummaryCard: React.FC<{
     <div>
       <div className="text-[10px] text-slate-400 font-medium leading-none mb-0.5">{title}</div>
       <div className="font-bold text-xl leading-none" style={{ color }}>
-        {count}<span className="text-xs font-normal text-slate-400 ml-0.5">項</span>
+        {count}<span className="text-xs font-normal text-slate-400 ml-0.5">{t('anomaly.itemUnit')}</span>
       </div>
     </div>
   </div>
-)
+  )
+}
 
 // ─── Main ───────────────────────────────────────────────────────────────────
 
@@ -75,6 +79,7 @@ type FilterLevel = 'all' | 'critical' | 'warning'
 type ViewMode = 'project' | 'member'
 
 const AnomalyPage: React.FC = () => {
+  const { t } = useTranslation()
   const [filterLevel, setFilterLevel] = useState<FilterLevel>('all')
   const [filterType, setFilterType] = useState<AnomalyType | 'all'>('all')
   const [viewMode, setViewMode] = useState<ViewMode>('project')
@@ -135,27 +140,27 @@ const AnomalyPage: React.FC = () => {
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">異常管理看板</h1>
-          <p className="text-slate-400 text-sm mt-0.5">著重管理異常 · 正常項目自動隱藏 · {dayjs().format('YYYY-MM-DD HH:mm')} 更新</p>
+          <h1 className="text-2xl font-bold text-slate-800">{t('anomaly.boardTitle')}</h1>
+          <p className="text-slate-400 text-sm mt-0.5">{t('anomaly.boardSubtitle', { datetime: dayjs().format('YYYY-MM-DD HH:mm') })}</p>
         </div>
       </div>
 
       {/* Summary cards */}
       <div className="grid grid-cols-3 gap-3 mb-5">
         <SummaryCard
-          title="全部異常" count={allTaskCount}
+          title={t('anomaly.allAnomalies')} count={allTaskCount}
           color="#334155" bg="#f1f5f9"
           icon={<BellAlertIcon className="w-4 h-4 text-slate-500" />}
           active={filterLevel === 'all'} onClick={() => setFilterLevel('all')}
         />
         <SummaryCard
-          title="高風險" count={criticalCount}
+          title={t('anomaly.highRisk')} count={criticalCount}
           color="#dc2626" bg="#fef2f2"
           icon={<ShieldExclamationIcon className="w-4 h-4 text-red-500" />}
           active={filterLevel === 'critical'} onClick={() => setFilterLevel('critical')}
         />
         <SummaryCard
-          title="需關注" count={warningCount}
+          title={t('anomaly.needAttention')} count={warningCount}
           color="#d97706" bg="#fff7ed"
           icon={<ExclamationTriangleIcon className="w-4 h-4 text-orange-500" />}
           active={filterLevel === 'warning'} onClick={() => setFilterLevel('warning')}
@@ -165,27 +170,27 @@ const AnomalyPage: React.FC = () => {
       {/* Type filter chips */}
       <div className="flex items-center gap-2 mb-5 flex-wrap">
         <FunnelIcon className="w-4 h-4 text-slate-400 flex-shrink-0" />
-        <span className="text-xs text-slate-500 font-medium flex-shrink-0">異常類型</span>
+        <span className="text-xs text-slate-500 font-medium flex-shrink-0">{t('anomaly.anomalyType')}</span>
         <Tag
           className="cursor-pointer"
           color={filterType === 'all' ? 'blue' : undefined}
           onClick={() => setFilterType('all')}
           style={{ fontSize: 11 }}
         >
-          全部
+          {t('anomaly.all')}
         </Tag>
-        {(Object.keys(TYPE_META) as AnomalyType[]).map((t) => {
-          const count = typeCounts[t] ?? 0
+        {(Object.keys(TYPE_STYLE) as AnomalyType[]).map((tp) => {
+          const count = typeCounts[tp] ?? 0
           if (count === 0) return null
           return (
             <Tag
-              key={t}
+              key={tp}
               className="cursor-pointer"
-              color={filterType === t ? TYPE_META[t].color : undefined}
-              onClick={() => setFilterType(filterType === t ? 'all' : t)}
+              color={filterType === tp ? TYPE_STYLE[tp].color : undefined}
+              onClick={() => setFilterType(filterType === tp ? 'all' : tp)}
               style={{ fontSize: 11 }}
             >
-              {TYPE_META[t].label} ({count})
+              {t(TYPE_STYLE[tp].labelKey)} ({count})
             </Tag>
           )
         })}
@@ -193,10 +198,10 @@ const AnomalyPage: React.FC = () => {
 
       {/* View mode toggle */}
       <div className="flex items-center gap-2 mb-5">
-        <span className="text-xs text-slate-500 font-medium">視角</span>
+        <span className="text-xs text-slate-500 font-medium">{t('anomaly.perspective')}</span>
         {([
-          { key: 'project' as ViewMode, label: '按專案', icon: <ChartBarIcon className="w-3.5 h-3.5" /> },
-          { key: 'member' as ViewMode, label: '按人員', icon: <BellAlertIcon className="w-3.5 h-3.5" /> },
+          { key: 'project' as ViewMode, label: t('anomaly.byProject'), icon: <ChartBarIcon className="w-3.5 h-3.5" /> },
+          { key: 'member' as ViewMode, label: t('anomaly.byMember'), icon: <BellAlertIcon className="w-3.5 h-3.5" /> },
         ]).map((v) => (
           <button
             key={v.key}
@@ -213,7 +218,7 @@ const AnomalyPage: React.FC = () => {
       {/* Grouped anomaly view */}
       {filtered.length === 0 ? (
         <Card bordered={false} className="shadow-sm">
-          <Empty description="當前篩選條件下沒有異常項目" className="py-10" />
+          <Empty description={t('anomaly.noAnomalies')} className="py-10" />
         </Card>
       ) : (() => {
         // ── Helper: merge same-task anomalies into one row ──
@@ -224,16 +229,26 @@ const AnomalyPage: React.FC = () => {
           maxOverdue: number | null
           items: AnomalyItem[]
         }
+        // Generate a localized display name instead of using backend's Chinese title
+        const localizedName = (a: AnomalyItem): string => {
+          if (a.task) return a.task // task name is user data, keep as-is
+          if (a.type === 'project_delay') return t('anomaly.projectDelayDesc', { name: a.project ?? '' })
+          if (a.type === 'delay_no_report') return t('anomaly.delayNoReportDesc', { name: a.project ?? '' })
+          if (a.type === 'no_daily_log') return t('anomaly.noDailyLogDesc', { name: a.member ?? '' })
+          if (a.type === 'progress_stalled') return t('anomaly.progressStalledDesc', { name: a.task ?? a.project ?? '' })
+          return a.task ?? a.project ?? a.title
+        }
+
         const mergeByTask = (items: AnomalyItem[]): MergedTask[] => {
           const map: Record<string, MergedTask> = {}
           items.forEach((a) => {
             const key = a.task ?? a.title ?? a.id
-            if (!map[key]) map[key] = { taskName: a.task ?? a.title, types: [], members: [], maxOverdue: null, items: [] }
+            if (!map[key]) map[key] = { taskName: localizedName(a), types: [], members: [], maxOverdue: null, items: [] }
             const mt = map[key]
             mt.items.push(a)
-            const tm = TYPE_META[a.type]
-            if (!mt.types.find((t) => t.type === a.type)) {
-              mt.types.push({ type: a.type, label: tm.label, color: tm.color })
+            const tm = TYPE_STYLE[a.type]
+            if (!mt.types.find((tt) => tt.type === a.type)) {
+              mt.types.push({ type: a.type, label: t(tm.labelKey), color: tm.color })
             }
             if (a.member && a.member_work_no && !mt.members.find((m) => m.work_no === a.member_work_no)) {
               mt.members.push({ name: a.member, work_no: a.member_work_no })
@@ -268,7 +283,7 @@ const AnomalyPage: React.FC = () => {
                 </div>
                 {/* Members */}
                 <div className="flex items-center gap-3 flex-wrap">
-                  <span className="text-[10px] text-slate-400">負責人</span>
+                  <span className="text-[10px] text-slate-400">{t('anomaly.assignee')}</span>
                   {mt.members.map((m) => (
                     <span key={m.work_no} className="flex items-center gap-1 text-[11px] text-slate-600">
                       <Avatar size={16} style={{ background: hasCritical ? '#dc2626' : '#2563eb', fontSize: 8, fontWeight: 700 }}>{m.name[0]}</Avatar>
@@ -280,16 +295,16 @@ const AnomalyPage: React.FC = () => {
               {/* Right: key metric */}
               <div className="flex-shrink-0 text-right mt-0.5">
                 {hasOverdue && mt.maxOverdue != null && (
-                  <span className="text-sm text-red-600 font-bold">超期 {mt.maxOverdue} 天</span>
+                  <span className="text-sm text-red-600 font-bold">{t('anomaly.overdueNDays', { days: mt.maxOverdue })}</span>
                 )}
                 {!hasOverdue && hasUrgent && mt.maxOverdue != null && (
-                  <span className="text-sm text-orange-600 font-bold">剩 {mt.maxOverdue} 天</span>
+                  <span className="text-sm text-orange-600 font-bold">{t('anomaly.daysLeft', { days: mt.maxOverdue })}</span>
                 )}
                 {mt.types.some((t) => t.type === 'progress_stalled') && !hasOverdue && (
-                  <span className="text-xs text-violet-600 font-medium">7天無更新</span>
+                  <span className="text-xs text-violet-600 font-medium">{t('anomaly.noUpdateDays')}</span>
                 )}
                 {mt.types.some((t) => t.type === 'no_daily_log') && mt.types.length === 1 && (
-                  <span className="text-xs text-amber-600 font-medium">日報未填</span>
+                  <span className="text-xs text-amber-600 font-medium">{t('anomaly.noDailyLogShort')}</span>
                 )}
               </div>
             </div>
@@ -300,7 +315,7 @@ const AnomalyPage: React.FC = () => {
           // ── 专案视角 ──
           const byProject: Record<string, { name: string; items: AnomalyItem[] }> = {}
           filtered.forEach((a) => {
-            const key = a.project ?? '其他'
+            const key = a.project ?? t('anomaly.other')
             if (!byProject[key]) byProject[key] = { name: key, items: [] }
             byProject[key].items.push(a)
           })
@@ -315,8 +330,8 @@ const AnomalyPage: React.FC = () => {
                     <div className="flex items-center gap-3 px-4 py-3 bg-slate-50/80 border-b border-slate-100">
                       <ChartBarIcon className="w-4 h-4 text-blue-500 flex-shrink-0" />
                       <span className="text-sm font-semibold text-slate-700">{g.name}</span>
-                      <span className="text-xs text-slate-400">{merged.length} 個任務</span>
-                      {critCount > 0 && <Tag color="error" style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px' }}>{critCount} 項高危</Tag>}
+                      <span className="text-xs text-slate-400">{t('anomaly.taskCount', { count: merged.length })}</span>
+                      {critCount > 0 && <Tag color="error" style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px' }}>{t('anomaly.highRiskCount', { count: critCount })}</Tag>}
                     </div>
                     <div className="divide-y divide-slate-100">
                       {merged.map((mt) => <TaskRow key={mt.taskName} mt={mt} />)}
@@ -331,7 +346,7 @@ const AnomalyPage: React.FC = () => {
           const byMember: Record<string, { name: string; work_no: string; items: AnomalyItem[] }> = {}
           filtered.forEach((a) => {
             const key = a.member_work_no ?? 'system'
-            if (!byMember[key]) byMember[key] = { name: a.member ?? '系統', work_no: key, items: [] }
+            if (!byMember[key]) byMember[key] = { name: a.member ?? t('anomaly.system'), work_no: key, items: [] }
             byMember[key].items.push(a)
           })
           const members = Object.values(byMember).sort((a, b) => {
@@ -346,7 +361,7 @@ const AnomalyPage: React.FC = () => {
                 // Group by project, then merge by task
                 const projMap: Record<string, AnomalyItem[]> = {}
                 m.items.forEach((a) => {
-                  const pk = a.project ?? '其他'
+                  const pk = a.project ?? t('anomaly.other')
                   ;(projMap[pk] = projMap[pk] ?? []).push(a)
                 })
                 return (
@@ -357,7 +372,7 @@ const AnomalyPage: React.FC = () => {
                       </Avatar>
                       <span className="text-sm font-semibold text-slate-700">{m.name}</span>
                       <span className="text-xs text-slate-400">{m.work_no}</span>
-                      {critCount > 0 && <Tag color="error" style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px' }}>{critCount} 項高危</Tag>}
+                      {critCount > 0 && <Tag color="error" style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px' }}>{t('anomaly.highRiskCount', { count: critCount })}</Tag>}
                     </div>
                     <div className="divide-y divide-slate-100">
                       {Object.entries(projMap).map(([projName, items]) => {
@@ -366,7 +381,7 @@ const AnomalyPage: React.FC = () => {
                           <div key={projName}>
                             <div className="flex items-center gap-2 px-4 pt-2.5 pb-1">
                               <span className="text-[11px] text-blue-600 font-medium bg-blue-50 border border-blue-100 rounded px-1.5 py-0.5">{projName}</span>
-                              <span className="text-[10px] text-slate-400">{merged.length} 個任務</span>
+                              <span className="text-[10px] text-slate-400">{t('anomaly.taskCount', { count: merged.length })}</span>
                             </div>
                             {merged.map((mt) => (
                               <div key={mt.taskName} className="flex items-center gap-2 px-4 py-2 pl-6 hover:bg-slate-50/50">
@@ -382,10 +397,10 @@ const AnomalyPage: React.FC = () => {
                                 </div>
                                 <div className="flex-shrink-0">
                                   {mt.maxOverdue != null && mt.types.some((t) => t.type === 'task_overdue' || t.type === 'project_delay') && (
-                                    <span className="text-xs text-red-600 font-bold">超期 {mt.maxOverdue} 天</span>
+                                    <span className="text-xs text-red-600 font-bold">{t('anomaly.overdueNDays', { days: mt.maxOverdue })}</span>
                                   )}
                                   {mt.maxOverdue != null && !mt.types.some((t) => t.type === 'task_overdue') && mt.types.some((t) => t.type === 'task_urgent') && (
-                                    <span className="text-xs text-orange-600 font-bold">剩 {mt.maxOverdue} 天</span>
+                                    <span className="text-xs text-orange-600 font-bold">{t('anomaly.daysLeft', { days: mt.maxOverdue })}</span>
                                   )}
                                 </div>
                               </div>

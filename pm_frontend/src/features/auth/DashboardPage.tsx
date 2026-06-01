@@ -27,13 +27,14 @@ import { standaloneReqApi } from '@/api/standalone_req.api'
 import { dutyApi } from '@/api/duty.api'
 import { notificationApi } from '@/api/notification.api'
 import type { ProjectListItem, UserStatistical, TeamStatistical, TeamBenefitGroup, ApplyRecord, ProjectFunction } from '@/types/api.types'
-import { FUNCTION_STATUS_MAP } from '@/utils/status'
+import { FUNCTION_STATUS_MAP, benefitUnitLabel } from '@/utils/status'
 import { useWorkNoToName } from '@/hooks/useWorkNoToName'
 import { useDashboardConfig } from '@/hooks/useDashboardConfig'
 import {
   AddCardModal, WidgetMenu,
 } from '@/components/common/DashboardCustomizeDrawer'
 import { useResizableColumns, tableComponents } from '@/hooks/useResizableColumns'
+import { useTranslation } from 'react-i18next'
 
 
 // ─── Types for dashboard data ─────────────────────────────────────────────────
@@ -59,10 +60,11 @@ const PRIORITY_COLORS = ['#22c55e', '#f59e0b', '#ef4444', '#7c3aed']
 // ─── Sub-components ────────────────────────────────────────────────────────────
 
 const DaysLeftBadge: React.FC<{ days: number }> = ({ days }) => {
-  if (days < 0)  return <span className="days-overdue">超期 {Math.abs(days)}天</span>
-  if (days <= 3) return <span className="days-overdue">剩 {days} 天</span>
-  if (days <= 7) return <span className="days-warning">剩 {days} 天</span>
-  return <span className="days-ok">剩 {days} 天</span>
+  const { t } = useTranslation()
+  if (days < 0)  return <span className="days-overdue">{t('common.daysOverdue', { days: Math.abs(days) })}</span>
+  if (days <= 3) return <span className="days-overdue">{t('common.daysLeft', { days })}</span>
+  if (days <= 7) return <span className="days-warning">{t('common.daysLeft', { days })}</span>
+  return <span className="days-ok">{t('common.daysLeft', { days })}</span>
 }
 
 // ─── Alert Bar ────────────────────────────────────────────────────────────────
@@ -70,6 +72,7 @@ const DaysLeftBadge: React.FC<{ days: number }> = ({ days }) => {
 const AlertBar: React.FC<{ pendingReview: number; alertTasks: AlertTask[] }> = ({ pendingReview, alertTasks }) => {
   const [open, setOpen] = useState(true)
   const navigate = useNavigate()
+  const { t } = useTranslation()
 
   const overdue  = alertTasks.filter((t) => t.days_diff < 0).sort((a, b) => a.days_diff - b.days_diff)
   const urgent   = alertTasks.filter((t) => t.days_diff >= 0 && t.days_diff <= 3)
@@ -91,7 +94,7 @@ const AlertBar: React.FC<{ pendingReview: number; alertTasks: AlertTask[] }> = (
         style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}
         color={task.type === 'function' ? 'blue' : 'purple'}
       >
-        {task.type === 'function' ? '功能' : '任務'}
+        {task.type === 'function' ? t('dashboard.functionTask') : t('dashboard.arTask')}
       </Tag>
       <span className="text-slate-700 text-xs flex-1 truncate">
         {task.project_nm ? <span className="text-slate-400">{task.project_nm} · </span> : null}
@@ -110,27 +113,27 @@ const AlertBar: React.FC<{ pendingReview: number; alertTasks: AlertTask[] }> = (
       >
         <BellAlertIcon className="w-4 h-4 text-red-500 flex-shrink-0" />
         <span className="text-sm font-semibold text-red-600 flex-1">
-          待關注事項
+          {t('dashboard.pendingAttention')}
         </span>
         {/* Summary badges */}
         <div className="flex items-center gap-2">
           {overdue.length > 0 && (
-            <Tooltip title="已超期任務">
+            <Tooltip title={t('dashboard.overdueTooltip')}>
               <Badge count={overdue.length} color="#dc2626" style={{ fontSize: 10 }} />
             </Tooltip>
           )}
           {urgent.length > 0 && (
-            <Tooltip title="緊急臨期（3天內）">
+            <Tooltip title={t('dashboard.urgentTooltip')}>
               <Badge count={urgent.length} color="#d97706" style={{ fontSize: 10 }} />
             </Tooltip>
           )}
           {upcoming.length > 0 && (
-            <Tooltip title="即將到期（7天內）">
+            <Tooltip title={t('dashboard.upcomingTooltip')}>
               <Badge count={upcoming.length} color="#f59e0b" style={{ fontSize: 10 }} />
             </Tooltip>
           )}
           {pendingReview > 0 && (
-            <Tooltip title="待我審批">
+            <Tooltip title={t('dashboard.pendingApprovalTooltip')}>
               <Badge count={pendingReview} color="#2563eb" style={{ fontSize: 10 }} />
             </Tooltip>
           )}
@@ -149,9 +152,9 @@ const AlertBar: React.FC<{ pendingReview: number; alertTasks: AlertTask[] }> = (
             <div className="bg-white rounded-lg p-3 border border-red-100">
               <div className="flex items-center gap-1.5 mb-2">
                 <ExclamationTriangleIcon className="w-3.5 h-3.5 text-red-500" />
-                <span className="text-xs font-semibold text-red-600">已超期 ({overdue.length})</span>
+                <span className="text-xs font-semibold text-red-600">{t('dashboard.overdueSection', { count: overdue.length })}</span>
               </div>
-              {overdue.map((t) => <AlertRow key={t.id} task={t} />)}
+              {overdue.map((task) => <AlertRow key={task.id} task={task} />)}
             </div>
           )}
 
@@ -160,9 +163,9 @@ const AlertBar: React.FC<{ pendingReview: number; alertTasks: AlertTask[] }> = (
             <div className="bg-white rounded-lg p-3 border border-orange-100">
               <div className="flex items-center gap-1.5 mb-2">
                 <FireIcon className="w-3.5 h-3.5 text-orange-500" />
-                <span className="text-xs font-semibold text-orange-600">緊急臨期 ({urgent.length})</span>
+                <span className="text-xs font-semibold text-orange-600">{t('dashboard.urgentSection', { count: urgent.length })}</span>
               </div>
-              {urgent.map((t) => <AlertRow key={t.id} task={t} />)}
+              {urgent.map((task) => <AlertRow key={task.id} task={task} />)}
             </div>
           )}
 
@@ -171,16 +174,16 @@ const AlertBar: React.FC<{ pendingReview: number; alertTasks: AlertTask[] }> = (
             <div className="bg-white rounded-lg p-3 border border-amber-100">
               <div className="flex items-center gap-1.5 mb-2">
                 <ClockIcon className="w-3.5 h-3.5 text-amber-500" />
-                <span className="text-xs font-semibold text-amber-600">即將到期 ({upcoming.length})</span>
+                <span className="text-xs font-semibold text-amber-600">{t('dashboard.upcomingSection', { count: upcoming.length })}</span>
               </div>
-              {upcoming.map((t) => <AlertRow key={t.id} task={t} />)}
+              {upcoming.map((task) => <AlertRow key={task.id} task={task} />)}
               {pendingReview > 0 && (
                 <div
                   className="flex items-center gap-2 py-1.5 mt-1 border-t border-slate-50 cursor-pointer hover:bg-white/60 rounded-md px-1 -mx-1 transition-colors"
                   onClick={() => navigate('/review')}
                 >
-                  <Tag style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }} color="blue">審批</Tag>
-                  <span className="text-slate-700 text-xs flex-1">待我處理的審批</span>
+                  <Tag style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }} color="blue">{t('dashboard.approvalTag')}</Tag>
+                  <span className="text-slate-700 text-xs flex-1">{t('dashboard.pendingApprovalItem')}</span>
                   <Badge count={pendingReview} color="#2563eb" style={{ fontSize: 10 }} />
                 </div>
               )}
@@ -195,6 +198,7 @@ const AlertBar: React.FC<{ pendingReview: number; alertTasks: AlertTask[] }> = (
 // ─── Daily Log Status Card ─────────────────────────────────────────────────
 const DailyLogCard: React.FC<{ canDismiss?: boolean; todayLog: BackendDailyLogSummary | null; onDismiss?: () => void }> = ({ canDismiss = false, todayLog, onDismiss }) => {
   const navigate = useNavigate()
+  const { t } = useTranslation()
   const todayHours = todayLog ? Number(todayLog.total_hours) : 0
   const standardHours = 8.0
   const status: 'draft' | 'submitted' | 'not_started' = todayLog
@@ -211,18 +215,18 @@ const DailyLogCard: React.FC<{ canDismiss?: boolean; todayLog: BackendDailyLogSu
         </div>
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-1">
-            <span className="text-sm font-semibold text-slate-700">今日日報</span>
+            <span className="text-sm font-semibold text-slate-700">{t('dashboard.todayReportCard')}</span>
             <Tag
               color={status === 'submitted' ? 'success' : status === 'draft' ? 'processing' : 'error'}
               style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}
             >
-              {status === 'submitted' ? '✅ 已提交' : status === 'draft' ? '📝 草稿' : '⚠️ 未填寫'}
+              {status === 'submitted' ? t('dashboard.submittedTag') : status === 'draft' ? t('dashboard.draftTag') : t('dashboard.notFilledTag')}
             </Tag>
             {!canDismiss && status !== 'submitted' && (
-              <Tag color="red" style={{ fontSize: 10, margin: 0, lineHeight: '16px', padding: '0 4px' }}>必填</Tag>
+              <Tag color="red" style={{ fontSize: 10, margin: 0, lineHeight: '16px', padding: '0 4px' }}>{t('dashboard.requiredTag')}</Tag>
             )}
             {canDismiss && (
-              <Tag color="gold" style={{ fontSize: 10, margin: 0, lineHeight: '16px', padding: '0 4px' }}>選填</Tag>
+              <Tag color="gold" style={{ fontSize: 10, margin: 0, lineHeight: '16px', padding: '0 4px' }}>{t('dashboard.optionalTag')}</Tag>
             )}
             {todayLog && <span className="text-xs text-slate-400 ml-auto">{todayHours}h</span>}
           </div>
@@ -245,11 +249,11 @@ const DailyLogCard: React.FC<{ canDismiss?: boolean; todayLog: BackendDailyLogSu
         <div className="flex flex-col items-end gap-3 flex-shrink-0 mr-6">
           <Button type="primary" size="small" style={{ background: '#2563eb', borderRadius: 8 }}
             onClick={() => navigate('/daily-log')}>
-            {status === 'not_started' ? '立即填寫' : '繼續填寫'} →
+            {status === 'not_started' ? t('dashboard.fillNow') : t('dashboard.continueFill')} →
           </Button>
           {canDismiss && (
             <button onClick={() => onDismiss?.()} className="text-[10px] text-slate-400 hover:text-slate-600 transition-colors border-0 outline-none bg-transparent cursor-pointer p-0">
-              關閉日報提醒
+              {t('dashboard.dismissReminder')}
             </button>
           )}
         </div>
@@ -262,11 +266,12 @@ const DailyLogCard: React.FC<{ canDismiss?: boolean; todayLog: BackendDailyLogSu
 // ─── Monthly Attendance Calendar Card ─────────────────────────────────────────
 const MonthlyAttendanceCard: React.FC = () => {
   const navigate = useNavigate()
+  const { t } = useTranslation()
   const today = dayjs()
   const firstDay = today.startOf('month')
   const daysInMonth = today.daysInMonth()
   const startPad = (firstDay.day() + 6) % 7   // Mon-first offset
-  const DOW_LABELS = ['一', '二', '三', '四', '五', '六', '日']
+  const DOW_LABELS = t('dashboard.dowLabels').split(',')
 
   const [monthData, setMonthData] = useState<Record<string, MonthLogEntry>>({})
 
@@ -301,22 +306,22 @@ const MonthlyAttendanceCard: React.FC = () => {
       title={
         <div className="flex items-center gap-2">
           <CalendarDaysIcon className="w-4 h-4 text-slate-400" />
-          <span className="font-semibold text-slate-700 text-sm">本月出勤日曆</span>
-          <span className="text-xs text-slate-400 font-normal">{today.format('YYYY 年 M 月')}</span>
+          <span className="font-semibold text-slate-700 text-sm">{t('dashboard.monthlyCalendar')}</span>
+          <span className="text-xs text-slate-400 font-normal">{today.format(t('common.dateFormatYearMonth'))}</span>
         </div>
       }
       extra={
         <span className="text-xs text-blue-500 cursor-pointer hover:underline" onClick={() => navigate('/daily-log')}>
-          填寫日報 →
+          {t('dashboard.fillLogLink')}
         </span>
       }
     >
       {/* Mini stats */}
       <div className="grid grid-cols-3 gap-3 mb-4">
         {[
-          { label: '已填報天數', value: workedDays, unit: '天', color: '#2563eb' },
-          { label: '累計工時',   value: totalHours.toFixed(1), unit: 'h',  color: '#16a34a' },
-          { label: '累計加班',   value: totalOT.toFixed(1),   unit: 'h',  color: '#d97706' },
+          { label: t('dashboard.reportedDays'), value: workedDays, unit: t('dashboard.daysUnit'), color: '#2563eb' },
+          { label: t('dashboard.totalHoursLabel'), value: totalHours.toFixed(1), unit: 'h', color: '#16a34a' },
+          { label: t('dashboard.totalOvertimeLabel'), value: totalOT.toFixed(1), unit: 'h', color: '#d97706' },
         ].map((s) => (
           <div key={s.label} className="text-center">
             <div className="text-[10px] text-slate-400 mb-0.5">{s.label}</div>
@@ -351,10 +356,10 @@ const MonthlyAttendanceCard: React.FC = () => {
                 <div>
                   <div className="font-semibold">{d.format('MM/DD')}</div>
                   {log
-                    ? <><div>{hours}h{log.ot > 0 ? ` (+${log.ot}h加班)` : ''}</div></>
-                    : isFuture ? <div>未到</div>
-                    : isWeekend ? <div>假日</div>
-                    : <div className="text-red-300">未填寫</div>
+                    ? <><div>{hours}h{log.ot > 0 ? ` ${t('dashboard.overtimeTooltip', { hours: log.ot })}` : ''}</div></>
+                    : isFuture ? <div>{t('dashboard.futureDate')}</div>
+                    : isWeekend ? <div>{t('dashboard.holiday')}</div>
+                    : <div className="text-red-300">{t('dashboard.notFilledDate')}</div>
                   }
                 </div>
               }
@@ -370,7 +375,7 @@ const MonthlyAttendanceCard: React.FC = () => {
                 {hours > 0 && (
                   <span className={`text-[7px] leading-tight ${hours > 6 ? 'text-white/80' : 'text-slate-400'}`}>{hours}h</span>
                 )}
-                {noLog && <span className="text-[6px] text-red-400 font-bold">缺</span>}
+                {noLog && <span className="text-[6px] text-red-400 font-bold">{t('dashboard.missingMark')}</span>}
               </div>
             </Tooltip>
           )
@@ -379,12 +384,12 @@ const MonthlyAttendanceCard: React.FC = () => {
 
       {/* Legend */}
       <div className="flex items-center gap-2 mt-3 justify-center">
-        <span className="text-[10px] text-slate-400">少</span>
+        <span className="text-[10px] text-slate-400">{t('dashboard.fewerHours')}</span>
         {[0, 4, 6, 8, 10].map((h, i) => <div key={i} className="w-3 h-3 rounded-sm" style={{ background: getHeatColor(h) }} />)}
-        <span className="text-[10px] text-slate-400">多</span>
+        <span className="text-[10px] text-slate-400">{t('dashboard.moreHours')}</span>
         <span className="text-[10px] text-slate-300 mx-1">|</span>
         <div className="w-3 h-3 rounded-sm ring-1 ring-red-200 bg-slate-100" />
-        <span className="text-[10px] text-red-400">缺報</span>
+        <span className="text-[10px] text-red-400">{t('dashboard.reportMissing')}</span>
       </div>
     </Card>
   )
@@ -409,33 +414,36 @@ interface BenefitCardProps {
   benefit: TeamBenefitGroup[]
 }
 
-const BenefitCard: React.FC<BenefitCardProps> = ({ benefit }) => (
+const BenefitCard: React.FC<BenefitCardProps> = ({ benefit }) => {
+  const { t } = useTranslation()
+  return (
   <Card className="h-full"
     title={
       <div className="flex items-center gap-2">
         <div className="w-5 h-5 rounded bg-blue-100 flex items-center justify-center">
           <span className="text-[10px] text-blue-600 font-bold">¥</span>
         </div>
-        <span className="text-sm font-semibold text-slate-600">年度效益統計</span>
+        <span className="text-sm font-semibold text-slate-600">{t('dashboard.annualBenefit')}</span>
       </div>
     }
     styles={{ body: { padding: 0, height: 'calc(100% - 57px)', display: 'flex', flexDirection: 'column' } }}>
     {benefit.length === 0
-      ? <Empty description="暫無效益數據" image={Empty.PRESENTED_IMAGE_SIMPLE} className="py-4 px-4" />
+      ? <Empty description={t('dashboard.noBenefitData')} image={Empty.PRESENTED_IMAGE_SIMPLE} className="py-4 px-4" />
       : benefit.map((group, idx) => (
-        <div key={group.unit} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderTop: idx > 0 ? '1px solid #f1f5f9' : 'none', padding: '8px 16px' }}>
+        <div key={benefitUnitLabel(group.unit)} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderTop: idx > 0 ? '1px solid #f1f5f9' : 'none', padding: '8px 16px' }}>
           <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full mb-1">
-            {group.unit}
+            {benefitUnitLabel(group.unit)}
           </span>
           <div className="tabular-nums font-black text-blue-600 text-center leading-none" style={{ fontSize: 'clamp(16px, 3.5vh, 36px)' }}>
             {_fmtBenefitNum(group.expected)}
           </div>
-          <div className="text-[11px] text-slate-400 mt-1">預計年度效益</div>
+          <div className="text-[11px] text-slate-400 mt-1">{t('dashboard.expectedAnnualBenefit')}</div>
         </div>
       ))
     }
   </Card>
-)
+  )
+}
 
 // ── BenefitDetailCard sub-component ───────────────────────────────────────────
 
@@ -445,11 +453,12 @@ interface BenefitDetailCardProps {
 }
 
 const BenefitDetailCard: React.FC<BenefitDetailCardProps> = ({ benefit, navigate }) => {
+  const { t } = useTranslation()
   const projStatusLabel = (s: number) => {
     const m: Record<number, [string, string]> = {
-      5: ['執行中', '#2563eb'], 7: ['已完結', '#16a34a'], 8: ['擱置', '#94a3b8'],
+      5: [t('dashboard.inProgress'), '#2563eb'], 7: [t('dashboard.completedCount'), '#16a34a'], 8: [t('dashboard.suspendedLabel'), '#94a3b8'],
     }
-    const [label, color] = m[s] ?? ['其他', '#94a3b8']
+    const [label, color] = m[s] ?? [t('common.noData'), '#94a3b8']
     return (
       <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0"
         style={{ background: `${color}18`, color }}>{label}</span>
@@ -457,9 +466,9 @@ const BenefitDetailCard: React.FC<BenefitDetailCardProps> = ({ benefit, navigate
   }
 
   const SECTIONS: { type: 'project' | 'addon_req' | 'standalone_req'; label: string; color: string; amtKey: keyof typeof benefit[0] }[] = [
-    { type: 'project',      label: '專案效益',    color: '#2563eb', amtKey: 'proj_expected'       },
-    { type: 'addon_req',    label: '追加需求效益', color: '#ea580c', amtKey: 'addon_expected'      },
-    { type: 'standalone_req', label: '系統需求效益', color: '#7c3aed', amtKey: 'standalone_expected' },
+    { type: 'project',      label: t('dashboard.benefitProject'),    color: '#2563eb', amtKey: 'proj_expected'       },
+    { type: 'addon_req',    label: t('dashboard.benefitAddonReq'), color: '#ea580c', amtKey: 'addon_expected'      },
+    { type: 'standalone_req', label: t('dashboard.benefitStandaloneReq'), color: '#7c3aed', amtKey: 'standalone_expected' },
   ]
 
   return (
@@ -469,22 +478,22 @@ const BenefitDetailCard: React.FC<BenefitDetailCardProps> = ({ benefit, navigate
           <div className="w-5 h-5 rounded bg-blue-100 flex items-center justify-center">
             <span className="text-[10px] text-blue-600 font-bold">¥</span>
           </div>
-          <span className="text-sm font-semibold text-slate-600">年度效益明細</span>
+          <span className="text-sm font-semibold text-slate-600">{t('dashboard.annualBenefitDetail')}</span>
         </div>
       }
       styles={{ body: { padding: '12px 16px', overflow: 'auto', height: 'calc(100% - 57px)' } }}>
       {benefit.length === 0
-        ? <Empty description="暫無效益數據" image={Empty.PRESENTED_IMAGE_SIMPLE} className="py-4" />
+        ? <Empty description={t('dashboard.noBenefitData')} image={Empty.PRESENTED_IMAGE_SIMPLE} className="py-4" />
         : benefit.map((group, idx) => (
-          <div key={group.unit}>
+          <div key={benefitUnitLabel(group.unit)}>
             {idx > 0 && <div className="border-t border-slate-100 my-3" />}
             {/* 单位组标题 */}
             <div className="flex items-center gap-2 mb-3">
               <span className="text-xs font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
-                {group.unit}
+                {benefitUnitLabel(group.unit)}
               </span>
               <span className="ml-auto text-xs font-semibold text-blue-600 tabular-nums">
-                共 {_fmtBenefitNum(group.expected)} {group.unit}
+                {t('dashboard.totalBenefit', { amount: _fmtBenefitNum(group.expected), unit: benefitUnitLabel(group.unit) })}
               </span>
             </div>
             {/* 按类型分组显示 */}
@@ -497,7 +506,7 @@ const BenefitDetailCard: React.FC<BenefitDetailCardProps> = ({ benefit, navigate
                     <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
                       style={{ background: `${color}18`, color }}>{label}</span>
                     <span className="text-[10px] text-slate-400 tabular-nums ml-auto">
-                      {_fmtBenefitNum(group[amtKey] as number)} {group.unit}
+                      {_fmtBenefitNum(group[amtKey] as number)} {benefitUnitLabel(group.unit)}
                     </span>
                   </div>
                   <div className="flex flex-col gap-1">
@@ -512,7 +521,7 @@ const BenefitDetailCard: React.FC<BenefitDetailCardProps> = ({ benefit, navigate
                         {type === 'project' && projStatusLabel(item.status)}
                         <span className="font-semibold tabular-nums text-xs flex-shrink-0" style={{ color }}>
                           {_fmtBenefitNum(item.expected)}
-                          <span className="text-[10px] font-normal text-slate-400 ml-0.5">{group.unit}</span>
+                          <span className="text-[10px] font-normal text-slate-400 ml-0.5">{benefitUnitLabel(group.unit)}</span>
                         </span>
                       </div>
                     ))}
@@ -545,12 +554,13 @@ const TeamLogCard: React.FC<TeamLogCardProps> = ({
   logReportData, logLoading, logPeriod, setLogPeriod,
   notifyingSet, setNotifyingSet, notifyingAll, setNotifyingAll, navigate,
 }) => {
+  const { t } = useTranslation()
   const todayStr = dayjs().format('YYYY-MM-DD')
   const LOG_PERIODS = [
-    { key: 'day'     as const, label: '今日' },
-    { key: 'week'    as const, label: '本週' },
-    { key: 'month'   as const, label: '本月' },
-    { key: 'quarter' as const, label: '本季' },
+    { key: 'day'     as const, label: t('dashboard.thisDay') },
+    { key: 'week'    as const, label: t('dashboard.thisWeek') },
+    { key: 'month'   as const, label: t('dashboard.thisMonth') },
+    { key: 'quarter' as const, label: t('dashboard.thisQuarter') },
   ]
   const unsubmittedMembers = logReportData.filter((r) => {
     const todayLog = r.daily_logs?.find((l) => l.log_date === todayStr)
@@ -561,16 +571,16 @@ const TeamLogCard: React.FC<TeamLogCardProps> = ({
     setNotifyingAll(true)
     try {
       await notificationApi.remindDailyLog(unsubmittedMembers.map((r) => r.work_no))
-      message.success(`已向 ${unsubmittedMembers.length} 位未提交成員發送通知`)
+      message.success(t('dashboard.notifyAllSuccess', { count: unsubmittedMembers.length }))
     } catch {
-      message.error('批量通知發送失敗')
+      message.error(t('dashboard.notifyAllFailed'))
     } finally {
       setNotifyingAll(false)
     }
   }
   const rawColumns = [
     {
-      title: '成員', dataIndex: 'name', key: 'name',
+      title: t('dashboard.memberColumn'), dataIndex: 'name', key: 'name',
       render: (name: string, record: LogRow) => (
         <div className="flex items-center gap-2">
           <Avatar size={24} style={{ background: '#eff6ff', color: '#2563eb', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{name[0]}</Avatar>
@@ -582,22 +592,22 @@ const TeamLogCard: React.FC<TeamLogCardProps> = ({
       ),
     },
     {
-      title: '工時', dataIndex: 'period_hours', key: 'period_hours',
+      title: t('dashboard.workHoursColumn'), dataIndex: 'period_hours', key: 'period_hours',
       sorter: (a: LogRow, b: LogRow) => a.period_hours - b.period_hours,
       render: (h: number) => <span className="text-xs font-semibold text-blue-600">{Number(h).toFixed(1)}h</span>,
     },
     {
-      title: '更新次數', dataIndex: 'updates_count', key: 'updates_count',
+      title: t('dashboard.updateCountColumn'), dataIndex: 'updates_count', key: 'updates_count',
       sorter: (a: LogRow, b: LogRow) => a.updates_count - b.updates_count,
-      render: (v: number) => <span className="text-xs text-slate-600">{v} 次</span>,
+      render: (v: number) => <span className="text-xs text-slate-600">{v}</span>,
     },
     {
-      title: '完成', key: 'completed',
+      title: t('dashboard.completedColumn'), key: 'completed',
       sorter: (a: LogRow, b: LogRow) => (a.completed?.length ?? 0) - (b.completed?.length ?? 0),
       render: (_: unknown, r: LogRow) => <span className="text-xs text-green-600">{r.completed?.length ?? 0}</span>,
     },
     {
-      title: '超時', key: 'overdue',
+      title: t('dashboard.overdueColumn'), key: 'overdue',
       sorter: (a: LogRow, b: LogRow) => (a.overdue?.length ?? 0) - (b.overdue?.length ?? 0),
       render: (_: unknown, r: LogRow) => {
         const count = r.overdue?.length ?? 0
@@ -607,7 +617,7 @@ const TeamLogCard: React.FC<TeamLogCardProps> = ({
       },
     },
     {
-      title: '今日日報', key: 'daily_log',
+      title: t('dashboard.todayReportColumn'), key: 'daily_log',
       render: (_: unknown, r: LogRow) => {
         const todayLog = r.daily_logs?.find((l) => l.log_date === todayStr)
         const submitted = todayLog?.status === 2
@@ -617,22 +627,22 @@ const TeamLogCard: React.FC<TeamLogCardProps> = ({
           setNotifyingSet((prev) => new Set(prev).add(r.work_no))
           try {
             await notificationApi.remindDailyLog([r.work_no])
-            message.success(`已通知 ${r.name}`)
+            message.success(t('dashboard.notifySuccess', { name: r.name }))
           } catch {
-            message.error('通知發送失敗')
+            message.error(t('dashboard.notifyFailed'))
           } finally {
             setNotifyingSet((prev) => { const s = new Set(prev); s.delete(r.work_no); return s })
           }
         }
         return (
           <div className="flex items-center gap-1.5">
-            <Tooltip title={submitted ? '已提交' : '未提交'}>
+            <Tooltip title={submitted ? t('dashboard.submittedStatus') : t('dashboard.notSubmittedStatus')}>
               <span className={`w-5 h-5 rounded-full inline-flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${submitted ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-500'}`}>
                 {submitted ? '✓' : '✗'}
               </span>
             </Tooltip>
             {!submitted && (
-              <Tooltip title="發送鼎+ 催報通知">
+              <Tooltip title={t('dashboard.notifyTip')}>
                 <button
                   onClick={handleNotify}
                   disabled={isNotifying}
@@ -652,7 +662,7 @@ const TeamLogCard: React.FC<TeamLogCardProps> = ({
     <Card className="h-full" style={{ display: 'flex', flexDirection: 'column' }}
       title={
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sm font-semibold text-slate-600">成員工時明細</span>
+          <span className="text-sm font-semibold text-slate-600">{t('dashboard.memberWorkHours')}</span>
           <div className="flex items-center gap-1">
             {LOG_PERIODS.map((p) => (
               <button
@@ -671,18 +681,18 @@ const TeamLogCard: React.FC<TeamLogCardProps> = ({
       extra={
         <div className="flex items-center gap-2">
           {unsubmittedMembers.length > 0 && (
-            <Tooltip title={`向 ${unsubmittedMembers.length} 位未提交成員發送鼎+ 催報通知`}>
+            <Tooltip title={t('dashboard.notifyAllTooltip', { count: unsubmittedMembers.length })}>
               <button
                 onClick={handleNotifyAll}
                 disabled={notifyingAll}
                 className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] border border-orange-200 text-orange-500 bg-orange-50 hover:bg-orange-100 cursor-pointer outline-none transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <BellIcon className="w-3 h-3" />
-                全部通知 ({unsubmittedMembers.length})
+                {t('dashboard.notifyAll', { count: unsubmittedMembers.length })}
               </button>
             </Tooltip>
           )}
-          <span className="text-xs text-blue-500 cursor-pointer hover:underline" onClick={() => navigate(`/statistics?tab=report&period=${logPeriod}`)}>查看詳情 →</span>
+          <span className="text-xs text-blue-500 cursor-pointer hover:underline" onClick={() => navigate(`/statistics?tab=report&period=${logPeriod}`)}>{t('dashboard.viewDetail')}</span>
         </div>
       }
       styles={{ body: { flex: 1, padding: '0 16px 8px', minHeight: 0, overflowY: 'auto' } }}>
@@ -694,7 +704,7 @@ const TeamLogCard: React.FC<TeamLogCardProps> = ({
         size="small"
         loading={logLoading}
         pagination={false}
-        locale={{ emptyText: <Empty description="暫無數據" image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
+        locale={{ emptyText: <Empty description={t('dashboard.noTableData')} image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
         onRow={(r) => ({
           onClick: () => navigate(`/statistics?tab=report&period=${logPeriod}&member=${r.work_no}`),
           style: { cursor: 'pointer' },
@@ -707,6 +717,7 @@ const TeamLogCard: React.FC<TeamLogCardProps> = ({
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 const DashboardPage: React.FC = () => {
+  const { t } = useTranslation()
   const dispatch  = useAppDispatch()
   const navigate  = useNavigate()
   const { indexData, name, workNo, isSupervisor, isManagerView } = useAppSelector((s) => s.auth)
@@ -926,15 +937,15 @@ const DashboardPage: React.FC = () => {
     超時任務: m.overdue_tasks,
     臨期任務: m.urgent_tasks ?? 0,
     進行中:   m.in_progress_tasks,
-  })).sort((a, b) => (b.超時任務 + b.臨期任務) - (a.超時任務 + a.臨期任務))
+  })).sort((a, b) => (b['超時任務'] + b['臨期任務']) - (a['超時任務'] + a['臨期任務']))
 
   return (
     <div className="p-6">
       {/* Greeting */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">歡迎回來，{name ?? '用戶'} 👋</h1>
-          <p className="text-slate-400 text-sm mt-0.5">{dayjs().format('YYYY 年 M 月 D 日')} · 今天也加油！</p>
+          <h1 className="text-2xl font-bold text-slate-800">{t('dashboard.welcome')}，{name ?? t('user.name')} 👋</h1>
+          <p className="text-slate-400 text-sm mt-0.5">{dayjs().format(t('common.dateFormatFull'))} · {t('dashboard.todayMotivation')}</p>
         </div>
         <div className="flex items-center gap-3">
           {isEditing ? (
@@ -943,25 +954,25 @@ const DashboardPage: React.FC = () => {
                 onClick={() => setAddCardOpen(true)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50 transition-colors outline-none cursor-pointer"
               >
-                <span className="text-base leading-none">+</span> 添加卡片
+                <span className="text-base leading-none">+</span> {t('dashboard.addCard')}
               </button>
               <button
                 onClick={async () => { await resetLayout() }}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border border-orange-200 text-orange-600 hover:bg-orange-50 transition-colors outline-none cursor-pointer"
               >
-                重置佈局
+                {t('dashboard.resetLayout')}
               </button>
               <button
                 onClick={() => setIsEditing(false)}
                 className="px-3 py-1.5 rounded-lg text-sm text-slate-500 hover:bg-slate-100 transition-colors outline-none border-0 cursor-pointer"
               >
-                取消
+                {t('common.cancel')}
               </button>
               <button
                 onClick={() => setIsEditing(false)}
                 className="px-4 py-1.5 rounded-lg text-sm bg-blue-600 text-white hover:bg-blue-700 transition-colors outline-none border-0 cursor-pointer"
               >
-                保存
+                {t('common.save')}
               </button>
             </>
           ) : (
@@ -969,21 +980,21 @@ const DashboardPage: React.FC = () => {
               onClick={() => setIsEditing(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors outline-none border-0 cursor-pointer"
             >
-              <span className="text-base leading-none">⊞</span> 管理卡片
+              <span className="text-base leading-none">⊞</span> {t('dashboard.manageCards')}
             </button>
           )}
           {/* Manager view toggle — only shown to supervisors */}
           {isSupervisor && (
             <div className="hidden md:flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5">
               <UsersIcon className="w-4 h-4 text-slate-400" />
-              <span className="text-xs text-slate-500">主管視角</span>
+              <span className="text-xs text-slate-500">{t('dashboard.managerView')}</span>
               <Switch size="small" checked={isManager} onChange={setIsManager} />
             </div>
           )}
           {((indexData?.total_awaiting_review_num?.project ?? 0) + (indexData?.total_awaiting_review_num?.duty ?? 0)) > 0 && (
             <div className="hidden md:flex items-center gap-2 bg-orange-50 border border-orange-100 rounded-xl px-4 py-2">
               <FireIcon className="w-4 h-4 text-orange-500" />
-              <span className="text-sm text-orange-600 font-medium">有 {(indexData?.total_awaiting_review_num?.project ?? 0) + (indexData?.total_awaiting_review_num?.duty ?? 0)} 個審核待處理</span>
+              <span className="text-sm text-orange-600 font-medium">{t('dashboard.pendingReviewAlert', { count: (indexData?.total_awaiting_review_num?.project ?? 0) + (indexData?.total_awaiting_review_num?.duty ?? 0) })}</span>
             </div>
           )}
         </div>
@@ -1022,12 +1033,12 @@ const DashboardPage: React.FC = () => {
               <Card className="h-full" styles={{ body: { padding: '16px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%', overflow: 'hidden' } }}>
                 <div className="flex items-center gap-2 mb-4">
                   <div className="w-7 h-7 rounded-lg bg-indigo-100 flex items-center justify-center"><FolderIcon className="w-4 h-4 text-indigo-600" /></div>
-                  <span className="text-sm font-semibold text-slate-600">團隊專案</span>
+                  <span className="text-sm font-semibold text-slate-600">{t('dashboard.teamProjectCard')}</span>
                 </div>
                 <div className="flex divide-x divide-slate-100">
-                  <div className="flex-1 text-center pr-3"><div className="text-2xl font-bold text-slate-700">{teamStat?.team_project.total ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">總計</div></div>
-                  <div className="flex-1 text-center px-3"><div className="text-2xl font-bold text-blue-600">{teamStat?.team_project.in_progress ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">進行中</div></div>
-                  <div className="flex-1 text-center pl-3"><div className="text-2xl font-bold text-green-600">{teamStat?.team_project.completed ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">已完結</div></div>
+                  <div className="flex-1 text-center pr-3"><div className="text-2xl font-bold text-slate-700">{teamStat?.team_project.total ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">{t('dashboard.totalCount')}</div></div>
+                  <div className="flex-1 text-center px-3"><div className="text-2xl font-bold text-blue-600">{teamStat?.team_project.in_progress ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">{t('dashboard.inProgress')}</div></div>
+                  <div className="flex-1 text-center pl-3"><div className="text-2xl font-bold text-green-600">{teamStat?.team_project.completed ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">{t('dashboard.completedCount')}</div></div>
                 </div>
               </Card>
             )
@@ -1036,14 +1047,14 @@ const DashboardPage: React.FC = () => {
               <Card className="h-full" styles={{ body: { padding: '16px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%', overflow: 'hidden' } }}>
                 <div className="flex items-center gap-2 mb-3">
                   <div className="w-7 h-7 rounded-lg bg-blue-100 flex items-center justify-center"><ClipboardDocumentListIcon className="w-4 h-4 text-blue-600" /></div>
-                  <span className="text-sm font-semibold text-slate-600">團隊任務</span>
+                  <span className="text-sm font-semibold text-slate-600">{t('dashboard.teamTaskCard')}</span>
                 </div>
                 <div className="flex divide-x divide-slate-100">
-                  <div className="flex-1 text-center pr-2"><div className="text-xl font-bold text-slate-700">{teamStat?.team_task.total ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">總計</div></div>
-                  <div className="flex-1 text-center px-2"><div className="text-xl font-bold text-blue-600">{teamStat?.team_task.in_progress ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">進行中</div></div>
-                  <div className="flex-1 text-center px-2"><div className={`text-xl font-bold ${(teamStat?.team_task.overdue ?? 0) > 0 ? 'text-red-500' : 'text-slate-400'}`}>{teamStat?.team_task.overdue ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">已超時</div></div>
-                  <div className="flex-1 text-center px-2"><div className={`text-xl font-bold ${(teamStat?.team_task.urgent ?? 0) > 0 ? 'text-orange-500' : 'text-slate-400'}`}>{teamStat?.team_task.urgent ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">臨期</div></div>
-                  <div className="flex-1 text-center pl-2"><div className="text-xl font-bold text-slate-500">{teamStat?.team_task.not_started ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">未開始</div></div>
+                  <div className="flex-1 text-center pr-2"><div className="text-xl font-bold text-slate-700">{teamStat?.team_task.total ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">{t('dashboard.totalCount')}</div></div>
+                  <div className="flex-1 text-center px-2"><div className="text-xl font-bold text-blue-600">{teamStat?.team_task.in_progress ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">{t('dashboard.inProgress')}</div></div>
+                  <div className="flex-1 text-center px-2"><div className={`text-xl font-bold ${(teamStat?.team_task.overdue ?? 0) > 0 ? 'text-red-500' : 'text-slate-400'}`}>{teamStat?.team_task.overdue ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">{t('dashboard.overdueTimeLabel')}</div></div>
+                  <div className="flex-1 text-center px-2"><div className={`text-xl font-bold ${(teamStat?.team_task.urgent ?? 0) > 0 ? 'text-orange-500' : 'text-slate-400'}`}>{teamStat?.team_task.urgent ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">{t('dashboard.urgentTimeLabel')}</div></div>
+                  <div className="flex-1 text-center pl-2"><div className="text-xl font-bold text-slate-500">{teamStat?.team_task.not_started ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">{t('dashboard.notStarted')}</div></div>
                 </div>
               </Card>
             )
@@ -1052,11 +1063,11 @@ const DashboardPage: React.FC = () => {
               <Card className="h-full" styles={{ body: { padding: '16px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%', overflow: 'hidden' } }}>
                 <div className="flex items-center gap-2 mb-4">
                   <div className="w-7 h-7 rounded-lg bg-orange-100 flex items-center justify-center"><ClockIcon className="w-4 h-4 text-orange-500" /></div>
-                  <span className="text-sm font-semibold text-slate-600">待處理</span>
+                  <span className="text-sm font-semibold text-slate-600">{t('dashboard.pendingCard')}</span>
                 </div>
                 <div className="flex divide-x divide-slate-100">
-                  <div className="flex-1 text-center pr-3"><div className={`text-2xl font-bold ${(teamStat?.pending.review ?? 0) > 0 ? 'text-orange-500' : 'text-slate-400'}`}>{teamStat?.pending.review ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">待審核</div></div>
-                  <div className="flex-1 text-center pl-3"><div className={`text-2xl font-bold ${(teamStat?.pending.progress_update ?? 0) > 0 ? 'text-blue-500' : 'text-slate-400'}`}>{teamStat?.pending.progress_update ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">進度更新</div></div>
+                  <div className="flex-1 text-center pr-3"><div className={`text-2xl font-bold ${(teamStat?.pending.review ?? 0) > 0 ? 'text-orange-500' : 'text-slate-400'}`}>{teamStat?.pending.review ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">{t('dashboard.pendingReviewLabel')}</div></div>
+                  <div className="flex-1 text-center pl-3"><div className={`text-2xl font-bold ${(teamStat?.pending.progress_update ?? 0) > 0 ? 'text-blue-500' : 'text-slate-400'}`}>{teamStat?.pending.progress_update ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">{t('dashboard.progressUpdateLabel')}</div></div>
                 </div>
               </Card>
             )
@@ -1065,7 +1076,7 @@ const DashboardPage: React.FC = () => {
               <Card className="h-full" styles={{ body: { padding: '16px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%', overflow: 'hidden' } }}>
                 <div className="flex items-center gap-2 mb-3">
                   <div className="w-7 h-7 rounded-lg bg-indigo-100 flex items-center justify-center"><UsersIcon className="w-4 h-4 text-indigo-600" /></div>
-                  <span className="text-sm font-semibold text-slate-600">下屬人數</span>
+                  <span className="text-sm font-semibold text-slate-600">{t('dashboard.subordinatesCard')}</span>
                 </div>
                 <div className="text-3xl font-bold text-slate-700 text-center">{memberStats.length}</div>
               </Card>
@@ -1075,24 +1086,24 @@ const DashboardPage: React.FC = () => {
               <Card className="h-full" styles={{ body: { padding: '16px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%', overflow: 'hidden' } }}>
                 <div className="flex items-center gap-2 mb-4">
                   <div className="w-7 h-7 rounded-lg bg-purple-100 flex items-center justify-center"><ClipboardDocumentListIcon className="w-4 h-4 text-purple-600" /></div>
-                  <span className="text-sm font-semibold text-slate-600">需求總覽</span>
+                  <span className="text-sm font-semibold text-slate-600">{t('dashboard.reqOverviewCard')}</span>
                 </div>
                 <div className="flex divide-x divide-slate-100">
                   <div className="flex-1 text-center pr-2">
                     <div className="text-2xl font-bold text-slate-700">{reqStats?.total ?? 0}</div>
-                    <div className="text-xs text-slate-400 mt-0.5">總計</div>
+                    <div className="text-xs text-slate-400 mt-0.5">{t('dashboard.totalCount')}</div>
                   </div>
                   <div className="flex-1 text-center px-2">
                     <div className="text-2xl font-bold text-blue-600">{reqStats?.in_progress ?? 0}</div>
-                    <div className="text-xs text-slate-400 mt-0.5">進行中</div>
+                    <div className="text-xs text-slate-400 mt-0.5">{t('dashboard.inProgress')}</div>
                   </div>
                   <div className="flex-1 text-center px-2">
                     <div className="text-2xl font-bold text-green-600">{reqStats?.completed ?? 0}</div>
-                    <div className="text-xs text-slate-400 mt-0.5">已完結</div>
+                    <div className="text-xs text-slate-400 mt-0.5">{t('dashboard.completedCount')}</div>
                   </div>
                   <div className="flex-1 text-center pl-2">
                     <div className={`text-2xl font-bold ${(reqStats?.pending ?? 0) > 0 ? 'text-orange-500' : 'text-slate-400'}`}>{reqStats?.pending ?? 0}</div>
-                    <div className="text-xs text-slate-400 mt-0.5">審核中</div>
+                    <div className="text-xs text-slate-400 mt-0.5">{t('dashboard.reviewingCount')}</div>
                   </div>
                 </div>
               </Card>
@@ -1102,28 +1113,28 @@ const DashboardPage: React.FC = () => {
               <Card className="h-full" styles={{ body: { padding: '16px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%', overflow: 'hidden' } }}>
                 <div className="flex items-center gap-2 mb-3">
                   <div className="w-7 h-7 rounded-lg bg-amber-100 flex items-center justify-center"><BellIcon className="w-4 h-4 text-amber-600" /></div>
-                  <span className="text-sm font-semibold text-slate-600">AR 任務</span>
+                  <span className="text-sm font-semibold text-slate-600">{t('dashboard.arTaskCard')}</span>
                 </div>
                 <div className="flex divide-x divide-slate-100">
                   <div className="flex-1 text-center pr-2">
                     <div className="text-xl font-bold text-slate-700">{arTaskStats?.total ?? 0}</div>
-                    <div className="text-xs text-slate-400 mt-0.5">總計</div>
+                    <div className="text-xs text-slate-400 mt-0.5">{t('dashboard.totalCount')}</div>
                   </div>
                   <div className="flex-1 text-center px-2">
                     <div className="text-xl font-bold text-blue-600">{arTaskStats?.in_progress ?? 0}</div>
-                    <div className="text-xs text-slate-400 mt-0.5">進行中</div>
+                    <div className="text-xs text-slate-400 mt-0.5">{t('dashboard.inProgress')}</div>
                   </div>
                   <div className="flex-1 text-center px-2">
                     <div className="text-xl font-bold text-green-600">{arTaskStats?.completed ?? 0}</div>
-                    <div className="text-xs text-slate-400 mt-0.5">已完結</div>
+                    <div className="text-xs text-slate-400 mt-0.5">{t('dashboard.completedCount')}</div>
                   </div>
                   <div className="flex-1 text-center px-2">
                     <div className={`text-xl font-bold ${(arTaskStats?.overdue ?? 0) > 0 ? 'text-red-500' : 'text-slate-400'}`}>{arTaskStats?.overdue ?? 0}</div>
-                    <div className="text-xs text-slate-400 mt-0.5">超時</div>
+                    <div className="text-xs text-slate-400 mt-0.5">{t('dashboard.overdueColumn')}</div>
                   </div>
                   <div className="flex-1 text-center pl-2">
                     <div className={`text-xl font-bold ${(arTaskStats?.suspended ?? 0) > 0 ? 'text-orange-400' : 'text-slate-400'}`}>{arTaskStats?.suspended ?? 0}</div>
-                    <div className="text-xs text-slate-400 mt-0.5">擱置</div>
+                    <div className="text-xs text-slate-400 mt-0.5">{t('dashboard.suspendedLabel')}</div>
                   </div>
                 </div>
               </Card>
@@ -1137,7 +1148,7 @@ const DashboardPage: React.FC = () => {
                 <Card className="h-full" styles={{ body: { padding: '16px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%', overflow: 'hidden' } }}>
                   <div className="flex items-center gap-2 mb-3">
                     <div className="w-7 h-7 rounded-lg bg-green-100 flex items-center justify-center"><PencilSquareIcon className="w-4 h-4 text-green-600" /></div>
-                    <span className="text-sm font-semibold text-slate-600">今日日報提交</span>
+                    <span className="text-sm font-semibold text-slate-600">{t('dashboard.todayReportSubmitCard')}</span>
                   </div>
                   <div className="text-2xl font-bold text-center">
                     <span className={isLow ? 'text-orange-500' : 'text-green-600'}>{submitted}</span>
@@ -1155,10 +1166,10 @@ const DashboardPage: React.FC = () => {
                 title={
                   <div className="flex items-center gap-2">
                     <ChartBarIcon className="w-4 h-4 text-slate-400" />
-                    <span className="text-sm font-semibold text-slate-600">成員超時 / 臨期任務分佈</span>
+                    <span className="text-sm font-semibold text-slate-600">{t('dashboard.memberTaskChartTitle')}</span>
                     <div className="flex items-center gap-3 ml-auto">
-                      <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded-sm bg-[#f87171]" /><span className="text-xs text-slate-400">超時</span></div>
-                      <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded-sm bg-[#fbbf24]" /><span className="text-xs text-slate-400">臨期</span></div>
+                      <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded-sm bg-[#f87171]" /><span className="text-xs text-slate-400">{t('dashboard.overdueTaskLabel')}</span></div>
+                      <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded-sm bg-[#fbbf24]" /><span className="text-xs text-slate-400">{t('dashboard.urgentTaskLabel')}</span></div>
                     </div>
                   </div>
                 }
@@ -1173,12 +1184,12 @@ const DashboardPage: React.FC = () => {
                       cursor={{ fill: 'rgba(0,0,0,0.04)' }}
                       formatter={(v, name) => [`${v} 項`, name]}
                     />
-                    <Bar dataKey="超時任務" stackId="a" fill="#f87171" radius={[0,0,0,0]}>
+                    <Bar dataKey="超時任務" name={t('dashboard.overdueTaskLabel')} stackId="a" fill="#f87171" radius={[0,0,0,0]}>
                       {managerChartData.map((_, i) => (
-                        <Cell key={i} fill={managerChartData[i].超時任務 > 0 ? '#f87171' : '#e2e8f0'} />
+                        <Cell key={i} fill={managerChartData[i]['超時任務'] > 0 ? '#f87171' : '#e2e8f0'} />
                       ))}
                     </Bar>
-                    <Bar dataKey="臨期任務" stackId="a" fill="#fbbf24" radius={[4,4,4,4]}>
+                    <Bar dataKey="臨期任務" name={t('dashboard.urgentTaskLabel')} stackId="a" fill="#fbbf24" radius={[4,4,4,4]}>
                       <LabelList
                         position="right"
                         style={{ fontSize: 11, fill: '#64748b', fontWeight: 600 }}
@@ -1186,7 +1197,7 @@ const DashboardPage: React.FC = () => {
                           if (index == null || x == null || y == null || width == null || height == null) return null
                           const d = managerChartData[index]
                           if (!d) return null
-                          const total = (d.超時任務 ?? 0) + (d.臨期任務 ?? 0)
+                          const total = (d['超時任務'] ?? 0) + (d['臨期任務'] ?? 0)
                           if (total <= 0) return null
                           return <text x={x + width + 6} y={y + height / 2 + 4} fill="#64748b" fontSize={11} fontWeight={600}>{total}</text>
                         }}
@@ -1201,13 +1212,13 @@ const DashboardPage: React.FC = () => {
               <Card
                 className="h-full"
                 style={{ display: 'flex', flexDirection: 'column' }}
-                title={<span className="text-sm font-semibold text-slate-600">成員明細</span>}
-                extra={<span className="text-xs text-slate-400 cursor-pointer hover:text-blue-500" onClick={() => navigate('/duties')}>查看詳情 →</span>}
+                title={<span className="text-sm font-semibold text-slate-600">{t('dashboard.memberDetailTitle')}</span>}
+                extra={<span className="text-xs text-slate-400 cursor-pointer hover:text-blue-500" onClick={() => navigate('/duties')}>{t('dashboard.viewDetail')}</span>}
                 styles={{ body: { flex: 1, overflow: 'auto', padding: 0, minHeight: 0 } }}
               >
                 <div className="divide-y divide-slate-50">
                   {managerChartData.map((m) => {
-                    const isAtRisk = m.超時任務 > 0 || m.臨期任務 > 0
+                    const isAtRisk = m['超時任務'] > 0 || m['臨期任務'] > 0
                     return (
                       <div
                         key={m.work_no}
@@ -1222,12 +1233,12 @@ const DashboardPage: React.FC = () => {
                         </Avatar>
                         <div className="flex-1 min-w-0">
                           <div className="text-xs font-medium text-slate-700 truncate">{m.name}</div>
-                          <div className="text-xs text-slate-400">進行中 {m.進行中} 項</div>
+                          <div className="text-xs text-slate-400">{t('dashboard.inProgressItem', { count: m['進行中'] })}</div>
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
-                          {m.超時任務 > 0 && <Tag color="error" style={{ fontSize: 10, padding: '0 4px', margin: 0, lineHeight: '16px' }}>超時 {m.超時任務}</Tag>}
-                          {m.臨期任務 > 0 && <Tag color="warning" style={{ fontSize: 10, padding: '0 4px', margin: 0, lineHeight: '16px' }}>臨期 {m.臨期任務}</Tag>}
-                          {!isAtRisk && <Tag color="success" style={{ fontSize: 10, padding: '0 4px', margin: 0, lineHeight: '16px' }}>正常</Tag>}
+                          {m['超時任務'] > 0 && <Tag color="error" style={{ fontSize: 10, padding: '0 4px', margin: 0, lineHeight: '16px' }}>{t('dashboard.overdueItem', { count: m['超時任務'] })}</Tag>}
+                          {m['臨期任務'] > 0 && <Tag color="warning" style={{ fontSize: 10, padding: '0 4px', margin: 0, lineHeight: '16px' }}>{t('dashboard.urgentItem', { count: m['臨期任務'] })}</Tag>}
+                          {!isAtRisk && <Tag color="success" style={{ fontSize: 10, padding: '0 4px', margin: 0, lineHeight: '16px' }}>{t('dashboard.normalStatus')}</Tag>}
                         </div>
                       </div>
                     )
@@ -1239,17 +1250,17 @@ const DashboardPage: React.FC = () => {
             // ── New Manager chart widgets ───────────────────────────────────
 
             case 'team_task_pie': return !isManager ? null : (() => {
-              const t = teamStat?.team_task
+              const taskData = teamStat?.team_task
               const data = [
-                { name: '進行中', value: t?.in_progress ?? 0,  color: '#2563eb' },
-                { name: '未開始', value: t?.not_started ?? 0,  color: '#94a3b8' },
-                { name: '已完成', value: t?.completed   ?? 0,  color: '#16a34a' },
-                { name: '已超時', value: t?.overdue     ?? 0,  color: '#dc2626' },
-                { name: '臨期',   value: t?.urgent      ?? 0,  color: '#f59e0b' },
+                { name: t('dashboard.inProgress'),    value: taskData?.in_progress ?? 0, color: '#2563eb' },
+                { name: t('dashboard.notStarted'),    value: taskData?.not_started ?? 0, color: '#94a3b8' },
+                { name: t('dashboard.completedLabel'), value: taskData?.completed   ?? 0, color: '#16a34a' },
+                { name: t('dashboard.overdueTimeLabel'), value: taskData?.overdue   ?? 0, color: '#dc2626' },
+                { name: t('dashboard.urgentTimeLabel'), value: taskData?.urgent     ?? 0, color: '#f59e0b' },
               ].filter((d) => d.value > 0)
               return (
                 <Card className="h-full" style={{ display: 'flex', flexDirection: 'column' }}
-                  title={<span className="text-sm font-semibold text-slate-600">任務狀態占比</span>}
+                  title={<span className="text-sm font-semibold text-slate-600">{t('dashboard.taskDistributionTitle')}</span>}
                   styles={{ body: { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '8px 12px', minHeight: 0 } }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
@@ -1265,25 +1276,29 @@ const DashboardPage: React.FC = () => {
             })()
 
             case 'team_project_status': return !isManager ? null : (() => {
-              const STATUS_LABEL_SHORT: Record<number, string> = { 1:'草稿',2:'立案審核',3:'規劃中',4:'規劃審核',5:'執行中',6:'完結審核',7:'已完結' }
-              const counts: Record<string, number> = {}
+              const STATUS_LABEL_SHORT: Record<number, string> = {
+                1: t('status.project.1'), 2: t('status.project.2'), 3: t('status.project.3'),
+                4: t('status.project.4'), 5: t('status.project.5'), 6: t('status.project.6'), 7: t('status.project.7'),
+              }
+              const STATUS_COLORS: Record<number, string> = { 1: '#94a3b8', 2: '#93c5fd', 3: '#60a5fa', 4: '#f59e0b', 5: '#2563eb', 6: '#fb923c', 7: '#22c55e' }
+              const counts: Record<string, { count: number; color: string }> = {}
               teamProjects.forEach((p) => {
-                const label = STATUS_LABEL_SHORT[p.status] ?? '其他'
-                counts[label] = (counts[label] ?? 0) + 1
+                const label = STATUS_LABEL_SHORT[p.status] ?? t('common.noData')
+                if (!counts[label]) counts[label] = { count: 0, color: STATUS_COLORS[p.status] ?? '#94a3b8' }
+                counts[label].count += 1
               })
-              const STATUS_COLORS: Record<string, string> = { '草稿':'#94a3b8','立案審核':'#93c5fd','規劃中':'#60a5fa','規劃審核':'#f59e0b','執行中':'#2563eb','完結審核':'#fb923c','已完結':'#22c55e' }
-              const data = Object.entries(counts).map(([name, value]) => ({ name, value, color: STATUS_COLORS[name] ?? '#94a3b8' }))
+              const data = Object.entries(counts).map(([name, { count, color }]) => ({ name, value: count, color }))
               return (
                 <Card className="h-full" style={{ display: 'flex', flexDirection: 'column' }}
-                  title={<span className="text-sm font-semibold text-slate-600">專案狀態分佈</span>}
-                  extra={<span className="text-xs text-blue-500 cursor-pointer hover:underline" onClick={() => navigate('/projects')}>查看全部 →</span>}
+                  title={<span className="text-sm font-semibold text-slate-600">{t('dashboard.projectStatusDistTitle')}</span>}
+                  extra={<span className="text-xs text-blue-500 cursor-pointer hover:underline" onClick={() => navigate('/projects')}>{t('dashboard.viewAll')}</span>}
                   styles={{ body: { flex: 1, padding: '8px 16px', minHeight: 0, display: 'flex', flexDirection: 'column' } }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={data} margin={{ top: 4, right: 16, left: -20, bottom: 0 }}>
                       <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
                       <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
                       <RTooltip contentStyle={{ borderRadius: 10, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: 12 }} formatter={(v, name) => [`${v} 個`, name]} cursor={{ fill: 'rgba(0,0,0,0.04)' }} />
-                      <Bar dataKey="value" name="專案數" radius={[4,4,0,0]} isAnimationActive={false}>
+                      <Bar dataKey="value" name={t('dashboard.projectStatusDistTitle')} radius={[4,4,0,0]} isAnimationActive={false}>
                         {data.map((d, i) => <Cell key={i} fill={d.color} />)}
                         <LabelList dataKey="value" position="top" style={{ fontSize: 11, fill: '#64748b', fontWeight: 600 }} />
                       </Bar>
@@ -1300,12 +1315,12 @@ const DashboardPage: React.FC = () => {
                 .slice(0, 10)
               return (
                 <Card className="h-full" style={{ display: 'flex', flexDirection: 'column' }}
-                  title={<span className="text-sm font-semibold text-slate-600">專案進度排行（進行中）</span>}
-                  extra={<span className="text-xs text-blue-500 cursor-pointer hover:underline" onClick={() => navigate('/projects')}>查看全部 →</span>}
+                  title={<span className="text-sm font-semibold text-slate-600">{t('dashboard.projectRankingTitle')}</span>}
+                  extra={<span className="text-xs text-blue-500 cursor-pointer hover:underline" onClick={() => navigate('/projects')}>{t('dashboard.viewAll')}</span>}
                   styles={{ body: { flex: 1, padding: '8px 16px', minHeight: 0, overflowY: 'auto' } }}>
                   <div className="space-y-2 pt-1">
                     {sorted.length === 0
-                      ? <Empty description="暫無進行中專案" image={Empty.PRESENTED_IMAGE_SIMPLE} className="py-4" />
+                      ? <Empty description={t('dashboard.noInProgressProjects')} image={Empty.PRESENTED_IMAGE_SIMPLE} className="py-4" />
                       : sorted.map((p) => (
                         <div key={p.id} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 rounded-md px-1 py-0.5 transition-colors" onClick={() => navigate(`/projects/${p.id}`)}>
                           <span className="text-xs text-slate-600 truncate flex-1" title={p.project_nm}>{p.project_nm}</span>
@@ -1338,18 +1353,14 @@ const DashboardPage: React.FC = () => {
             )
 
             case 'team_review_types': return !isManager ? null : (() => {
-              const TYPE_LABEL: Record<string, string> = {
-                '立案審核': '立案', '規劃審核': '規劃', '完結審核': '完結',
-                '需求變更': '變更', '功能完結': '功能完結', '任務完結': '任務完結',
-              }
               const counts: Record<string, number> = {}
               allPendingReviews.forEach((r) => {
-                const key = r.apply_type || '其他'
+                const key = r.apply_type || t('common.noData')
                 counts[key] = (counts[key] ?? 0) + 1
               })
               const COLORS = ['#2563eb','#7c3aed','#0891b2','#059669','#d97706','#dc2626','#94a3b8']
               const data = Object.entries(counts).map(([name, value], i) => ({
-                name: TYPE_LABEL[name] ?? name,
+                name,
                 fullName: name,
                 value,
                 color: COLORS[i % COLORS.length],
@@ -1358,23 +1369,23 @@ const DashboardPage: React.FC = () => {
                 <Card className="h-full" style={{ display: 'flex', flexDirection: 'column' }}
                   title={
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-slate-600">待審批類型分佈</span>
+                      <span className="text-sm font-semibold text-slate-600">{t('dashboard.reviewTypesDistTitle')}</span>
                       {allPendingReviews.length > 0 && (
                         <span className="w-5 h-5 rounded-full bg-orange-500 text-white text-[10px] font-bold flex items-center justify-center">{allPendingReviews.length}</span>
                       )}
                     </div>
                   }
-                  extra={<span className="text-xs text-blue-500 cursor-pointer hover:underline" onClick={() => navigate('/review')}>去審批 →</span>}
+                  extra={<span className="text-xs text-blue-500 cursor-pointer hover:underline" onClick={() => navigate('/review')}>{t('dashboard.goApprove')}</span>}
                   styles={{ body: { flex: 1, padding: '8px 16px', minHeight: 0, display: 'flex', flexDirection: 'column' } }}>
                   {data.length === 0
-                    ? <Empty description="暫無待審批項目" image={Empty.PRESENTED_IMAGE_SIMPLE} className="py-4" />
+                    ? <Empty description={t('dashboard.noPendingApprovals')} image={Empty.PRESENTED_IMAGE_SIMPLE} className="py-4" />
                     : (
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={data} layout="vertical" margin={{ left: 8, right: 36, top: 4, bottom: 0 }} barCategoryGap="30%">
                           <XAxis type="number" hide allowDecimals={false} />
                           <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} width={52} />
                           <RTooltip contentStyle={{ borderRadius: 10, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: 12 }} formatter={(v, _n, props) => [`${v} 項`, props.payload?.fullName ?? _n]} cursor={{ fill: 'rgba(0,0,0,0.04)' }} />
-                          <Bar dataKey="value" name="待審批" radius={[0,4,4,0]}>
+                          <Bar dataKey="value" name={t('dashboard.pendingReviewLabel')} radius={[0,4,4,0]}>
                             {data.map((d, i) => <Cell key={i} fill={d.color} />)}
                             <LabelList dataKey="value" position="right" style={{ fontSize: 11, fill: '#64748b', fontWeight: 600 }} />
                           </Bar>
@@ -1399,12 +1410,12 @@ const DashboardPage: React.FC = () => {
               <Card className="h-full" styles={{ body: { padding: '16px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%', overflow: 'hidden' } }}>
                 <div className="flex items-center gap-2 mb-4">
                   <div className="w-7 h-7 rounded-lg bg-blue-100 flex items-center justify-center"><FolderIcon className="w-4 h-4 text-blue-600" /></div>
-                  <span className="text-sm font-semibold text-slate-600">專案統計</span>
+                  <span className="text-sm font-semibold text-slate-600">{t('dashboard.projectStatsTitle')}</span>
                 </div>
                 <div className="flex divide-x divide-slate-100">
-                  <div className="flex-1 text-center pr-3"><div className="text-2xl font-bold text-slate-700">{userStat?.project_total ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">總專案數</div></div>
-                  <div className="flex-1 text-center px-3"><div className="text-2xl font-bold text-blue-600">{userStat?.project_in_progress ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">進行中</div></div>
-                  <div className="flex-1 text-center pl-3"><div className="text-2xl font-bold text-green-600">{userStat?.project_completed ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">已完結</div></div>
+                  <div className="flex-1 text-center pr-3"><div className="text-2xl font-bold text-slate-700">{userStat?.project_total ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">{t('dashboard.totalProjectsLabel')}</div></div>
+                  <div className="flex-1 text-center px-3"><div className="text-2xl font-bold text-blue-600">{userStat?.project_in_progress ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">{t('dashboard.inProgress')}</div></div>
+                  <div className="flex-1 text-center pl-3"><div className="text-2xl font-bold text-green-600">{userStat?.project_completed ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">{t('dashboard.completedCount')}</div></div>
                 </div>
               </Card>
             )
@@ -1413,13 +1424,13 @@ const DashboardPage: React.FC = () => {
               <Card className="h-full" styles={{ body: { padding: '16px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%', overflow: 'hidden' } }}>
                 <div className="flex items-center gap-2 mb-4">
                   <div className="w-7 h-7 rounded-lg bg-purple-100 flex items-center justify-center"><ClipboardDocumentListIcon className="w-4 h-4 text-purple-600" /></div>
-                  <span className="text-sm font-semibold text-slate-600">任務統計</span>
+                  <span className="text-sm font-semibold text-slate-600">{t('dashboard.taskStatsTitle')}</span>
                 </div>
                 <div className="flex divide-x divide-slate-100">
-                  <div className="flex-1 text-center pr-2"><div className="text-2xl font-bold text-slate-700">{taskTotal}</div><div className="text-xs text-slate-400 mt-0.5">總計</div></div>
-                  <div className="flex-1 text-center px-2"><div className="text-2xl font-bold text-blue-600">{taskInProg}</div><div className="text-xs text-slate-400 mt-0.5">進行中</div></div>
-                  <div className="flex-1 text-center px-2"><div className="text-2xl font-bold text-slate-400">{taskUnstart}</div><div className="text-xs text-slate-400 mt-0.5">未開始</div></div>
-                  <div className="flex-1 text-center pl-2"><div className="text-2xl font-bold text-green-600">{taskDone}</div><div className="text-xs text-slate-400 mt-0.5">已完成</div></div>
+                  <div className="flex-1 text-center pr-2"><div className="text-2xl font-bold text-slate-700">{taskTotal}</div><div className="text-xs text-slate-400 mt-0.5">{t('dashboard.totalCount')}</div></div>
+                  <div className="flex-1 text-center px-2"><div className="text-2xl font-bold text-blue-600">{taskInProg}</div><div className="text-xs text-slate-400 mt-0.5">{t('dashboard.inProgress')}</div></div>
+                  <div className="flex-1 text-center px-2"><div className="text-2xl font-bold text-slate-400">{taskUnstart}</div><div className="text-xs text-slate-400 mt-0.5">{t('dashboard.notStarted')}</div></div>
+                  <div className="flex-1 text-center pl-2"><div className="text-2xl font-bold text-green-600">{taskDone}</div><div className="text-xs text-slate-400 mt-0.5">{t('dashboard.completedLabel')}</div></div>
                 </div>
               </Card>
             )
@@ -1428,20 +1439,20 @@ const DashboardPage: React.FC = () => {
               <Card className="h-full" styles={{ body: { padding: '16px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%', overflow: 'hidden' } }}>
                 <div className="flex items-center gap-2 mb-4">
                   <div className="w-7 h-7 rounded-lg bg-orange-100 flex items-center justify-center"><ClockIcon className="w-4 h-4 text-orange-500" /></div>
-                  <span className="text-sm font-semibold text-slate-600">待處理</span>
+                  <span className="text-sm font-semibold text-slate-600">{t('dashboard.pendingCard')}</span>
                 </div>
                 <div className="flex divide-x divide-slate-100">
                   <div className="flex-1 text-center pr-3">
                     <div className={`text-2xl font-bold ${(indexData?.total_awaiting_review_num?.project ?? 0) + (indexData?.total_awaiting_review_num?.duty ?? 0) > 0 ? 'text-orange-500' : 'text-slate-400'}`}>
                       {(indexData?.total_awaiting_review_num?.project ?? 0) + (indexData?.total_awaiting_review_num?.duty ?? 0)}
                     </div>
-                    <div className="text-xs text-slate-400 mt-0.5">待審核</div>
+                    <div className="text-xs text-slate-400 mt-0.5">{t('dashboard.pendingReviewLabel')}</div>
                   </div>
                   <div className="flex-1 text-center pl-3">
                     <div className={`text-2xl font-bold ${(indexData?.total_progress_record_num ?? 0) > 0 ? 'text-blue-500' : 'text-slate-400'}`}>
                       {indexData?.total_progress_record_num ?? 0}
                     </div>
-                    <div className="text-xs text-slate-400 mt-0.5">未讀進度</div>
+                    <div className="text-xs text-slate-400 mt-0.5">{t('dashboard.unreadProgressLabel')}</div>
                   </div>
                 </div>
               </Card>
@@ -1456,13 +1467,13 @@ const DashboardPage: React.FC = () => {
               return (
                 <Card
                   className="h-full"
-                  title={<span className="font-semibold text-slate-700 text-sm">本週活動概覽</span>}
+                  title={<span className="font-semibold text-slate-700 text-sm">{t('dashboard.weeklyActivityTitle')}</span>}
                   extra={<span className="text-xs text-slate-400">{dayjs().startOf('isoWeek').format('MM/DD')} – {dayjs().endOf('isoWeek').format('MM/DD')}</span>}
                   styles={{ body: { paddingTop: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '100%' } }}
                 >
                   {weeklyActivity.length === 0 || !hasActivity ? (
                     <div className="flex-1 flex flex-col items-center justify-center gap-2 text-slate-400">
-                      <Empty description="本週尚無活動記錄" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                      <Empty description={t('dashboard.noWeeklyActivity')} image={Empty.PRESENTED_IMAGE_SIMPLE} />
                     </div>
                   ) : (
                     <>
@@ -1471,13 +1482,13 @@ const DashboardPage: React.FC = () => {
                           <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
                           <YAxis hide />
                           <RTooltip contentStyle={{ borderRadius: 10, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: 12 }} cursor={{ fill: '#f8fafc' }} />
-                          <Bar dataKey="project" name="功能任務進度" fill="#bfdbfe" radius={[4,4,0,0]} />
-                          <Bar dataKey="duty"    name="AR進度" fill="#2563eb" radius={[4,4,0,0]} />
+                          <Bar dataKey="project" name={t('dashboard.functionProgress')} fill="#bfdbfe" radius={[4,4,0,0]} />
+                          <Bar dataKey="duty"    name={t('dashboard.arProgress')} fill="#2563eb" radius={[4,4,0,0]} />
                         </BarChart>
                       </ResponsiveContainer>
                       <div className="flex gap-4 mt-1">
-                        <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-[#bfdbfe]" /><span className="text-xs text-slate-400">功能任務進度</span></div>
-                        <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-[#2563eb]" /><span className="text-xs text-slate-400">AR進度</span></div>
+                        <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-[#bfdbfe]" /><span className="text-xs text-slate-400">{t('dashboard.functionProgress')}</span></div>
+                        <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-[#2563eb]" /><span className="text-xs text-slate-400">{t('dashboard.arProgress')}</span></div>
                       </div>
                     </>
                   )}
@@ -1491,13 +1502,13 @@ const DashboardPage: React.FC = () => {
                 styles={{ body: { padding: 0, overflow: 'auto', height: '100%' } }}
                 title={
                   <div>
-                    <div className="text-sm font-semibold text-slate-700">我參與的專案</div>
-                    <div className="text-xs text-slate-400 font-normal mt-0.5">{myProjects.length} 個項目</div>
+                    <div className="text-sm font-semibold text-slate-700">{t('dashboard.myProjectTitle')}</div>
+                    <div className="text-xs text-slate-400 font-normal mt-0.5">{t('dashboard.myProjectCount', { count: myProjects.length })}</div>
                   </div>
                 }
               >
                 {myProjects.length === 0
-                  ? <Empty description="暫無相關專案" className="py-6" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                  ? <Empty description={t('dashboard.noProjects')} className="py-6" image={Empty.PRESENTED_IMAGE_SIMPLE} />
                   : myProjects.map((p) => {
                     const pmName = toName(p.project_pm)
                     return (
@@ -1532,13 +1543,13 @@ const DashboardPage: React.FC = () => {
                 styles={{ body: { padding: 0, overflow: 'auto', height: '100%' } }}
                 title={
                   <div>
-                    <div className="text-sm font-semibold text-slate-700">我負責的任務</div>
-                    <div className="text-xs text-slate-400 font-normal mt-0.5">全部 · {myFuncTasks.length} 個任務</div>
+                    <div className="text-sm font-semibold text-slate-700">{t('dashboard.myTaskTitle')}</div>
+                    <div className="text-xs text-slate-400 font-normal mt-0.5">{t('dashboard.myTaskSubtitle', { count: myFuncTasks.length })}</div>
                   </div>
                 }
               >
                 {myFuncTasks.length === 0
-                  ? <Empty description="暫無相關任務" className="py-6" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                  ? <Empty description={t('dashboard.noTasks')} className="py-6" image={Empty.PRESENTED_IMAGE_SIMPLE} />
                   : myFuncTasks.map((f) => {
                     const st = FUNCTION_STATUS_MAP[f.status]
                     return (
@@ -1569,7 +1580,7 @@ const DashboardPage: React.FC = () => {
                 styles={{ body: { padding: 0, overflow: 'auto', height: '100%' } }}
                 title={
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-slate-700">待我審批</span>
+                    <span className="text-sm font-semibold text-slate-700">{t('dashboard.myPendingReviewTitle')}</span>
                     {pendingReviews.length > 0 && (
                       <span className="w-5 h-5 rounded-full bg-orange-500 text-white text-[10px] font-bold flex items-center justify-center">{pendingReviews.length}</span>
                     )}
@@ -1577,10 +1588,10 @@ const DashboardPage: React.FC = () => {
                 }
               >
                 {pendingReviews.length === 0
-                  ? <Empty description="暫無待審批項目" className="py-6" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                  ? <Empty description={t('dashboard.noPendingItems')} className="py-6" image={Empty.PRESENTED_IMAGE_SIMPLE} />
                   : pendingReviews.map((r) => {
                     const title = r.project_nm || r.duty_nm || r.function_nm || r.id
-                    const typeLabel = r.apply_type || '申請'
+                    const typeLabel = r.apply_type || t('dashboard.applicationLabel')
                     return (
                       <div
                         key={r.id}
@@ -1602,15 +1613,19 @@ const DashboardPage: React.FC = () => {
             case 'latest_news': return isManager ? null : (
               <Card
                 className="h-full"
-                title={<span className="font-semibold text-slate-700 text-sm">近期動態</span>}
+                title={<span className="font-semibold text-slate-700 text-sm">{t('dashboard.latestNewsTitle')}</span>}
                 style={{ display: 'flex', flexDirection: 'column' }}
                 styles={{ body: { padding: '0 16px 12px', overflowY: 'auto', flex: 1, minHeight: 0 } }}
               >
                 {latestNews.length === 0
-                  ? <Empty description="暫無近期動態" className="py-6" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                  ? <Empty description={t('dashboard.noLatestNews')} className="py-6" image={Empty.PRESENTED_IMAGE_SIMPLE} />
                   : latestNews.map((item) => {
                     const TYPE_COLOR: Record<string, string> = { progress: 'blue', duty_progress: 'purple', review: 'orange' }
-                    const TYPE_LABEL: Record<string, string> = { progress: '進度', duty_progress: '任務', review: '審核' }
+                    const TYPE_LABEL: Record<string, string> = {
+                      progress: t('dashboard.progressTag'),
+                      duty_progress: t('dashboard.dutyProgressTag'),
+                      review: t('dashboard.reviewTag'),
+                    }
                     return (
                       <div key={item.id} className="flex items-start gap-2 py-2.5 border-b border-slate-50 last:border-0">
                         <Tag color={TYPE_COLOR[item.type] ?? 'default'} style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0, flexShrink: 0, marginTop: 1 }}>

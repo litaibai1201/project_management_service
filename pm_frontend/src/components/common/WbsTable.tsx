@@ -1,19 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import type { ProjectFunction, Requirement } from '@/types/api.types'
-
-const PRIORITY_LABEL: Record<number, { label: string; color: string }> = {
-  1: { label: '低',   color: '#22c55e' },
-  2: { label: '中',   color: '#f59e0b' },
-  3: { label: '高',   color: '#ef4444' },
-  4: { label: '緊急', color: '#7c3aed' },
-}
-const FUNC_STATUS_LABEL: Record<number, { label: string; color: string }> = {
-  1: { label: '待開始',  color: '#94a3b8' },
-  2: { label: '進行中',  color: '#2563eb' },
-  3: { label: '完結審核', color: '#f59e0b' },
-  4: { label: '已完結',  color: '#16a34a' },
-  8: { label: '擱置',    color: '#6b7280' },
-}
+import { FUNCTION_STATUS_MAP, PRIORITY_MAP } from '@/utils/status'
+import { useTranslation } from 'react-i18next'
 
 const WbsTable: React.FC<{
   functions: ProjectFunction[]
@@ -21,6 +9,7 @@ const WbsTable: React.FC<{
   requirements?: Requirement[]
   defaultExpanded?: boolean
 }> = ({ functions, toName, requirements = [], defaultExpanded = false }) => {
+  const { t } = useTranslation()
   const COLS = '24px 2fr 1fr 1fr 1fr 1fr 1fr'
 
   const reqNameMap = useMemo(() => {
@@ -47,7 +36,7 @@ const WbsTable: React.FC<{
         if (!map.has(g)) map.set(g, [])
         map.get(g)!.push(t)
       })
-      return [...map.entries()].map(([g, items]) => ({ name: g === '__nogroup__' ? '未分組' : g, key: g, items }))
+      return [...map.entries()].map(([g, items]) => ({ name: g === '__nogroup__' ? t('common.ungrouped') : g, key: g, items }))
     }
 
     return [...byReq.entries()]
@@ -108,15 +97,15 @@ const WbsTable: React.FC<{
             : <span className="text-slate-300">—</span>}
         </div>
         <div className="px-2 py-2">
-          {PRIORITY_LABEL[task.priority]
-            ? <span className="font-medium" style={{ color: PRIORITY_LABEL[task.priority].color }}>{PRIORITY_LABEL[task.priority].label}</span>
+          {PRIORITY_MAP[task.priority]
+            ? <span className="font-medium" style={{ color: PRIORITY_MAP[task.priority].color === 'blue' ? '#2563eb' : PRIORITY_MAP[task.priority].color === 'orange' ? '#f59e0b' : PRIORITY_MAP[task.priority].color === 'red' ? '#ef4444' : '#7c3aed' }}>{PRIORITY_MAP[task.priority].label}</span>
             : '—'}
         </div>
         <div className="px-2 py-2 text-slate-500 tabular-nums">{task.expected_start_date || '—'}</div>
         <div className="px-2 py-2 text-slate-500 tabular-nums">{task.expected_end_date || '—'}</div>
         <div className="px-2 py-2">
-          {FUNC_STATUS_LABEL[task.status]
-            ? <span style={{ color: FUNC_STATUS_LABEL[task.status].color }}>{FUNC_STATUS_LABEL[task.status].label}</span>
+          {FUNCTION_STATUS_MAP[task.status]
+            ? <span style={{ color: FUNCTION_STATUS_MAP[task.status].dot }}>{FUNCTION_STATUS_MAP[task.status].label}</span>
             : '—'}
         </div>
       </div>
@@ -131,17 +120,17 @@ const WbsTable: React.FC<{
           {allHeaderKeys.length > 0 && (
             <button onClick={toggleAll}
               className="w-4 h-4 rounded border border-slate-300 hover:border-violet-400 hover:text-violet-600 text-slate-400 bg-white hover:bg-violet-50 transition-colors cursor-pointer flex items-center justify-center text-[10px] font-bold leading-none"
-              title={allCollapsed ? '展開全部' : '折疊全部'}>
+              title={allCollapsed ? t('common.expandAll') : t('common.collapseAll')}>
               {allCollapsed ? '+' : '−'}
             </button>
           )}
         </div>
-        <div className="px-2 py-2">任務名稱</div>
-        <div className="px-2 py-2">負責人</div>
-        <div className="px-2 py-2">優先級</div>
-        <div className="px-2 py-2">預計開始</div>
-        <div className="px-2 py-2">預計完成</div>
-        <div className="px-2 py-2">狀態</div>
+        <div className="px-2 py-2">{t('function.name')}</div>
+        <div className="px-2 py-2">{t('function.assignee')}</div>
+        <div className="px-2 py-2">{t('common.priority')}</div>
+        <div className="px-2 py-2">{t('common.expectedStartDate')}</div>
+        <div className="px-2 py-2">{t('common.expectedEndDate')}</div>
+        <div className="px-2 py-2">{t('common.status')}</div>
       </div>
 
       {structure.map((reqGroup) => {
@@ -165,7 +154,7 @@ const WbsTable: React.FC<{
                 </div>
                 <div className="px-2 py-2 font-semibold text-purple-700 flex items-center gap-1.5 col-span-6">
                   <span className="truncate">{reqGroup.reqNm}</span>
-                  <span className="font-normal text-purple-400 text-[11px] flex-shrink-0">（{reqGroup.allTasks.length} 項）</span>
+                  <span className="font-normal text-purple-400 text-[11px] flex-shrink-0">{t('common.itemCount', { count: reqGroup.allTasks.length })}</span>
                 </div>
               </div>
             )}
@@ -192,7 +181,7 @@ const WbsTable: React.FC<{
                         <div className={`${reqGroup.hasReqLevel ? 'pl-4' : 'px-2'} pr-2 py-2 font-semibold text-violet-700 flex items-center gap-1.5`}>
                           <span className="w-4 h-4 rounded-sm bg-violet-200 text-violet-700 text-[10px] font-bold flex items-center justify-center flex-shrink-0">{gi + 1}</span>
                           <span className="truncate">{sg.name}</span>
-                          <span className="font-normal text-violet-400 text-[11px] flex-shrink-0">（{sg.items.length} 項）</span>
+                          <span className="font-normal text-violet-400 text-[11px] flex-shrink-0">{t('common.itemCount', { count: sg.items.length })}</span>
                         </div>
                         {!grpOpen ? (
                           <>

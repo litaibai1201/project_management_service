@@ -10,6 +10,7 @@ import { systemApi, type SystemReportStat } from '@/api/system.api'
 import { PROJECT_STATUS_MAP } from '@/utils/status'
 import dayjs from 'dayjs'
 import { useResizableColumns, tableComponents } from '@/hooks/useResizableColumns'
+import { useTranslation } from 'react-i18next'
 
 // ─── Summary stat card ────────────────────────────────────────────────────────
 
@@ -58,6 +59,7 @@ function downloadXlsx(sheetName: string, headers: string[], rows: (string | numb
 // ─── Project: Progress Tab ────────────────────────────────────────────────────
 
 const ProjectProgressTab: React.FC<{ data: ProjectReportStat[] }> = ({ data }) => {
+  const { t } = useTranslation()
   const summary = useMemo(() => ({
     projects:    data.length,
     total:       data.reduce((s, r) => s + r.total, 0),
@@ -73,28 +75,28 @@ const ProjectProgressTab: React.FC<{ data: ProjectReportStat[] }> = ({ data }) =
   const onExport = () => {
     const rows = data.map((r) => [r.project_nm, PROJECT_STATUS_MAP[r.status]?.label ?? r.status,
       r.total, r.draft, r.not_started, r.in_progress, r.completed, r.shelved, r.completion_rate])
-    rows.push(['合計', '', summary.total, summary.draft, summary.not_started, summary.in_progress, summary.completed, summary.shelved, rate])
-    downloadXlsx('項目進度報表', ['項目', '項目狀態', '總任務', '草稿中', '未開始', '進行中', '已完成', '搁置', '完成率(%)'],
-      rows, '項目進度報表', [20, 12, 10, 10, 10, 10, 10, 8, 12])
+    rows.push([t('projectReport.subtotal'), '', summary.total, summary.draft, summary.not_started, summary.in_progress, summary.completed, summary.shelved, rate])
+    downloadXlsx(t('projectReport.projectProgressReport'), [t('projectReport.project'), t('projectReport.projectStatus'), t('projectReport.totalTasks'), t('projectReport.draft'), t('projectReport.notStarted'), t('projectReport.inProgress'), t('projectReport.completed'), t('projectReport.shelved'), t('projectReport.completionRatePct')],
+      rows, t('projectReport.projectProgressReport'), [20, 12, 10, 10, 10, 10, 10, 8, 12])
   }
 
   const rawColumns: ColumnsType<ProjectReportStat> = [
-    { title: '項目', dataIndex: 'project_nm', width: 160, ellipsis: true },
-    { title: '項目狀態', dataIndex: 'status', width: 110,
+    { title: t('projectReport.project'), dataIndex: 'project_nm', width: 160, ellipsis: true },
+    { title: t('projectReport.projectStatus'), dataIndex: 'status', width: 110,
       render: (s: number) => { const m = PROJECT_STATUS_MAP[s]; return m ? <Tag color={m.color}>{m.label}</Tag> : <Tag>{s}</Tag> } },
-    { title: '總任務', dataIndex: 'total', width: 90, align: 'center',
+    { title: t('projectReport.totalTasks'), dataIndex: 'total', width: 90, align: 'center',
       render: (v: number) => <span className="text-blue-500 font-medium">{v}</span> },
-    { title: '草稿中', dataIndex: 'draft', width: 80, align: 'center',
+    { title: t('projectReport.draft'), dataIndex: 'draft', width: 80, align: 'center',
       render: (v: number) => <span className="text-slate-400">{v}</span> },
-    { title: '未開始', dataIndex: 'not_started', width: 80, align: 'center',
+    { title: t('projectReport.notStarted'), dataIndex: 'not_started', width: 80, align: 'center',
       render: (v: number) => <span className="text-blue-400">{v}</span> },
-    { title: '進行中', dataIndex: 'in_progress', width: 80, align: 'center',
+    { title: t('projectReport.inProgress'), dataIndex: 'in_progress', width: 80, align: 'center',
       render: (v: number) => <span className={v > 0 ? 'text-orange-500 font-medium' : 'text-slate-400'}>{v}</span> },
-    { title: '已完成', dataIndex: 'completed', width: 80, align: 'center',
+    { title: t('projectReport.completed'), dataIndex: 'completed', width: 80, align: 'center',
       render: (v: number) => <span className={v > 0 ? 'text-green-600 font-medium' : 'text-slate-400'}>{v}</span> },
-    { title: '搁置', dataIndex: 'shelved', width: 80, align: 'center',
+    { title: t('projectReport.shelved'), dataIndex: 'shelved', width: 80, align: 'center',
       render: (v: number) => <span className={v > 0 ? 'text-yellow-500 font-medium' : 'text-slate-400'}>{v}</span> },
-    { title: '完成率', dataIndex: 'completion_rate', width: 280, align: 'center',
+    { title: t('projectReport.completionRate'), dataIndex: 'completion_rate', width: 280, align: 'center',
       render: (r: number) => (
         <div className="flex items-center gap-2 justify-center">
           <Progress percent={r} size="small" showInfo={false} strokeColor="#16a34a" trailColor="#e2e8f0" style={{ width: 180, marginBottom: 0 }} />
@@ -107,16 +109,16 @@ const ProjectProgressTab: React.FC<{ data: ProjectReportStat[] }> = ({ data }) =
   return (
     <>
       <div className="bg-white border border-slate-100 rounded-xl mb-4 flex items-center">
-        <StatCard label="項目" value={summary.projects} />
-        <StatCard label="總任務" value={summary.total} />
-        <StatCard label="草稿中" value={summary.draft} />
-        <StatCard label="未開始" value={summary.not_started} />
-        <StatCard label="進行中" value={summary.in_progress} color="#f59e0b" />
-        <StatCard label="已完成" value={summary.completed} color="#16a34a" />
-        <StatCard label="搁置" value={summary.shelved} color={summary.shelved > 0 ? '#eab308' : undefined} />
+        <StatCard label={t('projectReport.project')} value={summary.projects} />
+        <StatCard label={t('projectReport.totalTasks')} value={summary.total} />
+        <StatCard label={t('projectReport.draft')} value={summary.draft} />
+        <StatCard label={t('projectReport.notStarted')} value={summary.not_started} />
+        <StatCard label={t('projectReport.inProgress')} value={summary.in_progress} color="#f59e0b" />
+        <StatCard label={t('projectReport.completed')} value={summary.completed} color="#16a34a" />
+        <StatCard label={t('projectReport.shelved')} value={summary.shelved} color={summary.shelved > 0 ? '#eab308' : undefined} />
         <div className="flex-1 flex items-center justify-end gap-4 pr-6">
-          <GaugeChart rate={rate} label="完成率" color="#16a34a" />
-          <Button icon={<ArrowDownTrayIcon className="w-4 h-4" />} onClick={onExport}>匯出 Excel</Button>
+          <GaugeChart rate={rate} label={t('projectReport.completionRate')} color="#16a34a" />
+          <Button icon={<ArrowDownTrayIcon className="w-4 h-4" />} onClick={onExport}>{t('projectReport.exportExcel')}</Button>
         </div>
       </div>
       <div className="bg-white border border-slate-100 rounded-xl overflow-hidden">
@@ -129,6 +131,7 @@ const ProjectProgressTab: React.FC<{ data: ProjectReportStat[] }> = ({ data }) =
 // ─── Project: Overdue Tab ─────────────────────────────────────────────────────
 
 const ProjectOverdueTab: React.FC<{ data: ProjectReportStat[] }> = ({ data }) => {
+  const { t } = useTranslation()
   const summary = useMemo(() => ({
     projects:           data.length,
     pending:            data.reduce((s, r) => s + r.pending, 0),
@@ -143,27 +146,27 @@ const ProjectOverdueTab: React.FC<{ data: ProjectReportStat[] }> = ({ data }) =>
   const onExport = () => {
     const rows = data.map((r) => [r.project_nm, PROJECT_STATUS_MAP[r.status]?.label ?? r.status,
       r.pending, r.not_started, r.in_progress, r.overdue_incomplete, r.overdue_complete, r.overdue_rate])
-    rows.push(['合計', '', summary.pending, summary.not_started, summary.in_progress,
+    rows.push([t('projectReport.subtotal'), '', summary.pending, summary.not_started, summary.in_progress,
       summary.overdue_incomplete, data.reduce((s, r) => s + r.overdue_complete, 0), overdueRate])
-    downloadXlsx('項目延期報表', ['項目', '項目狀態', '待處理任務', '未開始', '進行中', '延期未完成', '延期已完成', '延期率(%)'],
-      rows, '項目延期報表', [20, 12, 12, 10, 10, 12, 12, 12])
+    downloadXlsx(t('projectReport.projectOverdueReport'), [t('projectReport.project'), t('projectReport.projectStatus'), t('projectReport.pendingTasks'), t('projectReport.notStarted'), t('projectReport.inProgress'), t('projectReport.overdueIncomplete'), t('projectReport.overdueComplete'), t('projectReport.overdueRatePct')],
+      rows, t('projectReport.projectOverdueReport'), [20, 12, 12, 10, 10, 12, 12, 12])
   }
 
   const rawColumns: ColumnsType<ProjectReportStat> = [
-    { title: '項目', dataIndex: 'project_nm', width: 160, ellipsis: true },
-    { title: '項目狀態', dataIndex: 'status', width: 110,
+    { title: t('projectReport.project'), dataIndex: 'project_nm', width: 160, ellipsis: true },
+    { title: t('projectReport.projectStatus'), dataIndex: 'status', width: 110,
       render: (s: number) => { const m = PROJECT_STATUS_MAP[s]; return m ? <Tag color={m.color}>{m.label}</Tag> : <Tag>{s}</Tag> } },
-    { title: '待處理任務', dataIndex: 'pending', width: 110, align: 'center',
+    { title: t('projectReport.pendingTasks'), dataIndex: 'pending', width: 110, align: 'center',
       render: (v: number) => <span className="text-blue-500 font-medium">{v}</span> },
-    { title: '未開始', dataIndex: 'not_started', width: 90, align: 'center',
+    { title: t('projectReport.notStarted'), dataIndex: 'not_started', width: 90, align: 'center',
       render: (v: number) => <span className="text-blue-400">{v}</span> },
-    { title: '進行中', dataIndex: 'in_progress', width: 90, align: 'center',
+    { title: t('projectReport.inProgress'), dataIndex: 'in_progress', width: 90, align: 'center',
       render: (v: number) => <span className={v > 0 ? 'text-orange-500 font-medium' : 'text-slate-400'}>{v}</span> },
-    { title: '延期未完成', dataIndex: 'overdue_incomplete', width: 110, align: 'center',
+    { title: t('projectReport.overdueIncomplete'), dataIndex: 'overdue_incomplete', width: 110, align: 'center',
       render: (v: number) => <span className={v > 0 ? 'text-red-500 font-semibold' : 'text-slate-400'}>{v}</span> },
-    { title: '延期已完成', dataIndex: 'overdue_complete', width: 110, align: 'center',
+    { title: t('projectReport.overdueComplete'), dataIndex: 'overdue_complete', width: 110, align: 'center',
       render: (v: number) => <span className={v > 0 ? 'text-orange-400 font-medium' : 'text-slate-400'}>{v}</span> },
-    { title: '延期率', dataIndex: 'overdue_rate', width: 180, align: 'center',
+    { title: t('projectReport.overdueRate'), dataIndex: 'overdue_rate', width: 180, align: 'center',
       render: (r: number) => (
         <div className="flex items-center gap-2 justify-center">
           <Progress percent={r} size="small" showInfo={false} strokeColor="#ef4444" trailColor="#e2e8f0" style={{ width: 80, marginBottom: 0 }} />
@@ -176,14 +179,14 @@ const ProjectOverdueTab: React.FC<{ data: ProjectReportStat[] }> = ({ data }) =>
   return (
     <>
       <div className="bg-white border border-slate-100 rounded-xl mb-4 flex items-center">
-        <StatCard label="項目" value={summary.projects} />
-        <StatCard label="待處理任務" value={summary.pending} />
-        <StatCard label="未開始" value={summary.not_started} />
-        <StatCard label="進行中" value={summary.in_progress} color="#f59e0b" />
-        <StatCard label="延期未完成" value={summary.overdue_incomplete} color={summary.overdue_incomplete > 0 ? '#ef4444' : undefined} />
+        <StatCard label={t('projectReport.project')} value={summary.projects} />
+        <StatCard label={t('projectReport.pendingTasks')} value={summary.pending} />
+        <StatCard label={t('projectReport.notStarted')} value={summary.not_started} />
+        <StatCard label={t('projectReport.inProgress')} value={summary.in_progress} color="#f59e0b" />
+        <StatCard label={t('projectReport.overdueIncomplete')} value={summary.overdue_incomplete} color={summary.overdue_incomplete > 0 ? '#ef4444' : undefined} />
         <div className="flex-1 flex items-center justify-end gap-4 pr-6">
-          <GaugeChart rate={overdueRate} label="延期率" color="#ef4444" />
-          <Button icon={<ArrowDownTrayIcon className="w-4 h-4" />} onClick={onExport}>匯出 Excel</Button>
+          <GaugeChart rate={overdueRate} label={t('projectReport.overdueRate')} color="#ef4444" />
+          <Button icon={<ArrowDownTrayIcon className="w-4 h-4" />} onClick={onExport}>{t('projectReport.exportExcel')}</Button>
         </div>
       </div>
       <div className="bg-white border border-slate-100 rounded-xl overflow-hidden">
@@ -196,6 +199,7 @@ const ProjectOverdueTab: React.FC<{ data: ProjectReportStat[] }> = ({ data }) =>
 // ─── Member: Progress Tab ─────────────────────────────────────────────────────
 
 const MemberProgressTab: React.FC<{ data: MemberReportStat[] }> = ({ data }) => {
+  const { t } = useTranslation()
   const summary = useMemo(() => ({
     members:     data.length,
     total:       data.reduce((s, r) => s + r.total, 0),
@@ -209,30 +213,30 @@ const MemberProgressTab: React.FC<{ data: MemberReportStat[] }> = ({ data }) => 
 
   const onExport = () => {
     const rows = data.map((r) => [r.name, r.total, r.not_started, r.in_progress, r.completed, r.shelved, r.completion_rate])
-    rows.push(['合計', summary.total, summary.not_started, summary.in_progress, summary.completed, summary.shelved, rate])
-    downloadXlsx('成員進度報表', ['成員', '總任務', '未開始', '進行中', '已完成', '搁置', '完成率(%)'],
-      rows, '成員進度報表', [16, 10, 10, 10, 10, 8, 12])
+    rows.push([t('projectReport.subtotal'), summary.total, summary.not_started, summary.in_progress, summary.completed, summary.shelved, rate])
+    downloadXlsx(t('projectReport.memberProgressReport'), [t('projectReport.member'), t('projectReport.totalTasks'), t('projectReport.notStarted'), t('projectReport.inProgress'), t('projectReport.completed'), t('projectReport.shelved'), t('projectReport.completionRatePct')],
+      rows, t('projectReport.memberProgressReport'), [16, 10, 10, 10, 10, 8, 12])
   }
 
   const rawColumns: ColumnsType<MemberReportStat> = [
-    { title: '成員', dataIndex: 'name', width: 160,
+    { title: t('projectReport.member'), dataIndex: 'name', width: 160,
       render: (name: string) => (
         <div className="flex items-center gap-2">
           <Avatar size={28} style={{ background: '#2563eb', fontSize: 12, flexShrink: 0 }}>{name?.[0]?.toUpperCase()}</Avatar>
           <span className="text-sm text-slate-700">{name}</span>
         </div>
       ) },
-    { title: '總任務', dataIndex: 'total', width: 100, align: 'center',
+    { title: t('projectReport.totalTasks'), dataIndex: 'total', width: 100, align: 'center',
       render: (v: number) => <span className="text-blue-500 font-medium">{v}</span> },
-    { title: '未開始', dataIndex: 'not_started', width: 80, align: 'center',
+    { title: t('projectReport.notStarted'), dataIndex: 'not_started', width: 80, align: 'center',
       render: (v: number) => <span className="text-blue-400">{v}</span> },
-    { title: '進行中', dataIndex: 'in_progress', width: 80, align: 'center',
+    { title: t('projectReport.inProgress'), dataIndex: 'in_progress', width: 80, align: 'center',
       render: (v: number) => <span className={v > 0 ? 'text-orange-500 font-medium' : 'text-slate-400'}>{v}</span> },
-    { title: '已完成', dataIndex: 'completed', width: 80, align: 'center',
+    { title: t('projectReport.completed'), dataIndex: 'completed', width: 80, align: 'center',
       render: (v: number) => <span className={v > 0 ? 'text-green-600 font-medium' : 'text-slate-400'}>{v}</span> },
-    { title: '搁置', dataIndex: 'shelved', width: 80, align: 'center',
+    { title: t('projectReport.shelved'), dataIndex: 'shelved', width: 80, align: 'center',
       render: (v: number) => <span className={v > 0 ? 'text-yellow-500 font-medium' : 'text-slate-400'}>{v}</span> },
-    { title: '完成率', dataIndex: 'completion_rate', width: 280, align: 'center',
+    { title: t('projectReport.completionRate'), dataIndex: 'completion_rate', width: 280, align: 'center',
       render: (r: number) => (
         <div className="flex items-center gap-2 justify-center">
           <Progress percent={r} size="small" showInfo={false} strokeColor="#16a34a" trailColor="#e2e8f0" style={{ width: 180, marginBottom: 0 }} />
@@ -245,15 +249,15 @@ const MemberProgressTab: React.FC<{ data: MemberReportStat[] }> = ({ data }) => 
   return (
     <>
       <div className="bg-white border border-slate-100 rounded-xl mb-4 flex items-center">
-        <StatCard label="成員" value={summary.members} />
-        <StatCard label="總任務" value={summary.total} />
-        <StatCard label="未開始" value={summary.not_started} />
-        <StatCard label="進行中" value={summary.in_progress} color="#f59e0b" />
-        <StatCard label="已完成" value={summary.completed} color="#16a34a" />
-        <StatCard label="搁置" value={summary.shelved} color={summary.shelved > 0 ? '#eab308' : undefined} />
+        <StatCard label={t('projectReport.member')} value={summary.members} />
+        <StatCard label={t('projectReport.totalTasks')} value={summary.total} />
+        <StatCard label={t('projectReport.notStarted')} value={summary.not_started} />
+        <StatCard label={t('projectReport.inProgress')} value={summary.in_progress} color="#f59e0b" />
+        <StatCard label={t('projectReport.completed')} value={summary.completed} color="#16a34a" />
+        <StatCard label={t('projectReport.shelved')} value={summary.shelved} color={summary.shelved > 0 ? '#eab308' : undefined} />
         <div className="flex-1 flex items-center justify-end gap-4 pr-6">
-          <GaugeChart rate={rate} label="完成率" color="#16a34a" />
-          <Button icon={<ArrowDownTrayIcon className="w-4 h-4" />} onClick={onExport}>匯出 Excel</Button>
+          <GaugeChart rate={rate} label={t('projectReport.completionRate')} color="#16a34a" />
+          <Button icon={<ArrowDownTrayIcon className="w-4 h-4" />} onClick={onExport}>{t('projectReport.exportExcel')}</Button>
         </div>
       </div>
       <div className="bg-white border border-slate-100 rounded-xl overflow-hidden">
@@ -266,6 +270,7 @@ const MemberProgressTab: React.FC<{ data: MemberReportStat[] }> = ({ data }) => 
 // ─── Member: Overdue Tab ──────────────────────────────────────────────────────
 
 const MemberOverdueTab: React.FC<{ data: MemberReportStat[] }> = ({ data }) => {
+  const { t } = useTranslation()
   const summary = useMemo(() => ({
     members:            data.length,
     pending:            data.reduce((s, r) => s + r.pending, 0),
@@ -280,31 +285,31 @@ const MemberOverdueTab: React.FC<{ data: MemberReportStat[] }> = ({ data }) => {
   const onExport = () => {
     const rows = data.map((r) => [r.name, r.pending, r.not_started, r.in_progress,
       r.overdue_incomplete, r.overdue_complete, r.overdue_rate])
-    rows.push(['合計', summary.pending, summary.not_started, summary.in_progress,
+    rows.push([t('projectReport.subtotal'), summary.pending, summary.not_started, summary.in_progress,
       summary.overdue_incomplete, data.reduce((s, r) => s + r.overdue_complete, 0), overdueRate])
-    downloadXlsx('成員延期報表', ['成員', '待處理任務', '未開始', '進行中', '延期未完成', '延期已完成', '延期率(%)'],
-      rows, '成員延期報表', [16, 12, 10, 10, 12, 12, 12])
+    downloadXlsx(t('projectReport.memberOverdueReport'), [t('projectReport.member'), t('projectReport.pendingTasks'), t('projectReport.notStarted'), t('projectReport.inProgress'), t('projectReport.overdueIncomplete'), t('projectReport.overdueComplete'), t('projectReport.overdueRatePct')],
+      rows, t('projectReport.memberOverdueReport'), [16, 12, 10, 10, 12, 12, 12])
   }
 
   const rawColumns: ColumnsType<MemberReportStat> = [
-    { title: '成員', dataIndex: 'name', width: 160,
+    { title: t('projectReport.member'), dataIndex: 'name', width: 160,
       render: (name: string) => (
         <div className="flex items-center gap-2">
           <Avatar size={28} style={{ background: '#2563eb', fontSize: 12, flexShrink: 0 }}>{name?.[0]?.toUpperCase()}</Avatar>
           <span className="text-sm text-slate-700">{name}</span>
         </div>
       ) },
-    { title: '待處理任務', dataIndex: 'pending', width: 110, align: 'center',
+    { title: t('projectReport.pendingTasks'), dataIndex: 'pending', width: 110, align: 'center',
       render: (v: number) => <span className="text-blue-500 font-medium">{v}</span> },
-    { title: '未開始', dataIndex: 'not_started', width: 90, align: 'center',
+    { title: t('projectReport.notStarted'), dataIndex: 'not_started', width: 90, align: 'center',
       render: (v: number) => <span className="text-blue-400">{v}</span> },
-    { title: '進行中', dataIndex: 'in_progress', width: 90, align: 'center',
+    { title: t('projectReport.inProgress'), dataIndex: 'in_progress', width: 90, align: 'center',
       render: (v: number) => <span className={v > 0 ? 'text-orange-500 font-medium' : 'text-slate-400'}>{v}</span> },
-    { title: '延期未完成', dataIndex: 'overdue_incomplete', width: 110, align: 'center',
+    { title: t('projectReport.overdueIncomplete'), dataIndex: 'overdue_incomplete', width: 110, align: 'center',
       render: (v: number) => <span className={v > 0 ? 'text-red-500 font-semibold' : 'text-slate-400'}>{v}</span> },
-    { title: '延期已完成', dataIndex: 'overdue_complete', width: 110, align: 'center',
+    { title: t('projectReport.overdueComplete'), dataIndex: 'overdue_complete', width: 110, align: 'center',
       render: (v: number) => <span className={v > 0 ? 'text-orange-400 font-medium' : 'text-slate-400'}>{v}</span> },
-    { title: '延期率', dataIndex: 'overdue_rate', width: 180, align: 'center',
+    { title: t('projectReport.overdueRate'), dataIndex: 'overdue_rate', width: 180, align: 'center',
       render: (r: number) => (
         <div className="flex items-center gap-2 justify-center">
           <Progress percent={r} size="small" showInfo={false} strokeColor="#ef4444" trailColor="#e2e8f0" style={{ width: 80, marginBottom: 0 }} />
@@ -317,14 +322,14 @@ const MemberOverdueTab: React.FC<{ data: MemberReportStat[] }> = ({ data }) => {
   return (
     <>
       <div className="bg-white border border-slate-100 rounded-xl mb-4 flex items-center">
-        <StatCard label="成員" value={summary.members} />
-        <StatCard label="待處理任務" value={summary.pending} />
-        <StatCard label="未開始" value={summary.not_started} />
-        <StatCard label="進行中" value={summary.in_progress} color="#f59e0b" />
-        <StatCard label="延期未完成" value={summary.overdue_incomplete} color={summary.overdue_incomplete > 0 ? '#ef4444' : undefined} />
+        <StatCard label={t('projectReport.member')} value={summary.members} />
+        <StatCard label={t('projectReport.pendingTasks')} value={summary.pending} />
+        <StatCard label={t('projectReport.notStarted')} value={summary.not_started} />
+        <StatCard label={t('projectReport.inProgress')} value={summary.in_progress} color="#f59e0b" />
+        <StatCard label={t('projectReport.overdueIncomplete')} value={summary.overdue_incomplete} color={summary.overdue_incomplete > 0 ? '#ef4444' : undefined} />
         <div className="flex-1 flex items-center justify-end gap-4 pr-6">
-          <GaugeChart rate={overdueRate} label="延期率" color="#ef4444" />
-          <Button icon={<ArrowDownTrayIcon className="w-4 h-4" />} onClick={onExport}>匯出 Excel</Button>
+          <GaugeChart rate={overdueRate} label={t('projectReport.overdueRate')} color="#ef4444" />
+          <Button icon={<ArrowDownTrayIcon className="w-4 h-4" />} onClick={onExport}>{t('projectReport.exportExcel')}</Button>
         </div>
       </div>
       <div className="bg-white border border-slate-100 rounded-xl overflow-hidden">
@@ -337,6 +342,7 @@ const MemberOverdueTab: React.FC<{ data: MemberReportStat[] }> = ({ data }) => {
 // ─── System: Progress Tab ─────────────────────────────────────────────────────
 
 const SystemProgressTab: React.FC<{ data: SystemReportStat[] }> = ({ data }) => {
+  const { t } = useTranslation()
   const summary = useMemo(() => ({
     systems:          data.length,
     req_total:        data.reduce((s, r) => s + r.req_total, 0),
@@ -352,26 +358,26 @@ const SystemProgressTab: React.FC<{ data: SystemReportStat[] }> = ({ data }) => 
   const onExport = () => {
     const rows = data.map((r) => [r.sys_nm,
       r.task_total, r.task_draft, r.task_in_progress, r.task_completed, r.task_shelved, r.task_completion_rate])
-    rows.push(['合計',
+    rows.push([t('projectReport.subtotal'),
       summary.task_total, '', summary.task_in_progress, summary.task_completed, '', taskRate])
-    downloadXlsx('系統進度報表',
-      ['系統', '總任務', '草稿', '進行中', '已完結', '搁置', '完成率(%)'],
-      rows, '系統進度報表', [18, 10, 8, 10, 10, 8, 12])
+    downloadXlsx(t('projectReport.systemProgressReport'),
+      [t('projectReport.system'), t('projectReport.totalTasks'), t('projectReport.draftShort'), t('projectReport.inProgress'), t('projectReport.completedAlt'), t('projectReport.shelved'), t('projectReport.completionRatePct')],
+      rows, t('projectReport.systemProgressReport'), [18, 10, 8, 10, 10, 8, 12])
   }
 
   const rawColumns: ColumnsType<SystemReportStat> = [
-    { title: '系統', dataIndex: 'sys_nm', width: 160, ellipsis: true },
-    { title: '總任務', dataIndex: 'task_total', width: 90, align: 'center',
+    { title: t('projectReport.system'), dataIndex: 'sys_nm', width: 160, ellipsis: true },
+    { title: t('projectReport.totalTasks'), dataIndex: 'task_total', width: 90, align: 'center',
       render: (v: number) => <span className="text-blue-500 font-medium">{v}</span> },
-    { title: '草稿', dataIndex: 'task_draft', width: 80, align: 'center',
+    { title: t('projectReport.draftShort'), dataIndex: 'task_draft', width: 80, align: 'center',
       render: (v: number) => <span className="text-slate-400">{v}</span> },
-    { title: '進行中', dataIndex: 'task_in_progress', width: 90, align: 'center',
+    { title: t('projectReport.inProgress'), dataIndex: 'task_in_progress', width: 90, align: 'center',
       render: (v: number) => <span className={v > 0 ? 'text-orange-500 font-medium' : 'text-slate-400'}>{v}</span> },
-    { title: '已完結', dataIndex: 'task_completed', width: 90, align: 'center',
+    { title: t('projectReport.completedAlt'), dataIndex: 'task_completed', width: 90, align: 'center',
       render: (v: number) => <span className={v > 0 ? 'text-green-600 font-medium' : 'text-slate-400'}>{v}</span> },
-    { title: '搁置', dataIndex: 'task_shelved', width: 80, align: 'center',
+    { title: t('projectReport.shelved'), dataIndex: 'task_shelved', width: 80, align: 'center',
       render: (v: number) => <span className={v > 0 ? 'text-yellow-500' : 'text-slate-400'}>{v}</span> },
-    { title: '完成率', dataIndex: 'task_completion_rate', width: 240, align: 'center',
+    { title: t('projectReport.completionRate'), dataIndex: 'task_completion_rate', width: 240, align: 'center',
       render: (v: number) => (
         <div className="flex items-center gap-2 justify-center">
           <Progress percent={v} size="small" showInfo={false} strokeColor="#16a34a" trailColor="#e2e8f0" style={{ width: 140, marginBottom: 0 }} />
@@ -384,16 +390,16 @@ const SystemProgressTab: React.FC<{ data: SystemReportStat[] }> = ({ data }) => 
   return (
     <>
       <div className="bg-white border border-slate-100 rounded-xl mb-4 flex items-center">
-        <StatCard label="系統" value={summary.systems} />
-        <StatCard label="總需求" value={summary.req_total} />
-        <StatCard label="已完結需求" value={summary.req_completed} color="#16a34a" />
-        <StatCard label="總任務" value={summary.task_total} />
-        <StatCard label="進行中" value={summary.task_in_progress} color="#f59e0b" />
-        <StatCard label="已完結任務" value={summary.task_completed} color="#16a34a" />
+        <StatCard label={t('projectReport.system')} value={summary.systems} />
+        <StatCard label={t('projectReport.totalRequirements')} value={summary.req_total} />
+        <StatCard label={t('projectReport.completedRequirements')} value={summary.req_completed} color="#16a34a" />
+        <StatCard label={t('projectReport.totalTasks')} value={summary.task_total} />
+        <StatCard label={t('projectReport.inProgress')} value={summary.task_in_progress} color="#f59e0b" />
+        <StatCard label={t('projectReport.completedTasks')} value={summary.task_completed} color="#16a34a" />
         <div className="flex-1 flex items-center justify-end gap-4 pr-6">
-          <GaugeChart rate={reqRate}  label="需求完成率" color="#2563eb" />
-          <GaugeChart rate={taskRate} label="任務完成率" color="#16a34a" />
-          <Button icon={<ArrowDownTrayIcon className="w-4 h-4" />} onClick={onExport}>匯出 Excel</Button>
+          <GaugeChart rate={reqRate}  label={t('projectReport.reqCompletionRate')} color="#2563eb" />
+          <GaugeChart rate={taskRate} label={t('projectReport.taskCompletionRate')} color="#16a34a" />
+          <Button icon={<ArrowDownTrayIcon className="w-4 h-4" />} onClick={onExport}>{t('projectReport.exportExcel')}</Button>
         </div>
       </div>
       <div className="bg-white border border-slate-100 rounded-xl overflow-hidden">
@@ -406,6 +412,7 @@ const SystemProgressTab: React.FC<{ data: SystemReportStat[] }> = ({ data }) => 
 // ─── System: Overdue Tab ──────────────────────────────────────────────────────
 
 const SystemOverdueTab: React.FC<{ data: SystemReportStat[] }> = ({ data }) => {
+  const { t } = useTranslation()
   const summary = useMemo(() => ({
     systems:                 data.length,
     task_pending:            data.reduce((s, r) => s + r.task_pending, 0),
@@ -422,27 +429,27 @@ const SystemOverdueTab: React.FC<{ data: SystemReportStat[] }> = ({ data }) => {
     const rows = data.map((r) => [r.sys_nm,
       r.task_pending, r.task_not_started, r.task_in_progress,
       r.task_overdue_incomplete, r.task_overdue_complete, r.task_overdue_rate])
-    rows.push(['合計',
+    rows.push([t('projectReport.subtotal'),
       summary.task_pending, summary.task_not_started, summary.task_in_progress,
       summary.task_overdue_incomplete, summary.task_overdue_complete, overdueRate])
-    downloadXlsx('系統延期報表',
-      ['系統', '待處理任務', '未開始', '進行中', '延期未完成', '延期已完成', '任務延期率(%)'],
-      rows, '系統延期報表', [18, 12, 10, 10, 12, 12, 14])
+    downloadXlsx(t('projectReport.systemOverdueReport'),
+      [t('projectReport.system'), t('projectReport.pendingTasks'), t('projectReport.notStarted'), t('projectReport.inProgress'), t('projectReport.overdueIncomplete'), t('projectReport.overdueComplete'), t('projectReport.taskOverdueRatePct')],
+      rows, t('projectReport.systemOverdueReport'), [18, 12, 10, 10, 12, 12, 14])
   }
 
   const rawColumns: ColumnsType<SystemReportStat> = [
-    { title: '系統', dataIndex: 'sys_nm', width: 150, ellipsis: true },
-    { title: '待處理任務', dataIndex: 'task_pending', width: 110, align: 'center',
+    { title: t('projectReport.system'), dataIndex: 'sys_nm', width: 150, ellipsis: true },
+    { title: t('projectReport.pendingTasks'), dataIndex: 'task_pending', width: 110, align: 'center',
       render: (v: number) => <span className="text-blue-500 font-medium">{v}</span> },
-    { title: '未開始', dataIndex: 'task_not_started', width: 90, align: 'center',
+    { title: t('projectReport.notStarted'), dataIndex: 'task_not_started', width: 90, align: 'center',
       render: (v: number) => <span className="text-blue-400">{v}</span> },
-    { title: '進行中', dataIndex: 'task_in_progress', width: 90, align: 'center',
+    { title: t('projectReport.inProgress'), dataIndex: 'task_in_progress', width: 90, align: 'center',
       render: (v: number) => <span className={v > 0 ? 'text-orange-500 font-medium' : 'text-slate-400'}>{v}</span> },
-    { title: '延期未完成', dataIndex: 'task_overdue_incomplete', width: 110, align: 'center',
+    { title: t('projectReport.overdueIncomplete'), dataIndex: 'task_overdue_incomplete', width: 110, align: 'center',
       render: (v: number) => <span className={v > 0 ? 'text-red-500 font-semibold' : 'text-slate-400'}>{v}</span> },
-    { title: '延期已完成', dataIndex: 'task_overdue_complete', width: 110, align: 'center',
+    { title: t('projectReport.overdueComplete'), dataIndex: 'task_overdue_complete', width: 110, align: 'center',
       render: (v: number) => <span className={v > 0 ? 'text-orange-400 font-medium' : 'text-slate-400'}>{v}</span> },
-    { title: '任務延期率', dataIndex: 'task_overdue_rate', width: 230, align: 'center',
+    { title: t('projectReport.taskOverdueRate'), dataIndex: 'task_overdue_rate', width: 230, align: 'center',
       render: (v: number) => (
         <div className="flex items-center gap-2 justify-center">
           <Progress percent={v} size="small" showInfo={false} strokeColor="#ef4444" trailColor="#e2e8f0" style={{ width: 150, marginBottom: 0 }} />
@@ -455,15 +462,15 @@ const SystemOverdueTab: React.FC<{ data: SystemReportStat[] }> = ({ data }) => {
   return (
     <>
       <div className="bg-white border border-slate-100 rounded-xl mb-4 flex items-center">
-        <StatCard label="系統" value={summary.systems} />
-        <StatCard label="待處理任務" value={summary.task_pending} />
-        <StatCard label="未開始" value={summary.task_not_started} />
-        <StatCard label="進行中" value={summary.task_in_progress} color="#f59e0b" />
-        <StatCard label="延期未完成" value={summary.task_overdue_incomplete} color={summary.task_overdue_incomplete > 0 ? '#ef4444' : undefined} />
-        <StatCard label="延期已完成" value={summary.task_overdue_complete} color={summary.task_overdue_complete > 0 ? '#f59e0b' : undefined} />
+        <StatCard label={t('projectReport.system')} value={summary.systems} />
+        <StatCard label={t('projectReport.pendingTasks')} value={summary.task_pending} />
+        <StatCard label={t('projectReport.notStarted')} value={summary.task_not_started} />
+        <StatCard label={t('projectReport.inProgress')} value={summary.task_in_progress} color="#f59e0b" />
+        <StatCard label={t('projectReport.overdueIncomplete')} value={summary.task_overdue_incomplete} color={summary.task_overdue_incomplete > 0 ? '#ef4444' : undefined} />
+        <StatCard label={t('projectReport.overdueComplete')} value={summary.task_overdue_complete} color={summary.task_overdue_complete > 0 ? '#f59e0b' : undefined} />
         <div className="flex-1 flex items-center justify-end gap-4 pr-6">
-          <GaugeChart rate={overdueRate} label="延期率" color="#ef4444" />
-          <Button icon={<ArrowDownTrayIcon className="w-4 h-4" />} onClick={onExport}>匯出 Excel</Button>
+          <GaugeChart rate={overdueRate} label={t('projectReport.overdueRate')} color="#ef4444" />
+          <Button icon={<ArrowDownTrayIcon className="w-4 h-4" />} onClick={onExport}>{t('projectReport.exportExcel')}</Button>
         </div>
       </div>
       <div className="bg-white border border-slate-100 rounded-xl overflow-hidden">
@@ -476,6 +483,7 @@ const SystemOverdueTab: React.FC<{ data: SystemReportStat[] }> = ({ data }) => {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 const ProjectReportPage: React.FC = () => {
+  const { t } = useTranslation()
   const [searchParams] = useSearchParams()
   const initialTab = ['member', 'system'].includes(searchParams.get('tab') ?? '') ? searchParams.get('tab')! : 'project'
 
@@ -495,31 +503,31 @@ const ProjectReportPage: React.FC = () => {
   const topTabs = [
     {
       key: 'project',
-      label: '項目',
+      label: t('projectReport.tabProject'),
       children: (
         <Tabs items={[
-          { key: 'progress', label: '項目進度報表', children: loading ? null : <ProjectProgressTab data={projectData} /> },
-          { key: 'overdue',  label: '項目延期報表', children: loading ? null : <ProjectOverdueTab  data={projectData} /> },
+          { key: 'progress', label: t('projectReport.projectProgressReport'), children: loading ? null : <ProjectProgressTab data={projectData} /> },
+          { key: 'overdue',  label: t('projectReport.projectOverdueReport'), children: loading ? null : <ProjectOverdueTab  data={projectData} /> },
         ]} />
       ),
     },
     {
       key: 'system',
-      label: '系統',
+      label: t('projectReport.tabSystem'),
       children: (
         <Tabs items={[
-          { key: 'progress', label: '系統進度報表', children: loading ? null : <SystemProgressTab data={systemData} /> },
-          { key: 'overdue',  label: '系統延期報表', children: loading ? null : <SystemOverdueTab  data={systemData} /> },
+          { key: 'progress', label: t('projectReport.systemProgressReport'), children: loading ? null : <SystemProgressTab data={systemData} /> },
+          { key: 'overdue',  label: t('projectReport.systemOverdueReport'), children: loading ? null : <SystemOverdueTab  data={systemData} /> },
         ]} />
       ),
     },
     {
       key: 'member',
-      label: '成員',
+      label: t('projectReport.tabMember'),
       children: (
         <Tabs items={[
-          { key: 'progress', label: '成員進度報表', children: loading ? null : <MemberProgressTab data={memberData} /> },
-          { key: 'overdue',  label: '成員延期報表', children: loading ? null : <MemberOverdueTab  data={memberData} /> },
+          { key: 'progress', label: t('projectReport.memberProgressReport'), children: loading ? null : <MemberProgressTab data={memberData} /> },
+          { key: 'overdue',  label: t('projectReport.memberOverdueReport'), children: loading ? null : <MemberOverdueTab  data={memberData} /> },
         ]} />
       ),
     },
@@ -528,8 +536,8 @@ const ProjectReportPage: React.FC = () => {
   return (
     <div className="p-6">
       <div className="mb-5">
-        <h1 className="text-xl font-bold text-slate-800">項目報表</h1>
-        <p className="text-slate-400 text-sm mt-0.5">各項目 / 成員任務進度與延期狀況統計</p>
+        <h1 className="text-xl font-bold text-slate-800">{t('projectReport.pageTitle')}</h1>
+        <p className="text-slate-400 text-sm mt-0.5">{t('projectReport.pageSubtitle')}</p>
       </div>
       <Tabs type="card" defaultActiveKey={initialTab} items={topTabs} />
     </div>

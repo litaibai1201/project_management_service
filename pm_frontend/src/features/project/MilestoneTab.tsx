@@ -3,6 +3,7 @@
  * 顯示項目里程碑列表，支持 新增 / 編輯 / 刪除
  */
 import React, { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   Button, Table, Tag, Modal, Form, Input, Select, Tooltip,
   Popconfirm, Space, Progress, Badge,
@@ -17,22 +18,24 @@ import { Milestone, ProjectFunction } from '@/types/api.types'
 import { showToast } from '@/utils/toast'
 import dayjs from 'dayjs'
 import { useResizableColumns, tableComponents } from '@/hooks/useResizableColumns'
+import DateInput from '@/components/common/DateInput'
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
-const MS_STATUS_CONFIG = {
-  pending:  { label: '進行中', color: 'processing', icon: <ClockIcon className="w-3.5 h-3.5 text-blue-500" />      },
-  achieved: { label: '已達成', color: 'success',    icon: <CheckCircleIcon className="w-3.5 h-3.5 text-green-500" /> },
-  overdue:  { label: '已逾期', color: 'error',      icon: <ExclamationCircleIcon className="w-3.5 h-3.5 text-red-500" /> },
+const MS_STATUS_ICONS = {
+  pending:  { color: 'processing', icon: <ClockIcon className="w-3.5 h-3.5 text-blue-500" /> },
+  achieved: { color: 'success',    icon: <CheckCircleIcon className="w-3.5 h-3.5 text-green-500" /> },
+  overdue:  { color: 'error',      icon: <ExclamationCircleIcon className="w-3.5 h-3.5 text-red-500" /> },
 } as const
 
-type MsStatus = keyof typeof MS_STATUS_CONFIG
+type MsStatus = keyof typeof MS_STATUS_ICONS
 
 const DaysDisplay: React.FC<{ date: string; status: MsStatus }> = ({ date, status }) => {
+  const { t } = useTranslation()
   if (status === 'achieved') return <span className="text-green-600 text-xs font-medium">{date}</span>
   const diff = dayjs(date).diff(dayjs(), 'day')
-  if (diff < 0) return <span className="days-overdue">{date} · 逾期 {Math.abs(diff)} 天</span>
-  if (diff === 0) return <span className="days-overdue">{date} · 今天截止</span>
-  if (diff <= 7)  return <span className="days-warning">{date} · 剩 {diff} 天</span>
+  if (diff < 0) return <span className="days-overdue">{date} · {t('milestone.overdueDays', { days: Math.abs(diff) })}</span>
+  if (diff === 0) return <span className="days-overdue">{date} · {t('milestone.dueToday')}</span>
+  if (diff <= 7)  return <span className="days-warning">{date} · {t('milestone.daysLeft', { days: diff })}</span>
   return <span className="days-ok">{date}</span>
 }
 
@@ -44,6 +47,7 @@ interface Props {
 }
 
 const MilestoneTab: React.FC<Props> = ({ projectId, functions, canManage = false }) => {
+  const { t } = useTranslation()
   const [milestones, setMilestones] = useState<Milestone[]>([])
   const [isLoading,  setIsLoading]  = useState(false)
   const [isSaving,   setIsSaving]   = useState(false)
@@ -83,10 +87,10 @@ const MilestoneTab: React.FC<Props> = ({ projectId, functions, canManage = false
       }
       if (editTarget) {
         await projectApi.updateMilestone(projectId, editTarget.id, payload)
-        showToast.success('里程碑更新成功')
+        showToast.success(t('milestone.updateSuccess'))
       } else {
         await projectApi.createMilestone(projectId, payload)
-        showToast.success('里程碑建立成功')
+        showToast.success(t('milestone.createSuccess'))
       }
       setShowModal(false); form.resetFields(); setEditTarget(null)
       loadMilestones()
@@ -97,7 +101,7 @@ const MilestoneTab: React.FC<Props> = ({ projectId, functions, canManage = false
   const handleDelete = async (id: string) => {
     try {
       await projectApi.deleteMilestone(projectId, id)
-      showToast.success('刪除成功'); loadMilestones()
+      showToast.success(t('common.deleteSuccess')); loadMilestones()
     } catch { /* global */ }
   }
 
@@ -106,9 +110,15 @@ const MilestoneTab: React.FC<Props> = ({ projectId, functions, canManage = false
   const overdue  = milestones.filter((m) => m.status === 'overdue').length
   const pending  = milestones.filter((m) => m.status === 'pending').length
 
+  const MS_STATUS_LABELS: Record<MsStatus, string> = {
+    pending: t('milestone.statusPending'),
+    achieved: t('milestone.statusAchieved'),
+    overdue: t('milestone.statusOverdue'),
+  }
+
   const rawColumns: ColumnsType<Milestone> = [
     {
-      title: '里程碑名稱', dataIndex: 'name',
+      title: t('milestone.colName'), dataIndex: 'name',
       render: (name: string, r) => (
         <div className="flex items-center gap-2">
           <span
@@ -122,31 +132,31 @@ const MilestoneTab: React.FC<Props> = ({ projectId, functions, canManage = false
       ),
     },
     {
-      title: '狀態', dataIndex: 'status', width: 100,
+      title: t('common.status'), dataIndex: 'status', width: 100,
       render: (v: MsStatus) => {
-        const cfg = MS_STATUS_CONFIG[v]
+        const cfg = MS_STATUS_ICONS[v]
         return (
           <div className="flex items-center gap-1">
             {cfg.icon}
-            <Tag color={cfg.color} style={{ fontSize: 11, margin: 0 }}>{cfg.label}</Tag>
+            <Tag color={cfg.color} style={{ fontSize: 11, margin: 0 }}>{MS_STATUS_LABELS[v]}</Tag>
           </div>
         )
       },
     },
     {
-      title: '目標日期', dataIndex: 'target_date', width: 120,
+      title: t('milestone.colTargetDate'), dataIndex: 'target_date', width: 120,
       render: (v: string, r) => <DaysDisplay date={v} status={r.status} />,
     },
     {
-      title: '達成時間', dataIndex: 'achieved_at', width: 165,
+      title: t('milestone.colAchievedAt'), dataIndex: 'achieved_at', width: 165,
       render: (v?: string) => v
         ? <span className="text-green-600 text-xs">{v}</span>
         : <span className="text-slate-300 text-xs">—</span>,
     },
     {
-      title: '關聯任務', dataIndex: 'linked_functions', width: 130,
+      title: t('milestone.colLinkedTasks'), dataIndex: 'linked_functions', width: 130,
       render: (ids?: string[]) => {
-        if (!ids || ids.length === 0) return <span className="text-slate-300 text-xs">未關聯</span>
+        if (!ids || ids.length === 0) return <span className="text-slate-300 text-xs">{t('milestone.notLinked')}</span>
         const linked = functions.filter((f) => ids.includes(f.id))
         const done   = linked.filter((f) => f.status === 4).length
         return (
@@ -163,16 +173,16 @@ const MilestoneTab: React.FC<Props> = ({ projectId, functions, canManage = false
         )
       },
     },
-    { title: '備注', dataIndex: 'note', ellipsis: true, render: (v?: string) => v ?? <span className="text-slate-300 text-xs">—</span> },
+    { title: t('common.remark'), dataIndex: 'note', ellipsis: true, render: (v?: string) => v ?? <span className="text-slate-300 text-xs">—</span> },
     ...(canManage ? [{
-      title: '操作', key: 'action', width: 90, fixed: 'right' as const,
+      title: t('common.action'), key: 'action', width: 90, fixed: 'right' as const,
       render: (_: unknown, record: Milestone) => (
         <Space size={0}>
-          <Tooltip title="編輯">
+          <Tooltip title={t('common.edit')}>
             <Button icon={<PencilIcon className="w-3.5 h-3.5" />} size="small" type="text" onClick={() => openEdit(record)} />
           </Tooltip>
-          <Popconfirm title="確認刪除？" onConfirm={() => handleDelete(record.id)} okText="確認" cancelText="取消">
-            <Tooltip title="刪除">
+          <Popconfirm title={t('common.confirmDelete')} onConfirm={() => handleDelete(record.id)} okText={t('common.confirm')} cancelText={t('common.cancel')}>
+            <Tooltip title={t('common.delete')}>
               <Button icon={<TrashIcon className="w-3.5 h-3.5" />} size="small" type="text" danger />
             </Tooltip>
           </Popconfirm>
@@ -189,16 +199,16 @@ const MilestoneTab: React.FC<Props> = ({ projectId, functions, canManage = false
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-1.5">
             <Badge status="success" />
-            <span className="text-xs text-slate-500">已達成 <span className="font-semibold text-green-600">{achieved}</span></span>
+            <span className="text-xs text-slate-500">{t('milestone.statusAchieved')} <span className="font-semibold text-green-600">{achieved}</span></span>
           </div>
           <div className="flex items-center gap-1.5">
             <Badge status="processing" />
-            <span className="text-xs text-slate-500">進行中 <span className="font-semibold text-blue-600">{pending}</span></span>
+            <span className="text-xs text-slate-500">{t('milestone.statusPending')} <span className="font-semibold text-blue-600">{pending}</span></span>
           </div>
           {overdue > 0 && (
             <div className="flex items-center gap-1.5">
               <Badge status="error" />
-              <span className="text-xs text-slate-500">已逾期 <span className="font-semibold text-red-500">{overdue}</span></span>
+              <span className="text-xs text-slate-500">{t('milestone.statusOverdue')} <span className="font-semibold text-red-500">{overdue}</span></span>
             </div>
           )}
         </div>
@@ -207,7 +217,7 @@ const MilestoneTab: React.FC<Props> = ({ projectId, functions, canManage = false
             type="primary" icon={<PlusIcon className="w-4 h-4" />}
             size="small" style={{ background: '#2563eb' }} onClick={openCreate}
           >
-            新增里程碑
+            {t('milestone.addMilestone')}
           </Button>
         )}
       </div>
@@ -221,22 +231,22 @@ const MilestoneTab: React.FC<Props> = ({ projectId, functions, canManage = false
 
       {/* Add / Edit Modal */}
       <Modal
-        title={editTarget ? '編輯里程碑' : '新增里程碑'}
+        title={editTarget ? t('milestone.editMilestone') : t('milestone.addMilestone')}
         open={showModal}
         onCancel={() => { setShowModal(false); form.resetFields(); setEditTarget(null) }}
         footer={null} width={520} destroyOnClose
       >
         <Form form={form} layout="vertical" onFinish={handleSubmit} className="mt-4">
-          <Form.Item name="name" label="里程碑名稱" rules={[{ required: true }]}>
-            <Input placeholder="例：MVP 上線、UAT 驗收完成" />
+          <Form.Item name="name" label={t('milestone.colName')} rules={[{ required: true }]}>
+            <Input placeholder={t('milestone.namePlaceholder')} />
           </Form.Item>
-          <Form.Item name="target_date" label="目標日期" rules={[{ required: true }]}>
-            <Input type="date" />
+          <Form.Item name="target_date" label={t('milestone.colTargetDate')} rules={[{ required: true }]}>
+            <DateInput/>
           </Form.Item>
-          <Form.Item name="linked_functions" label="關聯功能任務">
+          <Form.Item name="linked_functions" label={t('milestone.linkedFunctions')}>
             <Select
               mode="multiple"
-              placeholder="選擇需關聯的功能任務（全部完結時里程碑自動達成）"
+              placeholder={t('milestone.linkedFunctionsPlaceholder')}
               optionFilterProp="label"
               options={functions.map((f) => ({
                 value: f.id,
@@ -244,13 +254,13 @@ const MilestoneTab: React.FC<Props> = ({ projectId, functions, canManage = false
               }))}
             />
           </Form.Item>
-          <Form.Item name="note" label="備注">
-            <Input.TextArea rows={2} placeholder="交付物說明、驗收標準等" />
+          <Form.Item name="note" label={t('common.remark')}>
+            <Input.TextArea rows={2} placeholder={t('milestone.notePlaceholder')} />
           </Form.Item>
           <div className="flex justify-end gap-3">
-            <Button onClick={() => { setShowModal(false); form.resetFields(); setEditTarget(null) }}>取消</Button>
+            <Button onClick={() => { setShowModal(false); form.resetFields(); setEditTarget(null) }}>{t('common.cancel')}</Button>
             <Button type="primary" htmlType="submit" loading={isSaving} style={{ background: '#2563eb' }}>
-              {editTarget ? '保存更新' : '建立里程碑'}
+              {editTarget ? t('milestone.saveUpdate') : t('milestone.createMilestone')}
             </Button>
           </div>
         </Form>

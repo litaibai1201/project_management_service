@@ -42,6 +42,8 @@ import { meetingNoteApi, type MeetingNote as ApiMeetingNote } from '@/api/meetin
 import reportLogoUrl from '@/assets/report_logo.png'
 import dayjs from 'dayjs'
 import isoWeek from 'dayjs/plugin/isoWeek'
+import { useTranslation } from 'react-i18next'
+import i18n from '@/i18n'
 
 dayjs.extend(isoWeek)
 
@@ -125,17 +127,17 @@ interface MeetingNote {
 
 // ─── Week markers ───────────────────────────────────────────────────────────
 
-const WEEK_TAG_CONFIG: Record<WeekTag, { label: string; color: string; bg: string }> = {
-  last_week:  { label: '上週', color: '#64748b', bg: '#f1f5f9' },
-  this_week:  { label: '本週', color: '#2563eb', bg: '#eff6ff' },
-  next_week:  { label: '下週', color: '#7c3aed', bg: '#f5f3ff' },
+const WEEK_TAG_CONFIG: Record<WeekTag, { labelKey: string; color: string; bg: string }> = {
+  last_week:  { labelKey: 'wbs.lastWeek', color: '#64748b', bg: '#f1f5f9' },
+  this_week:  { labelKey: 'wbs.thisWeek', color: '#2563eb', bg: '#eff6ff' },
+  next_week:  { labelKey: 'wbs.nextWeek', color: '#7c3aed', bg: '#f5f3ff' },
 }
 
-const STATUS_CONFIG: Record<TaskStatus, { label: string; color: string; icon: React.ReactNode }> = {
-  completed:   { label: '已完成', color: '#16a34a', icon: <CheckCircleIcon className="w-3.5 h-3.5 text-green-500" /> },
-  in_progress: { label: '進行中', color: '#2563eb', icon: <ArrowTrendingUpIcon className="w-3.5 h-3.5 text-blue-500" /> },
-  not_started: { label: '未開始', color: '#94a3b8', icon: <ClockIcon className="w-3.5 h-3.5 text-slate-400" /> },
-  overdue:     { label: '超時',   color: '#dc2626', icon: <ExclamationTriangleIcon className="w-3.5 h-3.5 text-red-500" /> },
+const STATUS_CONFIG: Record<TaskStatus, { labelKey: string; color: string; icon: React.ReactNode }> = {
+  completed:   { labelKey: 'wbs.statusCompleted',  color: '#16a34a', icon: <CheckCircleIcon className="w-3.5 h-3.5 text-green-500" /> },
+  in_progress: { labelKey: 'wbs.statusInProgress', color: '#2563eb', icon: <ArrowTrendingUpIcon className="w-3.5 h-3.5 text-blue-500" /> },
+  not_started: { labelKey: 'wbs.statusNotStarted', color: '#94a3b8', icon: <ClockIcon className="w-3.5 h-3.5 text-slate-400" /> },
+  overdue:     { labelKey: 'wbs.statusOverdue',    color: '#dc2626', icon: <ExclamationTriangleIcon className="w-3.5 h-3.5 text-red-500" /> },
 }
 
 const NOTE_TYPE_CONFIG: Record<NoteType, { antColor: string; bg: string; color: string }> = {
@@ -149,16 +151,18 @@ const NOTE_TYPE_CONFIG: Record<NoteType, { antColor: string; bg: string; color: 
 
 // ─── CSV export utility ─────────────────────────────────────────────────────
 
-function exportWbsCSV(projects: WbsProject[]) {
+function exportWbsCSV(projects: WbsProject[], t: (key: string) => string) {
   const bom = '\uFEFF'
-  const headers = ['專案名稱', '功能模塊', '任務名稱', '負責人', '狀態', '完成度(%)', '預計完成', '實際完成', '超時天數', '週標記', '最新進度']
+  const headers = [t('wbs.csv.projectName'), t('wbs.csv.functionModule'), t('wbs.csv.taskName'), t('wbs.csv.assignee'), t('wbs.csv.status'), t('wbs.csv.progress'), t('wbs.csv.expectedEnd'), t('wbs.csv.actualEnd'), t('wbs.csv.overdueDays'), t('wbs.csv.weekTag'), t('wbs.csv.latestUpdate')]
+  const statusLabel = (s: TaskStatus) => ({ completed: t('wbs.rpt.completed'), in_progress: t('wbs.rpt.inProgress'), not_started: t('wbs.rpt.notStarted'), overdue: t('wbs.rpt.overdue') }[s])
+  const weekTagLabel = (wt: WeekTag) => ({ last_week: t('wbs.lastWeek'), this_week: t('wbs.thisWeek'), next_week: t('wbs.nextWeek') }[wt])
   const rows = projects.flatMap((p) =>
     p.functions.flatMap((f) =>
-      f.tasks.map((t) => [
-        p.name, f.name, t.name, t.assignee, STATUS_CONFIG[t.status].label,
-        String(t.progress), t.expected_end, t.actual_end ?? '',
-        String(t.days_overdue ?? ''), t.week_tag.map((wt) => WEEK_TAG_CONFIG[wt].label).join('+'),
-        (t.latest_update ?? '').replace(/<[^>]*>/g, ''),
+      f.tasks.map((tk) => [
+        p.name, f.name, tk.name, tk.assignee, statusLabel(tk.status),
+        String(tk.progress), tk.expected_end, tk.actual_end ?? '',
+        String(tk.days_overdue ?? ''), tk.week_tag.map((wt) => weekTagLabel(wt)).join('+'),
+        (tk.latest_update ?? '').replace(/<[^>]*>/g, ''),
       ])
     )
   )
@@ -166,7 +170,7 @@ function exportWbsCSV(projects: WbsProject[]) {
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
   const url  = URL.createObjectURL(blob)
   const a    = document.createElement('a')
-  a.href = url; a.download = `WBS專案進度_${dayjs().format('YYYY-MM-DD')}.csv`; a.click()
+  a.href = url; a.download = `${t('wbs.csv.fileName')}_${dayjs().format('YYYY-MM-DD')}.csv`; a.click()
   URL.revokeObjectURL(url)
 }
 
@@ -193,7 +197,7 @@ function _statusRuns(task: WbsTask): PptTextRun[] {
   if (task.status === 'completed') {
     return [
       _run('(', { color: '00B050' }),
-      _run('已完成', { bold: true, color: '00B050' }),
+      _run(i18n.t('wbs.rpt.completed'), { bold: true, color: '00B050' }),
       _run(')', { color: '00B050' }),
     ]
   }
@@ -207,17 +211,17 @@ function _statusRuns(task: WbsTask): PptTextRun[] {
   if (task.status === 'in_progress') {
     return [
       _run('('),
-      _run('進行中', { bold: true, color: '0070C0' }),
+      _run(i18n.t('wbs.rpt.inProgress'), { bold: true, color: '0070C0' }),
       _run(')'),
     ]
   }
-  return [_run('(未開始)', { color: '94A3B8' })]
+  return [_run(`(${i18n.t('wbs.rpt.notStarted')})`, { color: '94A3B8' })]
 }
 
-const WEEK_TAG_PPT: Record<WeekTag, { label: string; color: string }> = {
-  last_week: { label: '上週', color: '7F7F7F' },
-  this_week: { label: '本週', color: '0070C0' },
-  next_week: { label: '下週', color: '7030A0' },
+const WEEK_TAG_PPT: Record<WeekTag, { labelKey: string; color: string }> = {
+  last_week: { labelKey: 'wbs.lastWeek', color: '7F7F7F' },
+  this_week: { labelKey: 'wbs.thisWeek', color: '0070C0' },
+  next_week: { labelKey: 'wbs.nextWeek', color: '7030A0' },
 }
 
 function buildProgressTextRuns(project: WbsProject): PptTextRun[] {
@@ -230,30 +234,30 @@ function buildProgressTextRuns(project: WbsProject): PptTextRun[] {
       const lineColor = task.status === 'completed' ? '00B050' : '000000'
       runs.push(_run(`${taskIdx}. `, { color: lineColor }))
       runs.push(..._statusRuns(task))
-      if (task.is_suspended) runs.push(_run('[搁置] ', { color: '6B7280', bold: true }))
+      if (task.is_suspended) runs.push(_run(`[${i18n.t('wbs.rpt.suspended')}] `, { color: '6B7280', bold: true }))
       runs.push(_run(task.name, { color: lineColor }))
       const hasReschedule = (task.reschedule_count ?? 0) > 0 && !!task.original_end
       if (hasReschedule) {
         runs.push(_run(`(`, { color: lineColor }))
         runs.push(_run(task.original_end ?? '', { color: 'AAAAAA', strike: true }))
         runs.push(_run(` ${task.expected_end}`, { color: 'D97706', bold: true }))
-        runs.push(_run(` 延期${task.reschedule_count}次`, { color: 'D97706', fontSize: PPT_FONT_SIZE - 1 }))
-        if (task.assignee && task.assignee !== '未指派') runs.push(_run(`, ${task.assignee}`, { color: lineColor }))
+        runs.push(_run(` ${i18n.t('wbs.rpt.rescheduledTimes', { count: task.reschedule_count })}`, { color: 'D97706', fontSize: PPT_FONT_SIZE - 1 }))
+        if (task.assignee && task.assignee !== i18n.t('common.notAssigned')) runs.push(_run(`, ${task.assignee}`, { color: lineColor }))
         runs.push(_run(`)`, { color: lineColor }))
       } else {
         const meta: string[] = []
         if (task.expected_end) meta.push(task.expected_end)
-        if (task.assignee && task.assignee !== '未指派') meta.push(task.assignee)
+        if (task.assignee && task.assignee !== i18n.t('common.notAssigned')) meta.push(task.assignee)
         if (meta.length > 0) runs.push(_run(`(${meta.join(', ')})`, { color: lineColor }))
       }
       if (task.week_tag.length > 0) {
         task.week_tag.forEach((wt) => {
           const cfg = WEEK_TAG_PPT[wt]
-          runs.push(_run(` [${cfg.label}]`, { bold: true, color: cfg.color }))
+          runs.push(_run(` [${i18n.t(cfg.labelKey)}]`, { bold: true, color: cfg.color }))
         })
       }
       if (task.is_overdue && task.days_overdue && task.expected_end) {
-        runs.push(_run(` [超時${task.days_overdue}天]`, { color: 'FF0000' }))
+        runs.push(_run(` [${i18n.t('wbs.rpt.overdue')}${task.days_overdue}${i18n.t('common.day')}]`, { color: 'FF0000' }))
       }
       if (hasReschedule && task.reschedule_reason) {
         runs.push({ text: '\n' })
@@ -268,12 +272,12 @@ function buildProgressTextRuns(project: WbsProject): PptTextRun[] {
   return runs
 }
 
-function _dutyStatusLabel(d: TemporaryDuty): { label: string; color: string } {
+function _dutyStatusLabel(d: TemporaryDuty, t: (key: string) => string): { label: string; color: string } {
   const isOverdue = d.status !== 3 && !!d.expected_end_date && dayjs(d.expected_end_date).isBefore(dayjs(), 'day')
-  if (d.status === 3) return { label: '已完成', color: RPT_STATUS_COLOR.completed }
+  if (d.status === 3) return { label: t('wbs.rpt.completed'), color: RPT_STATUS_COLOR.completed }
   if (isOverdue) return { label: 'delay', color: RPT_STATUS_COLOR.overdue }
-  if (d.status === 1 || d.status === 2 || d.status === 5) return { label: '進行中', color: RPT_STATUS_COLOR.in_progress }
-  return { label: '未開始', color: RPT_STATUS_COLOR.not_started }
+  if (d.status === 1 || d.status === 2 || d.status === 5) return { label: t('wbs.rpt.inProgress'), color: RPT_STATUS_COLOR.in_progress }
+  return { label: t('wbs.rpt.notStarted'), color: RPT_STATUS_COLOR.not_started }
 }
 
 function _dutyListDotColor(ds: TemporaryDuty[]): string {
@@ -427,6 +431,7 @@ type WeekFilter = 'all' | 'show_all' | WeekTag
 // ─── Task Progress Detail Panel ─────────────────────────────────────────────
 
 const TaskProgressDetail: React.FC<{ task: WbsTask }> = ({ task }) => {
+  const { t } = useTranslation()
   const history = task.progress_history ?? []
   const toName  = useWorkNoToName()
   const token   = tokenStorage.get()
@@ -438,11 +443,11 @@ const TaskProgressDetail: React.FC<{ task: WbsTask }> = ({ task }) => {
   return (
     <div className="bg-slate-50/80 border-t border-slate-100 px-6 py-4">
       <div className="flex items-center gap-3 mb-3">
-        <span className="text-xs font-semibold text-slate-600">進度追蹤記錄</span>
-        <span className="text-[10px] text-slate-400">共 {history.length} 條記錄</span>
+        <span className="text-xs font-semibold text-slate-600">{t('wbs.progressHistory')}</span>
+        <span className="text-[10px] text-slate-400">{t('wbs.progressHistoryCount', { count: history.length })}</span>
       </div>
       {history.length === 0 ? (
-        <p className="text-[10px] text-slate-400">暫無進度記錄</p>
+        <p className="text-[10px] text-slate-400">{t('wbs.noProgressHistory')}</p>
       ) : (
         <Timeline
           className="ml-1 mt-2"
@@ -460,7 +465,7 @@ const TaskProgressDetail: React.FC<{ task: WbsTask }> = ({ task }) => {
                   {(() => {
                     const coops = Array.isArray(entry.cooperator) ? entry.cooperator : []
                     return coops.length > 0 ? (
-                      <Tooltip title={`合作人：${coops.map((c) => toName(c) || c).join('、')}`}>
+                      <Tooltip title={t('wbs.cooperators', { names: coops.map((c) => toName(c) || c).join('、') })}>
                         <div className="flex items-center gap-0.5">
                           <span className="text-xs text-slate-400">+</span>
                           {coops.map((c) => (
@@ -512,6 +517,7 @@ const NotePopover: React.FC<{
   onDelete?: (noteId: string) => void
   children: React.ReactNode
 }> = ({ taskName, notes = [], onAdd, onResolve, onDelete, children }) => {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [noteType, setNoteType] = useState<NoteType>('行動項')
   const [noteContent, setNoteContent] = useState('')
@@ -546,7 +552,7 @@ const NotePopover: React.FC<{
           <div className="flex items-center gap-2">
             <ChatBubbleOvalLeftEllipsisIcon className="w-4 h-4 text-blue-500" />
             <span className="text-xs font-semibold text-slate-700">
-              {taskName ? `備注 · ${taskName}` : '專案備注'}
+              {taskName ? t('wbs.noteTitle', { taskName }) : t('wbs.projectNoteTitle')}
             </span>
           </div>
           {hasNotes && !showAddForm && (
@@ -554,7 +560,7 @@ const NotePopover: React.FC<{
               className="border-0 bg-transparent cursor-pointer flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-700 px-1.5 py-0.5 rounded hover:bg-blue-50 transition-colors"
               onClick={() => setShowAddForm(true)}
             >
-              <PlusIcon className="w-3 h-3" /> 新增
+              <PlusIcon className="w-3 h-3" /> {t('wbs.addNoteBtn')}
             </button>
           )}
         </div>
@@ -571,7 +577,7 @@ const NotePopover: React.FC<{
                       color={NOTE_TYPE_CONFIG[n.type]?.antColor ?? 'default'}
                       style={{ fontSize: 10, lineHeight: '16px', margin: 0, padding: '0 4px', flexShrink: 0 }}
                     >
-                      {n.type}
+                      {t(`wbs.noteType.${n.type}`)}
                     </Tag>
                     <div className="flex-1 min-w-0">
                       <p className={`text-xs leading-relaxed m-0 ${n.status === 'resolved' ? 'line-through text-slate-400' : 'text-slate-700'}`}>
@@ -584,7 +590,7 @@ const NotePopover: React.FC<{
                     </div>
                     <div className="flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover/ni:opacity-100 transition-opacity">
                       {onResolve && (
-                        <Tooltip title={n.status === 'pending' ? '標記已處理' : '撤銷'}>
+                        <Tooltip title={n.status === 'pending' ? t('wbs.markResolved') : t('wbs.undoMark')}>
                           <button
                             className={`border-0 bg-transparent cursor-pointer p-0.5 rounded transition-colors ${n.status === 'resolved' ? 'text-green-500' : 'text-slate-300 hover:text-green-500 hover:bg-green-50'}`}
                             onClick={() => onResolve(n.id)}
@@ -594,7 +600,7 @@ const NotePopover: React.FC<{
                         </Tooltip>
                       )}
                       {onDelete && (
-                        <Tooltip title="刪除">
+                        <Tooltip title={t('common.delete')}>
                           <button
                             className="border-0 bg-transparent cursor-pointer p-0.5 rounded text-slate-300 hover:text-red-400 hover:bg-red-50 transition-colors"
                             onClick={() => onDelete(n.id)}
@@ -614,20 +620,20 @@ const NotePopover: React.FC<{
           {(!hasNotes || showAddForm) && (
             <div className={hasNotes ? 'border-t border-slate-100 pt-2' : ''}>
               <div className="flex gap-1 mb-2 flex-wrap">
-                {(['決策', '行動項', '風險', '待確認'] as NoteType[]).map((t) => (
+                {(['決策', '行動項', '風險', '待確認'] as NoteType[]).map((nt) => (
                   <Tag
-                    key={t}
-                    color={noteType === t ? NOTE_TYPE_CONFIG[t].antColor : 'default'}
+                    key={nt}
+                    color={noteType === nt ? NOTE_TYPE_CONFIG[nt].antColor : 'default'}
                     style={{ fontSize: 10, lineHeight: '18px', margin: 0, padding: '0 6px', cursor: 'pointer' }}
-                    onClick={() => setNoteType(t)}
+                    onClick={() => setNoteType(nt)}
                   >
-                    {t}
+                    {t(`wbs.noteType.${nt}`)}
                   </Tag>
                 ))}
               </div>
               <Input.TextArea
                 rows={2}
-                placeholder={`記錄${noteType === '決策' ? '決策結果與依據' : noteType === '行動項' ? '待辦事項與負責人' : noteType === '風險' ? '風險點與應對方案' : '待確認的問題'}...`}
+                placeholder={noteType === '決策' ? t('wbs.noteTypePlaceholderDecision') + '...' : noteType === '行動項' ? t('wbs.noteTypePlaceholderAction') + '...' : noteType === '風險' ? t('wbs.noteTypePlaceholderRisk') + '...' : t('wbs.noteTypePlaceholderPending') + '...'}
                 value={noteContent}
                 onChange={(e) => setNoteContent(e.target.value)}
                 onKeyDown={handleKeyDown}
@@ -635,10 +641,10 @@ const NotePopover: React.FC<{
                 autoFocus
               />
               <div className="flex items-center justify-between mt-2">
-                <span className="text-[9px] text-slate-300">⌘Enter 提交</span>
+                <span className="text-[9px] text-slate-300">{t('wbs.noteSubmitHint')}</span>
                 <div className="flex gap-1.5">
-                  {hasNotes && <Button size="small" onClick={() => { setShowAddForm(false); setNoteContent('') }}>取消</Button>}
-                  <Button size="small" type="primary" onClick={handleAdd} disabled={!noteContent.trim()}>記錄</Button>
+                  {hasNotes && <Button size="small" onClick={() => { setShowAddForm(false); setNoteContent('') }}>{t('common.cancel')}</Button>}
+                  <Button size="small" type="primary" onClick={handleAdd} disabled={!noteContent.trim()}>{t('wbs.recordNote')}</Button>
                 </div>
               </div>
             </div>
@@ -646,7 +652,7 @@ const NotePopover: React.FC<{
 
           {/* Empty state */}
           {!hasNotes && !noteContent && (
-            <p className="text-[10px] text-slate-300 text-center mt-1 mb-0">暫無備注，上方可直接新增</p>
+            <p className="text-[10px] text-slate-300 text-center mt-1 mb-0">{t('wbs.noNotesYet')}</p>
           )}
         </div>
       }
@@ -664,6 +670,7 @@ const MeetingNotesPanel: React.FC<{
   onResolve: (noteId: string) => void
   onDelete: (noteId: string) => void
 }> = ({ notes, onAddProjectNote, onResolve, onDelete }) => {
+  const { t } = useTranslation()
   const pendingNotes = notes.filter((n) => n.status === 'pending')
   const resolvedNotes = notes.filter((n) => n.status === 'resolved')
   const [showResolved, setShowResolved] = useState(false)
@@ -676,7 +683,7 @@ const MeetingNotesPanel: React.FC<{
       <div className="flex items-center justify-between px-3 py-2 bg-blue-50/60 border-b border-blue-100">
         <div className="flex items-center gap-2">
           <ChatBubbleOvalLeftEllipsisIcon className="w-4 h-4 text-blue-500" />
-          <span className="text-xs font-semibold text-blue-700">會議備注</span>
+          <span className="text-xs font-semibold text-blue-700">{t('wbs.meetingNotes')}</span>
           {pendingNotes.length > 0 && (
             <span className="text-[10px] font-bold bg-blue-500 text-white rounded-full px-1.5 py-0.5 leading-none min-w-[18px] text-center">
               {pendingNotes.length}
@@ -687,7 +694,7 @@ const MeetingNotesPanel: React.FC<{
               className="border-0 bg-transparent cursor-pointer text-[10px] text-slate-400 hover:text-slate-600 transition-colors"
               onClick={() => setShowResolved(!showResolved)}
             >
-              {showResolved ? '隱藏已處理' : `+${resolvedNotes.length} 已處理`}
+              {showResolved ? t('wbs.hideResolved') : t('wbs.resolvedCount', { count: resolvedNotes.length })}
             </button>
           )}
         </div>
@@ -696,7 +703,7 @@ const MeetingNotesPanel: React.FC<{
             className="border-0 bg-transparent cursor-pointer flex items-center gap-1 text-[11px] font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-100 rounded px-2 py-1 transition-colors"
           >
             <PlusIcon className="w-3 h-3" />
-            新增備注
+            {t('wbs.addNewNote')}
           </button>
         </NotePopover>
       </div>
@@ -707,8 +714,8 @@ const MeetingNotesPanel: React.FC<{
           <ChatBubbleOvalLeftEllipsisIcon className="w-6 h-6 text-slate-200 mx-auto mb-1" />
           <p className="text-[11px] text-slate-400">
             {notes.length === 0
-              ? '懸停任務名稱旁的 💬 圖標，或點擊「新增備注」記錄會議要點'
-              : '所有備注均已處理完成'}
+              ? t('wbs.meetingNoteHint')
+              : t('wbs.allNotesResolved')}
           </p>
         </div>
       ) : (
@@ -722,7 +729,7 @@ const MeetingNotesPanel: React.FC<{
                 color={NOTE_TYPE_CONFIG[note.type].antColor}
                 style={{ fontSize: 9, lineHeight: '14px', margin: 0, padding: '0 4px', flexShrink: 0, marginTop: 2 }}
               >
-                {note.type}
+                {t(`wbs.noteType.${note.type}`)}
               </Tag>
               <div className="flex-1 min-w-0">
                 <p className={`text-[11px] leading-relaxed ${note.status === 'resolved' ? 'line-through text-slate-400' : 'text-slate-700'}`}>
@@ -736,19 +743,19 @@ const MeetingNotesPanel: React.FC<{
                   )}
                   {!note.taskName && (
                     <span className="text-[9px] text-slate-400 bg-slate-50 border border-slate-100 rounded px-1.5 py-0.5">
-                      專案層級
+                      {t('wbs.projectLevel')}
                     </span>
                   )}
                   <span className="text-[9px] text-slate-300">
                     {note.author} · {dayjs(note.createdAt).format('HH:mm')}
                   </span>
                   {note.status === 'resolved' && (
-                    <span className="text-[9px] text-green-500">✓ 已處理</span>
+                    <span className="text-[9px] text-green-500">{t('wbs.resolvedMark')}</span>
                   )}
                 </div>
               </div>
               <div className="flex items-center gap-0.5 flex-shrink-0">
-                <Tooltip title={note.status === 'pending' ? '標記為已處理' : '撤銷處理'}>
+                <Tooltip title={note.status === 'pending' ? t('wbs.markAsResolved') : t('wbs.undoResolve')}>
                   <button
                     className={`border-0 bg-transparent cursor-pointer p-1 rounded transition-colors ${note.status === 'resolved' ? 'text-green-500 hover:bg-green-50' : 'text-slate-300 hover:text-green-500 hover:bg-green-50'}`}
                     onClick={() => onResolve(note.id)}
@@ -756,7 +763,7 @@ const MeetingNotesPanel: React.FC<{
                     <CheckIcon className="w-3.5 h-3.5" />
                   </button>
                 </Tooltip>
-                <Tooltip title="刪除備注">
+                <Tooltip title={t('wbs.deleteNote')}>
                   <button
                     className="border-0 bg-transparent cursor-pointer p-1 rounded text-slate-300 hover:text-red-400 hover:bg-red-50 transition-colors"
                     onClick={() => onDelete(note.id)}
@@ -785,6 +792,7 @@ const TaskRow: React.FC<{
   onResolveNote?: (noteId: string) => void
   onDeleteNote?: (noteId: string) => void
 }> = ({ task, onWeekTagClick, expanded = false, onToggleExpand, notes = [], onAddNote, onResolveNote, onDeleteNote }) => {
+  const { t } = useTranslation()
   const sc = STATUS_CONFIG[task.status]
   const isOverdue = !!task.is_overdue
   const isCompleted = task.status === 'completed'
@@ -819,19 +827,19 @@ const TaskRow: React.FC<{
                 style={{ color: WEEK_TAG_CONFIG[wt].color, background: WEEK_TAG_CONFIG[wt].bg }}
                 onClick={(e) => { e.stopPropagation(); onWeekTagClick?.(wt) }}
               >
-                {WEEK_TAG_CONFIG[wt].label}
+                {wt === 'last_week' ? t('wbs.lastWeek') : wt === 'this_week' ? t('wbs.thisWeek') : t('wbs.nextWeek')}
               </span>
             ))}
             {isOverdue && (
               <Tag color="error" style={{ fontSize: 9, margin: 0, lineHeight: '14px', padding: '0 3px' }}>
-                超時 {task.days_overdue} 天
+                {t('wbs.overdueDays', { days: task.days_overdue })}
               </Tag>
             )}
           </div>
           {/* Latest update for overdue / in_progress */}
           {task.latest_update && (task.is_overdue || task.status === 'in_progress') && (
             <div className={`text-[10px] mt-1 leading-relaxed ${isOverdue ? 'text-red-500' : 'text-slate-400'}`}>
-              <span className="font-medium">最新進度：</span>
+              <span className="font-medium">{t('wbs.latestProgressLabel')}</span>
               <RichTextContent html={task.latest_update} />
             </div>
           )}
@@ -840,7 +848,7 @@ const TaskRow: React.FC<{
         {/* Progress */}
         <div className="flex items-center gap-2 flex-shrink-0 w-[120px]">
           {isCompleted ? (
-            <span className="text-xs font-semibold text-green-600">完成</span>
+            <span className="text-xs font-semibold text-green-600">{t('wbs.doneLabel')}</span>
           ) : (
             <>
               <Progress
@@ -859,19 +867,19 @@ const TaskRow: React.FC<{
         {/* Expected / actual end date */}
         <div className="flex-shrink-0 text-right w-[85px]">
           {isCompleted ? (
-            <Tooltip title={`預計 ${task.expected_end}，實際 ${task.actual_end}`}>
+            <Tooltip title={t('wbs.plannedActual', { expected: task.expected_end, actual: task.actual_end })}>
               <span className="text-[10px] text-green-600">{task.actual_end}</span>
             </Tooltip>
           ) : (task.reschedule_count ?? 0) > 0 ? (
-            <Tooltip title={`延期 ${task.reschedule_count} 次，原始截止：${task.original_end}`}>
+            <Tooltip title={t('wbs.rescheduledDetail', { count: task.reschedule_count, original: task.original_end })}>
               <div className="flex flex-col items-end gap-0.5">
                 <span className="text-[9px] text-slate-300 line-through">{task.original_end}</span>
                 <span className="text-[10px] text-orange-500 font-semibold">{task.expected_end}</span>
-                <span className="text-[8px] text-orange-400">延期{task.reschedule_count}次</span>
+                <span className="text-[8px] text-orange-400">{t('wbs.rescheduledTimes', { count: task.reschedule_count })}</span>
               </div>
             </Tooltip>
           ) : (
-            <Tooltip title="預計完成時間">
+            <Tooltip title={t('wbs.expectedEndTooltip')}>
               <span className={`text-[10px] ${isOverdue ? 'text-red-500 font-semibold' : 'text-slate-400'}`}>
                 {task.expected_end}
               </span>
@@ -886,7 +894,7 @@ const TaskRow: React.FC<{
               <button
                 className={`border-0 bg-transparent cursor-pointer relative p-0.5 rounded transition-all ${hasPending || notes.length > 0 ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} hover:bg-blue-50`}
                 onClick={(e) => e.stopPropagation()}
-                title={hasPending ? `${pendingCount} 條待處理備注` : '會議備注'}
+                title={hasPending ? t('wbs.pendingNoteCount', { count: pendingCount }) : t('wbs.meetingNotes')}
               >
                 <ChatBubbleOvalLeftEllipsisIcon className={`w-3.5 h-3.5 transition-colors ${hasPending ? 'text-blue-500' : notes.length > 0 ? 'text-blue-300' : 'text-slate-400 hover:text-blue-500'}`} />
                 {pendingCount > 0 && (
@@ -919,6 +927,7 @@ const FunctionModule: React.FC<{
   onResolveNote: (noteId: string) => void
   onDeleteNote: (noteId: string) => void
 }> = ({ func, defaultOpen = true, onWeekTagClick, expandedTaskId, onToggleTaskExpand, notesByTaskId, onAddNote, onResolveNote, onDeleteNote }) => {
+  const { t } = useTranslation()
   const [expanded, setExpanded] = useState(defaultOpen)
   const overdueCount = func.tasks.filter((t) => !!t.is_overdue).length
   const completedCount = func.tasks.filter((t) => t.status === 'completed').length
@@ -945,15 +954,15 @@ const FunctionModule: React.FC<{
         />
         <span className="text-[10px] font-semibold text-slate-500">{func.progress}%</span>
         <div className="ml-auto flex items-center gap-1.5">
-          <span className="text-[10px] text-slate-400">{completedCount}/{func.tasks.length} 完成</span>
+          <span className="text-[10px] text-slate-400">{t('wbs.doneCount', { done: completedCount, total: func.tasks.length })}</span>
           {thisWeekCount > 0 && (
             <Tag color="blue" style={{ fontSize: 9, margin: 0, lineHeight: '14px', padding: '0 3px' }}>
-              本週 {thisWeekCount} 項
+              {t('wbs.thisWeekCountLabel', { count: thisWeekCount })}
             </Tag>
           )}
           {overdueCount > 0 && (
             <Tag color="error" style={{ fontSize: 9, margin: 0, lineHeight: '14px', padding: '0 3px' }}>
-              超時 {overdueCount}
+              {t('wbs.overdueCountLabel', { count: overdueCount })}
             </Tag>
           )}
         </div>
@@ -988,6 +997,7 @@ const ReqGroupWrapper: React.FC<{
   overdueCount: number
   children: React.ReactNode
 }> = ({ name, progress, taskCount, overdueCount, children }) => {
+  const { t } = useTranslation()
   const [expanded, setExpanded] = useState(true)
   return (
     <div className="border border-purple-200 rounded-lg overflow-hidden mb-2 last:mb-0">
@@ -1009,10 +1019,10 @@ const ReqGroupWrapper: React.FC<{
         />
         <span className="text-[10px] font-semibold text-purple-600">{progress}%</span>
         <div className="ml-auto flex items-center gap-1.5">
-          <span className="text-[10px] text-slate-400">{taskCount} 項</span>
+          <span className="text-[10px] text-slate-400">{t('common.itemCount', { count: taskCount })}</span>
           {overdueCount > 0 && (
             <Tag color="error" style={{ fontSize: 9, margin: 0, lineHeight: '14px', padding: '0 3px' }}>
-              超時 {overdueCount}
+              {t('wbs.overdueCountLabel', { count: overdueCount })}
             </Tag>
           )}
         </div>
@@ -1036,6 +1046,7 @@ const ProjectCard: React.FC<{
   onDeleteNote: (noteId: string) => void
   groupMode?: 'by_group' | 'by_req'
 }> = ({ project, originalProject, onWeekTagClick, expandedTaskId, onToggleTaskExpand, notes, onAddNote, onResolveNote, onDeleteNote, groupMode = 'by_group' }) => {
+  const { t } = useTranslation()
   const navigate = useNavigate()
 
   // Use ORIGINAL project data for summary stats to avoid filter distortion
@@ -1051,7 +1062,7 @@ const ProjectCard: React.FC<{
   const isFiltered = filteredTaskCount !== totalWbsTasks
 
   const priorityColor = originalProject.priority >= 4 ? '#dc2626' : originalProject.priority >= 3 ? '#d97706' : originalProject.priority >= 2 ? '#2563eb' : '#94a3b8'
-  const priorityLabel = originalProject.priority >= 4 ? '緊急' : originalProject.priority >= 3 ? '高' : originalProject.priority >= 2 ? '中' : '低'
+  const priorityLabel = originalProject.priority >= 4 ? t('wbs.priorityUrgent') : originalProject.priority >= 3 ? t('wbs.priorityHigh') : originalProject.priority >= 2 ? t('wbs.priorityMedium') : t('wbs.priorityLow')
 
   const pendingNoteCount = notes.filter((n) => n.status === 'pending').length
 
@@ -1101,25 +1112,25 @@ const ProjectCard: React.FC<{
             {overdueTasks > 0 && (
               <div className="flex items-center gap-1">
                 <ExclamationTriangleIcon className="w-3.5 h-3.5 text-red-500" />
-                <span className="text-[10px] text-red-500 font-semibold">{overdueTasks} 項超時</span>
+                <span className="text-[10px] text-red-500 font-semibold">{t('wbs.overdueItems', { count: overdueTasks })}</span>
               </div>
             )}
             {pendingNoteCount > 0 && (
               <div className="flex items-center gap-1">
                 <ChatBubbleOvalLeftEllipsisIcon className="w-3.5 h-3.5 text-blue-400" />
-                <span className="text-[10px] text-blue-500 font-semibold">{pendingNoteCount} 條備注</span>
+                <span className="text-[10px] text-blue-500 font-semibold">{t('wbs.pendingNotes', { count: pendingNoteCount })}</span>
               </div>
             )}
             {isFiltered && (
               <Tag style={{ fontSize: 9, margin: 0, lineHeight: '14px', padding: '0 4px' }} color="processing">
-                篩選中：顯示 {filteredTaskCount}/{totalWbsTasks} 項
+                {t('wbs.filterShowing', { shown: filteredTaskCount, total: totalWbsTasks })}
               </Tag>
             )}
           </div>
         }
         extra={
           <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
-            <Tooltip title="專案整體完成度">
+            <Tooltip title={t('wbs.overallProgressTooltip')}>
               <div className="flex items-center gap-1.5">
                 <Progress
                   type="circle"
@@ -1131,8 +1142,8 @@ const ProjectCard: React.FC<{
               </div>
             </Tooltip>
             <div className="text-right">
-              <div className="text-[10px] text-slate-400">{completedTasks}/{totalTasks} 完成</div>
-              <div className="text-[10px] text-slate-400">截止 {originalProject.expected_end}</div>
+              <div className="text-[10px] text-slate-400">{t('wbs.doneCount', { done: completedTasks, total: totalTasks })}</div>
+              <div className="text-[10px] text-slate-400">{t('wbs.dueDate', { date: originalProject.expected_end })}</div>
             </div>
           </div>
         }
@@ -1140,21 +1151,21 @@ const ProjectCard: React.FC<{
         {/* Week summary banner */}
         <div className="flex gap-3 mb-3 px-1">
           <div className="flex-1 rounded-lg bg-slate-50 border border-slate-100 px-3 py-2">
-            <div className="text-[10px] text-slate-400 mb-0.5">上週完成</div>
-            <div className="text-sm font-bold text-slate-600">{lastWeekCompleted} 項</div>
+            <div className="text-[10px] text-slate-400 mb-0.5">{t('wbs.lastWeekDone')}</div>
+            <div className="text-sm font-bold text-slate-600">{lastWeekCompleted} {t('wbs.unitItem')}</div>
           </div>
           <div className="flex-1 rounded-lg bg-blue-50 border border-blue-100 px-3 py-2">
-            <div className="text-[10px] text-blue-500 mb-0.5">本週進行中</div>
-            <div className="text-sm font-bold text-blue-600">{thisWeekTasks} 項</div>
+            <div className="text-[10px] text-blue-500 mb-0.5">{t('wbs.thisWeekInProgress')}</div>
+            <div className="text-sm font-bold text-blue-600">{thisWeekTasks} {t('wbs.unitItem')}</div>
           </div>
           <div className="flex-1 rounded-lg bg-violet-50 border border-violet-100 px-3 py-2">
-            <div className="text-[10px] text-violet-500 mb-0.5">下週待辦</div>
-            <div className="text-sm font-bold text-violet-600">{nextWeekTasks} 項</div>
+            <div className="text-[10px] text-violet-500 mb-0.5">{t('wbs.nextWeekTodo')}</div>
+            <div className="text-sm font-bold text-violet-600">{nextWeekTasks} {t('wbs.unitItem')}</div>
           </div>
           {overdueTasks > 0 && (
             <div className="flex-1 rounded-lg bg-red-50 border border-red-100 px-3 py-2">
-              <div className="text-[10px] text-red-500 mb-0.5">超時任務</div>
-              <div className="text-sm font-bold text-red-600">{overdueTasks} 項</div>
+              <div className="text-[10px] text-red-500 mb-0.5">{t('wbs.overdueTask')}</div>
+              <div className="text-sm font-bold text-red-600">{overdueTasks} {t('wbs.unitItem')}</div>
             </div>
           )}
         </div>
@@ -1256,7 +1267,7 @@ const ProjectCard: React.FC<{
             }
             <ChatBubbleOvalLeftEllipsisIcon className={`w-3.5 h-3.5 ${showNotes || pendingNoteCount > 0 ? 'text-blue-500' : 'text-slate-400 group-hover/notes:text-blue-400 transition-colors'}`} />
             <span className={`text-[11px] font-semibold ${showNotes || pendingNoteCount > 0 ? 'text-blue-600' : 'text-slate-400 group-hover/notes:text-blue-500 transition-colors'}`}>
-              會議備注
+              {t('wbs.meetingNotes')}
             </span>
             {pendingNoteCount > 0 && (
               <span className="text-[10px] font-bold bg-blue-500 text-white rounded-full px-1.5 py-0.5 leading-none">
@@ -1264,7 +1275,7 @@ const ProjectCard: React.FC<{
               </span>
             )}
             {notes.length === 0 && (
-              <span className="text-[10px] text-slate-300">（點擊展開記錄）</span>
+              <span className="text-[10px] text-slate-300">{t('wbs.clickToExpandHint')}</span>
             )}
           </button>
           {showNotes && (
@@ -1288,11 +1299,11 @@ const RPT_STATUS_COLOR: Record<string, string> = {
   completed: '#00B050', in_progress: '#0070C0', overdue: '#FF0000', not_started: '#94a3b8',
 }
 
-function _taskStatusLabel(task: WbsTask): { label: string; color: string } {
-  if (task.status === 'completed') return { label: '已完成', color: RPT_STATUS_COLOR.completed }
+function _taskStatusLabel(task: WbsTask, t: (key: string) => string): { label: string; color: string } {
+  if (task.status === 'completed') return { label: t('wbs.rpt.completed'), color: RPT_STATUS_COLOR.completed }
   if (task.is_overdue) return { label: 'delay', color: RPT_STATUS_COLOR.overdue }
-  if (task.status === 'in_progress') return { label: '進行中', color: RPT_STATUS_COLOR.in_progress }
-  return { label: '未開始', color: RPT_STATUS_COLOR.not_started }
+  if (task.status === 'in_progress') return { label: t('wbs.rpt.inProgress'), color: RPT_STATUS_COLOR.in_progress }
+  return { label: t('wbs.rpt.notStarted'), color: RPT_STATUS_COLOR.not_started }
 }
 
 const isUuidStr = (s: string) => /^[0-9a-f]{32}$/i.test(s) || /^[0-9a-f-]{36}$/i.test(s)
@@ -1309,6 +1320,7 @@ const ReportPreviewModal: React.FC<{
   toName: (wn: string) => string
   onClose: () => void
 }> = ({ open, projects, duties, systemInfoMap, reqNameMap, reqResponsibleMap, meetingNotes, dutyNotes, toName, onClose }) => {
+  const { t } = useTranslation()
   const [exporting, setExporting] = useState(false)
 
   // ── Pending-note helpers ──────────────────────────────────────────────────
@@ -1343,13 +1355,13 @@ const ReportPreviewModal: React.FC<{
 
   // Render a single duty task line — mirrors renderTaskRow for projects (with reschedule info)
   const renderDutyTask = (d: TemporaryDuty, indent: number) => {
-    const { label, color } = _dutyStatusLabel(d)
+    const { label, color } = _dutyStatusLabel(d, t)
     const lineColor = d.status === 3 ? '#00B050' : '#000'
     const hasReschedule = (d.reschedule_count ?? 0) > 0 && !!d.original_end_date
     const rescheduleReason = d.reschedule_history?.at(-1)?.reason
     const dateStr = d.status === 3
-      ? `${d.end_time?.slice(0, 10) || d.expected_end_date}已完成`
-      : d.expected_end_date ? `目標${d.expected_end_date}完成` : null
+      ? t('wbs.rpt.completedOnDate', { date: d.end_time?.slice(0, 10) || d.expected_end_date })
+      : d.expected_end_date ? t('wbs.rpt.targetDate', { date: d.expected_end_date }) : null
     const weekTags = computeDutyWeekTags(d)
     const pendingNotes = getDutyPendingNotes(d)
     const isOutsideWindow = weekTags.length === 0
@@ -1364,7 +1376,7 @@ const ReportPreviewModal: React.FC<{
               {' ('}
               <s style={{ color: '#aaa', fontSize: 11 }}>{d.original_end_date}</s>
               <span style={{ color: '#d97706', fontWeight: 700, marginLeft: 3 }}>{d.expected_end_date}</span>
-              <span style={{ color: '#d97706', fontSize: 10, marginLeft: 2 }}>延期{d.reschedule_count}次</span>
+              <span style={{ color: '#d97706', fontSize: 10, marginLeft: 2 }}>{t('wbs.rpt.rescheduledTimes', { count: d.reschedule_count })}</span>
               {')'}
             </span>
           ) : dateStr ? (
@@ -1372,21 +1384,21 @@ const ReportPreviewModal: React.FC<{
           ) : null}
           {weekTags.map((wt) => (
             <span key={wt} style={{ color: WEEK_TAG_CONFIG[wt].color, fontWeight: 700, marginLeft: 3 }}>
-              [{WEEK_TAG_CONFIG[wt].label}]
+              [{wt === 'last_week' ? t('wbs.lastWeek') : wt === 'this_week' ? t('wbs.thisWeek') : t('wbs.nextWeek')}]
             </span>
           ))}
           {isOutsideWindow && pendingNotes.length > 0 && (
-            <span style={{ color: '#d97706', fontSize: 10, marginLeft: 4 }}>[含待處理備注]</span>
+            <span style={{ color: '#d97706', fontSize: 10, marginLeft: 4 }}>[{t('wbs.rpt.hasPendingNotes')}]</span>
           )}
           {hasReschedule && rescheduleReason && (
             <div style={{ paddingLeft: 20, color: '#d97706', fontSize: 11 }}>
-              ↳ 延期原因：{rescheduleReason}
+              ↳ {t('wbs.rpt.rescheduleReason')}{rescheduleReason}
             </div>
           )}
         </div>
         {pendingNotes.map((n) => (
           <div key={n.id} style={{ paddingLeft: 16, marginTop: 2, color: '#92400e', fontSize: 11, background: '#fffbeb', borderLeft: '3px solid #f59e0b', paddingTop: 2, paddingBottom: 2 }}>
-            💬 [{n.type}] {n.content}
+            💬 [{t(`wbs.noteType.${n.type}`)}] {n.content}
           </div>
         ))}
       </div>
@@ -1396,7 +1408,7 @@ const ReportPreviewModal: React.FC<{
   // Render duties in requirement → group → task hierarchy (mirrors project task sections)
   const renderDutyProgress = (dutyList: TemporaryDuty[]) => {
     const visible = dutyList.filter(isDutyVisible)
-    if (visible.length === 0) return <span style={{ color: '#94a3b8', fontSize: 12 }}>本週無進度更新</span>
+    if (visible.length === 0) return <span style={{ color: '#94a3b8', fontSize: 12 }}>{t('wbs.noWeeklyUpdate')}</span>
 
     // Group all duties by req (use full list for structure, filter per section)
     const byReq = new Map<string, TemporaryDuty[]>()
@@ -1464,7 +1476,7 @@ const ReportPreviewModal: React.FC<{
 
   const handleExportPptx = async () => {
     setExporting(true)
-    const department = projects[0]?.department || '資訊部'
+    const department = projects[0]?.department || t('wbs.rpt.defaultDept')
     try { await exportWbsPptx(projects, department) } finally { setExporting(false) }
   }
 
@@ -1473,7 +1485,7 @@ const ReportPreviewModal: React.FC<{
     if (!el) return
     const win = window.open('', '_blank', 'width=1200,height=800')
     if (!win) return
-    win.document.write(`<html><head><title>專案進度週報</title><style>
+    win.document.write(`<html><head><title>${t('wbs.weeklyReportTitle')}</title><style>
       *{box-sizing:border-box}body{font-family:'Microsoft YaHei',Arial,sans-serif;margin:1cm;font-size:14px}
       table{border-collapse:collapse;width:100%}
       th{background:#002FA7;color:#fff;padding:8px 6px;font-size:14px;text-align:center;border:1px solid #002FA7}
@@ -1489,7 +1501,7 @@ const ReportPreviewModal: React.FC<{
       title={
         <div className="flex items-center gap-2">
           <PresentationChartBarIcon className="w-5 h-5 text-blue-500" />
-          <span className="font-semibold text-slate-700">專案進度週報預覽</span>
+          <span className="font-semibold text-slate-700">{t('wbs.weeklyReportTitle')}</span>
         </div>
       }
       open={open}
@@ -1499,7 +1511,7 @@ const ReportPreviewModal: React.FC<{
       footer={
         <div className="flex justify-end gap-2">
           <Button onClick={handlePrint} icon={<ArrowDownTrayIcon className="w-3.5 h-3.5" />}>
-            列印 / 存 PDF
+            {t('wbs.printOrPdf')}
           </Button>
           <Button
             type="primary"
@@ -1508,9 +1520,9 @@ const ReportPreviewModal: React.FC<{
             icon={<PresentationChartBarIcon className="w-3.5 h-3.5" />}
             style={{ background: '#002FA7' }}
           >
-            導出 PPTX
+            {t('wbs.exportPptx')}
           </Button>
-          <Button onClick={onClose}>關閉</Button>
+          <Button onClick={onClose}>{t('common.close')}</Button>
         </div>
       }
       destroyOnClose
@@ -1522,11 +1534,11 @@ const ReportPreviewModal: React.FC<{
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 8px', marginBottom: 4 }}>
             <img src={reportLogoUrl} alt="logo" style={{ height: 36 }} />
             <div style={{ fontSize: 12 }}>
-              <span style={{ color: '#00B050' }}>●已完成</span>
+              <span style={{ color: '#00B050' }}>●{t('wbs.rpt.completed')}</span>
               <span>{'   '}</span>
-              <span style={{ color: '#0070C0' }}>●進行中</span>
+              <span style={{ color: '#0070C0' }}>●{t('wbs.rpt.inProgress')}</span>
               <span>{'   '}</span>
-              <span style={{ color: '#FFC000' }}>●風險</span>
+              <span style={{ color: '#FFC000' }}>●{t('wbs.rpt.risk')}</span>
               <span>{' '}</span>
               <span style={{ color: '#FF0000' }}>●delay</span>
             </div>
@@ -1534,7 +1546,7 @@ const ReportPreviewModal: React.FC<{
           {/* Title centered */}
           <div style={{ textAlign: 'center', marginBottom: 10 }}>
             <span style={{ color: '#0070C0', fontSize: 20, fontWeight: 700 }}>
-              {projects[0]?.department || '資訊部'} (系統) – Overview
+              {projects[0]?.department || t('wbs.rpt.defaultDept')} ({t('wbs.rpt.system')}) – Overview
             </span>
           </div>
 
@@ -1551,7 +1563,7 @@ const ReportPreviewModal: React.FC<{
             </colgroup>
             <thead>
               <tr>
-                {['進度', '序號', '重點項目', '需求使用者\n專案PM', 'DRI', '專案啟動日', '預計結案日', '進度'].map((h) => (
+                {[t('wbs.rpt.colProgress'), t('wbs.rpt.colSeq'), t('wbs.rpt.colTopItems'), `${t('wbs.rpt.colReqUser')}\n${t('wbs.rpt.colProjectPM')}`, 'DRI', t('wbs.rpt.colStartDate'), t('wbs.rpt.colEndDate'), t('wbs.rpt.colProgress')].map((h) => (
                   <th key={h} style={{ background: '#002FA7', color: '#fff', padding: '8px 5px', fontSize: 14, textAlign: 'center', border: '1px solid #002FA7', whiteSpace: 'pre-line' }}>
                     {h}
                   </th>
@@ -1574,7 +1586,7 @@ const ReportPreviewModal: React.FC<{
                     <td style={{ verticalAlign: 'middle', border: '1px solid #B4C6E7', color: '#000' }}>
                       {project.name}
                       {project.is_completed && (
-                        <span style={{ marginLeft: 4, color: '#16a34a', fontWeight: 700, fontSize: 11 }}>[已完結]</span>
+                        <span style={{ marginLeft: 4, color: '#16a34a', fontWeight: 700, fontSize: 11 }}>[{t('wbs.rpt.closed')}]</span>
                       )}
                     </td>
                     {/* 需求使用者（產品PM） */}
@@ -1619,18 +1631,18 @@ const ReportPreviewModal: React.FC<{
                         const renderWeekTags = (task: WbsTask) =>
                           task.week_tag.map((wt) => (
                             <span key={wt} style={{ color: WEEK_TAG_CONFIG[wt].color, fontWeight: 700, marginLeft: 3 }}>
-                              [{WEEK_TAG_CONFIG[wt].label}]
+                              [{wt === 'last_week' ? t('wbs.lastWeek') : wt === 'this_week' ? t('wbs.thisWeek') : t('wbs.nextWeek')}]
                             </span>
                           ))
 
                         // 渲染單一任務行（縮進 + - 開頭）
                         const renderTaskRow = (task: WbsTask, indent: number) => {
-                          const { label, color } = _taskStatusLabel(task)
+                          const { label, color } = _taskStatusLabel(task, t)
                           const lineColor = task.status === 'completed' ? '#00B050' : '#000'
                           const hasReschedule = (task.reschedule_count ?? 0) > 0 && !!task.original_end
                           const dateStr = task.status === 'completed'
-                            ? `${task.actual_end || task.expected_end}已完成`
-                            : task.expected_end ? `目標${task.expected_end}完成` : null
+                            ? t('wbs.rpt.completedOnDate', { date: task.actual_end || task.expected_end })
+                            : task.expected_end ? t('wbs.rpt.targetDate', { date: task.expected_end }) : null
                           const taskPendingNotes = getTaskPendingNotes(project.id, task.id)
                           const isOutsideWindow = task.week_tag.length === 0 && !task.is_overdue && !task.is_suspended && !isRecentComplete(task)
                           return (
@@ -1638,14 +1650,14 @@ const ReportPreviewModal: React.FC<{
                               <div style={{ color: isOutsideWindow ? '#6b7280' : lineColor }}>
                                 <span>- </span>
                                 <span style={{ color, fontWeight: 700 }}>({label})</span>
-                                {task.is_suspended && <span style={{ color: '#6b7280', fontWeight: 700 }}> [搁置]</span>}
+                                {task.is_suspended && <span style={{ color: '#6b7280', fontWeight: 700 }}> [{t('wbs.rpt.suspended')}]</span>}
                                 <span> {task.name}</span>
                                 {hasReschedule ? (
                                   <span>
                                     {' ('}
                                     <s style={{ color: '#aaa', fontSize: 11 }}>{task.original_end}</s>
                                     <span style={{ color: '#d97706', fontWeight: 700, marginLeft: 3 }}>{task.expected_end}</span>
-                                    <span style={{ color: '#d97706', fontSize: 10, marginLeft: 2 }}>延期{task.reschedule_count}次</span>
+                                    <span style={{ color: '#d97706', fontSize: 10, marginLeft: 2 }}>{t('wbs.rpt.rescheduledTimes', { count: task.reschedule_count })}</span>
                                     {')'}
                                   </span>
                                 ) : dateStr ? (
@@ -1653,17 +1665,17 @@ const ReportPreviewModal: React.FC<{
                                 ) : null}
                                 {renderWeekTags(task)}
                                 {isOutsideWindow && taskPendingNotes.length > 0 && (
-                                  <span style={{ color: '#d97706', fontSize: 10, marginLeft: 4 }}>[含待處理備注]</span>
+                                  <span style={{ color: '#d97706', fontSize: 10, marginLeft: 4 }}>[{t('wbs.rpt.hasPendingNotes')}]</span>
                                 )}
                                 {hasReschedule && task.reschedule_reason && (
                                   <div style={{ paddingLeft: 20, color: '#d97706', fontSize: 11 }}>
-                                    ↳ 延期原因：{task.reschedule_reason}
+                                    ↳ {t('wbs.rpt.rescheduleReason')}{task.reschedule_reason}
                                   </div>
                                 )}
                               </div>
                               {taskPendingNotes.map((n) => (
                                 <div key={n.id} style={{ paddingLeft: 16, marginTop: 2, color: '#92400e', fontSize: 11, background: '#fffbeb', borderLeft: '3px solid #f59e0b', paddingTop: 2, paddingBottom: 2 }}>
-                                  💬 [{n.type}] {n.content}
+                                  💬 [{t(`wbs.noteType.${n.type}`)}] {n.content}
                                 </div>
                               ))}
                             </div>
@@ -1674,25 +1686,25 @@ const ReportPreviewModal: React.FC<{
                         let flatSeq = 0
                         const renderTaskFlat = (task: WbsTask) => {
                           flatSeq++
-                          const { label, color } = _taskStatusLabel(task)
+                          const { label, color } = _taskStatusLabel(task, t)
                           const lineColor = task.status === 'completed' ? '#00B050' : '#000'
                           const hasReschedule = (task.reschedule_count ?? 0) > 0 && !!task.original_end
                           const dateStr = task.status === 'completed'
-                            ? `${task.actual_end || task.expected_end}已完成`
-                            : task.expected_end ? `目標${task.expected_end}完成` : null
+                            ? t('wbs.rpt.completedOnDate', { date: task.actual_end || task.expected_end })
+                            : task.expected_end ? t('wbs.rpt.targetDate', { date: task.expected_end }) : null
                           const seq = flatSeq
                           return (
                             <div key={task.id} style={{ color: lineColor }}>
                               <span>{seq}. </span>
                               <span style={{ color, fontWeight: 700 }}>({label})</span>
-                              {task.is_suspended && <span style={{ color: '#6b7280', fontWeight: 700 }}> [搁置]</span>}
+                              {task.is_suspended && <span style={{ color: '#6b7280', fontWeight: 700 }}> [{t('wbs.rpt.suspended')}]</span>}
                               <span> {task.name}</span>
                               {hasReschedule ? (
                                 <span>
                                   {' ('}
                                   <s style={{ color: '#aaa', fontSize: 11 }}>{task.original_end}</s>
                                   <span style={{ color: '#d97706', fontWeight: 700, marginLeft: 3 }}>{task.expected_end}</span>
-                                  <span style={{ color: '#d97706', fontSize: 10, marginLeft: 2 }}>延期{task.reschedule_count}次</span>
+                                  <span style={{ color: '#d97706', fontSize: 10, marginLeft: 2 }}>{t('wbs.rpt.rescheduledTimes', { count: task.reschedule_count })}</span>
                                   {')'}
                                 </span>
                               ) : dateStr ? (
@@ -1701,7 +1713,7 @@ const ReportPreviewModal: React.FC<{
                               {renderWeekTags(task)}
                               {hasReschedule && task.reschedule_reason && (
                                 <div style={{ paddingLeft: 20, color: '#d97706', fontSize: 11 }}>
-                                  ↳ 延期原因：{task.reschedule_reason}
+                                  ↳ {t('wbs.rpt.rescheduleReason')}{task.reschedule_reason}
                                 </div>
                               )}
                             </div>
@@ -1803,7 +1815,7 @@ const ReportPreviewModal: React.FC<{
                     <td style={TD_CENTER}>{projects.length + sysIdx + 1}</td>
                     <td style={TD_MID}>
                       {sysNm}
-                      <span style={{ marginLeft: 4, fontSize: 10, color: '#7c3aed', fontWeight: 700 }}>[系統]</span>
+                      <span style={{ marginLeft: 4, fontSize: 10, color: '#7c3aed', fontWeight: 700 }}>[{t('wbs.rpt.system')}]</span>
                     </td>
                     <td style={TD_MID}>{maintainers}</td>
                     <td style={TD_MID}>{dri}</td>
@@ -1829,7 +1841,7 @@ const ReportPreviewModal: React.FC<{
                     <td style={{ ...TD_CENTER, fontSize: 18 }}><span style={{ color: dotClr }}>●</span></td>
                     <td style={TD_CENTER}>{rowIdx}</td>
                     <td style={TD_MID}>
-                      AR 任務
+                      {t('wbs.rpt.arTasks')}
                       <span style={{ marginLeft: 4, fontSize: 10, color: '#d97706', fontWeight: 700 }}>[AR]</span>
                     </td>
                     <td style={TD_MID}>{creators}</td>
@@ -1863,7 +1875,7 @@ const ReportPreviewModal: React.FC<{
             duties.forEach((d) => dutyNoteKeys.add(d.system_id || 'ar_standalone'))
             dutyNoteKeys.forEach((key) => {
               const notes = dutyNotes[key] ?? []
-              const sourceName = key === 'ar_standalone' ? 'AR 任務'
+              const sourceName = key === 'ar_standalone' ? t('wbs.rpt.arTasks')
                 : (systemInfoMap[key]?.sys_nm ?? key)
               notes.filter((n) => n.status === 'pending').forEach((n) => {
                 entries.push({ source: sourceName, taskName: n.taskName ?? undefined, type: n.type, content: n.content, author: n.author, createdAt: n.createdAt })
@@ -1874,12 +1886,12 @@ const ReportPreviewModal: React.FC<{
             return (
               <div style={{ marginTop: 20, border: '1px solid #fde68a', borderRadius: 6, overflow: 'hidden' }}>
                 <div style={{ background: '#fef3c7', padding: '6px 12px', fontWeight: 700, fontSize: 13, color: '#92400e', borderBottom: '1px solid #fde68a' }}>
-                  待處理會議備注（共 {entries.length} 條）
+                  {t('wbs.pendingNotesTitle', { count: entries.length })}
                 </div>
                 <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 12 }}>
                   <thead>
                     <tr style={{ background: '#fffbeb' }}>
-                      {['來源', '相關任務', '類型', '內容', '記錄人', '時間'].map((h) => (
+                      {[t('wbs.sourceCol'), t('wbs.relatedTask'), t('wbs.typeCol'), t('wbs.contentCol'), t('wbs.recordedBy'), t('wbs.timeCol')].map((h) => (
                         <th key={h} style={{ border: '1px solid #fde68a', padding: '4px 8px', textAlign: 'left', color: '#92400e', fontWeight: 600 }}>{h}</th>
                       ))}
                     </tr>
@@ -1889,7 +1901,7 @@ const ReportPreviewModal: React.FC<{
                       <tr key={i} style={{ background: i % 2 === 1 ? '#fffbeb' : '#fff' }}>
                         <td style={{ border: '1px solid #fde68a', padding: '4px 8px', color: '#374151', whiteSpace: 'nowrap' }}>{e.source}</td>
                         <td style={{ border: '1px solid #fde68a', padding: '4px 8px', color: '#6b7280' }}>{e.taskName ?? '—'}</td>
-                        <td style={{ border: '1px solid #fde68a', padding: '4px 8px', color: '#92400e', whiteSpace: 'nowrap' }}>{e.type}</td>
+                        <td style={{ border: '1px solid #fde68a', padding: '4px 8px', color: '#92400e', whiteSpace: 'nowrap' }}>{t(`wbs.noteType.${e.type}`)}</td>
                         <td style={{ border: '1px solid #fde68a', padding: '4px 8px', color: '#111827' }}>{e.content}</td>
                         <td style={{ border: '1px solid #fde68a', padding: '4px 8px', color: '#6b7280', whiteSpace: 'nowrap' }}>{e.author}</td>
                         <td style={{ border: '1px solid #fde68a', padding: '4px 8px', color: '#6b7280', whiteSpace: 'nowrap' }}>{dayjs(e.createdAt).format('MM/DD HH:mm')}</td>
@@ -1941,13 +1953,14 @@ const DutyTaskRow: React.FC<{
   onResolveNote?: (noteId: string) => void
   onDeleteNote?: (noteId: string) => void
 }> = ({ duty: d, onSelect, onWeekTagClick, notes = [], onAddNote, onResolveNote, onDeleteNote }) => {
+  const { t } = useTranslation()
   const toName       = useWorkNoToName()
   const isOverdue    = d.status !== 3 && !!d.expected_end_date && dayjs(d.expected_end_date).isBefore(dayjs(), 'day')
   const isCompleted  = d.status === 3
   const isInProgress = d.status === 1 || d.status === 2
   const weekTags     = computeDutyWeekTags(d)
   const priorityColor = d.priority >= 4 ? '#dc2626' : d.priority >= 3 ? '#d97706' : d.priority >= 2 ? '#2563eb' : '#94a3b8'
-  const priorityLabel = d.priority >= 4 ? '緊急' : d.priority >= 3 ? '高' : d.priority >= 2 ? '中' : '低'
+  const priorityLabel = d.priority >= 4 ? t('wbs.priorityUrgent') : d.priority >= 3 ? t('wbs.priorityHigh') : d.priority >= 2 ? t('wbs.priorityMedium') : t('wbs.priorityLow')
   const pendingCount  = notes.filter((n) => n.status === 'pending').length
   const hasPending    = pendingCount > 0
 
@@ -1974,10 +1987,10 @@ const DutyTaskRow: React.FC<{
               style={{ color: WEEK_TAG_CONFIG[wt].color, background: WEEK_TAG_CONFIG[wt].bg }}
               onClick={() => onWeekTagClick?.(wt)}
             >
-              {WEEK_TAG_CONFIG[wt].label}
+              {wt === 'last_week' ? t('wbs.lastWeek') : wt === 'this_week' ? t('wbs.thisWeek') : t('wbs.nextWeek')}
             </span>
           ))}
-          {isOverdue && <Tag style={{ fontSize: 9, margin: 0, lineHeight: '14px', padding: '0 4px' }} color="error">超時</Tag>}
+          {isOverdue && <Tag style={{ fontSize: 9, margin: 0, lineHeight: '14px', padding: '0 4px' }} color="error">{t('wbs.overdue')}</Tag>}
         </div>
         {(d.responsible?.length || d.progress > 0) && (
           <div className="flex items-center gap-2 mt-0.5">
@@ -1998,7 +2011,7 @@ const DutyTaskRow: React.FC<{
 
       {/* Expected end date */}
       <div className="flex-shrink-0 text-right w-[85px]">
-        <Tooltip title="預計完成時間">
+        <Tooltip title={t('wbs.expectedEndTooltip')}>
           <span className={`text-[10px] ${isOverdue ? 'text-red-500 font-semibold' : 'text-slate-400'}`}>
             {d.expected_end_date ?? ''}
           </span>
@@ -2012,7 +2025,7 @@ const DutyTaskRow: React.FC<{
             <button
               className={`border-0 bg-transparent cursor-pointer relative p-0.5 rounded transition-all ${hasPending || notes.length > 0 ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} hover:bg-blue-50`}
               onClick={(e) => e.stopPropagation()}
-              title={hasPending ? `${pendingCount} 條待處理備注` : '會議備注'}
+              title={hasPending ? t('wbs.pendingNoteCount', { count: pendingCount }) : t('wbs.meetingNotes')}
             >
               <ChatBubbleOvalLeftEllipsisIcon className={`w-3.5 h-3.5 transition-colors ${hasPending ? 'text-blue-500' : notes.length > 0 ? 'text-blue-300' : 'text-slate-400 hover:text-blue-500'}`} />
               {pendingCount > 0 && (
@@ -2041,6 +2054,7 @@ const DutyFunctionBlock: React.FC<{
   onResolveNote: (noteId: string) => void
   onDeleteNote: (noteId: string) => void
 }> = ({ groupNm, duties, onSelect, onWeekTagClick, defaultOpen = true, notesByDutyId, onAddNote, onResolveNote, onDeleteNote }) => {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(defaultOpen)
   const completed  = duties.filter((d) => d.status === 3).length
   const overdue    = duties.filter((d) => d.status !== 3 && !!d.expected_end_date && dayjs(d.expected_end_date).isBefore(dayjs(), 'day')).length
@@ -2060,9 +2074,9 @@ const DutyFunctionBlock: React.FC<{
           trailColor="#e2e8f0" style={{ width: 60, marginBottom: 0 }} format={() => ''} />
         <span className="text-[10px] font-semibold text-slate-500">{progress}%</span>
         <div className="ml-auto flex items-center gap-1.5">
-          <span className="text-[10px] text-slate-400">{completed}/{duties.length} 完成</span>
-          {thisWeek > 0 && <Tag color="blue" style={{ fontSize: 9, margin: 0, lineHeight: '14px', padding: '0 3px' }}>本週 {thisWeek} 項</Tag>}
-          {overdue > 0 && <Tag color="error" style={{ fontSize: 9, margin: 0, lineHeight: '14px', padding: '0 3px' }}>超時 {overdue}</Tag>}
+          <span className="text-[10px] text-slate-400">{t('wbs.doneCount', { done: completed, total: duties.length })}</span>
+          {thisWeek > 0 && <Tag color="blue" style={{ fontSize: 9, margin: 0, lineHeight: '14px', padding: '0 3px' }}>{t('wbs.thisWeekCountLabel', { count: thisWeek })}</Tag>}
+          {overdue > 0 && <Tag color="error" style={{ fontSize: 9, margin: 0, lineHeight: '14px', padding: '0 3px' }}>{t('wbs.overdueCountLabel', { count: overdue })}</Tag>}
         </div>
       </div>
       {open && duties.map((d) => (
@@ -2095,6 +2109,7 @@ const DutyCard: React.FC<{
   tag?: string
   systemInfo?: SystemItem
 }> = ({ title, duties, notes, onSelect, onWeekTagClick, onAddNote, onResolveNote, onDeleteNote, tag, systemInfo }) => {
+  const { t } = useTranslation()
   const today   = dayjs()
   const twStart = today.startOf('isoWeek')
   const twEnd   = today.endOf('isoWeek')
@@ -2131,7 +2146,7 @@ const DutyCard: React.FC<{
   // Group by d.group
   const groupMap = new Map<string, TemporaryDuty[]>()
   duties.forEach((d) => {
-    const g = d.group || '未分組'
+    const g = d.group || t('common.ungrouped')
     if (!groupMap.has(g)) groupMap.set(g, [])
     groupMap.get(g)!.push(d)
   })
@@ -2155,30 +2170,30 @@ const DutyCard: React.FC<{
             )}
             {systemInfo?.maintainer_names && systemInfo.maintainer_names.length > 0 && (
               <span className="text-[10px] text-slate-400">
-                負責人: {systemInfo.maintainer_names.slice(0, 2).map((m) => m.name).join('、')}
+                {t('wbs.responsiblePerson')} {systemInfo.maintainer_names.slice(0, 2).map((m) => m.name).join('、')}
                 {systemInfo.maintainer_names.length > 2 && ` +${systemInfo.maintainer_names.length - 2}`}
               </span>
             )}
             {systemInfo?.go_live_date && (
-              <span className="text-[10px] text-slate-400">上線: {systemInfo.go_live_date}</span>
+              <span className="text-[10px] text-slate-400">{t('wbs.liveDate')} {systemInfo.go_live_date}</span>
             )}
             {overdueCount > 0 && (
               <div className="flex items-center gap-1">
                 <ExclamationTriangleIcon className="w-3.5 h-3.5 text-red-500" />
-                <span className="text-[10px] text-red-500 font-semibold">{overdueCount} 項超時</span>
+                <span className="text-[10px] text-red-500 font-semibold">{t('wbs.overdueItems', { count: overdueCount })}</span>
               </div>
             )}
             {pendingNoteCount > 0 && (
               <div className="flex items-center gap-1">
                 <ChatBubbleOvalLeftEllipsisIcon className="w-3.5 h-3.5 text-blue-400" />
-                <span className="text-[10px] text-blue-500 font-semibold">{pendingNoteCount} 條備注</span>
+                <span className="text-[10px] text-blue-500 font-semibold">{t('wbs.pendingNotes', { count: pendingNoteCount })}</span>
               </div>
             )}
           </div>
         }
         extra={
           <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
-            <Tooltip title="整體完成度">
+            <Tooltip title={t('wbs.overallCompletion')}>
               <div className="flex items-center gap-1.5">
                 <Progress
                   type="circle" percent={progress} size={32}
@@ -2188,7 +2203,7 @@ const DutyCard: React.FC<{
               </div>
             </Tooltip>
             <div className="text-right">
-              <div className="text-[10px] text-slate-400">{completedCount}/{totalCount} 完成</div>
+              <div className="text-[10px] text-slate-400">{t('wbs.doneCount', { done: completedCount, total: totalCount })}</div>
             </div>
           </div>
         }
@@ -2196,21 +2211,21 @@ const DutyCard: React.FC<{
         {/* Week summary banner — same as ProjectCard */}
         <div className="flex gap-3 mb-3 px-1">
           <div className="flex-1 rounded-lg bg-slate-50 border border-slate-100 px-3 py-2">
-            <div className="text-[10px] text-slate-400 mb-0.5">上週完成</div>
-            <div className="text-sm font-bold text-slate-600">{lastWeekDone} 項</div>
+            <div className="text-[10px] text-slate-400 mb-0.5">{t('wbs.lastWeekDone')}</div>
+            <div className="text-sm font-bold text-slate-600">{lastWeekDone} {t('wbs.unitItem')}</div>
           </div>
           <div className="flex-1 rounded-lg bg-blue-50 border border-blue-100 px-3 py-2">
-            <div className="text-[10px] text-blue-500 mb-0.5">本週進行中</div>
-            <div className="text-sm font-bold text-blue-600">{thisWeekCount} 項</div>
+            <div className="text-[10px] text-blue-500 mb-0.5">{t('wbs.thisWeekInProgress')}</div>
+            <div className="text-sm font-bold text-blue-600">{thisWeekCount} {t('wbs.unitItem')}</div>
           </div>
           <div className="flex-1 rounded-lg bg-violet-50 border border-violet-100 px-3 py-2">
-            <div className="text-[10px] text-violet-500 mb-0.5">下週待辦</div>
-            <div className="text-sm font-bold text-violet-600">{nextWeekCount} 項</div>
+            <div className="text-[10px] text-violet-500 mb-0.5">{t('wbs.nextWeekTodo')}</div>
+            <div className="text-sm font-bold text-violet-600">{nextWeekCount} {t('wbs.unitItem')}</div>
           </div>
           {overdueCount > 0 && (
             <div className="flex-1 rounded-lg bg-red-50 border border-red-100 px-3 py-2">
-              <div className="text-[10px] text-red-500 mb-0.5">超時任務</div>
-              <div className="text-sm font-bold text-red-600">{overdueCount} 項</div>
+              <div className="text-[10px] text-red-500 mb-0.5">{t('wbs.overdueTask')}</div>
+              <div className="text-sm font-bold text-red-600">{overdueCount} {t('wbs.unitItem')}</div>
             </div>
           )}
         </div>
@@ -2243,7 +2258,7 @@ const DutyCard: React.FC<{
             }
             <ChatBubbleOvalLeftEllipsisIcon className={`w-3.5 h-3.5 ${showNotes || pendingNoteCount > 0 ? 'text-blue-500' : 'text-slate-400 group-hover/notes:text-blue-400 transition-colors'}`} />
             <span className={`text-[11px] font-semibold ${showNotes || pendingNoteCount > 0 ? 'text-blue-600' : 'text-slate-400 group-hover/notes:text-blue-500 transition-colors'}`}>
-              會議備注
+              {t('wbs.meetingNotes')}
             </span>
             {pendingNoteCount > 0 && (
               <span className="text-[10px] font-bold bg-blue-500 text-white rounded-full px-1.5 py-0.5 leading-none">
@@ -2251,7 +2266,7 @@ const DutyCard: React.FC<{
               </span>
             )}
             {notes.length === 0 && (
-              <span className="text-[10px] text-slate-300">（點擊展開記錄）</span>
+              <span className="text-[10px] text-slate-300">{t('wbs.clickToExpandHint')}</span>
             )}
           </button>
           {showNotes && (
@@ -2271,6 +2286,7 @@ const DutyCard: React.FC<{
 // ─── Main Page ──────────────────────────────────────────────────────────────
 
 const WbsOverviewPage: React.FC = () => {
+  const { t } = useTranslation()
   const isManager = useAppSelector((s) => s.auth.isSupervisor)
   const toName    = useWorkNoToName()
 
@@ -2648,7 +2664,7 @@ const WbsOverviewPage: React.FC = () => {
   if (!isManager) {
     return (
       <div className="p-6">
-        <Empty description="此頁面僅限主管級以上用戶查看" className="py-20" />
+        <Empty description={t('wbs.managerOnly')} className="py-20" />
       </div>
     )
   }
@@ -2658,9 +2674,9 @@ const WbsOverviewPage: React.FC = () => {
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">專案進度總覽</h1>
+          <h1 className="text-2xl font-bold text-slate-800">{t('wbs.title')}</h1>
           <p className="text-slate-400 text-sm mt-0.5">
-            WBS 結構 · 部門所有專案進度追蹤 · 本週 {weekLabel}
+            {t('wbs.subtitle', { week: weekLabel })}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -2668,7 +2684,7 @@ const WbsOverviewPage: React.FC = () => {
             <div className="flex items-center gap-1.5 bg-blue-50 border border-blue-200 rounded-lg px-3 py-1.5">
               <ChatBubbleOvalLeftEllipsisIcon className="w-3.5 h-3.5 text-blue-500" />
               <span className="text-xs font-semibold text-blue-600">
-                {totalPendingNotes} 條待處理備注
+                {t('wbs.pendingNotesTotal', { count: totalPendingNotes })}
               </span>
             </div>
           )}
@@ -2677,14 +2693,14 @@ const WbsOverviewPage: React.FC = () => {
             className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800 bg-blue-50 border border-blue-200 hover:border-blue-300 rounded-lg px-3 py-1.5 transition-colors"
           >
             <PresentationChartBarIcon className="w-3.5 h-3.5" />
-            週報預覽
+            {t('wbs.weeklyReportPreview')}
           </button>
           <button
-            onClick={() => exportWbsCSV(wbsData)}
+            onClick={() => exportWbsCSV(wbsData, t)}
             className="flex items-center gap-1.5 text-xs text-slate-600 hover:text-slate-800 bg-white border border-slate-200 hover:border-slate-300 rounded-lg px-3 py-1.5 transition-colors"
           >
             <ArrowDownTrayIcon className="w-3.5 h-3.5" />
-            導出 CSV
+            {t('wbs.exportCsv')}
           </button>
           <span className="text-xs text-slate-500 bg-slate-100 rounded-lg px-2 py-1">
             <CalendarDaysIcon className="w-3.5 h-3.5 inline-block mr-1 -mt-0.5" />
@@ -2696,14 +2712,14 @@ const WbsOverviewPage: React.FC = () => {
       {/* Summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 mb-5">
         {[
-          { label: '專案數',    value: summary.totalProjects, unit: '個', color: '#2563eb', bg: '#eff6ff' },
-          { label: '總任務',    value: summary.totalTasks,    unit: '項', color: '#64748b', bg: '#f8fafc' },
-          { label: '已完成',    value: summary.completed,     unit: '項', color: '#16a34a', bg: '#f0fdf4' },
-          { label: '進行中',    value: summary.inProgress,    unit: '項', color: '#2563eb', bg: '#eff6ff' },
-          { label: '超時',      value: summary.overdue,       unit: '項', color: '#dc2626', bg: '#fef2f2' },
-          { label: '未開始',    value: summary.notStarted,    unit: '項', color: '#94a3b8', bg: '#f8fafc' },
-          { label: '本週進行',  value: summary.thisWeek,      unit: '項', color: '#2563eb', bg: '#eff6ff' },
-          { label: '下週待辦',  value: summary.nextWeek,      unit: '項', color: '#7c3aed', bg: '#f5f3ff' },
+          { label: t('wbs.summaryProjects'), value: summary.totalProjects, unit: t('wbs.unitCount'), color: '#2563eb', bg: '#eff6ff' },
+          { label: t('wbs.summaryTotal'),    value: summary.totalTasks,    unit: t('wbs.unitItem'),  color: '#64748b', bg: '#f8fafc' },
+          { label: t('wbs.summaryCompleted'),value: summary.completed,     unit: t('wbs.unitItem'),  color: '#16a34a', bg: '#f0fdf4' },
+          { label: t('wbs.summaryInProgress'),value: summary.inProgress,   unit: t('wbs.unitItem'),  color: '#2563eb', bg: '#eff6ff' },
+          { label: t('wbs.summaryOverdue'),  value: summary.overdue,       unit: t('wbs.unitItem'),  color: '#dc2626', bg: '#fef2f2' },
+          { label: t('wbs.summaryNotStarted'),value: summary.notStarted,   unit: t('wbs.unitItem'),  color: '#94a3b8', bg: '#f8fafc' },
+          { label: t('wbs.summaryThisWeek'), value: summary.thisWeek,      unit: t('wbs.unitItem'),  color: '#2563eb', bg: '#eff6ff' },
+          { label: t('wbs.summaryNextWeek'), value: summary.nextWeek,      unit: t('wbs.unitItem'),  color: '#7c3aed', bg: '#f5f3ff' },
         ].map((s) => (
           <div key={s.label} className="bg-white rounded-xl border border-slate-100 shadow-sm px-3 py-2.5">
             <div className="text-[10px] text-slate-400 mb-0.5">{s.label}</div>
@@ -2718,16 +2734,16 @@ const WbsOverviewPage: React.FC = () => {
       <div className="flex items-center gap-4 mb-5 bg-white rounded-xl border border-slate-100 shadow-sm px-4 py-3 flex-wrap">
         <div className="flex items-center gap-2">
           <CalendarDaysIcon className="w-4 h-4 text-slate-400" />
-          <span className="text-xs font-semibold text-slate-500">週篩選</span>
+          <span className="text-xs font-semibold text-slate-500">{t('wbs.weekFilter')}</span>
           <Segmented
             value={weekFilter}
             onChange={(v) => setWeekFilter(v as WeekFilter)}
             options={[
-              { label: '近3週', value: 'all' },
-              { label: '上週', value: 'last_week' },
-              { label: '本週', value: 'this_week' },
-              { label: '下週', value: 'next_week' },
-              { label: '全部顯示', value: 'show_all' },
+              { label: t('wbs.recentThreeWeeks'), value: 'all' },
+              { label: t('wbs.lastWeek'), value: 'last_week' },
+              { label: t('wbs.thisWeek'), value: 'this_week' },
+              { label: t('wbs.nextWeek'), value: 'next_week' },
+              { label: t('wbs.showAllTasks'), value: 'show_all' },
             ]}
             size="small"
           />
@@ -2735,16 +2751,16 @@ const WbsOverviewPage: React.FC = () => {
         <div className="w-px h-5 bg-slate-200" />
         <div className="flex items-center gap-2">
           <ChartBarIcon className="w-4 h-4 text-slate-400" />
-          <span className="text-xs font-semibold text-slate-500">狀態</span>
+          <span className="text-xs font-semibold text-slate-500">{t('wbs.statusFilter')}</span>
           <Segmented
             value={statusFilter}
             onChange={(v) => setStatusFilter(v as TaskStatus | 'all')}
             options={[
-              { label: '全部', value: 'all' },
-              { label: '進行中', value: 'in_progress' },
-              { label: '超時', value: 'overdue' },
-              { label: '已完成', value: 'completed' },
-              { label: '未開始', value: 'not_started' },
+              { label: t('common.all'), value: 'all' },
+              { label: t('wbs.inProgress'), value: 'in_progress' },
+              { label: t('wbs.overdue'), value: 'overdue' },
+              { label: t('wbs.completed'), value: 'completed' },
+              { label: t('wbs.notStarted'), value: 'not_started' },
             ]}
             size="small"
           />
@@ -2752,13 +2768,13 @@ const WbsOverviewPage: React.FC = () => {
         <div className="w-px h-5 bg-slate-200" />
         <div className="flex items-center gap-2">
           <FolderIcon className="w-4 h-4 text-slate-400" />
-          <span className="text-xs font-semibold text-slate-500">分組</span>
+          <span className="text-xs font-semibold text-slate-500">{t('wbs.groupFilter')}</span>
           <Segmented
             value={wbsGroupMode}
             onChange={(v) => setWbsGroupMode(v as 'by_group' | 'by_req')}
             options={[
-              { label: '按分組', value: 'by_group' },
-              { label: '按需求', value: 'by_req' },
+              { label: t('wbs.byGroup'), value: 'by_group' },
+              { label: t('common.byReq'), value: 'by_req' },
             ]}
             size="small"
           />
@@ -2767,7 +2783,7 @@ const WbsOverviewPage: React.FC = () => {
         <div className="flex items-center gap-2">
           <MagnifyingGlassIcon className="w-4 h-4 text-slate-400" />
           <Input
-            placeholder="搜索任務/負責人..."
+            placeholder={t('wbs.searchPlaceholder')}
             allowClear
             size="small"
             style={{ width: 160, borderRadius: 8 }}
@@ -2776,23 +2792,23 @@ const WbsOverviewPage: React.FC = () => {
           />
         </div>
         <div className="ml-auto text-xs text-slate-400">
-          顯示 {filteredTaskCount}/{summary.totalTasks} 項任務
-          {weekFilter === 'show_all' && <Tag color="orange" style={{ fontSize: 9, margin: '0 0 0 6px', lineHeight: '14px', padding: '0 3px' }}>含歷史</Tag>}
+          {t('wbs.showingItems', { filtered: filteredTaskCount, total: summary.totalTasks })}
+          {weekFilter === 'show_all' && <Tag color="orange" style={{ fontSize: 9, margin: '0 0 0 6px', lineHeight: '14px', padding: '0 3px' }}>{t('wbs.includesHistory')}</Tag>}
         </div>
       </div>
 
       {/* Empty state — only when both sections are empty */}
       {filteredProjects.length === 0 && filteredDuties.length === 0 && (
-        <Empty description="沒有符合篩選條件的任務" className="my-16" />
+        <Empty description={t('wbs.noMatchingTasks')} className="my-16" />
       )}
 
       {/* Project cards */}
       {filteredProjects.length > 0 && (
         <>
           <div className="flex items-center gap-2 mb-3">
-            <span className="text-sm font-semibold text-slate-700">專案任務</span>
+            <span className="text-sm font-semibold text-slate-700">{t('wbs.projectTasks')}</span>
             <span className="text-xs text-slate-400 bg-slate-100 rounded-full px-2 py-0.5">
-              {filteredProjects.length} 個專案
+              {t('wbs.projectCount', { count: filteredProjects.length })}
             </span>
           </div>
           {filteredProjects.map((p) => (
@@ -2825,8 +2841,8 @@ const WbsOverviewPage: React.FC = () => {
         return (
           <div className="mt-6">
             <div className="flex items-center gap-2 mb-3">
-              <span className="text-sm font-semibold text-slate-700">系統任務</span>
-              <span className="text-xs text-slate-400 bg-slate-100 rounded-full px-2 py-0.5">{systemDuties.length} 項</span>
+              <span className="text-sm font-semibold text-slate-700">{t('wbs.systemTasks')}</span>
+              <span className="text-xs text-slate-400 bg-slate-100 rounded-full px-2 py-0.5">{t('common.itemCount', { count: systemDuties.length })}</span>
             </div>
             {Array.from(systemMap.entries()).map(([sysId, { systemNm, duties, noteKey }]) => (
               <DutyCard
@@ -2851,11 +2867,11 @@ const WbsOverviewPage: React.FC = () => {
       {standaloneDuties.length > 0 && (
         <div className="mt-6">
           <div className="flex items-center gap-2 mb-3">
-            <span className="text-sm font-semibold text-slate-700">AR 任務</span>
-            <span className="text-xs text-slate-400 bg-slate-100 rounded-full px-2 py-0.5">{standaloneDuties.length} 項</span>
+            <span className="text-sm font-semibold text-slate-700">{t('wbs.arTasks')}</span>
+            <span className="text-xs text-slate-400 bg-slate-100 rounded-full px-2 py-0.5">{t('common.itemCount', { count: standaloneDuties.length })}</span>
           </div>
           <DutyCard
-            title="AR 任務"
+            title={t('wbs.arTasks')}
             duties={standaloneDuties}
             notes={dutyNotes['ar_standalone'] ?? []}
             onSelect={setSelectedDutyId}

@@ -8,7 +8,7 @@ import RichTextEditor from '@/components/common/RichTextEditor'
 import type { ColumnsType } from 'antd/es/table'
 import type { InputRef } from 'antd'
 import { useResizableColumns, tableComponents } from '@/hooks/useResizableColumns'
-import { PlusIcon, MagnifyingGlassIcon, TrashIcon, EyeIcon, FolderIcon, ArrowsPointingOutIcon, PencilSquareIcon, XMarkIcon } from '@heroicons/react/24/outline'
+import { PlusIcon, TrashIcon, EyeIcon, FolderIcon, ArrowsPointingOutIcon, PencilSquareIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
 import { fetchDutyListThunk, deleteDutyThunk, setDutyQuery, createDutyThunk } from './dutySlice'
 import { TemporaryDuty, ProjectFunction, UserProfile } from '@/types/api.types'
@@ -23,16 +23,18 @@ import { useWorkNoToName } from '@/hooks/useWorkNoToName'
 import FunctionDetailDrawer from '@/features/project/FunctionDetailDrawer'
 import DutyDetailDrawer from './DutyDetailDrawer'
 import dayjs from 'dayjs'
+import { useTranslation } from 'react-i18next'
+import DateInput from '@/components/common/DateInput'
 
-const { Search } = Input
 const PRIORITY_COLORS = ['', '#22c55e', '#f59e0b', '#ef4444', '#7c3aed']
 
 const DaysLeftBadge: React.FC<{ date?: string }> = ({ date }) => {
+  const { t } = useTranslation()
   if (!date) return <span className="text-slate-300 text-xs">—</span>
   const days = dayjs(date).diff(dayjs(), 'day')
-  if (days < 0)  return <span className="days-overdue">超期 {Math.abs(days)}天</span>
-  if (days <= 3) return <span className="days-overdue">剩 {days} 天</span>
-  if (days <= 7) return <span className="days-warning">剩 {days} 天</span>
+  if (days < 0)  return <span className="days-overdue">{t('common.daysOverdue', { days: Math.abs(days) })}</span>
+  if (days <= 3) return <span className="days-overdue">{t('common.daysLeft', { days })}</span>
+  if (days <= 7) return <span className="days-warning">{t('common.daysLeft', { days })}</span>
   return <span className="days-ok">{date}</span>
 }
 
@@ -52,6 +54,7 @@ const StatusDot: React.FC<{ status: number }> = ({ status }) => {
 type MyFunction = ProjectFunction & { project_nm: string; project_status: number; project_pm: string; requirement_nm?: string }
 
 const DutyListPage: React.FC = () => {
+  const { t } = useTranslation()
   const dispatch = useAppDispatch()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -118,7 +121,7 @@ const DutyListPage: React.FC = () => {
   const groupedMyFunctions = useMemo(() => {
     const map = new Map<string, MyFunction[]>()
     filteredMyFunctions.forEach((f) => {
-      const key = f.group1 || '未分組'
+      const key = f.group1 || t('common.ungrouped')
       if (!map.has(key)) map.set(key, [])
       map.get(key)!.push(f)
     })
@@ -235,13 +238,13 @@ const DutyListPage: React.FC = () => {
     if (sysTaskSystem)         result = result.filter((d) => d.system_nm === sysTaskSystem)
     if (sysTaskReq)            result = result.filter((d) => d.standalone_req_id === sysTaskReq)
     if (sysTaskResponsible)    result = result.filter((d) => (d.responsible ?? []).includes(sysTaskResponsible))
-    if (sysTaskGroup)          result = result.filter((d) => (d.group ?? '未分組') === sysTaskGroup)
+    if (sysTaskGroup)          result = result.filter((d) => (d.group ?? t('common.ungrouped')) === sysTaskGroup)
     return result
   }, [sysTaskList, sysTaskView, workNo, sysHideCompleted, sysShowHeld, sysTaskStatus, sysTaskSystem, sysTaskReq, sysTaskResponsible, sysTaskGroup])
   const groupedSysTasks = useMemo(() => {
     const map = new Map<string, TemporaryDuty[]>()
     displayedSysTasks.forEach((d) => {
-      const g = d.group || '未分組'
+      const g = d.group || t('common.ungrouped')
       if (!map.has(g)) map.set(g, [])
       map.get(g)!.push(d)
     })
@@ -269,7 +272,7 @@ const DutyListPage: React.FC = () => {
     [sysTaskList, toName],
   )
   const sysGroupOptions = useMemo(
-    () => Array.from(new Set(sysTaskList.map((d) => d.group || '未分組').filter(Boolean)))
+    () => Array.from(new Set(sysTaskList.map((d) => d.group || t('common.ungrouped')).filter(Boolean)))
       .map((g) => ({ value: g, label: g })),
     [sysTaskList],
   )
@@ -293,7 +296,7 @@ const DutyListPage: React.FC = () => {
       (d.responsible ?? []).some((wn) => wn.toLowerCase() === workNo.toLowerCase())
     )
     if (!showHeld) result = result.filter((d) => d.status !== 8)
-    if (filterGroup) result = result.filter((d) => (d.group ?? '未分組') === filterGroup)
+    if (filterGroup) result = result.filter((d) => (d.group ?? t('common.ungrouped')) === filterGroup)
     return result
   }, [dutyPersonal, list, filterGroup, showHeld, workNo])
 
@@ -316,7 +319,7 @@ const DutyListPage: React.FC = () => {
     const source = hideCompleted ? displayedList.filter((d) => d.status !== 3) : displayedList
     const map = new Map<string, TemporaryDuty[]>()
     source.forEach((d) => {
-      const g = d.group || '未分組'
+      const g = d.group || t('common.ungrouped')
       if (!map.has(g)) map.set(g, [])
       map.get(g)!.push(d)
     })
@@ -339,8 +342,8 @@ const DutyListPage: React.FC = () => {
   const handleDelete = async (id: string) => {
     try {
       await dispatch(deleteDutyThunk(id)).unwrap()
-      showToast.success('刪除成功')
-    } catch { showToast.error('刪除失敗') }
+      showToast.success(t('common.deleteSuccess'))
+    } catch { showToast.error(t('common.deleteFailed')) }
   }
 
   const handleCreate = async (values: Record<string, unknown>) => {
@@ -357,10 +360,10 @@ const DutyListPage: React.FC = () => {
           expected_end_date:   values.expected_end_date as string | undefined,
         },
       })).unwrap()
-      showToast.success('AR建立成功')
+      showToast.success(t('duty.createSuccess'))
       setShowCreate(false); form.resetFields()
       dispatch(fetchDutyListThunk(query))
-    } catch (err: unknown) { showToast.error((err as string) || '建立失敗') }
+    } catch (err: unknown) { showToast.error((err as string) || t('duty.createFailed')) }
   }
 
   // ── AR 快速負責人搜尋 ──────────────────────────────────────────────────────
@@ -386,7 +389,7 @@ const DutyListPage: React.FC = () => {
     setArQuickSaving(true)
     try {
       await dutyApi.allocate(arQuickResp.did, { responsible: arQuickResp.persons.map((p) => p.work_no) })
-      showToast.success('負責人已更新')
+      showToast.success(t('duty.updateAssigneeSuccess'))
       setArQuickResp(null)
       dispatch(fetchDutyListThunk(query))
     } catch { /* global */ }
@@ -396,7 +399,7 @@ const DutyListPage: React.FC = () => {
   // ── 專案任務 columns ──────────────────────────────────────────────────────
   const rawFuncColumns: ColumnsType<MyFunction> = [
     {
-      title: '任務名稱', dataIndex: 'function_nm', ellipsis: true,
+      title: t('duty.taskName'), dataIndex: 'function_nm', ellipsis: true,
       render: (name: string, r) => {
         const p = PRIORITY_MAP[r.priority]
         return (
@@ -410,7 +413,7 @@ const DutyListPage: React.FC = () => {
       },
     },
     {
-      title: '所屬專案', dataIndex: 'project_nm', width: 150, ellipsis: true,
+      title: t('nav.projectList'), dataIndex: 'project_nm', width: 150, ellipsis: true,
       render: (v: string, r) => (
         <Button type="link" style={{ padding: 0, fontSize: 12 }} onClick={() => navigate(`/projects/${r.project_id}`)}>
           {v}
@@ -418,13 +421,13 @@ const DutyListPage: React.FC = () => {
       ),
     },
     {
-      title: '所屬需求', dataIndex: 'requirement_nm', width: 150, ellipsis: true,
+      title: t('nav.requirementList'), dataIndex: 'requirement_nm', width: 150, ellipsis: true,
       render: (v: string) => v
         ? <Tag color="purple" style={{ fontSize: 10 }}>{v}</Tag>
         : <span className="text-slate-300 text-xs">—</span>,
     },
     {
-      title: '任務分組', key: 'group', width: 140, ellipsis: true,
+      title: t('function.group'), key: 'group', width: 140, ellipsis: true,
       render: (_: unknown, r: MyFunction) => (
         <span className="text-slate-600 text-xs">
           {r.group1}{r.group2 ? ` / ${r.group2}` : ''}
@@ -432,17 +435,17 @@ const DutyListPage: React.FC = () => {
       ),
     },
     {
-      title: '狀態', dataIndex: 'status', width: 100,
+      title: t('common.status'), dataIndex: 'status', width: 100,
       render: (v: number) => { const s = FUNCTION_STATUS_MAP[v]; return s ? <Tag color={s.color} style={{ fontSize: 11 }}>{s.label}</Tag> : v },
     },
     {
-      title: '負責人', dataIndex: 'responsible', width: 120,
+      title: t('function.assignee'), dataIndex: 'responsible', width: 120,
       render: (v: string[]) => (v ?? []).map((wn) => (
         <Tag key={wn} color="purple" style={{ fontSize: 10, marginBottom: 2 }}>{toName(wn)}</Tag>
       )),
     },
     {
-      title: '進度', dataIndex: 'progress', width: 130,
+      title: t('common.progress'), dataIndex: 'progress', width: 130,
       render: (v: number) => (
         <div className="flex items-center gap-2">
           <Progress percent={v ?? 0} size="small" showInfo={false} style={{ flex: 1 }}
@@ -452,21 +455,21 @@ const DutyListPage: React.FC = () => {
       ),
     },
     {
-      title: '預計完成', dataIndex: 'expected_end_date', width: 120,
+      title: t('common.expectedEndDate'), dataIndex: 'expected_end_date', width: 120,
       render: (v: string, r) => {
         if (!v || !dayjs(v).isValid()) return <span className="text-slate-300 text-xs">—</span>
         if (r.status === 4) return <span className="days-ok">{v}</span>
         const days = dayjs(v).diff(dayjs(), 'day')
-        if (days < 0) return <span className="days-overdue">超期 {Math.abs(days)}天</span>
-        if (days <= 3) return <span className="days-overdue">剩 {days} 天</span>
-        if (days <= 7) return <span className="days-warning">剩 {days} 天</span>
+        if (days < 0) return <span className="days-overdue">{t('common.daysOverdue', { days: Math.abs(days) })}</span>
+        if (days <= 3) return <span className="days-overdue">{t('common.daysLeft', { days })}</span>
+        if (days <= 7) return <span className="days-warning">{t('common.daysLeft', { days })}</span>
         return <span className="days-ok">{v}</span>
       },
     },
     {
-      title: '操作', key: 'action', width: 70, fixed: 'right',
+      title: t('common.operation'), key: 'action', width: 70, fixed: 'right',
       render: (_: unknown, r) => (
-        <Tooltip title="查看詳情">
+        <Tooltip title={t('duty.viewDetail')}>
           <Button icon={<EyeIcon className="w-4 h-4" />} size="small" type="text" onClick={() => setSelectedFid(r.id)} />
         </Tooltip>
       ),
@@ -475,7 +478,7 @@ const DutyListPage: React.FC = () => {
 
   const rawColumns: ColumnsType<TemporaryDuty> = [
     {
-      title: '任務名稱', dataIndex: 'duty_nm', ellipsis: true,
+      title: t('duty.taskName'), dataIndex: 'duty_nm', ellipsis: true,
       render: (name: string, record) => (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ width: 3, height: 24, borderRadius: 2, flexShrink: 0, background: PRIORITY_COLORS[record.priority] }} />
@@ -487,31 +490,31 @@ const DutyListPage: React.FC = () => {
       ),
     },
     {
-      title: '關聯系統', dataIndex: 'system_nm', width: 130, ellipsis: true,
+      title: t('nav.systemMgmt'), dataIndex: 'system_nm', width: 130, ellipsis: true,
       render: (v: string) => v
         ? <Tag color="geekblue" style={{ fontSize: 10 }}>{v}</Tag>
         : <span className="text-slate-300 text-xs">—</span>,
     },
     {
-      title: '分組', dataIndex: 'group', width: 100,
+      title: t('common.grouped'), dataIndex: 'group', width: 100,
       render: (v: string) => v ? (
         <Tag style={{ fontSize: 10, lineHeight: '16px', padding: '0 5px', margin: 0 }} color="processing">{v}</Tag>
       ) : <span className="text-slate-300 text-xs">—</span>,
     },
     {
-      title: '狀態', dataIndex: 'status', width: 110,
+      title: t('common.status'), dataIndex: 'status', width: 110,
       render: (v: number) => <StatusDot status={v} />,
     },
     {
-      title: '優先級', dataIndex: 'priority', width: 80,
+      title: t('common.priority'), dataIndex: 'priority', width: 80,
       render: (v: number) => { const p = PRIORITY_MAP[v]; return p ? <Tag color={p.color} style={{ fontSize: 11 }}>{p.label}</Tag> : v },
     },
     {
-      title: '建立人', dataIndex: 'creator', width: 90,
+      title: t('common.createdAt'), dataIndex: 'creator', width: 90,
       render: (v: string) => <span className="text-sm text-slate-600">{toName(v) || '—'}</span>,
     },
     {
-      title: '負責人', dataIndex: 'responsible', width: 150,
+      title: t('function.assignee'), dataIndex: 'responsible', width: 150,
       render: (v: string[], record: TemporaryDuty) => {
         const isCreator = record.creator?.toLowerCase() === workNo.toLowerCase()
         const isResp = (v ?? []).some((wn) => wn.toLowerCase() === workNo.toLowerCase())
@@ -543,28 +546,28 @@ const DutyListPage: React.FC = () => {
                   </Tooltip>
                 ))}
               </div>
-              <span className="text-sm text-slate-600 truncate">{toName(v[0]) || v[0]}{v.length > 1 ? ` 等${v.length}人` : ''}</span>
+              <span className="text-sm text-slate-600 truncate">{toName(v[0]) || v[0]}{v.length > 1 ? ` ${t('common.andMore', { count: v.length - 1 })}` : ''}</span>
               {canEdit && (
-                <button className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-blue-500 border-0 outline-none bg-transparent p-0 cursor-pointer flex-shrink-0" onClick={openPicker} title="修改負責人">
+                <button className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-blue-500 border-0 outline-none bg-transparent p-0 cursor-pointer flex-shrink-0" onClick={openPicker} title={t('duty.editAssignee')}>
                   <PencilSquareIcon className="w-3.5 h-3.5" />
                 </button>
               )}
             </div>
           )
         }
-        if (!canEdit) return <span className="text-slate-300 text-xs">未分配</span>
+        if (!canEdit) return <span className="text-slate-300 text-xs">{t('common.notAssigned')}</span>
         return (
           <button
             className="flex items-center gap-1 text-xs text-slate-400 hover:text-blue-500 hover:bg-blue-50 px-2 py-0.5 rounded-full border border-dashed border-slate-300 hover:border-blue-300 transition-colors"
             onClick={openPicker}
           >
-            <PlusIcon className="w-3 h-3" />指定負責人
+            <PlusIcon className="w-3 h-3" />{t('duty.assignAssignee')}
           </button>
         )
       },
     },
     {
-      title: '進度', dataIndex: 'progress', width: 140,
+      title: t('common.progress'), dataIndex: 'progress', width: 140,
       render: (v: number) => (
         <div className="flex items-center gap-2">
           <Progress percent={v ?? 0} size="small" showInfo={false} style={{ flex: 1 }}
@@ -574,25 +577,25 @@ const DutyListPage: React.FC = () => {
       ),
     },
     {
-      title: '預計完成', dataIndex: 'expected_end_date', width: 120,
+      title: t('common.expectedEndDate'), dataIndex: 'expected_end_date', width: 120,
       render: (v: string, r: TemporaryDuty) => r.status === 8
         ? <span className="text-slate-300 text-xs">{v || '—'}</span>
         : <DaysLeftBadge date={v} />,
     },
     {
-      title: '操作', key: 'action', width: 80, fixed: 'right',
+      title: t('common.operation'), key: 'action', width: 80, fixed: 'right',
       render: (_: unknown, record) => {
         const isCreator = record.creator?.toLowerCase() === workNo.toLowerCase()
         const isDraft = record.status === 0
         return (
           <Space size={0}>
-            <Tooltip title="查看">
+            <Tooltip title={t('common.view')}>
               <Button icon={<EyeIcon className="w-4 h-4" />} size="small" type="text"
                 onClick={() => setSelectedDutyId(record.id)} />
             </Tooltip>
             {isCreator && isDraft && (
-              <Popconfirm title="確認刪除此任務？" onConfirm={() => handleDelete(record.id)} okText="確認" cancelText="取消">
-                <Tooltip title="刪除"><Button icon={<TrashIcon className="w-4 h-4" />} size="small" type="text" danger /></Tooltip>
+              <Popconfirm title={t('duty.deleteConfirm')} onConfirm={() => handleDelete(record.id)} okText={t('common.confirm')} cancelText={t('common.cancel')}>
+                <Tooltip title={t('common.delete')}><Button icon={<TrashIcon className="w-4 h-4" />} size="small" type="text" danger /></Tooltip>
               </Popconfirm>
             )}
           </Space>
@@ -609,7 +612,7 @@ const DutyListPage: React.FC = () => {
   // ── 系統任務 columns ──────────────────────────────────────────────────────
   const rawSysColumns: ColumnsType<TemporaryDuty> = [
     {
-      title: '任務名稱', dataIndex: 'duty_nm', ellipsis: true,
+      title: t('duty.taskName'), dataIndex: 'duty_nm', ellipsis: true,
       render: (name: string, r) => {
         const p = PRIORITY_MAP[r.priority]
         return (
@@ -623,33 +626,33 @@ const DutyListPage: React.FC = () => {
       },
     },
     {
-      title: '所屬系統', dataIndex: 'system_nm', width: 150, ellipsis: true,
+      title: t('nav.systemMgmt'), dataIndex: 'system_nm', width: 150, ellipsis: true,
       render: (v: string, r) => v
         ? <Button type="link" style={{ padding: 0, fontSize: 12 }} onClick={() => navigate(`/systems/${r.system_id}`)}>{v}</Button>
         : <span className="text-slate-300 text-xs">—</span>,
     },
     {
-      title: '所屬需求', dataIndex: 'standalone_req_id', width: 150, ellipsis: true,
+      title: t('nav.requirementList'), dataIndex: 'standalone_req_id', width: 150, ellipsis: true,
       render: (v: string) => v && reqNameMap[v]
         ? <Tag color="purple" style={{ fontSize: 10 }}>{reqNameMap[v]}</Tag>
         : <span className="text-slate-300 text-xs">—</span>,
     },
     {
-      title: '任務分組', dataIndex: 'group', width: 140, ellipsis: true,
+      title: t('function.group'), dataIndex: 'group', width: 140, ellipsis: true,
       render: (v: string) => <span className="text-slate-600 text-xs">{v || '—'}</span>,
     },
     {
-      title: '狀態', dataIndex: 'status', width: 100,
+      title: t('common.status'), dataIndex: 'status', width: 100,
       render: (v: number) => { const s = DUTY_STATUS_MAP[v]; return s ? <Tag color={s.color} style={{ fontSize: 11 }}>{s.label}</Tag> : v },
     },
     {
-      title: '負責人', dataIndex: 'responsible', width: 120,
+      title: t('function.assignee'), dataIndex: 'responsible', width: 120,
       render: (v: string[]) => (v ?? []).map((wn) => (
         <Tag key={wn} color="purple" style={{ fontSize: 10, marginBottom: 2 }}>{toName(wn)}</Tag>
       )),
     },
     {
-      title: '進度', dataIndex: 'progress', width: 130,
+      title: t('common.progress'), dataIndex: 'progress', width: 130,
       render: (v: number) => (
         <div className="flex items-center gap-2">
           <Progress percent={v ?? 0} size="small" showInfo={false} style={{ flex: 1 }}
@@ -659,21 +662,21 @@ const DutyListPage: React.FC = () => {
       ),
     },
     {
-      title: '預計完成', dataIndex: 'expected_end_date', width: 120,
+      title: t('common.expectedEndDate'), dataIndex: 'expected_end_date', width: 120,
       render: (v: string, r: TemporaryDuty) => {
         if (!v || !dayjs(v).isValid()) return <span className="text-slate-300 text-xs">—</span>
         if (r.status === 3) return <span className="days-ok">{v}</span>
         const days = dayjs(v).diff(dayjs(), 'day')
-        if (days < 0) return <span className="days-overdue">超期 {Math.abs(days)}天</span>
-        if (days <= 3) return <span className="days-overdue">剩 {days} 天</span>
-        if (days <= 7) return <span className="days-warning">剩 {days} 天</span>
+        if (days < 0) return <span className="days-overdue">{t('common.daysOverdue', { days: Math.abs(days) })}</span>
+        if (days <= 3) return <span className="days-overdue">{t('common.daysLeft', { days })}</span>
+        if (days <= 7) return <span className="days-warning">{t('common.daysLeft', { days })}</span>
         return <span className="days-ok">{v}</span>
       },
     },
     {
-      title: '操作', key: 'action', width: 70, fixed: 'right',
+      title: t('common.operation'), key: 'action', width: 70, fixed: 'right',
       render: (_: unknown, record) => (
-        <Tooltip title="查看詳情">
+        <Tooltip title={t('duty.viewDetail')}>
           <Button icon={<EyeIcon className="w-4 h-4" />} size="small" type="text" onClick={() => setSelectedDutyId(record.id)} />
         </Tooltip>
       ),
@@ -687,13 +690,13 @@ const DutyListPage: React.FC = () => {
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">任務</h1>
-          <p className="text-slate-400 text-sm mt-0.5">管理你的專案任務與AR</p>
+          <h1 className="text-2xl font-bold text-slate-800">{t('duty.title')}</h1>
+          <p className="text-slate-400 text-sm mt-0.5">{t('duty.arTask')}</p>
         </div>
         {activeTab === 'duty' && (
           <Button type="primary" icon={<PlusIcon className="w-4 h-4" />}
             onClick={openCreateModal} style={{ background: '#2563eb', fontWeight: 500 }}>
-            新建任務
+            {t('duty.create')}
           </Button>
         )}
       </div>
@@ -701,7 +704,7 @@ const DutyListPage: React.FC = () => {
       <Tabs activeKey={activeTab} onChange={(k) => setActiveTab(k as 'project' | 'system' | 'duty')} items={[
         {
           key: 'project',
-          label: `專案任務 (${myFuncTotal})`,
+          label: `${t('duty.systemTask')} (${myFuncTotal})`,
           children: (
             <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: 0 } }}>
               <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-slate-100">
@@ -709,8 +712,8 @@ const DutyListPage: React.FC = () => {
                   value={myFuncPersonal}
                   onChange={(v) => setMyFuncPersonal(v as 'all' | 'mine')}
                   options={[
-                    { label: '全部', value: 'all' },
-                    { label: '我的', value: 'mine' },
+                    { label: t('common.all'), value: 'all' },
+                    { label: t('common.mine'), value: 'mine' },
                   ]}
                 />
                 <div className="w-px h-5 bg-slate-200" />
@@ -719,19 +722,19 @@ const DutyListPage: React.FC = () => {
                   value={myFuncView}
                   onChange={(v) => setMyFuncView(v as 'flat' | 'grouped')}
                   options={[
-                    { label: '平面', value: 'flat' },
-                    { label: '分組', value: 'grouped' },
+                    { label: t('common.flat'), value: 'flat' },
+                    { label: t('common.grouped'), value: 'grouped' },
                   ]}
                 />
                 <div className="w-px h-5 bg-slate-200" />
                 <Select
-                  placeholder="狀態" allowClear style={{ width: 120 }}
+                  placeholder={t('common.status')} allowClear style={{ width: 120 }}
                   value={myFuncStatus}
                   onChange={(v) => { setMyFuncStatus(v); loadMyFunctions(1, myFuncPageSize, v, myFuncScope) }}
                   options={Object.entries(FUNCTION_STATUS_MAP).map(([k, v]) => ({ value: Number(k), label: v.label }))}
                 />
                 <Select
-                  placeholder="專案" allowClear style={{ width: 160 }}
+                  placeholder={t('nav.projectList')} allowClear style={{ width: 160 }}
                   value={myFuncProject}
                   onChange={(v) => setMyFuncProject(v)}
                   options={funcProjectOptions}
@@ -739,13 +742,13 @@ const DutyListPage: React.FC = () => {
                   filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
                 />
                 <Select
-                  placeholder="任務分組" allowClear style={{ width: 130 }}
+                  placeholder={t('function.group')} allowClear style={{ width: 130 }}
                   value={myFuncGroup}
                   onChange={(v) => setMyFuncGroup(v)}
                   options={funcGroupOptions}
                 />
                 <Select
-                  placeholder="負責人" allowClear style={{ width: 120 }}
+                  placeholder={t('function.assignee')} allowClear style={{ width: 120 }}
                   value={myFuncResponsible}
                   onChange={(v) => setMyFuncResponsible(v)}
                   options={funcResponsibleOptions}
@@ -753,11 +756,11 @@ const DutyListPage: React.FC = () => {
                 <div className="ml-auto flex items-center gap-4 text-sm text-slate-500">
                   <label className="flex items-center gap-2 cursor-pointer">
                     <Switch size="small" checked={funcShowHeld} onChange={setFuncShowHeld} />
-                    顯示搁置
+                    {t('duty.showHeld')}
                   </label>
                   <label className="flex items-center gap-2 cursor-pointer">
                     <Switch size="small" checked={!hideCompleted} onChange={(v) => setHideCompleted(!v)} />
-                    顯示已完結
+                    {t('duty.showCompleted')}
                   </label>
                 </div>
               </div>
@@ -774,7 +777,7 @@ const DutyListPage: React.FC = () => {
                     pageSize: myFuncPageSize,
                     showSizeChanger: true,
                     pageSizeOptions: ['10', '20', '50', '100'],
-                    showTotal: (t) => `共 ${t} 筆`,
+                    showTotal: (total) => t('common.total', { count: total }),
                     onShowSizeChange: (_, size) => setMyFuncPageSize(size),
                   }}
                 />
@@ -783,7 +786,7 @@ const DutyListPage: React.FC = () => {
                   {myFuncLoading ? (
                     <div className="flex justify-center py-12"><Spin size="large" /></div>
                   ) : groupedMyFunctions.length === 0 ? (
-                    <Empty description="暫無任務" className="py-12" />
+                    <Empty description={t('duty.noTasks')} className="py-12" />
                   ) : (
                     <Collapse
                       defaultActiveKey={groupedMyFunctions.map((g) => g.name)}
@@ -797,11 +800,11 @@ const DutyListPage: React.FC = () => {
                             <div className="flex items-center gap-3">
                               <FolderIcon className="w-4 h-4 text-blue-500" />
                               <span className="font-semibold text-slate-700">{g.name}</span>
-                              <Tag color="blue" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>{g.items.length} 項</Tag>
+                              <Tag color="blue" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>{t('common.itemCount', { count: g.items.length })}</Tag>
                               <Progress percent={g.avgProgress} size="small" showInfo={false} style={{ width: 80 }} strokeColor="#2563eb" trailColor="#e2e8f0" />
                               <span className="text-xs text-slate-400">{g.avgProgress}%</span>
                               {g.overdueCount > 0 && (
-                                <Tag color="error" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>超時 {g.overdueCount}</Tag>
+                                <Tag color="error" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>{t('common.overdueCount', { count: g.overdueCount })}</Tag>
                               )}
                             </div>
                           }
@@ -819,7 +822,7 @@ const DutyListPage: React.FC = () => {
         },
         {
           key: 'system',
-          label: `系統任務 (${sysTaskList.length})`,
+          label: `${t('duty.systemTask')} (${sysTaskList.length})`,
           children: (
             <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: 0 } }}>
               <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-slate-100">
@@ -827,8 +830,8 @@ const DutyListPage: React.FC = () => {
                   value={sysTaskView}
                   onChange={(v) => setSysTaskView(v as 'all' | 'mine')}
                   options={[
-                    { label: '全部', value: 'all' },
-                    { label: '我的', value: 'mine' },
+                    { label: t('common.all'), value: 'all' },
+                    { label: t('common.mine'), value: 'mine' },
                   ]}
                 />
                 <div className="w-px h-5 bg-slate-200" />
@@ -837,19 +840,19 @@ const DutyListPage: React.FC = () => {
                   value={sysTaskGroupMode}
                   onChange={(v) => setSysTaskGroupMode(v as 'flat' | 'grouped')}
                   options={[
-                    { label: '平面', value: 'flat' },
-                    { label: '分組', value: 'grouped' },
+                    { label: t('common.flat'), value: 'flat' },
+                    { label: t('common.grouped'), value: 'grouped' },
                   ]}
                 />
                 <div className="w-px h-5 bg-slate-200" />
                 <Select
-                  placeholder="狀態" allowClear style={{ width: 120 }}
+                  placeholder={t('common.status')} allowClear style={{ width: 120 }}
                   value={sysTaskStatus}
                   onChange={(v) => setSysTaskStatus(v)}
                   options={Object.entries(DUTY_STATUS_MAP).map(([k, v]) => ({ value: Number(k), label: v.label }))}
                 />
                 <Select
-                  placeholder="系統" allowClear style={{ width: 140 }}
+                  placeholder={t('nav.systemMgmt')} allowClear style={{ width: 140 }}
                   value={sysTaskSystem}
                   onChange={(v) => setSysTaskSystem(v)}
                   options={sysSystemOptions}
@@ -857,7 +860,7 @@ const DutyListPage: React.FC = () => {
                   filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
                 />
                 <Select
-                  placeholder="需求" allowClear style={{ width: 150 }}
+                  placeholder={t('nav.requirementList')} allowClear style={{ width: 150 }}
                   value={sysTaskReq}
                   onChange={(v) => setSysTaskReq(v)}
                   options={sysReqOptions}
@@ -865,13 +868,13 @@ const DutyListPage: React.FC = () => {
                   filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
                 />
                 <Select
-                  placeholder="任務分組" allowClear style={{ width: 120 }}
+                  placeholder={t('function.group')} allowClear style={{ width: 120 }}
                   value={sysTaskGroup}
                   onChange={(v) => setSysTaskGroup(v)}
                   options={sysGroupOptions}
                 />
                 <Select
-                  placeholder="負責人" allowClear style={{ width: 120 }}
+                  placeholder={t('function.assignee')} allowClear style={{ width: 120 }}
                   value={sysTaskResponsible}
                   onChange={(v) => setSysTaskResponsible(v)}
                   options={sysResponsibleOptions}
@@ -881,11 +884,11 @@ const DutyListPage: React.FC = () => {
                 <div className="ml-auto flex items-center gap-4 text-sm text-slate-500">
                   <label className="flex items-center gap-2 cursor-pointer">
                     <Switch size="small" checked={sysShowHeld} onChange={setSysShowHeld} />
-                    顯示搁置
+                    {t('duty.showHeld')}
                   </label>
                   <label className="flex items-center gap-2 cursor-pointer">
                     <Switch size="small" checked={!sysHideCompleted} onChange={(v) => setSysHideCompleted(!v)} />
-                    顯示已完結
+                    {t('duty.showCompleted')}
                   </label>
                 </div>
               </div>
@@ -901,7 +904,7 @@ const DutyListPage: React.FC = () => {
                   pagination={{
                     showSizeChanger: true,
                     pageSizeOptions: ['10', '20', '50', '100'],
-                    showTotal: (t) => `共 ${t} 筆`,
+                    showTotal: (total) => t('common.total', { count: total }),
                   }}
                 />
               ) : (
@@ -909,7 +912,7 @@ const DutyListPage: React.FC = () => {
                   {isLoading ? (
                     <div className="flex justify-center py-12"><Spin size="large" /></div>
                   ) : groupedSysTasks.length === 0 ? (
-                    <Empty description="暫無系統任務" className="py-12" />
+                    <Empty description={t('duty.noSysTasks')} className="py-12" />
                   ) : (
                     <Collapse
                       activeKey={sysOpenGroups}
@@ -924,11 +927,11 @@ const DutyListPage: React.FC = () => {
                             <div className="flex items-center gap-3">
                               <FolderIcon className="w-4 h-4 text-blue-500" />
                               <span className="font-semibold text-slate-700">{g.name}</span>
-                              <Tag color="blue" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>{g.items.length} 項</Tag>
+                              <Tag color="blue" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>{t('common.itemCount', { count: g.items.length })}</Tag>
                               <Progress percent={g.avgProgress} size="small" showInfo={false} style={{ width: 80 }} strokeColor="#2563eb" trailColor="#e2e8f0" />
                               <span className="text-xs text-slate-400">{g.avgProgress}%</span>
                               {g.overdueCount > 0 && (
-                                <Tag color="error" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>超時 {g.overdueCount}</Tag>
+                                <Tag color="error" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>{t('common.overdueCount', { count: g.overdueCount })}</Tag>
                               )}
                             </div>
                           }
@@ -955,8 +958,8 @@ const DutyListPage: React.FC = () => {
                     value={dutyPersonal}
                     onChange={(v) => setDutyPersonal(v as 'all' | 'mine')}
                     options={[
-                      { label: '全部', value: 'all' },
-                      { label: '我的', value: 'mine' },
+                      { label: t('common.all'), value: 'all' },
+                      { label: t('common.mine'), value: 'mine' },
                     ]}
                   />
                   <div className="w-px h-5 bg-slate-200" />
@@ -965,29 +968,29 @@ const DutyListPage: React.FC = () => {
                     value={groupMode}
                     onChange={(v) => setGroupMode(v as 'flat' | 'grouped')}
                     options={[
-                      { label: '平面', value: 'flat'    },
-                      { label: '分組', value: 'grouped' },
+                      { label: t('common.flat'), value: 'flat'    },
+                      { label: t('common.grouped'), value: 'grouped' },
                     ]}
                   />
                   <div className="w-px h-5 bg-slate-200" />
-                  <Select placeholder="狀態" allowClear style={{ width: 120 }}
+                  <Select placeholder={t('common.status')} allowClear style={{ width: 120 }}
                     onChange={(v) => dispatch(setDutyQuery({ status: v, page: 1 }))}
                     options={Object.entries(DUTY_STATUS_MAP).map(([k, v]) => ({ value: Number(k), label: v.label }))}
                   />
-                  <Select placeholder="優先級" allowClear style={{ width: 100 }}
+                  <Select placeholder={t('common.priority')} allowClear style={{ width: 100 }}
                     onChange={(v) => dispatch(setDutyQuery({ priority: v, page: 1 }))}
-                    options={[{value:1,label:'低'},{value:2,label:'中'},{value:3,label:'高'},{value:4,label:'緊急'}]}
+                    options={Object.entries(PRIORITY_MAP).map(([k]) => ({ value: Number(k), label: PRIORITY_MAP[Number(k)]?.label ?? k }))}
                   />
                   {groupFilterOptions.length > 0 && (
                     <Select
-                      placeholder="分組" allowClear style={{ width: 110 }}
+                      placeholder={t('common.grouped')} allowClear style={{ width: 110 }}
                       value={filterGroup}
                       onChange={(v) => setFilterGroup(v ?? null)}
                       options={groupFilterOptions}
                     />
                   )}
                   <Select
-                    placeholder="負責人" allowClear showSearch optionFilterProp="label" style={{ width: 130 }}
+                    placeholder={t('function.assignee')} allowClear showSearch optionFilterProp="label" style={{ width: 130 }}
                     value={query.responsible ?? undefined}
                     onChange={(v) => dispatch(setDutyQuery({ responsible: v ?? undefined, page: 1 }))}
                     options={modalUserOptions}
@@ -1003,11 +1006,11 @@ const DutyListPage: React.FC = () => {
                   <div className="ml-auto flex items-center gap-4 text-sm text-slate-500">
                     <label className="flex items-center gap-2 cursor-pointer">
                       <Switch size="small" checked={showHeld} onChange={setShowHeld} />
-                      顯示搁置
+                      {t('duty.showHeld')}
                     </label>
                     <label className="flex items-center gap-2 cursor-pointer">
                       <Switch size="small" checked={!hideCompleted} onChange={(v) => setHideCompleted(!v)} />
-                      顯示已完結
+                      {t('duty.showCompleted')}
                     </label>
                   </div>
                 </div>
@@ -1019,7 +1022,7 @@ const DutyListPage: React.FC = () => {
                     pagination={{
                       current: query.page, pageSize: query.size ?? 10,
                       total: (hideCompleted ? displayedList.filter((d) => d.status !== 3) : displayedList).length,
-                      showSizeChanger: true, showTotal: (t) => `共 ${t} 條`,
+                      showSizeChanger: true, showTotal: (total) => t('common.total', { count: total }),
                       onChange: (page, size) => dispatch(setDutyQuery({ page, size })),
                     }}
                     scroll={{ x: 920 }} size="small"
@@ -1029,7 +1032,7 @@ const DutyListPage: React.FC = () => {
                     {isLoading ? (
                       <div className="flex justify-center py-12"><Spin size="large" /></div>
                     ) : groupedDuties.length === 0 ? (
-                      <Empty description="暫無任務" className="py-12" />
+                      <Empty description={t('duty.noTasks')} className="py-12" />
                     ) : (
                       <Collapse
                         activeKey={dutyOpenGroups}
@@ -1045,7 +1048,7 @@ const DutyListPage: React.FC = () => {
                                 <FolderIcon className="w-4 h-4 text-blue-500" />
                                 <span className="font-semibold text-slate-700">{g.name}</span>
                                 <Tag color="blue" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>
-                                  {g.count} 項
+                                  {t('common.itemCount', { count: g.count })}
                                 </Tag>
                                 <Progress
                                   percent={g.avgProgress} size="small" showInfo={false}
@@ -1054,7 +1057,7 @@ const DutyListPage: React.FC = () => {
                                 <span className="text-xs text-slate-400">{g.avgProgress}%</span>
                                 {g.overdueCount > 0 && (
                                   <Tag color="error" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>
-                                    超時 {g.overdueCount}
+                                    {t('common.overdueCount', { count: g.overdueCount })}
                                   </Tag>
                                 )}
                               </div>
@@ -1071,40 +1074,40 @@ const DutyListPage: React.FC = () => {
               </Card>
 
       {/* Create Modal */}
-      <Modal title="新建 AR" open={showCreate}
+      <Modal title={t('duty.newAr')} open={showCreate}
         onCancel={() => { setShowCreate(false); form.resetFields() }}
         footer={null} width="min(720px, 88vw)" destroyOnClose>
         <Form form={form} layout="vertical" onFinish={handleCreate} className="mt-4">
-          <Form.Item name="duty_nm" label="任務名稱" rules={[{ required: true }]}>
-            <Input placeholder="請輸入任務名稱" />
+          <Form.Item name="duty_nm" label={t('duty.taskName')} rules={[{ required: true }]}>
+            <Input placeholder={t('duty.taskNamePlaceholder')} />
           </Form.Item>
           <div className="grid grid-cols-2 gap-x-4">
-            <Form.Item name="priority" label="優先級" rules={[{ required: true }]} initialValue={2}>
-              <Select options={[{value:1,label:'低'},{value:2,label:'中'},{value:3,label:'高'},{value:4,label:'緊急'}]} />
+            <Form.Item name="priority" label={t('common.priority')} rules={[{ required: true }]} initialValue={2}>
+              <Select options={Object.entries(PRIORITY_MAP).map(([k]) => ({ value: Number(k), label: PRIORITY_MAP[Number(k)]?.label ?? k }))} />
             </Form.Item>
-            <Form.Item name="group" label="任務分組">
+            <Form.Item name="group" label={t('duty.taskGroup')}>
               <AutoComplete
                 options={groupAutoOptions}
-                placeholder="選擇或輸入分組"
+                placeholder={t('duty.groupPlaceholder')}
                 filterOption={(input, option) => (option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
               />
             </Form.Item>
-            <Form.Item name="expected_start_date" label="預計開始"><Input type="date" /></Form.Item>
-            <Form.Item name="expected_end_date" label="預計完成"><Input type="date" /></Form.Item>
+            <Form.Item name="expected_start_date" label={t('duty.expectedStart')}><DateInput/></Form.Item>
+            <Form.Item name="expected_end_date" label={t('duty.expectedComplete')}><DateInput/></Form.Item>
           </div>
-          <Form.Item name="responsible" label="負責人">
+          <Form.Item name="responsible" label={t('function.assignee')}>
             <Select
               mode="multiple"
-              placeholder="選擇負責人"
+              placeholder={t('duty.assigneePlaceholder')}
               options={modalUserOptions}
               showSearch
               filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
               allowClear
             />
           </Form.Item>
-          <Form.Item name="system_id" label="關聯系統">
+          <Form.Item name="system_id" label={t('duty.linkedSystem')}>
             <Select
-              placeholder="選擇關聯系統（選填）"
+              placeholder={t('duty.linkedSystemPlaceholder')}
               options={modalSystemOptions}
               showSearch
               filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
@@ -1120,7 +1123,7 @@ const DutyListPage: React.FC = () => {
               return (
                 <div className="mb-4">
                   <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-sm text-slate-700">任務描述</span>
+                    <span className="text-sm text-slate-700">{t('duty.taskDescription')}</span>
                     <button
                       type="button"
                       onClick={() => {
@@ -1131,19 +1134,19 @@ const DutyListPage: React.FC = () => {
                       className="flex items-center gap-1 text-xs text-slate-500 hover:text-blue-600 border border-slate-200 rounded-md px-2 py-1 hover:border-blue-300 bg-white transition-colors"
                     >
                       <ArrowsPointingOutIcon className="w-3.5 h-3.5" />
-                      展開富文本編輯
+                      {t('duty.expandRichText')}
                     </button>
                   </div>
                   <Input.TextArea
                     value={displayValue}
                     onChange={(e) => form.setFieldValue('describe', e.target.value)}
                     rows={3}
-                    placeholder="請描述任務內容，或點擊右上角展開富文本編輯器..."
+                    placeholder={t('duty.descriptionPlaceholder')}
                     style={{ resize: 'vertical', minHeight: 80 }}
                   />
                   <Form.Item name="describe" noStyle><input type="hidden" /></Form.Item>
                   {isHtml(v) && (
-                    <p className="text-xs text-blue-500 mt-1">已套用富文本格式，點擊「展開富文本編輯」可繼續修改</p>
+                    <p className="text-xs text-blue-500 mt-1">{t('duty.richTextFormatApplied')}</p>
                   )}
                 </div>
               )
@@ -1151,8 +1154,8 @@ const DutyListPage: React.FC = () => {
           </Form.Item>
 
           <div className="flex justify-end gap-3">
-            <Button onClick={() => { setShowCreate(false); form.resetFields() }}>取消</Button>
-            <Button type="primary" htmlType="submit" loading={isSaving} style={{ background: '#2563eb' }}>建立</Button>
+            <Button onClick={() => { setShowCreate(false); form.resetFields() }}>{t('common.cancel')}</Button>
+            <Button type="primary" htmlType="submit" loading={isSaving} style={{ background: '#2563eb' }}>{t('common.add')}</Button>
           </div>
         </Form>
       </Modal>
@@ -1160,18 +1163,18 @@ const DutyListPage: React.FC = () => {
       {/* 任務描述展開編輯 Modal */}
       <Modal
         open={dutyExpandOpen}
-        title="任務描述"
+        title={t('duty.taskDescription')}
         onCancel={() => setDutyExpandOpen(false)}
         width="80vw"
         style={{ top: 40, maxWidth: 1100 }}
         styles={{ body: { padding: '16px 24px 24px' } }}
         footer={
           <div className="flex justify-end gap-2">
-            <Button onClick={() => setDutyExpandOpen(false)}>取消</Button>
+            <Button onClick={() => setDutyExpandOpen(false)}>{t('common.cancel')}</Button>
             <Button type="primary" style={{ background: '#2563eb' }} onClick={() => {
               form.setFieldValue('describe', dutyExpandDraft)
               setDutyExpandOpen(false)
-            }}>完成</Button>
+            }}>{t('common.confirm')}</Button>
           </div>
         }
         destroyOnClose
@@ -1179,7 +1182,7 @@ const DutyListPage: React.FC = () => {
         <RichTextEditor
           value={dutyExpandDraft}
           onChange={setDutyExpandDraft}
-          placeholder="請描述任務內容（支援標題、列表、粗體等格式）"
+          placeholder={t('duty.richTextPlaceholder')}
           minHeight={480}
         />
       </Modal>
@@ -1190,11 +1193,11 @@ const DutyListPage: React.FC = () => {
     />
     {/* AR 快速設定負責人 Modal */}
     <Modal
-      title="設定任務負責人"
+      title={t('duty.setAssigneeTitle')}
       open={!!arQuickResp}
       onCancel={() => setArQuickResp(null)}
       onOk={handleQuickSetArResp}
-      okText="確認儲存"
+      okText={t('duty.saveAssignee')}
       confirmLoading={arQuickSaving}
       okButtonProps={{ style: { background: '#2563eb' } }}
       width={440}
@@ -1202,18 +1205,18 @@ const DutyListPage: React.FC = () => {
     >
       <div className="py-3 space-y-4">
         <div>
-          <div className="text-sm font-medium text-slate-700 mb-2">透過工號搜尋人員</div>
+          <div className="text-sm font-medium text-slate-700 mb-2">{t('duty.searchByWorkNo')}</div>
           <Input
             ref={arRespRef}
             value={arRespKw}
             onChange={(e) => setArRespKw(e.target.value)}
-            placeholder="輸入工號，自動搜索（如：EMP001）"
+            placeholder={t('duty.searchWorkNoPlaceholder')}
             suffix={arRespSearching ? <Spin size="small" /> : null}
             autoFocus
           />
           {arRespResult === false && (
             <div className="mt-2 text-xs text-red-500 flex items-center gap-1">
-              <XMarkIcon className="w-3.5 h-3.5" />查無此工號，請確認後重試
+              <XMarkIcon className="w-3.5 h-3.5" />{t('duty.workNoNotFound')}
             </div>
           )}
           {arRespResult && typeof arRespResult === 'object' && (
@@ -1238,22 +1241,22 @@ const DutyListPage: React.FC = () => {
                   setArRespKw(''); setArRespResult(null)
                 }}
               >
-                {arQuickResp?.persons.some((p) => p.work_no === (arRespResult as UserProfile).work_no) ? '已加入' : '加入'}
+                {arQuickResp?.persons.some((p) => p.work_no === (arRespResult as UserProfile).work_no) ? t('duty.alreadyAdded') : t('duty.addPerson')}
               </Button>
             </div>
           )}
         </div>
         <div>
           <div className="text-sm font-medium text-slate-700 mb-2">
-            已選負責人
+            {t('duty.selectedAssignees')}
             {arQuickResp && arQuickResp.persons.length > 0 && (
-              <span className="ml-1.5 text-xs font-normal text-slate-400">（共 {arQuickResp.persons.length} 人，儲存後生效）</span>
+              <span className="ml-1.5 text-xs font-normal text-slate-400">{t('duty.selectedAssigneesNote', { count: arQuickResp.persons.length })}</span>
             )}
           </div>
           {arRespPreloading ? (
-            <div className="flex items-center justify-center py-5 text-slate-400 text-xs gap-2"><Spin size="small" />載入中…</div>
+            <div className="flex items-center justify-center py-5 text-slate-400 text-xs gap-2"><Spin size="small" />{t('common.loading')}</div>
           ) : !arQuickResp || arQuickResp.persons.length === 0 ? (
-            <div className="border border-dashed border-slate-200 rounded-lg py-5 text-center text-slate-400 text-xs">尚未加入任何負責人</div>
+            <div className="border border-dashed border-slate-200 rounded-lg py-5 text-center text-slate-400 text-xs">{t('duty.noAssigneeAdded')}</div>
           ) : (
             <div className="space-y-1.5">
               {arQuickResp.persons.map((p, i) => (

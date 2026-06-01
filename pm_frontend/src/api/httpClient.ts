@@ -1,6 +1,7 @@
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse, InternalAxiosRequestConfig, AxiosError } from 'axios'
 import { ApiResponse } from '@/types/api.types'
 import { showToast } from '@/utils/toast'
+import i18n from '@/i18n'
 
 // ─── Token Helpers ────────────────────────────────────────────────────────────
 
@@ -64,33 +65,38 @@ httpClient.interceptors.response.use(
     // Backend uses code === 'S10000' for success, 'F10001' for failure
     if (code !== 'S10000' && code !== undefined) {
       if (!(response.config as InternalAxiosRequestConfig & { skipErrorToast?: boolean }).skipErrorToast) {
-        showToast.error(msg || '請求失敗')
+        showToast.error(msg || i18n.t('http.requestFailed'))
       }
       return Promise.reject(new Error(msg))
     }
     return response
   },
-  (error: AxiosError) => {
+  (error: AxiosError<{ msg?: string; message?: string }>) => {
     const silent = (error.config as (InternalAxiosRequestConfig & { skipErrorToast?: boolean }) | undefined)?.skipErrorToast
+    // Extract backend error message from response body
+    const serverMsg = error.response?.data?.msg || error.response?.data?.message || ''
     if (error.response) {
       const status = error.response.status
       if (status === 401) {
         tokenStorage.remove()
-        showToast.error('登入已過期，請重新登入')
+        showToast.error(serverMsg || i18n.t('http.sessionExpired'))
         window.location.href = '/login'
       } else if (!silent) {
-        if (status === 403) {
-          showToast.error('無此操作權限')
+        if (status === 400) {
+          showToast.error(serverMsg || i18n.t('http.badRequest'))
+        } else if (status === 403) {
+          showToast.error(serverMsg || i18n.t('http.forbidden'))
         } else if (status === 404) {
-          showToast.error('請求的資源不存在')
+          showToast.error(serverMsg || i18n.t('http.notFound'))
         } else if (status >= 500) {
-          showToast.error('伺服器錯誤，請稍後再試')
+          showToast.error(serverMsg || i18n.t('http.serverError'))
         }
       }
     } else if (error.request && !silent) {
-      showToast.error('網路連線異常，請檢查網路')
+      showToast.error(i18n.t('http.networkError'))
     }
-    return Promise.reject(error)
+    // Pass server message so callers can display it
+    return Promise.reject(new Error(serverMsg || error.message))
   },
 )
 

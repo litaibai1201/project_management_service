@@ -17,6 +17,7 @@ import { groupApi } from '@/api/group.api'
 import { UserProfile } from '@/types/api.types'
 import { showToast } from '@/utils/toast'
 import { useResizableColumns, tableComponents } from '@/hooks/useResizableColumns'
+import { useTranslation } from 'react-i18next'
 
 const { Search } = Input
 
@@ -74,6 +75,7 @@ const DeptAutoComplete: React.FC<{
   value?: string
   onChange?: (v: string) => void
 }> = ({ departments, value, onChange }) => {
+  const { t } = useTranslation()
   const names = departments.map((d) => d.name)
   const [options, setOptions] = useState(names.map((n) => ({ value: n })))
 
@@ -85,7 +87,7 @@ const DeptAutoComplete: React.FC<{
     <AutoComplete
       value={value}
       onChange={onChange}
-      placeholder="選擇或輸入部門"
+      placeholder={t('user.deptPlaceholder')}
       options={options}
       onFocus={() => setOptions(names.map((n) => ({ value: n })))}
       onSearch={(text) =>
@@ -105,6 +107,7 @@ const INITIAL_GROUPS: ProjectGroup[] = []
 
 // ─── HierarchyTab ──────────────────────────────────────────────────────────────
 const HierarchyTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor }) => {
+  const { t } = useTranslation()
   const [editTarget, setEditTarget] = useState<HierarchyRow | null>(null)
   const [hierarchy, setHierarchy] = useState<HierarchyRow[]>([])
   const [isSavingHierarchy, setIsSavingHierarchy] = useState(false)
@@ -163,34 +166,34 @@ const HierarchyTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor }) => 
         }
       }
 
-      showToast.success(`已更新 ${editTarget.name} 的直屬主管`)
+      showToast.success(t('user.updateSupervisorSuccess', { name: editTarget.name }))
       setEditTarget(null)
       loadHierarchy()
     } catch {
-      showToast.error('更新失敗，請稍後再試')
+      showToast.error(t('user.updateSupervisorFailed'))
     } finally {
       setIsSavingHierarchy(false)
     }
   }
 
   const rawHierarchyColumns: ColumnsType<HierarchyRow> = [
-    { title: '工號',  dataIndex: 'work_no',   width: 90  },
-    { title: '姓名',  dataIndex: 'name',       width: 80  },
-    { title: '部門',  dataIndex: 'department', width: 100 },
-    { title: '職稱',  dataIndex: 'position',   ellipsis: true },
+    { title: t('user.workNo'),  dataIndex: 'work_no',   width: 90  },
+    { title: t('user.name'),  dataIndex: 'name',       width: 80  },
+    { title: t('user.department'),  dataIndex: 'department', width: 100 },
+    { title: t('user.position'),  dataIndex: 'position',   ellipsis: true },
     {
-      title: '直屬主管', dataIndex: 'supervisors', width: 180,
+      title: t('user.supervisor'), dataIndex: 'supervisors', width: 180,
       render: (supervisors: SupervisorEntry[]) =>
         supervisors.length === 0
-          ? <span className="text-slate-300">（無）</span>
+          ? <span className="text-slate-300">{t('user.noSupervisor')}</span>
           : supervisors.map((s) => (
             <Tag key={s.relation_id} color="blue" style={{ marginBottom: 2 }}>{s.supervisor_nm}</Tag>
           )),
     },
     ...(isSupervisor ? [{
-      title: '操作', key: 'action', width: 80,
+      title: t('common.action'), key: 'action', width: 80,
       render: (_: unknown, record: HierarchyRow) => (
-        <Tooltip title="設定主管">
+        <Tooltip title={t('user.setSupervisor')}>
           <Button
             icon={<PencilIcon className="w-4 h-4" />} size="small" type="text"
             onClick={() => {
@@ -211,7 +214,7 @@ const HierarchyTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor }) => 
         <Col xs={24} lg={10}>
           <Card
             bordered={false} className="shadow-sm"
-            title={<span className="text-sm font-semibold text-slate-700">組織層級樹（以第一主管為準）</span>}
+            title={<span className="text-sm font-semibold text-slate-700">{t('user.orgTreeTitle')}</span>}
             bodyStyle={{ padding: '8px 16px 16px' }}
           >
             <Tree
@@ -227,7 +230,7 @@ const HierarchyTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor }) => 
         <Col xs={24} lg={14}>
           <Card
             bordered={false} className="shadow-sm"
-            title={<span className="text-sm font-semibold text-slate-700">人員層級表</span>}
+            title={<span className="text-sm font-semibold text-slate-700">{t('user.hierarchyTableTitle')}</span>}
             bodyStyle={{ padding: 0 }}
           >
             <Table
@@ -245,7 +248,7 @@ const HierarchyTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor }) => 
 
       {/* Edit supervisor modal */}
       <Modal
-        title={`設定「${editTarget?.name}」的直屬主管`}
+        title={t('user.setSupervisorTitle', { name: editTarget?.name })}
         open={!!editTarget}
         onCancel={() => setEditTarget(null)}
         footer={null}
@@ -253,11 +256,11 @@ const HierarchyTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor }) => 
         destroyOnClose
       >
         <Form form={editForm} layout="vertical" onFinish={handleSave} className="mt-4">
-          <Form.Item name="supervisor_nos" label="直屬主管（可多選）">
+          <Form.Item name="supervisor_nos" label={t('user.supervisorMultiple')}>
             <Select
               mode="multiple"
               allowClear
-              placeholder="選擇直屬主管（留空表示頂層）"
+              placeholder={t('user.supervisorMultiplePlaceholder')}
               optionFilterProp="label"
               options={hierarchy
                 .filter((r) => r.work_no !== editTarget?.work_no)
@@ -266,8 +269,8 @@ const HierarchyTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor }) => 
             />
           </Form.Item>
           <div className="flex justify-end gap-3">
-            <Button onClick={() => setEditTarget(null)}>取消</Button>
-            <Button type="primary" htmlType="submit" loading={isSavingHierarchy}>保存</Button>
+            <Button onClick={() => setEditTarget(null)}>{t('common.cancel')}</Button>
+            <Button type="primary" htmlType="submit" loading={isSavingHierarchy}>{t('user.saveBtn')}</Button>
           </div>
         </Form>
       </Modal>
@@ -279,6 +282,7 @@ const HierarchyTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor }) => 
 const GROUP_COLORS = ['#2563eb','#7c3aed','#16a34a','#d97706','#0891b2','#db2777','#ea580c']
 
 const GroupManagementTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor }) => {
+  const { t } = useTranslation()
   const [groups, setGroups] = useState<ProjectGroup[]>(INITIAL_GROUPS)
   const [showCreate, setShowCreate] = useState(false)
   const [editTarget, setEditTarget] = useState<ProjectGroup | null>(null)
@@ -304,7 +308,7 @@ const GroupManagementTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor 
       color: values.color ?? '#2563eb',
     }
     setGroups((prev) => [...prev, newGroup])
-    showToast.success('分組建立成功')
+    showToast.success(t('user.createGroupSuccess'))
     setShowCreate(false)
     createForm.resetFields()
   }
@@ -314,24 +318,24 @@ const GroupManagementTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor 
     setGroups((prev) =>
       prev.map((g) => g.id === editTarget.id ? { ...g, ...values } : g)
     )
-    showToast.success('分組更新成功')
+    showToast.success(t('user.editGroupSuccess'))
     setEditTarget(null)
   }
 
   const handleDelete = (id: string) => {
     setGroups((prev) => prev.filter((g) => g.id !== id))
-    showToast.success('分組已刪除')
+    showToast.success(t('user.deleteGroupSuccess'))
   }
 
   const groupFormItems = (
     <>
-      <Form.Item name="name" label="分組名稱" rules={[{ required: true, message: '請輸入分組名稱' }]}>
-        <Input placeholder="例如：核心産品組" />
+      <Form.Item name="name" label={t('user.groupName')} rules={[{ required: true, message: t('user.groupNameRequired') }]}>
+        <Input placeholder={t('user.groupNamePlaceholder')} />
       </Form.Item>
-      <Form.Item name="description" label="描述">
-        <Input.TextArea rows={2} placeholder="分組職責說明" />
+      <Form.Item name="description" label={t('common.description')}>
+        <Input.TextArea rows={2} placeholder={t('user.groupDescPlaceholder')} />
       </Form.Item>
-      <Form.Item name="color" label="標識顏色" initialValue="#2563eb">
+      <Form.Item name="color" label={t('user.groupColor')} initialValue="#2563eb">
         <Select
           options={GROUP_COLORS.map((c) => ({
             value: c,
@@ -361,13 +365,13 @@ const GroupManagementTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor 
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <p className="text-sm text-slate-500">管理專案分組，用於歸類專案並指定負責成員範圍</p>
+        <p className="text-sm text-slate-500">{t('user.groupMgmtSubtitle')}</p>
         {isSupervisor && (
           <Button
             type="primary" icon={<PlusIcon className="w-4 h-4" />}
             onClick={() => setShowCreate(true)} className="bg-blue-600"
           >
-            新增分組
+            {t('user.createGroup')}
           </Button>
         )}
       </div>
@@ -411,15 +415,15 @@ const GroupManagementTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor 
                   </Avatar>
                 )}
                 {memberNos.length === 0 && (
-                  <span className="text-xs text-slate-300">暫無成員</span>
+                  <span className="text-xs text-slate-300">{t('user.noMembers')}</span>
                 )}
               </div>
 
               <div className="flex items-center justify-between border-t border-slate-50 pt-3">
-                <span className="text-xs text-slate-400">{memberNos.length} 名成員</span>
+                <span className="text-xs text-slate-400">{t('user.memberCount', { count: memberNos.length })}</span>
                 {isSupervisor && (
                   <Space size={4}>
-                    <Tooltip title="編輯">
+                    <Tooltip title={t('common.edit')}>
                       <Button
                         icon={<PencilIcon className="w-3.5 h-3.5" />} size="small" type="text"
                         onClick={() => {
@@ -429,12 +433,12 @@ const GroupManagementTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor 
                       />
                     </Tooltip>
                     <Popconfirm
-                      title="確認刪除此分組？"
-                      description="刪除後不影響已有專案，僅移除分組設定。"
+                      title={t('user.confirmDeleteGroup')}
+                      description={t('user.confirmDeleteGroupDesc')}
                       onConfirm={() => handleDelete(g.id)}
-                      okText="確認刪除" cancelText="取消" okButtonProps={{ danger: true }}
+                      okText={t('user.confirmDeleteGroupOk')} cancelText={t('common.cancel')} okButtonProps={{ danger: true }}
                     >
-                      <Tooltip title="刪除">
+                      <Tooltip title={t('common.delete')}>
                         <Button icon={<TrashIcon className="w-3.5 h-3.5" />} size="small" type="text" danger />
                       </Tooltip>
                     </Popconfirm>
@@ -447,23 +451,23 @@ const GroupManagementTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor 
       </div>
 
       {/* Create modal */}
-      <Modal title="新增分組" open={showCreate} onCancel={() => { setShowCreate(false); createForm.resetFields() }} footer={null} width={440} destroyOnClose>
+      <Modal title={t('user.createGroupTitle')} open={showCreate} onCancel={() => { setShowCreate(false); createForm.resetFields() }} footer={null} width={440} destroyOnClose>
         <Form form={createForm} layout="vertical" onFinish={handleCreate} className="mt-4">
           {groupFormItems}
           <div className="flex justify-end gap-3">
-            <Button onClick={() => { setShowCreate(false); createForm.resetFields() }}>取消</Button>
-            <Button type="primary" htmlType="submit" className="bg-blue-600">建立</Button>
+            <Button onClick={() => { setShowCreate(false); createForm.resetFields() }}>{t('common.cancel')}</Button>
+            <Button type="primary" htmlType="submit" className="bg-blue-600">{t('user.createBtn')}</Button>
           </div>
         </Form>
       </Modal>
 
       {/* Edit modal */}
-      <Modal title="編輯分組" open={!!editTarget} onCancel={() => setEditTarget(null)} footer={null} width={440} destroyOnClose>
+      <Modal title={t('user.editGroupTitle')} open={!!editTarget} onCancel={() => setEditTarget(null)} footer={null} width={440} destroyOnClose>
         <Form form={editForm} layout="vertical" onFinish={handleEdit} className="mt-4">
           {groupFormItems}
           <div className="flex justify-end gap-3">
-            <Button onClick={() => setEditTarget(null)}>取消</Button>
-            <Button type="primary" htmlType="submit" className="bg-blue-600">保存</Button>
+            <Button onClick={() => setEditTarget(null)}>{t('common.cancel')}</Button>
+            <Button type="primary" htmlType="submit" className="bg-blue-600">{t('user.saveBtn')}</Button>
           </div>
         </Form>
       </Modal>
@@ -473,6 +477,7 @@ const GroupManagementTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor 
 
 // ─── Main ──────────────────────────────────────────────────────────────────────
 const UserManagementPage: React.FC = () => {
+  const { t } = useTranslation()
   const dispatch = useAppDispatch()
   const { list, totalCount, departments, isLoading, isSaving } = useAppSelector((s) => s.user)
   const isSupervisor = useAppSelector((s) => s.auth.isSupervisor)
@@ -498,9 +503,9 @@ const UserManagementPage: React.FC = () => {
   const handleDelete = async (workNo: string) => {
     try {
       await dispatch(deleteUserThunk(workNo)).unwrap()
-      showToast.success('刪除成功')
+      showToast.success(t('user.deleteSuccess'))
     } catch {
-      showToast.error('刪除失敗')
+      showToast.error(t('user.deleteFailed'))
     }
   }
 
@@ -523,12 +528,12 @@ const UserManagementPage: React.FC = () => {
         await userApi.setRelation(supervisorWorkNo, newWorkNo)
       }
 
-      showToast.success('用戶建立成功')
+      showToast.success(t('user.createSuccess'))
       setShowCreate(false)
       createForm.resetFields()
       dispatch(fetchUserListThunk({ page, size: pageSize }))
     } catch (err: unknown) {
-      showToast.error((err as string) || '建立失敗')
+      showToast.error((err as string) || t('user.createFailed'))
     }
   }
 
@@ -543,7 +548,7 @@ const UserManagementPage: React.FC = () => {
         email:      values.email as string | undefined,
         phone:      values.phone as string | undefined,
       })
-      showToast.success('更新成功')
+      showToast.success(t('user.updateSuccess'))
       setEditTarget(null)
       dispatch(fetchUserListThunk({ page, size: pageSize }))
     } catch { /* global */ }
@@ -556,23 +561,23 @@ const UserManagementPage: React.FC = () => {
   }
 
   const rawUserColumns: ColumnsType<UserProfile> = [
-    { title: '工號',   dataIndex: 'work_no',    width: 100 },
-    { title: '姓名',   dataIndex: 'name',        width: 100 },
-    { title: '部門',   dataIndex: 'department',  width: 140 },
-    { title: '職稱',   dataIndex: 'position',    width: 120, render: (v?: string) => v || '—' },
+    { title: t('user.workNo'),   dataIndex: 'work_no',    width: 100 },
+    { title: t('user.name'),   dataIndex: 'name',        width: 100 },
+    { title: t('user.department'),   dataIndex: 'department',  width: 140 },
+    { title: t('user.position'),   dataIndex: 'position',    width: 120, render: (v?: string) => v || '—' },
     { title: 'Email',  dataIndex: 'email',        ellipsis: true, render: (v?: string) => v || '—' },
-    { title: '電話',   dataIndex: 'phone',        width: 130, render: (v?: string) => v || '—' },
+    { title: t('user.phone'),   dataIndex: 'phone',        width: 130, render: (v?: string) => v || '—' },
     ...(isSupervisor ? [{
-      title: '操作',
+      title: t('common.action'),
       key: 'action',
       width: 100,
       render: (_: unknown, record: UserProfile) => (
         <Space>
-          <Tooltip title="編輯">
+          <Tooltip title={t('common.edit')}>
             <Button icon={<PencilIcon className="w-4 h-4" />} size="small" type="text" onClick={() => openEdit(record)} />
           </Tooltip>
-          <Popconfirm title="確認刪除此用戶？" onConfirm={() => handleDelete(record.work_no)} okText="確認" cancelText="取消">
-            <Tooltip title="刪除">
+          <Popconfirm title={t('user.confirmDeleteUser')} onConfirm={() => handleDelete(record.work_no)} okText={t('common.confirm')} cancelText={t('common.cancel')}>
+            <Tooltip title={t('common.delete')}>
               <Button icon={<TrashIcon className="w-4 h-4" />} size="small" type="text" danger />
             </Tooltip>
           </Popconfirm>
@@ -585,36 +590,36 @@ const UserManagementPage: React.FC = () => {
   const userFormItems = (isEdit = false) => (
     <>
       {!isEdit && (
-        <Form.Item name="work_no" label="工號" rules={[{ required: true, message: '請輸入工號' }]}>
-          <Input placeholder="請輸入工號" />
+        <Form.Item name="work_no" label={t('user.workNo')} rules={[{ required: true, message: t('user.workNoRequired') }]}>
+          <Input placeholder={t('user.workNoPlaceholder')} />
         </Form.Item>
       )}
       <div className="grid grid-cols-2 gap-x-4">
-        <Form.Item name="name" label="姓名" rules={[{ required: true, message: '請輸入姓名' }]}>
-          <Input placeholder="請輸入姓名" />
+        <Form.Item name="name" label={t('user.name')} rules={[{ required: true, message: t('user.nameRequired') }]}>
+          <Input placeholder={t('user.namePlaceholder')} />
         </Form.Item>
-        <Form.Item name="department" label="部門" rules={[{ required: true, message: '請輸入或選擇部門' }]}>
+        <Form.Item name="department" label={t('user.department')} rules={[{ required: true, message: t('user.deptRequired') }]}>
           <DeptAutoComplete departments={departments} />
         </Form.Item>
-        <Form.Item name="position" label="職稱">
-          <Input placeholder="請輸入職稱" />
+        <Form.Item name="position" label={t('user.position')}>
+          <Input placeholder={t('user.positionPlaceholder')} />
         </Form.Item>
-        <Form.Item name="phone" label="電話">
-          <Input placeholder="請輸入電話" />
+        <Form.Item name="phone" label={t('user.phone')}>
+          <Input placeholder={t('user.phonePlaceholder')} />
         </Form.Item>
         <Form.Item name="email" label="Email" className="col-span-2">
-          <Input placeholder="請輸入Email" type="email" />
+          <Input placeholder={t('user.emailPlaceholder')} type="email" />
         </Form.Item>
         {!isEdit && (
           <>
-            <Form.Item name="password" label="初始密碼" className="col-span-2">
-              <Input.Password placeholder="請輸入初始密碼" />
+            <Form.Item name="password" label={t('user.initialPassword')} className="col-span-2">
+              <Input.Password placeholder={t('user.passwordPlaceholder')} />
             </Form.Item>
-            <Form.Item name="supervisor_work_no" label="直屬主管" className="col-span-2">
+            <Form.Item name="supervisor_work_no" label={t('user.supervisor')} className="col-span-2">
               <Select
                 allowClear
                 showSearch
-                placeholder="選擇直屬主管（可不填）"
+                placeholder={t('user.supervisorOptional')}
                 optionFilterProp="label"
                 options={list.map((u) => ({
                   value: u.work_no,
@@ -633,7 +638,7 @@ const UserManagementPage: React.FC = () => {
       key: 'users',
       label: (
         <span className="flex items-center gap-1.5">
-          <UsersIcon className="w-4 h-4" />用戶管理
+          <UsersIcon className="w-4 h-4" />{t('user.userTab')}
         </span>
       ),
       children: (
@@ -641,14 +646,14 @@ const UserManagementPage: React.FC = () => {
           <div className="flex items-center justify-between mb-4">
             <div className="flex flex-wrap gap-3">
               <Search
-                placeholder="搜索工號或姓名"
+                placeholder={t('user.searchPlaceholder')}
                 allowClear
                 style={{ width: 240 }}
                 prefix={<MagnifyingGlassIcon className="w-4 h-4 text-gray-400" />}
                 onSearch={(v) => { setKeyword(v); setPage(1) }}
               />
               <Select
-                placeholder="選擇部門"
+                placeholder={t('user.selectDept')}
                 allowClear
                 style={{ width: 180 }}
                 onChange={(v) => { setDeptFilter(v); setPage(1) }}
@@ -657,7 +662,7 @@ const UserManagementPage: React.FC = () => {
             </div>
             {isSupervisor && (
               <Button type="primary" icon={<PlusIcon className="w-4 h-4" />} onClick={() => setShowCreate(true)} className="bg-blue-600">
-                新增用戶
+                {t('user.createUser')}
               </Button>
             )}
           </div>
@@ -672,7 +677,7 @@ const UserManagementPage: React.FC = () => {
                 current: page, pageSize,
                 total: totalCount,
                 showSizeChanger: true,
-                showTotal: (t) => `共 ${t} 條`,
+                showTotal: (total) => t('common.total', { count: total }),
                 onChange: (p, ps) => { setPage(p); setPageSize(ps) },
               }}
               scroll={{ x: 800 }}
@@ -685,7 +690,7 @@ const UserManagementPage: React.FC = () => {
       key: 'hierarchy',
       label: (
         <span className="flex items-center gap-1.5">
-          <ShareIcon className="w-4 h-4" />層級關係
+          <ShareIcon className="w-4 h-4" />{t('user.hierarchyTab')}
         </span>
       ),
       children: <HierarchyTab isSupervisor={isSupervisor} />,
@@ -694,7 +699,7 @@ const UserManagementPage: React.FC = () => {
       key: 'groups',
       label: (
         <span className="flex items-center gap-1.5">
-          <FolderIcon className="w-4 h-4" />分組管理
+          <FolderIcon className="w-4 h-4" />{t('user.groupTab')}
         </span>
       ),
       children: <GroupManagementTab isSupervisor={isSupervisor} />,
@@ -704,15 +709,15 @@ const UserManagementPage: React.FC = () => {
   return (
     <div className="p-6">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-800">系統管理</h1>
-        <p className="text-gray-500 text-sm mt-1">管理用戶帳號、組織層級與專案分組</p>
+        <h1 className="text-2xl font-bold text-gray-800">{t('user.systemMgmt')}</h1>
+        <p className="text-gray-500 text-sm mt-1">{t('user.systemMgmtSubtitle')}</p>
       </div>
 
       <Tabs items={tabItems} defaultActiveKey="users" type="card" />
 
       {/* Create user modal */}
       <Modal
-        title="新增用戶"
+        title={t('user.createUser')}
         open={showCreate}
         onCancel={() => { setShowCreate(false); createForm.resetFields() }}
         footer={null}
@@ -722,15 +727,15 @@ const UserManagementPage: React.FC = () => {
         <Form form={createForm} layout="vertical" onFinish={handleCreate} className="mt-4">
           {userFormItems(false)}
           <div className="flex justify-end gap-3">
-            <Button onClick={() => { setShowCreate(false); createForm.resetFields() }}>取消</Button>
-            <Button type="primary" htmlType="submit" loading={isSaving} className="bg-blue-600">建立</Button>
+            <Button onClick={() => { setShowCreate(false); createForm.resetFields() }}>{t('common.cancel')}</Button>
+            <Button type="primary" htmlType="submit" loading={isSaving} className="bg-blue-600">{t('user.createBtn')}</Button>
           </div>
         </Form>
       </Modal>
 
       {/* Edit user modal */}
       <Modal
-        title="編輯用戶"
+        title={t('user.editUser')}
         open={!!editTarget}
         onCancel={() => setEditTarget(null)}
         footer={null}
@@ -740,8 +745,8 @@ const UserManagementPage: React.FC = () => {
         <Form form={editForm} layout="vertical" onFinish={handleEdit} className="mt-4">
           {userFormItems(true)}
           <div className="flex justify-end gap-3">
-            <Button onClick={() => setEditTarget(null)}>取消</Button>
-            <Button type="primary" htmlType="submit" loading={isSavingEdit} className="bg-blue-600">保存</Button>
+            <Button onClick={() => setEditTarget(null)}>{t('common.cancel')}</Button>
+            <Button type="primary" htmlType="submit" loading={isSavingEdit} className="bg-blue-600">{t('user.saveBtn')}</Button>
           </div>
         </Form>
       </Modal>

@@ -14,14 +14,15 @@ import {
 } from '@heroicons/react/24/outline'
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
 import { logout } from '@/features/auth/authSlice'
-import { useSocketConnection } from '@/hooks/useSocket'
 import { notificationApi, type NotificationItem } from '@/api/notification.api'
+import { useTranslation } from 'react-i18next'
+import LanguageSwitcher from './LanguageSwitcher'
 
 const { Header, Sider, Content } = Layout
 const { Text } = Typography
 
-interface NavLeaf  { key: string; icon?: React.ReactNode; label: string; path: string; badge?: number }
-interface NavGroup { key: string; icon: React.ReactNode; label: string; children: NavLeaf[] }
+interface NavLeaf  { key: string; icon?: React.ReactNode; labelKey: string; path: string; badge?: number }
+interface NavGroup { key: string; icon: React.ReactNode; labelKey: string; children: NavLeaf[] }
 type NavItem = NavLeaf | NavGroup
 
 // NotificationItem is imported from notification.api
@@ -29,47 +30,47 @@ type NavItem = NavLeaf | NavGroup
 const isGroup = (item: NavItem): item is NavGroup => 'children' in item
 
 const NAV_ITEMS: NavItem[] = [
-  { key: '/',           icon: <HomeIcon className="w-[18px] h-[18px]" />,                   label: '首頁',      path: '/'           },
+  { key: '/',           icon: <HomeIcon className="w-[18px] h-[18px]" />,                   labelKey: 'nav.home',           path: '/'           },
   {
     key: '/project-mgmt',
     icon: <FolderIcon className="w-[18px] h-[18px]" />,
-    label: '項目管理',
+    labelKey: 'nav.projectMgmt',
     children: [
-      { key: '/projects',       icon: <RectangleStackIcon className="w-[16px] h-[16px]" />,       label: '專案列表', path: '/projects'       },
-      { key: '/requirements',     icon: <ClipboardDocumentListIcon className="w-[16px] h-[16px]" />, label: '需求列表', path: '/requirements' },
-      { key: '/duties',         icon: <ClipboardDocumentListIcon className="w-[16px] h-[16px]" />, label: '任務列表', path: '/duties'         },
-      { key: '/project-report',   icon: <DocumentChartBarIcon className="w-[16px] h-[16px]" />,  label: '項目報表',   path: '/project-report'   },
-      // { key: '/dept-tasks', icon: <Squares2X2Icon className="w-[16px] h-[16px]" />, label: '部門任務', path: '/dept-tasks' }, // TODO: 功能開發中，暫時隱藏
+      { key: '/projects',       icon: <RectangleStackIcon className="w-[16px] h-[16px]" />,       labelKey: 'nav.projectList',    path: '/projects'       },
+      { key: '/requirements',   icon: <ClipboardDocumentListIcon className="w-[16px] h-[16px]" />, labelKey: 'nav.requirementList', path: '/requirements' },
+      { key: '/duties',         icon: <ClipboardDocumentListIcon className="w-[16px] h-[16px]" />, labelKey: 'nav.taskList',       path: '/duties'         },
+      { key: '/project-report', icon: <DocumentChartBarIcon className="w-[16px] h-[16px]" />,     labelKey: 'nav.projectReport',  path: '/project-report' },
     ],
   },
-  { key: '/systems',    icon: <ServerStackIcon className="w-[18px] h-[18px]" />,             label: '系統管理',  path: '/systems'    },
-  { key: '/daily-log',  icon: <PencilSquareIcon className="w-[18px] h-[18px]" />,           label: '工作日誌',  path: '/daily-log'  },
+  { key: '/systems',    icon: <ServerStackIcon className="w-[18px] h-[18px]" />,             labelKey: 'nav.systemMgmt',     path: '/systems'    },
+  { key: '/daily-log',  icon: <PencilSquareIcon className="w-[18px] h-[18px]" />,           labelKey: 'nav.dailyLog',       path: '/daily-log'  },
   {
     key: '/review-mgmt',
     icon: <ClipboardDocumentCheckIcon className="w-[18px] h-[18px]" />,
-    label: '審核管理',
+    labelKey: 'nav.reviewMgmt',
     children: [
-      { key: '/review',           icon: <ClipboardDocumentCheckIcon className="w-[16px] h-[16px]" />, label: '待我審核', path: '/review'           },
-      { key: '/review/reviewed',  icon: <ClipboardDocumentListIcon  className="w-[16px] h-[16px]" />, label: '我的審核', path: '/review/reviewed'  },
-      { key: '/review/submitted', icon: <ClipboardDocumentListIcon  className="w-[16px] h-[16px]" />, label: '我的提交', path: '/review/submitted' },
+      { key: '/review',           icon: <ClipboardDocumentCheckIcon className="w-[16px] h-[16px]" />, labelKey: 'nav.pendingReview', path: '/review'           },
+      { key: '/review/reviewed',  icon: <ClipboardDocumentListIcon  className="w-[16px] h-[16px]" />, labelKey: 'nav.myReviews',     path: '/review/reviewed'  },
+      { key: '/review/submitted', icon: <ClipboardDocumentListIcon  className="w-[16px] h-[16px]" />, labelKey: 'nav.mySubmissions', path: '/review/submitted' },
     ],
   },
-  { key: '/wbs',         icon: <TableCellsIcon className="w-[18px] h-[18px]" />,             label: '專案進度總覽', path: '/wbs'     },
-  { key: '/statistics', icon: <ChartBarIcon className="w-[18px] h-[18px]" />,               label: '統計與成員', path: '/statistics' },
-  { key: '/anomaly',    icon: <ExclamationTriangleIcon className="w-[18px] h-[18px]" />,    label: '異常管理',  path: '/anomaly'    },
-  { key: '/users',      icon: <UsersIcon className="w-[18px] h-[18px]" />,                  label: '用戶管理',  path: '/users'      },
+  { key: '/wbs',        icon: <TableCellsIcon className="w-[18px] h-[18px]" />,             labelKey: 'nav.wbsOverview',    path: '/wbs'        },
+  { key: '/statistics', icon: <ChartBarIcon className="w-[18px] h-[18px]" />,               labelKey: 'nav.statistics',     path: '/statistics' },
+  { key: '/anomaly',    icon: <ExclamationTriangleIcon className="w-[18px] h-[18px]" />,    labelKey: 'nav.anomaly',        path: '/anomaly'    },
+  { key: '/users',      icon: <UsersIcon className="w-[18px] h-[18px]" />,                  labelKey: 'nav.userMgmt',       path: '/users'      },
 ]
 
-// Relative time helper
-const relativeTime = (dateStr: string): string => {
+// Relative time helper (uses i18n via param)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const relativeTimeStr = (dateStr: string, t: (k: string, o?: any) => string): string => {
   const diff = Date.now() - new Date(dateStr).getTime()
   const mins  = Math.floor(diff / 60000)
   const hours = Math.floor(diff / 3600000)
   const days  = Math.floor(diff / 86400000)
-  if (mins < 1)   return '剛剛'
-  if (mins < 60)  return `${mins} 分鐘前`
-  if (hours < 24) return `${hours} 小時前`
-  if (days < 7)   return `${days} 天前`
+  if (mins < 1)   return t('time.justNow')
+  if (mins < 60)  return t('time.minsAgo',  { count: mins  })
+  if (hours < 24) return t('time.hoursAgo', { count: hours })
+  if (days < 7)   return t('time.daysAgo',  { count: days  })
   return dateStr.slice(0, 10)
 }
 
@@ -77,6 +78,7 @@ const AppLayout: React.FC = () => {
   const dispatch = useAppDispatch()
   const navigate = useNavigate()
   const location = useLocation()
+  const { t } = useTranslation()
   const { name, workNo, indexData, isSupervisor, isManagerView } = useAppSelector((s) => s.auth)
 
   const [collapsed,     setCollapsed]     = useState(false)
@@ -87,8 +89,6 @@ const AppLayout: React.FC = () => {
   const [notifLoading,  setNotifLoading]  = useState(false)
   const [notifOpen,     setNotifOpen]     = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval>>()
-
-  useSocketConnection()
 
   const loadNotifications = useCallback(async () => {
     setNotifLoading(true)
@@ -157,13 +157,13 @@ const AppLayout: React.FC = () => {
     for (const item of navItems) {
       if (isGroup(item)) {
         const child = item.children.find((c) => c.key === currentKey)
-        if (child) return `${item.label} / ${child.label}`
+        if (child) return `${t(item.labelKey)} / ${t(child.labelKey)}`
       } else if (item.key === currentKey) {
-        return item.label
+        return t(item.labelKey)
       }
     }
-    return '首頁'
-  }, [navItems, currentKey])
+    return t('nav.home')
+  }, [navItems, currentKey, t])
 
   // Build Ant Design Menu items from NavItem[]
   const buildMenuItems = (items: NavItem[]): import('antd').MenuProps['items'] =>
@@ -172,18 +172,19 @@ const AppLayout: React.FC = () => {
         return {
           key: item.key,
           icon: item.icon,
-          label: item.label,
+          label: t(item.labelKey),
           children: item.children.map((c) => {
             const childBadge = c.key === '/review' ? pendingReview : undefined
+            const childLabel = t(c.labelKey)
             return {
               key: c.key,
               icon: c.icon,
               label: childBadge != null && childBadge > 0 ? (
                 <div className="flex items-center justify-between">
-                  <span>{c.label}</span>
+                  <span>{childLabel}</span>
                   <Badge count={childBadge} size="small" style={{ backgroundColor: '#ef4444', fontSize: 10, boxShadow: 'none' }} />
                 </div>
-              ) : c.label,
+              ) : childLabel,
               onClick: () => navigate(c.path),
             }
           }),
@@ -193,7 +194,7 @@ const AppLayout: React.FC = () => {
       return {
         key: leaf.key,
         icon: leaf.icon,
-        label: leaf.label,
+        label: t(leaf.labelKey),
         onClick: () => navigate(leaf.path),
       }
     })
@@ -235,19 +236,19 @@ const AppLayout: React.FC = () => {
     <div style={{ width: 340 }}>
       <div className="flex items-center justify-between pb-2 mb-1 border-b border-slate-100">
         <span className="font-semibold text-slate-700 text-sm">
-          通知
+          {t('notification.title')}
           {unreadCount > 0 && (
-            <span className="ml-1.5 text-xs font-normal text-blue-500">{unreadCount} 條未讀</span>
+            <span className="ml-1.5 text-xs font-normal text-blue-500">{t('notification.unread', { count: unreadCount })}</span>
           )}
         </span>
         {unreadCount > 0 && (
-          <Button type="link" size="small" onClick={handleMarkAllRead} className="text-xs p-0">全部標為已讀</Button>
+          <Button type="link" size="small" onClick={handleMarkAllRead} className="text-xs p-0">{t('notification.markAllRead')}</Button>
         )}
       </div>
       {notifLoading && notifications.length === 0 ? (
         <div className="flex justify-center py-8"><Spin size="small" /></div>
       ) : notifications.filter((n) => !n.is_read).length === 0 ? (
-        <Empty description="暫無未讀通知" className="py-6" />
+        <Empty description={t('notification.noUnread')} className="py-6" />
       ) : (
         <List
           dataSource={notifications.filter((n) => !n.is_read)}
@@ -263,7 +264,7 @@ const AppLayout: React.FC = () => {
                 <div className="flex-1 min-w-0">
                   <div className={`text-sm leading-snug ${!n.is_read ? 'font-semibold text-slate-800' : 'text-slate-600'}`}>{n.title}</div>
                   {n.desc && <div className="text-xs text-slate-400 mt-0.5 truncate">{n.desc}</div>}
-                  <div className="text-xs text-slate-300 mt-0.5">{relativeTime(n.created_at)}</div>
+                  <div className="text-xs text-slate-300 mt-0.5">{relativeTimeStr(n.created_at, t)}</div>
                 </div>
               </div>
             </List.Item>
@@ -285,7 +286,7 @@ const AppLayout: React.FC = () => {
         ),
       },
       { type: 'divider' as const },
-      { key: 'logout', label: '退出登入', icon: <ArrowRightStartOnRectangleIcon className="w-4 h-4" />, danger: true, onClick: handleLogout },
+      { key: 'logout', label: t('auth.logout'), icon: <ArrowRightStartOnRectangleIcon className="w-4 h-4" />, danger: true, onClick: handleLogout },
     ],
   }
 
@@ -310,7 +311,7 @@ const AppLayout: React.FC = () => {
           <div className="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center flex-shrink-0">
             <FolderIcon className="w-4 h-4 text-white" />
           </div>
-          {!collapsed && <span className="ml-2.5 text-white font-bold text-sm truncate">專案管理系統</span>}
+          {!collapsed && <span className="ml-2.5 text-white font-bold text-sm truncate">{t('nav.appTitle')}</span>}
         </div>
 
         {/* Nav Menu */}
@@ -333,7 +334,7 @@ const AppLayout: React.FC = () => {
             className="w-4 h-4 text-slate-400 transition-transform duration-200"
             style={{ transform: collapsed ? 'rotate(180deg)' : 'rotate(0)' }}
           />
-          {!collapsed && <span className="ml-1.5 text-slate-400 text-xs">收合</span>}
+          {!collapsed && <span className="ml-1.5 text-slate-400 text-xs">{t('nav.collapse')}</span>}
         </div>
       </Sider>
 
@@ -356,10 +357,11 @@ const AppLayout: React.FC = () => {
 
           {/* Right */}
           <div className="flex items-center gap-1">
+            <LanguageSwitcher />
             {searchVisible ? (
               <Input
                 autoFocus size="small" style={{ width: 220, borderRadius: 8 }}
-                placeholder="搜索專案、任務..."
+                placeholder={t('search.placeholder')}
                 value={searchVal}
                 onChange={(e) => setSearchVal(e.target.value)}
                 onPressEnter={() => handleSearch(searchVal)}

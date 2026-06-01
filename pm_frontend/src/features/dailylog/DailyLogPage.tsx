@@ -4,7 +4,7 @@
  */
 import React, { useState, useMemo, useCallback, useEffect } from 'react'
 import {
-  Card, Button, Tag, Modal, Form, Select, Input, InputNumber,
+  Card, Button, Tag, Modal, Form, Select, InputNumber,
   Switch, Upload, Segmented, Empty, Badge, Popconfirm, Popover,
   AutoComplete, Alert, Spin, DatePicker, Dropdown,
 } from 'antd'
@@ -28,6 +28,8 @@ import RichTextEditor from '@/components/common/RichTextEditor'
 import { projectApi } from '@/api/project.api'
 import { dutyApi } from '@/api/duty.api'
 import { systemApi } from '@/api/system.api'
+import { useTranslation } from 'react-i18next'
+import i18n from '@/i18n'
 import dayjs, { Dayjs } from 'dayjs'
 import isoWeek from 'dayjs/plugin/isoWeek'
 import { exportDailyReport, exportRangeReport } from './exportDailyReport'
@@ -37,14 +39,24 @@ dayjs.extend(isoWeek)
 // ─── Constants ──────────────────────────────────────────────────────────────
 const STANDARD_DAILY_HOURS = 8.0
 
-const WORK_CATEGORIES: { value: WorkCategory; label: string; color: string; icon: React.ReactNode }[] = [
-  { value: 'project',    label: '專案任務',    color: '#2563eb', icon: <BriefcaseIcon className="w-4 h-4" /> },
-  { value: 'system_req', label: '系統需求',    color: '#0891b2', icon: <ServerIcon className="w-4 h-4" /> },
-  { value: 'training',   label: '教育訓練',    color: '#d97706', icon: <AcademicCapIcon className="w-4 h-4" /> },
-  { value: 'meeting',    label: '週會 / 月會', color: '#dc2626', icon: <UsersIcon className="w-4 h-4" /> },
-  { value: 'duty',       label: 'AR',          color: '#7c3aed', icon: <DocumentTextIcon className="w-4 h-4" /> },
-  { value: 'other',      label: '其他',        color: '#94a3b8', icon: <EllipsisHorizontalCircleIcon className="w-4 h-4" /> },
+const WORK_CATEGORIES: { value: WorkCategory; labelKey: string; color: string; icon: React.ReactNode }[] = [
+  { value: 'project',    labelKey: 'dailyLog.catProject',    color: '#2563eb', icon: <BriefcaseIcon className="w-4 h-4" /> },
+  { value: 'system_req', labelKey: 'dailyLog.catSystemReq',  color: '#0891b2', icon: <ServerIcon className="w-4 h-4" /> },
+  { value: 'training',   labelKey: 'dailyLog.catTraining',   color: '#d97706', icon: <AcademicCapIcon className="w-4 h-4" /> },
+  { value: 'meeting',    labelKey: 'dailyLog.catMeeting',    color: '#dc2626', icon: <UsersIcon className="w-4 h-4" /> },
+  { value: 'duty',       labelKey: 'dailyLog.catDuty',       color: '#7c3aed', icon: <DocumentTextIcon className="w-4 h-4" /> },
+  { value: 'other',      labelKey: 'dailyLog.catOther',      color: '#94a3b8', icon: <EllipsisHorizontalCircleIcon className="w-4 h-4" /> },
 ]
+
+const CATEGORY_LABEL_KEYS: Record<string, string> = {
+  project: 'dailyLog.catProject',
+  system_req: 'dailyLog.catSystemReq',
+  cr_ar: 'dailyLog.catCrAr',
+  training: 'dailyLog.catTraining',
+  meeting: 'dailyLog.catMeeting',
+  duty: 'dailyLog.catDuty',
+  other: 'dailyLog.catOther',
+}
 
 const CATEGORY_MAP = Object.fromEntries(WORK_CATEGORIES.map((c) => [c.value, c]))
 
@@ -182,7 +194,7 @@ function groupDailyEntries(entries: DailyLogEntry[]): CategorySection[] {
       const projMap = new Map<string, { nm: string; list: DailyLogEntry[] }>()
       for (const e of catEntries) {
         const k = e.project_id ?? '__no_proj__'
-        if (!projMap.has(k)) projMap.set(k, { nm: e.project_nm ?? '未知專案', list: [] })
+        if (!projMap.has(k)) projMap.set(k, { nm: e.project_nm ?? i18n.t('dailyLog.unknownProject'), list: [] })
         projMap.get(k)!.list.push(e)
       }
       for (const [projKey, pg] of projMap) {
@@ -226,7 +238,7 @@ function groupDailyEntries(entries: DailyLogEntry[]): CategorySection[] {
     }
 
     result.push({
-      category: catInfo.value, label: catInfo.label, color: catInfo.color,
+      category: catInfo.value, label: catInfo.labelKey, color: catInfo.color,
       totalHours: catEntries.reduce((s, e) => s + e.hours, 0),
       projectGroups,
     })
@@ -244,22 +256,23 @@ interface FunctionOpt {
   expected_start_date?: string; expected_end_date?: string
 }
 interface DutyOpt     { id: string; name: string; requirement_nm?: string; group?: string; system_nm?: string; expected_start_date?: string; expected_end_date?: string }
-const BU_OPTIONS = ['製造部', '品保部', '資訊部', '業務部', '人資部', '財務部', '研發部', '客服中心']
+const BU_OPTIONS_KEYS = ['dailyLog.buManufacturing', 'dailyLog.buQA', 'dailyLog.buIT', 'dailyLog.buSales', 'dailyLog.buHR', 'dailyLog.buFinance', 'dailyLog.buRD', 'dailyLog.buCS']
 
 // ─── CSV Export ──────────────────────────────────────────────────────────────
 function exportDailyLogCSV(logs: DailyLog[], rangeLabel: string) {
   const bom = '\uFEFF'
-  const headers = ['日期', '工作分類', '關聯專案', '關聯任務', 'BU/單位', '工作內容', '耗時(h)', '加班', '加班時數(h)']
+  const _t = i18n.t.bind(i18n)
+  const headers = [_t('dailyLog.csvDate'), _t('dailyLog.csvCategory'), _t('dailyLog.csvProject'), _t('dailyLog.csvTask'), _t('dailyLog.csvBu'), _t('dailyLog.csvContent'), _t('dailyLog.csvHours'), _t('dailyLog.csvOvertime'), _t('dailyLog.csvOvertimeHours')]
   const rows = logs.flatMap((log) =>
     log.entries.map((e) => [
       log.log_date,
-      CATEGORY_MAP[e.work_category]?.label ?? e.work_category,
+      CATEGORY_LABEL_KEYS[e.work_category] ? _t(CATEGORY_LABEL_KEYS[e.work_category]) : e.work_category,
       e.project_nm ?? '—',
       e.function_nm ?? e.duty_nm ?? '—',
       e.bu_unit ?? '—',
       e.description,
       String(e.hours),
-      e.is_overtime ? '是' : '否',
+      e.is_overtime ? _t('common.yes') : _t('common.no'),
       e.is_overtime ? String(e.overtime_hours ?? e.hours) : '0',
     ])
   )
@@ -267,7 +280,7 @@ function exportDailyLogCSV(logs: DailyLog[], rangeLabel: string) {
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
-  a.href = url; a.download = `工作日誌_${rangeLabel}.csv`; a.click()
+  a.href = url; a.download = `${i18n.t('dailyLog.title')}_${rangeLabel}.csv`; a.click()
   URL.revokeObjectURL(url)
 }
 
@@ -284,6 +297,7 @@ const SelfReportView: React.FC<{
   onPreviewFile: (url: string, name: string) => void
   authToken: string | null
 }> = ({ startDate, endDate, logs, onPreviewFile, authToken }) => {
+  const { t } = useTranslation()
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const toggleGroup = (key: string) =>
     setCollapsedGroups((prev) => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s })
@@ -313,10 +327,10 @@ const SelfReportView: React.FC<{
       {/* ── Summary stats ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: '本期總工時', value: totalHours.toFixed(1),  unit: 'h',  color: '#2563eb', bg: '#eff6ff', icon: <ClockIcon className="w-4 h-4 text-blue-500" /> },
-          { label: '正常工時',   value: totalNormal.toFixed(1), unit: 'h',  color: '#16a34a', bg: '#f0fdf4', icon: <SunIcon className="w-4 h-4 text-green-500" /> },
-          { label: '加班工時',   value: totalOT.toFixed(1),     unit: 'h',  color: '#d97706', bg: '#fff7ed', icon: <MoonIcon className="w-4 h-4 text-orange-500" /> },
-          { label: '已填報天數', value: workedDays,              unit: '天', color: '#64748b', bg: '#f8fafc', icon: <CalendarDaysIcon className="w-4 h-4 text-slate-500" /> },
+          { label: t('dailyLog.periodTotalHours'), value: totalHours.toFixed(1),  unit: 'h',  color: '#2563eb', bg: '#eff6ff', icon: <ClockIcon className="w-4 h-4 text-blue-500" /> },
+          { label: t('dailyLog.normalHours'),      value: totalNormal.toFixed(1), unit: 'h',  color: '#16a34a', bg: '#f0fdf4', icon: <SunIcon className="w-4 h-4 text-green-500" /> },
+          { label: t('dailyLog.overtimeHoursLabel'), value: totalOT.toFixed(1),   unit: 'h',  color: '#d97706', bg: '#fff7ed', icon: <MoonIcon className="w-4 h-4 text-orange-500" /> },
+          { label: t('dailyLog.reportedDays'),     value: workedDays,              unit: t('dailyLog.unitDay'), color: '#64748b', bg: '#f8fafc', icon: <CalendarDaysIcon className="w-4 h-4 text-slate-500" /> },
         ].map((s) => (
           <div key={s.label} className="bg-white rounded-xl border border-slate-100 shadow-sm px-4 py-3 flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: s.bg }}>{s.icon}</div>
@@ -332,13 +346,13 @@ const SelfReportView: React.FC<{
 
       {/* ── Category breakdown ── */}
       {catTotals.length > 0 && (
-        <Card bordered={false} className="shadow-sm" title={<span className="text-sm font-semibold text-slate-700">工作分類分佈</span>}>
+        <Card bordered={false} className="shadow-sm" title={<span className="text-sm font-semibold text-slate-700">{t('dailyLog.categoryDistribution')}</span>}>
           <div className="flex flex-col gap-2.5">
             {catTotals.map((c) => (
               <div key={c.value} className="flex items-center gap-3">
                 <div className="flex items-center gap-1.5 w-28 flex-shrink-0">
                   <div className="w-2 h-2 rounded-sm" style={{ background: c.color }} />
-                  <span className="text-xs text-slate-600">{c.label}</span>
+                  <span className="text-xs text-slate-600">{t(CATEGORY_LABEL_KEYS[c.value as WorkCategory])}</span>
                 </div>
                 <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
                   <div className="h-full rounded-full" style={{ background: c.color, width: `${Math.round((c.total / totalHours) * 100)}%` }} />
@@ -356,7 +370,7 @@ const SelfReportView: React.FC<{
         if (rangeLogs.length === 0) {
           return (
             <Card bordered={false} className="shadow-sm">
-              <Empty description="此期間尚無日報記錄" className="py-6" />
+              <Empty description={t('dailyLog.noPeriodRecords')} className="py-6" />
             </Card>
           )
         }
@@ -365,15 +379,15 @@ const SelfReportView: React.FC<{
         const richEntries = allEntries as RichEntry[]
         const sections = groupDailyEntries(richEntries as DailyLogEntry[])
         const totalTasks = sections.reduce((s, cs) => s + countTasks(cs.projectGroups), 0)
-        const DOW = ['日', '一', '二', '三', '四', '五', '六']
+        const DOW = [t('dailyLog.dowSun'), t('dailyLog.dowMon'), t('dailyLog.dowTue'), t('dailyLog.dowWed'), t('dailyLog.dowThu'), t('dailyLog.dowFri'), t('dailyLog.dowSat')]
 
         return (
           <div className="space-y-3">
             {/* Section title */}
             <div className="flex items-center gap-2 px-1">
               <DocumentTextIcon className="w-4 h-4 text-slate-400" />
-              <span className="text-sm font-semibold text-slate-700">進度更新</span>
-              <span className="text-xs text-slate-400 font-normal">{allEntries.length} 條記錄 · {totalTasks} 個任務</span>
+              <span className="text-sm font-semibold text-slate-700">{t('dailyLog.progressUpdates')}</span>
+              <span className="text-xs text-slate-400 font-normal">{t('dailyLog.recordsAndTasks', { records: allEntries.length, tasks: totalTasks })}</span>
             </div>
 
             {sections.map((section) => {
@@ -386,9 +400,9 @@ const SelfReportView: React.FC<{
                     className="w-full flex items-center gap-2 px-4 py-3 text-left border-0 outline-none cursor-pointer"
                     style={{ background: section.color + '12', borderBottom: collapsed ? 'none' : `2px solid ${section.color}30` }}>
                     <Tag style={{ fontSize: 10, padding: '0 7px', margin: 0, lineHeight: '22px', background: section.color + '22', color: section.color, border: `1px solid ${section.color}55`, fontWeight: 700 }}>
-                      {section.label}
+                      {t(CATEGORY_LABEL_KEYS[section.category])}
                     </Tag>
-                    {taskCount > 0 && <span className="text-xs text-slate-400">{taskCount} 個任務</span>}
+                    {taskCount > 0 && <span className="text-xs text-slate-400">{t('dailyLog.nTasks', { count: taskCount })}</span>}
                     <div className="ml-auto flex items-center gap-1.5">
                       <span className="text-sm font-bold tabular-nums" style={{ color: section.color }}>
                         <ClockIcon className="w-3.5 h-3.5 inline mr-0.5" />{fmtH(section.totalHours)}h
@@ -411,7 +425,7 @@ const SelfReportView: React.FC<{
                                 style={{ background: section.color + '08', borderTop: pgIdx > 0 ? `1px solid ${section.color}20` : undefined, borderBottom: `1px solid ${section.color}20` }}>
                                 <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: section.color }} />
                                 <span className="text-sm font-bold text-slate-800 flex-1 min-w-0">{pg.projNm}</span>
-                                <span className="text-xs text-slate-400 mr-1">{countTasks([pg])} 個任務</span>
+                                <span className="text-xs text-slate-400 mr-1">{t('dailyLog.nTasks', { count: countTasks([pg]) })}</span>
                                 <span className="text-[11px] font-semibold flex-shrink-0" style={{ color: section.color }}>{fmtH(pg.totalHours)}h</span>
                                 <ChevronDownIcon className="w-3.5 h-3.5 ml-1 transition-transform duration-150 flex-shrink-0" style={{ color: section.color, transform: projCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }} />
                               </button>
@@ -431,7 +445,7 @@ const SelfReportView: React.FC<{
                                           style={{ background: '#eff6ff', borderTop: rIdx > 0 ? `1px solid ${section.color}18` : undefined, borderBottom: `1px solid ${section.color}18` }}>
                                           <div className="w-1 h-3.5 rounded-full flex-shrink-0 bg-blue-400" />
                                           <span className="text-[11px] font-semibold text-blue-600 flex-1 min-w-0">{req.reqNm}</span>
-                                          <span className="text-[10px] text-slate-400 mr-1">{req.groups.flatMap((g) => g.tasks).length} 個任務</span>
+                                          <span className="text-[10px] text-slate-400 mr-1">{t('dailyLog.nTasks', { count: req.groups.flatMap((g) => g.tasks).length })}</span>
                                           <span className="text-[10px] font-semibold text-blue-500">{fmtH(req.totalHours)}h</span>
                                           <ChevronDownIcon className="w-3 h-3 ml-1 text-blue-400 transition-transform duration-150 flex-shrink-0" style={{ transform: reqCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }} />
                                         </button>
@@ -451,7 +465,7 @@ const SelfReportView: React.FC<{
                                                     style={{ background: '#f8fafc', borderTop: gIdx > 0 ? '1px solid #e2e8f0' : undefined, borderBottom: '1px solid #e2e8f0' }}>
                                                     <div className="w-0.5 h-3 rounded-full flex-shrink-0 bg-slate-400" />
                                                     <span className="text-[11px] font-medium text-slate-600 flex-1 min-w-0">{group.groupNm}</span>
-                                                    <span className="text-[10px] text-slate-400 mr-1">{group.tasks.length} 個任務</span>
+                                                    <span className="text-[10px] text-slate-400 mr-1">{t('dailyLog.nTasks', { count: group.tasks.length })}</span>
                                                     <span className="text-[10px] font-medium text-slate-500">{fmtH(group.totalHours)}h</span>
                                                     <ChevronDownIcon className="w-3 h-3 ml-1 text-slate-400 transition-transform duration-150 flex-shrink-0" style={{ transform: grpCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }} />
                                                   </button>
@@ -502,13 +516,13 @@ const SelfReportView: React.FC<{
                                                                           <div className="flex-1 min-w-0">
                                                                             {entry.description
                                                                               ? <RichTextContent html={entry.description} onImageClick={(src) => onPreviewFile(authToken ? `${src}?token=${authToken}` : src, src.split('/').pop()?.split('?')[0] ?? 'image.png')} />
-                                                                              : <span className="text-slate-300 italic text-sm">（無說明）</span>}
+                                                                              : <span className="text-slate-300 italic text-sm">{t('dailyLog.noDescription')}</span>}
                                                                           </div>
                                                                           {entry.source === 'updated' && (
-                                                                            <Tag color="orange" style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px', flexShrink: 0 }}>日誌更新</Tag>
+                                                                            <Tag color="orange" style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px', flexShrink: 0 }}>{t('dailyLog.sourceUpdated')}</Tag>
                                                                           )}
                                                                           {entry.source === 'manual' && (
-                                                                            <Tag color="green" style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px', flexShrink: 0 }}>日誌新增</Tag>
+                                                                            <Tag color="green" style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px', flexShrink: 0 }}>{t('dailyLog.sourceManual')}</Tag>
                                                                           )}
                                                                         </div>
                                                                         {entry.files && entry.files.length > 0 && (
@@ -529,13 +543,13 @@ const SelfReportView: React.FC<{
                                                                       <div className="flex-shrink-0 text-right">
                                                                         <div className="flex items-center gap-0.5 text-xs font-semibold justify-end" style={{ color: entry.is_overtime ? '#d97706' : '#2563eb' }}>
                                                                           <ClockIcon className="w-3.5 h-3.5" />{fmtH(entry.hours)}h
-                                                                          {entry.is_overtime && <Tag color="orange" style={{ fontSize: 9, padding: '0 3px', margin: 0, lineHeight: '14px' }}>加班</Tag>}
+                                                                          {entry.is_overtime && <Tag color="orange" style={{ fontSize: 9, padding: '0 3px', margin: 0, lineHeight: '14px' }}>{t('dailyLog.overtime')}</Tag>}
                                                                         </div>
-                                                                        <div className="text-[10px] text-slate-400 tabular-nums mt-0.5">{d.format('MM/DD')} 週{DOW[d.day()]}</div>
+                                                                        <div className="text-[10px] text-slate-400 tabular-nums mt-0.5">{d.format('MM/DD')} {t('dailyLog.weekPrefix')}{DOW[d.day()]}</div>
                                                                         <Tag
                                                                           color={re.log_status === 'confirmed' ? 'success' : re.log_status === 'submitted' ? 'processing' : 'default'}
                                                                           style={{ fontSize: 9, padding: '0 4px', margin: '2px 0 0', lineHeight: '14px' }}>
-                                                                          {re.log_status === 'confirmed' ? '已確認' : re.log_status === 'submitted' ? '已提交' : '草稿'}
+                                                                          {re.log_status === 'confirmed' ? t('dailyLog.confirmed') : re.log_status === 'submitted' ? t('dailyLog.submitted') : t('dailyLog.draft')}
                                                                         </Tag>
                                                                       </div>
                                                                     </div>
@@ -591,6 +605,7 @@ export { SelfReportView, WORK_CATEGORIES, CATEGORY_MAP, fmtH }
 // ─── Main Page ──────────────────────────────────────────────────────────────
 
 const DailyLogPage: React.FC = () => {
+  const { t } = useTranslation()
   const workNo   = useAppSelector((s) => s.auth.workNo)
   const userName = useAppSelector((s) => s.auth.name)
   const toName   = useWorkNoToName()
@@ -908,18 +923,18 @@ const DailyLogPage: React.FC = () => {
 
   // Date label
   const dateLabel = useMemo(() => {
-    if (viewMode === 'day') return currentDate.format('YYYY 年 MM 月 DD 日 dddd')
+    if (viewMode === 'day') return currentDate.format(t('dailyLog.dateFmtDay'))
     if (viewMode === 'week') {
       const ws = currentDate.startOf('isoWeek')
       return `${ws.format('MM/DD')} — ${ws.add(6, 'day').format('MM/DD')} (${ws.format('YYYY')} W${currentDate.isoWeek()})`
     }
-    if (viewMode === 'month') return currentDate.format('YYYY 年 MM 月')
+    if (viewMode === 'month') return currentDate.format(t('dailyLog.dateFmtMonth'))
     if (viewMode === 'quarter') {
       const q = Math.ceil((currentDate.month() + 1) / 3)
-      return `${currentDate.format('YYYY')} 年 第 ${q} 季度`
+      return t('dailyLog.dateFmtQuarter', { year: currentDate.format('YYYY'), quarter: q })
     }
-    return currentDate.format('YYYY 年')
-  }, [currentDate, viewMode])
+    return currentDate.format(t('dailyLog.dateFmtYear'))
+  }, [currentDate, viewMode, t])
 
   // Open add/edit modal
   const openEntryModal = (entry?: DailyLogEntry) => {
@@ -1303,17 +1318,17 @@ const DailyLogPage: React.FC = () => {
   const today = dayjs()
   const quarterStart = today.month(Math.floor(today.month() / 3) * 3).startOf('month')
   const exportMenuItems = [
-    { key: 'today',   label: '今日日報' },
-    { key: 'week',    label: '本週週報' },
-    { key: 'month',   label: '本月月報' },
-    { key: 'quarter', label: '本季季報' },
-    { key: 'year',    label: '本年年報' },
+    { key: 'today',   label: t('dailyLog.exportToday') },
+    { key: 'week',    label: t('dailyLog.exportWeek') },
+    { key: 'month',   label: t('dailyLog.exportMonth') },
+    { key: 'quarter', label: t('dailyLog.exportQuarter') },
+    { key: 'year',    label: t('dailyLog.exportYear') },
     { type: 'divider' as const },
-    { key: 'last1m',  label: '最近一個月' },
-    { key: 'last6m',  label: '最近半年' },
-    { key: 'last1y',  label: '最近一年' },
+    { key: 'last1m',  label: t('dailyLog.exportLast1m') },
+    { key: 'last6m',  label: t('dailyLog.exportLast6m') },
+    { key: 'last1y',  label: t('dailyLog.exportLast1y') },
     { type: 'divider' as const },
-    { key: 'custom',  label: '自定義範圍...' },
+    { key: 'custom',  label: t('dailyLog.exportCustom') },
   ]
 
   const handleExportMenuClick = ({ key }: { key: string }) => {
@@ -1338,20 +1353,20 @@ const DailyLogPage: React.FC = () => {
       color={currentLog.status === 'confirmed' ? 'success' : currentLog.status === 'submitted' ? 'processing' : 'default'}
       style={{ fontSize: 11 }}
     >
-      {currentLog.status === 'confirmed' ? '✅ 已確認' : currentLog.status === 'submitted' ? '📤 已提交' : '📝 草稿'}
+      {currentLog.status === 'confirmed' ? t('dailyLog.statusConfirmed') : currentLog.status === 'submitted' ? t('dailyLog.statusSubmitted') : t('dailyLog.statusDraft')}
     </Tag>
   ) : (
-    <Tag color="error" style={{ fontSize: 11 }}>⚠️ 未填寫</Tag>
+    <Tag color="error" style={{ fontSize: 11 }}>{t('dailyLog.statusNotFilled')}</Tag>
   )
 
   return (
-    <Spin spinning={logsLoading} tip="載入中..." size="large">
+    <Spin spinning={logsLoading} tip={t('common.loading')} size="large">
     <div className="p-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">工作日誌</h1>
-          <p className="text-slate-400 text-sm mt-0.5">每日記錄工作內容 · 週/月/季/年報自動從日報彙整</p>
+          <h1 className="text-2xl font-bold text-slate-800">{t('dailyLog.title')}</h1>
+          <p className="text-slate-400 text-sm mt-0.5">{t('dailyLog.subtitle')}</p>
         </div>
         <div className="flex items-center gap-2">
           {viewMode === 'day' && currentLog && (
@@ -1361,7 +1376,7 @@ const DailyLogPage: React.FC = () => {
               loading={exportingDocx}
               onClick={handleExportDailyDocx}
             >
-              導出日報
+              {t('dailyLog.exportDailyReport')}
             </Button>
           )}
           <Dropdown
@@ -1370,21 +1385,21 @@ const DailyLogPage: React.FC = () => {
             trigger={['click']}
           >
             <Button icon={<ArrowDownTrayIcon className="w-4 h-4" />} size="small" loading={rangeExportLoading}>
-              導出報告
+              {t('dailyLog.exportReport')}
             </Button>
           </Dropdown>
           <Button icon={<ArrowDownTrayIcon className="w-4 h-4" />} size="small" onClick={handleExport}>
-            導出 CSV
+            {t('dailyLog.exportCsv')}
           </Button>
           <Segmented
             value={viewMode}
             onChange={(v) => setViewMode(v as ViewMode)}
             options={[
-              { label: '日', value: 'day' },
-              { label: '週報', value: 'week' },
-              { label: '月報', value: 'month' },
-              { label: '季報', value: 'quarter' },
-              { label: '年報', value: 'year' },
+              { label: t('dailyLog.viewDay'), value: 'day' },
+              { label: t('dailyLog.viewWeek'), value: 'week' },
+              { label: t('dailyLog.viewMonth'), value: 'month' },
+              { label: t('dailyLog.viewQuarter'), value: 'quarter' },
+              { label: t('dailyLog.viewYear'), value: 'year' },
             ]}
             size="small"
           />
@@ -1396,20 +1411,20 @@ const DailyLogPage: React.FC = () => {
         <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center gap-3">
           <div className="flex-1">
             <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-amber-800">主管日報設定</span>
-              <Tag color="gold" style={{ fontSize: 10, margin: 0, lineHeight: '16px', padding: '0 4px' }}>主管級</Tag>
+              <span className="text-sm font-semibold text-amber-800">{t('dailyLog.managerSettings')}</span>
+              <Tag color="gold" style={{ fontSize: 10, margin: 0, lineHeight: '16px', padding: '0 4px' }}>{t('dailyLog.managerLevel')}</Tag>
             </div>
             <p className="text-xs text-amber-600 mt-0.5">
-              主管級以上人員可選擇是否填寫日報。關閉後系統將不再提醒您填寫日報，但您仍可隨時手動填寫。
+              {t('dailyLog.managerSettingsDesc')}
             </p>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
-            <span className="text-xs text-amber-700 font-medium">{dailyLogOptOut ? '已關閉日報' : '日報啟用中'}</span>
+            <span className="text-xs text-amber-700 font-medium">{dailyLogOptOut ? t('dailyLog.logDisabled') : t('dailyLog.logEnabled')}</span>
             <Switch
               checked={!dailyLogOptOut}
               onChange={(checked) => setDailyLogOptOut(!checked)}
-              checkedChildren="啟用"
-              unCheckedChildren="關閉"
+              checkedChildren={t('common.enabled')}
+              unCheckedChildren={t('dailyLog.switchOff')}
             />
           </div>
         </div>
@@ -1418,8 +1433,8 @@ const DailyLogPage: React.FC = () => {
       {/* Opt-out notice */}
       {isManager && dailyLogOptOut && (
         <Alert
-          message="您已關閉日報填寫功能"
-          description="系統不再要求您每日填寫日報。如需重新啟用，請在上方切換開關。"
+          message={t('dailyLog.optOutMessage')}
+          description={t('dailyLog.optOutDescription')}
           type="info"
           showIcon
           className="mb-4"
@@ -1434,7 +1449,7 @@ const DailyLogPage: React.FC = () => {
           <span className="font-semibold text-slate-700 text-sm">{dateLabel}</span>
           {viewMode === 'day' && statusBadge}
         </div>
-        <Button size="small" onClick={goToday} className="text-xs">今天</Button>
+        <Button size="small" onClick={goToday} className="text-xs">{t('dailyLog.today')}</Button>
         <Button icon={<ChevronRightIcon className="w-4 h-4" />} type="text" size="small" onClick={() => navigate(1)} />
       </div>
 
@@ -1444,10 +1459,10 @@ const DailyLogPage: React.FC = () => {
           {/* Daily hours summary */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
             {[
-              { label: '今日總工時', value: `${fmtH(totalHours)}`, unit: `/ ${STANDARD_DAILY_HOURS}h`, color: '#2563eb', bg: '#eff6ff', icon: <ClockIcon className="w-4 h-4 text-blue-500" /> },
-              { label: '正常工時',   value: `${fmtH(totalHours - overtimeHours)}`, unit: 'h', color: '#16a34a', bg: '#f0fdf4', icon: <SunIcon className="w-4 h-4 text-green-500" /> },
-              { label: '加班工時',   value: `${fmtH(overtimeHours)}`, unit: 'h', color: '#d97706', bg: '#fff7ed', icon: <MoonIcon className="w-4 h-4 text-orange-500" /> },
-              { label: '工時充足率', value: `${sufficiencyPct}`, unit: '%', color: sufficiencyPct >= 100 ? '#16a34a' : sufficiencyPct >= 75 ? '#d97706' : '#dc2626', bg: '#f8fafc', icon: <CalendarDaysIcon className="w-4 h-4 text-slate-500" /> },
+              { label: t('dailyLog.todayTotalHours'), value: `${fmtH(totalHours)}`, unit: `/ ${STANDARD_DAILY_HOURS}h`, color: '#2563eb', bg: '#eff6ff', icon: <ClockIcon className="w-4 h-4 text-blue-500" /> },
+              { label: t('dailyLog.normalHours'),     value: `${fmtH(totalHours - overtimeHours)}`, unit: 'h', color: '#16a34a', bg: '#f0fdf4', icon: <SunIcon className="w-4 h-4 text-green-500" /> },
+              { label: t('dailyLog.overtimeHoursLabel'), value: `${fmtH(overtimeHours)}`, unit: 'h', color: '#d97706', bg: '#fff7ed', icon: <MoonIcon className="w-4 h-4 text-orange-500" /> },
+              { label: t('dailyLog.sufficiencyRate'), value: `${sufficiencyPct}`, unit: '%', color: sufficiencyPct >= 100 ? '#16a34a' : sufficiencyPct >= 75 ? '#d97706' : '#dc2626', bg: '#f8fafc', icon: <CalendarDaysIcon className="w-4 h-4 text-slate-500" /> },
             ].map((s) => (
               <div key={s.label} className="bg-white rounded-xl border border-slate-100 shadow-sm px-4 py-3 flex items-center gap-3">
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: s.bg }}>{s.icon}</div>
@@ -1464,20 +1479,20 @@ const DailyLogPage: React.FC = () => {
           {/* Entries header */}
           <div className="flex items-center gap-2 mb-3 px-1">
             <PencilSquareIcon className="w-4 h-4 text-slate-400" />
-            <span className="text-sm font-semibold text-slate-700">日誌條目</span>
+            <span className="text-sm font-semibold text-slate-700">{t('dailyLog.entries')}</span>
             <Badge count={displayEntries.length} color="#2563eb" />
             {dismissedSuggestCount > 0 && !isReadOnly && (
               <Popover
                 trigger="click"
                 placement="bottomLeft"
-                title={<span className="text-xs font-semibold text-slate-600">已隱藏的任務進度（{dismissedSuggestCount} 條）</span>}
+                title={<span className="text-xs font-semibold text-slate-600">{t('dailyLog.hiddenProgress', { count: dismissedSuggestCount })}</span>}
                 content={
                   <div className="w-72 max-h-64 overflow-y-auto">
                     {dismissedSuggestEntries.map((e) => (
                       <div key={e.suggest_id} className="flex items-start gap-2 py-2 border-b border-slate-100 last:border-0">
                         <div className="flex-1 min-w-0">
                           <div className="text-xs font-medium text-slate-700 truncate">
-                            {e.function_nm ?? e.duty_nm ?? '未知任務'}
+                            {e.function_nm ?? e.duty_nm ?? t('dailyLog.unknownTask')}
                           </div>
                           {e.description && (
                             <div className="text-[11px] text-slate-400 truncate mt-0.5">{e.description}</div>
@@ -1488,7 +1503,7 @@ const DailyLogPage: React.FC = () => {
                           className="text-[11px] text-blue-500 hover:text-blue-700 border-0 outline-none bg-transparent p-0 flex-shrink-0 cursor-pointer whitespace-nowrap"
                           onClick={() => { removeDismissedId(dateStr, e.suggest_id!); setDismissedVersion((v) => v + 1) }}
                         >
-                          恢復
+                          {t('dailyLog.restore')}
                         </button>
                       </div>
                     ))}
@@ -1497,21 +1512,21 @@ const DailyLogPage: React.FC = () => {
                         className="w-full text-[11px] text-slate-400 hover:text-blue-600 border-0 outline-none bg-transparent p-0 pt-2 cursor-pointer text-center"
                         onClick={() => { clearDismissedIds(dateStr); setDismissedVersion((v) => v + 1) }}
                       >
-                        全部恢復
+                        {t('dailyLog.restoreAll')}
                       </button>
                     )}
                   </div>
                 }
               >
                 <button className="text-[11px] text-slate-400 hover:text-blue-600 underline underline-offset-2 cursor-pointer border-0 outline-none bg-transparent p-0">
-                  {dismissedSuggestCount} 條進度已隱藏
+                  {t('dailyLog.nProgressHidden', { count: dismissedSuggestCount })}
                 </button>
               </Popover>
             )}
             {!isReadOnly && (
               <Button type="primary" size="small" icon={<PlusIcon className="w-4 h-4" />}
                 style={{ background: '#2563eb' }} className="ml-auto" onClick={() => openEntryModal()}>
-                新增條目
+                {t('dailyLog.addEntry')}
               </Button>
             )}
           </div>
@@ -1520,11 +1535,11 @@ const DailyLogPage: React.FC = () => {
           <div className="mb-5">
             {displayEntries.length === 0 ? (
               <div className="rounded-xl border border-slate-200 bg-white shadow-sm py-10 flex flex-col items-center gap-3">
-                <Empty description="今日尚無工作記錄" />
+                <Empty description={t('dailyLog.noEntriesToday')} />
                 {!isReadOnly && (
                   <Button type="primary" icon={<PlusIcon className="w-4 h-4" />}
                     style={{ background: '#2563eb' }} onClick={() => openEntryModal()}>
-                    新增第一條記錄
+                    {t('dailyLog.addFirstEntry')}
                   </Button>
                 )}
               </div>
@@ -1547,9 +1562,9 @@ const DailyLogPage: React.FC = () => {
                           background: section.color + '22', color: section.color,
                           border: `1px solid ${section.color}55`, fontWeight: 700,
                         }}>
-                          {section.label}
+                          {t(CATEGORY_LABEL_KEYS[section.category])}
                         </Tag>
-                        <span className="text-xs text-slate-400">{countTasks(section.projectGroups)} 個任務</span>
+                        <span className="text-xs text-slate-400">{t('dailyLog.nTasks', { count: countTasks(section.projectGroups) })}</span>
                         <div className="ml-auto flex items-center gap-2">
                           <span className="flex items-center gap-1 text-xs font-bold" style={{ color: section.color }}>
                             <ClockIcon className="w-3.5 h-3.5" />{fmtH(section.totalHours)}h
@@ -1577,7 +1592,7 @@ const DailyLogPage: React.FC = () => {
                                   onClick={() => toggleDayGroup(projKey)}>
                                   <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: section.color }} />
                                   <span className="text-sm font-bold text-slate-800 flex-1 min-w-0">{pg.projNm}</span>
-                                  <span className="text-xs text-slate-400 mr-1">{countTasks([pg])} 個任務</span>
+                                  <span className="text-xs text-slate-400 mr-1">{t('dailyLog.nTasks', { count: countTasks([pg]) })}</span>
                                   <span className="text-[11px] font-semibold flex-shrink-0" style={{ color: section.color }}>{fmtH(pg.totalHours)}h</span>
                                   <ChevronDownIcon className="w-3.5 h-3.5 ml-1 transition-transform duration-150 flex-shrink-0" style={{ color: section.color, transform: projCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }} />
                                 </button>
@@ -1599,7 +1614,7 @@ const DailyLogPage: React.FC = () => {
                                         onClick={() => toggleDayGroup(reqCKey)}>
                                         <div className="w-1 h-3.5 rounded-full flex-shrink-0 bg-blue-400" />
                                         <span className="text-[11px] font-semibold text-blue-600 flex-1 min-w-0">{req.reqNm}</span>
-                                        <span className="text-[10px] text-slate-400 mr-1">{req.groups.flatMap((g) => g.tasks).length} 個任務</span>
+                                        <span className="text-[10px] text-slate-400 mr-1">{t('dailyLog.nTasks', { count: req.groups.flatMap((g) => g.tasks).length })}</span>
                                         <span className="text-[10px] font-semibold text-blue-500">{fmtH(req.totalHours)}h</span>
                                         <ChevronDownIcon className="w-3 h-3 ml-1 text-blue-400 transition-transform duration-150 flex-shrink-0" style={{ transform: reqCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }} />
                                       </button>
@@ -1621,7 +1636,7 @@ const DailyLogPage: React.FC = () => {
                                               onClick={() => toggleDayGroup(grpCKey)}>
                                               <div className="w-0.5 h-3 rounded-full flex-shrink-0 bg-slate-400" />
                                               <span className="text-[11px] font-medium text-slate-600 flex-1 min-w-0">{group.groupNm}</span>
-                                              <span className="text-[10px] text-slate-400 mr-1">{group.tasks.length} 個任務</span>
+                                              <span className="text-[10px] text-slate-400 mr-1">{t('dailyLog.nTasks', { count: group.tasks.length })}</span>
                                               <span className="text-[10px] font-medium text-slate-500">{fmtH(group.totalHours)}h</span>
                                               <ChevronDownIcon className="w-3 h-3 ml-1 text-slate-400 transition-transform duration-150 flex-shrink-0" style={{ transform: grpCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }} />
                                             </button>
@@ -1668,9 +1683,9 @@ const DailyLogPage: React.FC = () => {
                                                     </button>
                                                     {!isReadOnly && (
                                                       <Popconfirm
-                                                        title={task.entries.length > 1 ? `確定刪除此任務下全部 ${task.entries.length} 條記錄？` : '確定刪除此條目？'}
+                                                        title={task.entries.length > 1 ? t('dailyLog.confirmDeleteAllEntries', { count: task.entries.length }) : t('dailyLog.confirmDeleteEntry')}
                                                         onConfirm={() => task.entries.forEach((e) => handleDeleteEntry(e.entry_id))}
-                                                        okText="刪除" cancelText="取消" placement="topRight">
+                                                        okText={t('common.delete')} cancelText={t('common.cancel')} placement="topRight">
                                                         <Button size="small" type="text" danger
                                                           icon={<TrashIcon className="w-3.5 h-3.5" />}
                                                           className="text-slate-400 hover:!text-red-500 flex-shrink-0 ml-1 opacity-0 group-hover/task:opacity-100 transition-opacity" />
@@ -1689,10 +1704,10 @@ const DailyLogPage: React.FC = () => {
                                                           <div className="flex items-center gap-1.5 flex-wrap">
                                                             {entry.description
                                                               ? <RichTextContent html={entry.description} onImageClick={(src) => setPreviewFile({ url: src, name: src.split('/').pop()?.split('?')[0] ?? 'image.png' })} />
-                                                              : <span className="text-slate-300 italic text-sm">（無說明）</span>}
+                                                              : <span className="text-slate-300 italic text-sm">{t('dailyLog.noDescription')}</span>}
                                                             {entry.suggest_submitter && (
                                                               <Tag color="purple" style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px' }}>
-                                                                由 {toName(entry.suggest_submitter) || entry.suggest_submitter} 提交
+                                                                {t('dailyLog.submittedBy', { name: toName(entry.suggest_submitter) || entry.suggest_submitter })}
                                                               </Tag>
                                                             )}
                                                           </div>
@@ -1717,18 +1732,18 @@ const DailyLogPage: React.FC = () => {
                                                             <span className="flex items-center gap-0.5 text-sm font-semibold" style={{ color: entry.is_overtime ? '#d97706' : section.color }}>
                                                               <ClockIcon className="w-4 h-4" />{fmtH(entry.hours)}h
                                                             </span>
-                                                            {entry.is_overtime && <Tag color="orange" style={{ fontSize: 10, padding: '0 4px', margin: 0, lineHeight: '16px' }}>加班</Tag>}
+                                                            {entry.is_overtime && <Tag color="orange" style={{ fontSize: 10, padding: '0 4px', margin: 0, lineHeight: '16px' }}>{t('dailyLog.overtime')}</Tag>}
                                                             <span className="text-xs text-slate-400 tabular-nums">{entry.record_time ?? '—'}</span>
-                                                            {entry.source === 'updated' && <Tag color="orange" style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px' }}>日誌更新</Tag>}
-                                                            {entry.source === 'manual' && <Tag color="green" style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px' }}>日誌新增</Tag>}
+                                                            {entry.source === 'updated' && <Tag color="orange" style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px' }}>{t('dailyLog.sourceUpdated')}</Tag>}
+                                                            {entry.source === 'manual' && <Tag color="green" style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px' }}>{t('dailyLog.sourceManual')}</Tag>}
                                                           </div>
                                                           {!isReadOnly && (
                                                             <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                                                               <Button size="small" type="text" icon={<PencilSquareIcon className="w-3.5 h-3.5" />}
                                                                 className="text-slate-400 hover:!text-blue-500 !h-6 !w-6 !p-0 !min-w-0"
                                                                 onClick={() => openEntryModal(entry)} />
-                                                              <Popconfirm title="確定刪除此條目？" onConfirm={() => handleDeleteEntry(entry.entry_id)}
-                                                                okText="刪除" cancelText="取消" placement="topRight">
+                                                              <Popconfirm title={t('dailyLog.confirmDeleteEntry')} onConfirm={() => handleDeleteEntry(entry.entry_id)}
+                                                                okText={t('common.delete')} cancelText={t('common.cancel')} placement="topRight">
                                                                 <Button size="small" type="text" danger icon={<TrashIcon className="w-3.5 h-3.5" />}
                                                                   className="text-slate-400 hover:!text-red-500 !h-6 !w-6 !p-0 !min-w-0" />
                                                               </Popconfirm>
@@ -1771,10 +1786,10 @@ const DailyLogPage: React.FC = () => {
           {/* Action buttons */}
           {currentLog?.status !== 'submitted' && currentLog?.status !== 'confirmed' && displayEntries.length > 0 && (
             <div className="flex justify-end gap-3">
-              <Popconfirm title="確定提交日報？提交後不可再修改。" onConfirm={handleSubmit} okText="確定提交" cancelText="取消">
+              <Popconfirm title={t('dailyLog.confirmSubmit')} onConfirm={handleSubmit} okText={t('dailyLog.confirmSubmitOk')} cancelText={t('common.cancel')}>
                 <Button type="primary" icon={<ArrowUpTrayIcon className="w-4 h-4" />} size="large"
                   style={{ background: '#2563eb', borderRadius: 10, height: 42 }}>
-                  提交日報
+                  {t('dailyLog.submitLog')}
                 </Button>
               </Popconfirm>
             </div>
@@ -1818,7 +1833,7 @@ const DailyLogPage: React.FC = () => {
 
       {/* ─── Entry Modal ───────────────────────────────────────────── */}
       <Modal
-        title={editingEntry ? '編輯日誌條目' : '新增日誌條目'}
+        title={editingEntry ? t('dailyLog.editEntry') : t('dailyLog.addEntryTitle')}
         open={modalOpen}
         onCancel={() => { setModalOpen(false); form.resetFields() }}
         footer={null}
@@ -1830,8 +1845,8 @@ const DailyLogPage: React.FC = () => {
             const hasTaskLink = (watchedCategory === 'project' && !!watchedFunctionId) || (watchedCategory === 'duty' && !!watchedDutyId) || (watchedCategory === 'system_req' && !!watchedDutyId)
             return (
               <div className={`grid gap-x-3 ${hasTaskLink ? 'grid-cols-3' : 'grid-cols-2'}`}>
-                <Form.Item name="work_category" label="工作分類" rules={[{ required: true, message: '請選擇分類' }]}>
-                  <Select placeholder="選擇分類" onChange={(v: WorkCategory) => {
+                <Form.Item name="work_category" label={t('dailyLog.workCategory')} rules={[{ required: true, message: t('dailyLog.pleaseSelectCategory') }]}>
+                  <Select placeholder={t('dailyLog.selectCategory')} onChange={(v: WorkCategory) => {
                     if (v !== 'project') {
                       form.setFieldsValue({ project_id: undefined, function_id: undefined })
                       setSelectedProject(null)
@@ -1846,17 +1861,17 @@ const DailyLogPage: React.FC = () => {
                       <Select.Option key={c.value} value={c.value}>
                         <div className="flex items-center gap-2">
                           <div className="w-2 h-2 rounded-sm" style={{ background: c.color }} />
-                          {c.label}
+                          {t(CATEGORY_LABEL_KEYS[c.value])}
                         </div>
                       </Select.Option>
                     ))}
                   </Select>
                 </Form.Item>
-                <Form.Item name="hours" label="耗時 (h)" rules={[{ required: true, message: '請輸入耗時' }]}>
+                <Form.Item name="hours" label={t('dailyLog.hoursLabel')} rules={[{ required: true, message: t('dailyLog.pleaseInputHours') }]}>
                   <InputNumber min={0.01} max={24} step={0.01} precision={2} style={{ width: '100%' }} addonAfter="h" />
                 </Form.Item>
                 {hasTaskLink && (
-                  <Form.Item name="progress" label="進度 (%)"
+                  <Form.Item name="progress" label={t('dailyLog.progressLabel')}
                     rules={[{ type: 'number', min: 0, max: 100, message: '0-100' }]}>
                     <InputNumber min={0} max={100} step={1} precision={0} style={{ width: '100%' }} addonAfter="%" />
                   </Form.Item>
@@ -1881,7 +1896,7 @@ const DailyLogPage: React.FC = () => {
                   className="w-3.5 h-3.5 accent-blue-600 cursor-pointer flex-shrink-0"
                 />
                 <label htmlFor="sync-progress-check" className="text-xs text-blue-700 cursor-pointer select-none">
-                  同步更新任務進度至 <span className="font-semibold">{watchedProgress}%</span>
+                  {t('dailyLog.syncProgressTo')} <span className="font-semibold">{watchedProgress}%</span>
                 </label>
               </div>
             )
@@ -1889,8 +1904,8 @@ const DailyLogPage: React.FC = () => {
 
           {watchedCategory === 'project' && (
             <div className="grid grid-cols-2 gap-x-3">
-              <Form.Item name="project_id" label="關聯專案" rules={[{ required: true, message: '請選擇專案' }]}>
-                <Select placeholder="選擇專案" allowClear onChange={(v: string) => {
+              <Form.Item name="project_id" label={t('dailyLog.relatedProject')} rules={[{ required: true, message: t('dailyLog.pleaseSelectProject') }]}>
+                <Select placeholder={t('dailyLog.selectProject')} allowClear onChange={(v: string) => {
                   setSelectedProject(v)
                   form.setFieldsValue({ function_id: undefined })
                 }}>
@@ -1899,9 +1914,9 @@ const DailyLogPage: React.FC = () => {
                   ))}
                 </Select>
               </Form.Item>
-              <Form.Item name="function_id" label="關聯任務">
+              <Form.Item name="function_id" label={t('dailyLog.relatedTask')}>
                 <Select
-                  placeholder="選擇功能任務" allowClear disabled={!selectedProject}
+                  placeholder={t('dailyLog.selectFunction')} allowClear disabled={!selectedProject}
                   optionLabelProp="label"
                   dropdownStyle={{ minWidth: 320 }}
                 >
@@ -1933,8 +1948,8 @@ const DailyLogPage: React.FC = () => {
             </div>
           )}
           {watchedCategory === 'duty' && (
-            <Form.Item name="duty_id" label="關聯AR" rules={[{ required: true, message: '請選擇任務' }]}>
-              <Select placeholder="選擇AR" allowClear showSearch optionLabelProp="label" dropdownStyle={{ minWidth: 300 }}>
+            <Form.Item name="duty_id" label={t('dailyLog.relatedAR')} rules={[{ required: true, message: t('dailyLog.pleaseSelectTask') }]}>
+              <Select placeholder={t('dailyLog.selectAR')} allowClear showSearch optionLabelProp="label" dropdownStyle={{ minWidth: 300 }}>
                 {dutyOpts.map((d) => (
                   <Select.Option key={d.id} value={d.id} label={d.name}>
                     <div className="py-0.5">
@@ -1960,9 +1975,9 @@ const DailyLogPage: React.FC = () => {
           )}
           {watchedCategory === 'system_req' && (
             <div className="grid grid-cols-2 gap-x-3">
-              <Form.Item name="system_id" label="關聯系統" rules={[{ required: true, message: '請選擇系統' }]}>
+              <Form.Item name="system_id" label={t('dailyLog.relatedSystem')} rules={[{ required: true, message: t('dailyLog.pleaseSelectSystem') }]}>
                 <Select
-                  placeholder="選擇系統" allowClear showSearch optionFilterProp="children"
+                  placeholder={t('dailyLog.selectSystem')} allowClear showSearch optionFilterProp="children"
                   onChange={(v: string) => {
                     setSelectedSystem(v ?? null)
                     form.setFieldsValue({ duty_id: undefined })
@@ -1973,9 +1988,9 @@ const DailyLogPage: React.FC = () => {
                   ))}
                 </Select>
               </Form.Item>
-              <Form.Item name="duty_id" label="關聯任務" rules={[{ required: true, message: '請選擇任務' }]}>
+              <Form.Item name="duty_id" label={t('dailyLog.relatedTask')} rules={[{ required: true, message: t('dailyLog.pleaseSelectTask') }]}>
                 <Select
-                  placeholder={selectedSystem ? '選擇任務' : '請先選擇系統'}
+                  placeholder={selectedSystem ? t('dailyLog.selectTask') : t('dailyLog.pleaseSelectSystemFirst')}
                   allowClear showSearch optionFilterProp="children"
                   disabled={!selectedSystem}
                   optionLabelProp="label"
@@ -2009,10 +2024,10 @@ const DailyLogPage: React.FC = () => {
             </div>
           )}
 
-          <Form.Item name="bu_unit" label="BU / 單位（需求方）">
+          <Form.Item name="bu_unit" label={t('dailyLog.buUnit')}>
             <AutoComplete
-              placeholder="輸入或選擇 BU"
-              options={BU_OPTIONS.map((b) => ({ value: b }))}
+              placeholder={t('dailyLog.buPlaceholder')}
+              options={BU_OPTIONS_KEYS.map((k) => ({ value: t(k) }))}
               filterOption={(input, option) => (option?.value ?? '').includes(input)}
             />
           </Form.Item>
@@ -2021,7 +2036,7 @@ const DailyLogPage: React.FC = () => {
             name="description"
             label={
               <div className="flex items-center justify-between w-full">
-                <span>工作內容</span>
+                <span>{t('dailyLog.workContent')}</span>
                 <button
                   type="button"
                   onClick={() => {
@@ -2032,23 +2047,23 @@ const DailyLogPage: React.FC = () => {
                   className="flex items-center gap-1 text-xs text-slate-500 hover:text-blue-600 border border-slate-200 rounded-md px-2 py-0.5 hover:border-blue-300 bg-white transition-colors ml-2"
                 >
                   <ArrowsPointingOutIcon className="w-3.5 h-3.5" />
-                  展開編輯
+                  {t('dailyLog.expandEdit')}
                 </button>
               </div>
             }
-            rules={[{ required: true, message: '請填寫工作內容' }]}
+            rules={[{ required: true, message: t('dailyLog.pleaseInputContent') }]}
           >
             <RichTextEditor
-              placeholder="清楚描述本次工作內容...（支援格式化文字與圖片混排）"
+              placeholder={t('dailyLog.descriptionPlaceholder')}
               minHeight={120}
               onImageUpload={handleImageUpload}
             />
           </Form.Item>
 
-          <Form.Item name="is_overtime" label="是否加班" valuePropName="checked">
+          <Form.Item name="is_overtime" label={t('dailyLog.isOvertime')} valuePropName="checked">
             <Switch
-              checkedChildren="加班"
-              unCheckedChildren="正常"
+              checkedChildren={t('dailyLog.overtime')}
+              unCheckedChildren={t('dailyLog.normal')}
               onChange={(checked) => {
                 if (checked) {
                   // 默认加班时数 = 当前耗时
@@ -2061,9 +2076,9 @@ const DailyLogPage: React.FC = () => {
           {watchedIsOvertime && (
             <Form.Item
               name="overtime_hours"
-              label="加班時數 (h)"
-              rules={[{ required: true, message: '請輸入加班時數' }]}
-              extra="默認與耗時相同，可手動調整實際加班時數"
+              label={t('dailyLog.overtimeHoursField')}
+              rules={[{ required: true, message: t('dailyLog.pleaseInputOvertimeHours') }]}
+              extra={t('dailyLog.overtimeHoursExtra')}
             >
               <InputNumber min={0.01} max={24} step={0.5} precision={2} style={{ width: '100%' }} addonAfter="h" />
             </Form.Item>
@@ -2071,7 +2086,7 @@ const DailyLogPage: React.FC = () => {
 
           {/* Attachments from progress record (read-only) */}
           {editingEntry?.source === 'progress' && editingEntry.files && editingEntry.files.length > 0 && (
-            <Form.Item label="進度附件（來自任務進度記錄）">
+            <Form.Item label={t('dailyLog.progressAttachments')}>
               <div className="flex flex-wrap gap-1.5">
                 {editingEntry.files.map((f, fi) => {
                   const token = tokenStorage.get()
@@ -2091,7 +2106,7 @@ const DailyLogPage: React.FC = () => {
 
           {/* Existing saved attachments (editable — can delete) */}
           {editingEntry?.source !== 'progress' && existingFiles.length > 0 && (
-            <Form.Item label="已上傳附件">
+            <Form.Item label={t('dailyLog.uploadedAttachments')}>
               <div className="flex flex-wrap gap-1.5">
                 {existingFiles.map((f, fi) => {
                   const token = tokenStorage.get()
@@ -2115,16 +2130,16 @@ const DailyLogPage: React.FC = () => {
             </Form.Item>
           )}
 
-          <Form.Item label="新增附件">
+          <Form.Item label={t('dailyLog.newAttachments')}>
             <Upload fileList={fileList} onChange={({ fileList: fl }) => setFileList(fl)} beforeUpload={() => false} multiple>
-              <Button icon={<PaperClipIcon className="w-4 h-4" />} size="small">選擇附件</Button>
+              <Button icon={<PaperClipIcon className="w-4 h-4" />} size="small">{t('dailyLog.selectFiles')}</Button>
             </Upload>
           </Form.Item>
 
           <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-            <Button disabled={saving} onClick={() => { setModalOpen(false); form.resetFields() }}>取消</Button>
+            <Button disabled={saving} onClick={() => { setModalOpen(false); form.resetFields() }}>{t('common.cancel')}</Button>
             <Button type="primary" htmlType="submit" loading={saving} disabled={saving} style={{ background: '#2563eb' }}>
-              {editingEntry ? '更新' : '新增'}
+              {editingEntry ? t('dailyLog.update') : t('common.add')}
             </Button>
           </div>
         </Form>
@@ -2133,18 +2148,18 @@ const DailyLogPage: React.FC = () => {
       {/* ─── Description Expand Modal ──────────────────────────────── */}
       <Modal
         open={descExpandOpen}
-        title="工作內容"
+        title={t('dailyLog.workContent')}
         onCancel={() => setDescExpandOpen(false)}
         width="80vw"
         style={{ top: 40, maxWidth: 1100 }}
         styles={{ body: { padding: '16px 24px 24px' } }}
         footer={
           <div className="flex justify-end gap-2">
-            <Button onClick={() => setDescExpandOpen(false)}>取消</Button>
+            <Button onClick={() => setDescExpandOpen(false)}>{t('common.cancel')}</Button>
             <Button type="primary" style={{ background: '#2563eb' }} onClick={() => {
               form.setFieldValue('description', descExpandDraft)
               setDescExpandOpen(false)
-            }}>完成</Button>
+            }}>{t('dailyLog.done')}</Button>
           </div>
         }
         destroyOnClose
@@ -2152,7 +2167,7 @@ const DailyLogPage: React.FC = () => {
         <RichTextEditor
           value={descExpandDraft}
           onChange={setDescExpandDraft}
-          placeholder="清楚描述本次工作內容...（支援格式化文字與圖片混排）"
+          placeholder={t('dailyLog.descriptionPlaceholder')}
           minHeight={480}
           onImageUpload={handleImageUpload}
         />
@@ -2160,17 +2175,17 @@ const DailyLogPage: React.FC = () => {
 
       {/* ─── Range Report Export Modal ─────────────────────────────── */}
       <Modal
-        title="導出範圍報告"
+        title={t('dailyLog.exportRangeTitle')}
         open={rangeExportOpen}
         onCancel={() => setRangeExportOpen(false)}
         onOk={handleExportRange}
-        okText="導出 DOCX"
-        cancelText="取消"
+        okText={t('dailyLog.exportDocx')}
+        cancelText={t('common.cancel')}
         confirmLoading={rangeExportLoading}
         width="min(440px, 88vw)"
       >
         <div className="py-4">
-          <p className="text-sm text-slate-500 mb-3">今日（{dayjs().format('YYYY-MM-DD')}）的記錄將以黃色高亮顯示。</p>
+          <p className="text-sm text-slate-500 mb-3">{t('dailyLog.todayHighlightHint', { date: dayjs().format('YYYY-MM-DD') })}</p>
           <DatePicker.RangePicker
             value={rangeExportDates}
             onChange={(v) => setRangeExportDates(v as [Dayjs, Dayjs] | null)}

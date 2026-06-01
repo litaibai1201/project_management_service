@@ -22,6 +22,7 @@ import { projectApi, requirementApi } from '@/api/project.api'
 import { showToast } from '@/utils/toast'
 import dayjs from 'dayjs'
 import { useResizableColumns, tableComponents } from '@/hooks/useResizableColumns'
+import { useTranslation } from 'react-i18next'
 
 
 const { Search } = Input
@@ -31,12 +32,13 @@ const { Search } = Input
 const PRIORITY_COLORS = ['', '#22c55e', '#f59e0b', '#ef4444', '#7c3aed']
 
 const DaysLeftBadge: React.FC<{ date?: string; status?: number }> = ({ date, status }) => {
+  const { t } = useTranslation()
   if (!date || !dayjs(date).isValid()) return <span className="text-slate-300 text-xs">—</span>
   if (status === 7) return <span className="days-ok">{date}</span>
   const days = dayjs(date).diff(dayjs(), 'day')
-  if (days < 0)  return <span className="days-overdue">超期 {Math.abs(days)}天</span>
-  if (days <= 3) return <span className="days-overdue">剩 {days} 天</span>
-  if (days <= 7) return <span className="days-warning">剩 {days} 天</span>
+  if (days < 0)  return <span className="days-overdue">{t('project.overdueDays', { days: Math.abs(days) })}</span>
+  if (days <= 3) return <span className="days-overdue">{t('project.daysLeft', { days })}</span>
+  if (days <= 7) return <span className="days-warning">{t('project.daysLeft', { days })}</span>
   return <span className="days-ok">{date}</span>
 }
 
@@ -56,14 +58,14 @@ const StatusDot: React.FC<{ status: number }> = ({ status }) => {
 
 // ─── Kanban Column ────────────────────────────────────────────────────────────
 
-const KANBAN_COLS = [
-  { status: 1, title: '草稿',     color: '#94a3b8' },
-  { status: 2, title: '立案審核', color: '#2563eb' },
-  { status: 3, title: '規劃中',   color: '#8b5cf6' },
-  { status: 4, title: '規劃審核', color: '#f59e0b' },
-  { status: 5, title: '執行中',   color: '#16a34a' },
-  { status: 6, title: '完結審核', color: '#d97706' },
-  { status: 7, title: '已完結',   color: '#64748b' },
+const KANBAN_STATUSES = [
+  { status: 1, color: '#94a3b8' },
+  { status: 2, color: '#2563eb' },
+  { status: 3, color: '#8b5cf6' },
+  { status: 4, color: '#f59e0b' },
+  { status: 5, color: '#16a34a' },
+  { status: 6, color: '#d97706' },
+  { status: 7, color: '#64748b' },
 ]
 
 const KanbanView: React.FC<{
@@ -71,17 +73,18 @@ const KanbanView: React.FC<{
   onView: (id: string) => void
   onDelete: (id: string) => void
 }> = ({ list, onView, onDelete }) => {
+  const { t } = useTranslation()
   const toName = useWorkNoToName()
   return (
   <div className="flex gap-4 overflow-x-auto pb-4" style={{ minHeight: 400 }}>
-    {KANBAN_COLS.map((col) => {
+    {KANBAN_STATUSES.map((col) => {
       const cards = list.filter((p) => p.status === col.status)
       return (
         <div key={col.status} className="kanban-col flex-shrink-0">
           {/* Column header */}
           <div className="flex items-center gap-2 mb-3 px-1">
             <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: col.color }} />
-            <span className="font-semibold text-slate-600 text-sm">{col.title}</span>
+            <span className="font-semibold text-slate-600 text-sm">{PROJECT_STATUS_MAP[col.status]?.label ?? col.status}</span>
             <Badge count={cards.length} style={{ backgroundColor: '#e2e8f0', color: '#64748b', boxShadow: 'none', fontSize: 11 }} />
           </div>
 
@@ -89,7 +92,7 @@ const KanbanView: React.FC<{
           <div className="flex flex-col gap-2">
             {cards.length === 0 ? (
               <div className="border-2 border-dashed border-slate-200 rounded-xl h-20 flex items-center justify-center">
-                <span className="text-xs text-slate-300">暫無項目</span>
+                <span className="text-xs text-slate-300">{t('project.noItems')}</span>
               </div>
             ) : (
               cards.map((p) => (
@@ -123,7 +126,7 @@ const KanbanView: React.FC<{
                       color={PRIORITY_MAP[p.priority]?.color}>
                       {PRIORITY_MAP[p.priority]?.label}
                     </Tag>
-                    <Popconfirm title="確認刪除？" onConfirm={(e) => { e?.stopPropagation(); onDelete(p.id) }} okText="確認" cancelText="取消">
+                    <Popconfirm title={t('project.deleteConfirm')} onConfirm={(e) => { e?.stopPropagation(); onDelete(p.id) }} okText={t('common.confirm')} cancelText={t('common.cancel')}>
                       <Button
                         type="text" size="small" danger
                         icon={<TrashIcon className="w-3 h-3" />}
@@ -146,6 +149,7 @@ const KanbanView: React.FC<{
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 const ProjectListPage: React.FC = () => {
+  const { t } = useTranslation()
   const dispatch  = useAppDispatch()
   const navigate  = useNavigate()
   const { list, totalCount, isLoading, query, groups } = useAppSelector((s) => s.project)
@@ -179,13 +183,13 @@ const ProjectListPage: React.FC = () => {
   const handleDelete = async (id: string) => {
     try {
       await dispatch(deleteProjectThunk(id)).unwrap()
-      showToast.success('刪除成功')
-    } catch { showToast.error('刪除失敗') }
+      showToast.success(t('common.deleteSuccess'))
+    } catch { showToast.error(t('common.deleteFailed')) }
   }
 
   const rawColumns: ColumnsType<ProjectListItem> = [
     {
-      title: '專案名稱', dataIndex: 'project_nm', ellipsis: true, width: 220,
+      title: t('project.projectName'), dataIndex: 'project_nm', ellipsis: true, width: 220,
       render: (name: string, record) => (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ width: 3, height: 28, borderRadius: 2, flexShrink: 0, background: PRIORITY_COLORS[record.priority] }} />
@@ -197,16 +201,16 @@ const ProjectListPage: React.FC = () => {
       ),
     },
     {
-      title: '部門', dataIndex: 'department', width: 110,
+      title: t('user.department'), dataIndex: 'department', width: 110,
       render: (v: string) => <span className="text-slate-500 text-sm">{v}</span>,
     },
     {
-      title: '狀態', dataIndex: 'status', width: 120,
+      title: t('common.status'), dataIndex: 'status', width: 120,
       render: (v: number) => <StatusDot status={v} />,
       filters: Object.entries(PROJECT_STATUS_MAP).map(([k, v]) => ({ text: v.label, value: Number(k) })),
     },
     {
-      title: '優先級', dataIndex: 'priority', width: 80,
+      title: t('common.priority'), dataIndex: 'priority', width: 80,
       render: (v: number) => {
         const p = PRIORITY_MAP[v]
         return p ? <Tag color={p.color} style={{ fontSize: 11 }}>{p.label}</Tag> : v
@@ -222,7 +226,7 @@ const ProjectListPage: React.FC = () => {
       ),
     },
     {
-      title: '進度', dataIndex: 'progress', width: 130,
+      title: t('common.progress'), dataIndex: 'progress', width: 130,
       render: (v: number) => (
         <div className="flex items-center gap-2">
           <Progress percent={v ?? 0} size="small" showInfo={false} style={{ flex: 1 }} strokeColor="#2563eb" trailColor="#f1f5f9" />
@@ -231,14 +235,14 @@ const ProjectListPage: React.FC = () => {
       ),
     },
     {
-      title: '預計完成', dataIndex: 'expected_end_date', width: 120,
+      title: t('common.expectedEndDate'), dataIndex: 'expected_end_date', width: 120,
       render: (v: string, row: ProjectListItem) => <DaysLeftBadge date={v} status={row.status} />,
       sorter: true,
     },
     {
       title: 'WBS', key: 'wbs', width: 60,
       render: (_: unknown, record) => (
-        <Tooltip title="查看WBS">
+        <Tooltip title={t('project.wbsView')}>
           <Button
             type="text" size="small"
             icon={<TableCellsIcon className="w-4 h-4" />}
@@ -248,15 +252,15 @@ const ProjectListPage: React.FC = () => {
       ),
     },
     {
-      title: '操作', key: 'action', fixed: 'right', width: 80,
+      title: t('common.operation'), key: 'action', fixed: 'right', width: 80,
       render: (_: unknown, record) => (
         <Space size={0}>
-          <Tooltip title="查看詳情">
+          <Tooltip title={t('common.detail')}>
             <Button icon={<EyeIcon className="w-4 h-4" />} size="small" type="text"
               onClick={() => navigate(`/projects/${record.id}`)} />
           </Tooltip>
-          <Popconfirm title="確認刪除此專案？" onConfirm={() => handleDelete(record.id)} okText="確認" cancelText="取消">
-            <Tooltip title="刪除"><Button icon={<TrashIcon className="w-4 h-4" />} size="small" type="text" danger /></Tooltip>
+          <Popconfirm title={t('project.deleteConfirm')} onConfirm={() => handleDelete(record.id)} okText={t('common.confirm')} cancelText={t('common.cancel')}>
+            <Tooltip title={t('common.delete')}><Button icon={<TrashIcon className="w-4 h-4" />} size="small" type="text" danger /></Tooltip>
           </Popconfirm>
         </Space>
       ),
@@ -270,28 +274,28 @@ const ProjectListPage: React.FC = () => {
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">專案管理</h1>
-          <p className="text-slate-400 text-sm mt-0.5">共 {totalCount} 個專案</p>
+          <h1 className="text-2xl font-bold text-slate-800">{t('project.title')}</h1>
+          <p className="text-slate-400 text-sm mt-0.5">{t('common.total', { count: totalCount })}</p>
         </div>
         <Button type="primary" icon={<PlusIcon className="w-4 h-4" />}
           onClick={() => setShowCreate(true)} style={{ background: '#2563eb', fontWeight: 500 }}>
-          新建專案
+          {t('project.create')}
         </Button>
       </div>
 
       {/* Filter + View toggle */}
       <div className="flex flex-wrap items-center gap-3 mb-4 bg-white p-3 rounded-xl shadow-sm border border-slate-100">
         <Search
-          placeholder="搜索專案名稱..."
+          placeholder={`${t('common.search')}...`}
           allowClear style={{ width: 220 }}
           prefix={<MagnifyingGlassIcon className="w-4 h-4 text-slate-400" />}
           onSearch={(v) => dispatch(setQuery({ keyword: v, page: 1 }))}
         />
-        <Select placeholder="狀態" allowClear style={{ width: 130 }}
+        <Select placeholder={t('project.statusFilter')} allowClear style={{ width: 130 }}
           onChange={(v) => dispatch(setQuery({ status: v, page: 1 }))}
           options={Object.entries(PROJECT_STATUS_MAP).map(([k, v]) => ({ value: Number(k), label: v.label }))}
         />
-        <Select placeholder="分組" allowClear style={{ width: 150 }}
+        <Select placeholder={t('project.groupFilter')} allowClear style={{ width: 150 }}
           onChange={(v) => dispatch(setQuery({ group_id: v, page: 1 }))}
           options={(groups ?? []).map((g) => ({ value: g.id, label: g.group_nm }))}
         />
@@ -325,7 +329,7 @@ const ProjectListPage: React.FC = () => {
             components={tableComponents}
             pagination={{
               current: query.page, pageSize: query.size ?? 10, total: totalCount,
-              showSizeChanger: true, showTotal: (t) => `共 ${t} 條`,
+              showSizeChanger: true, showTotal: (total) => t('common.total', { count: total }),
               onChange: (page, size) => dispatch(setQuery({ page, size })),
             }}
             scroll={{ x: 980 }}
@@ -351,7 +355,7 @@ const ProjectListPage: React.FC = () => {
         {wbsLoading ? (
           <div className="flex items-center justify-center py-12"><Spin /></div>
         ) : wbsFunctions.length === 0 ? (
-          <Empty description="暫無任務" />
+          <Empty description={t('project.noTasks')} />
         ) : (
           <WbsTable functions={wbsFunctions} toName={toName} requirements={wbsRequirements} defaultExpanded />
         )}

@@ -17,6 +17,7 @@ import {
   DUTY_STATUS_MAP,
   PRIORITY_MAP,
 } from '@/utils/status'
+import { useTranslation } from 'react-i18next'
 
 // ─── Icon map ─────────────────────────────────────────────────────────────────
 
@@ -92,6 +93,7 @@ export const StatusTag: React.FC<StatusTagProps> = ({
   showIcon = true,
   size     = 'default',
 }) => {
+  const { t } = useTranslation()
   const map  = MAP_BY_TYPE[type]
   const info = map[value]
   const icon = ICON_BY_TYPE[type][value]
@@ -125,7 +127,7 @@ export const StatusTag: React.FC<StatusTagProps> = ({
           {icon}
         </span>
       )}
-      {info.label}
+      {t(info.labelKey)}
     </Tag>
   )
 }
@@ -139,10 +141,12 @@ export interface StatusDotProps {
 }
 
 export const StatusDot: React.FC<StatusDotProps> = ({ value, type, tooltip = true }) => {
+  const { t } = useTranslation()
   const map  = MAP_BY_TYPE[type]
   const info = map[value]
   if (!info) return null
   const dotColor = (info as { dot?: string })?.dot ?? '#94a3b8'
+  const label = t(info.labelKey)
 
   const dot = (
     <div className="flex items-center gap-1.5">
@@ -150,11 +154,11 @@ export const StatusDot: React.FC<StatusDotProps> = ({ value, type, tooltip = tru
         className="status-dot"
         style={{ background: dotColor }}
       />
-      <span className="text-slate-600 text-sm">{info.label}</span>
+      <span className="text-slate-600 text-sm">{label}</span>
     </div>
   )
 
-  return tooltip ? <Tooltip title={info.label}>{dot}</Tooltip> : dot
+  return tooltip ? <Tooltip title={label}>{dot}</Tooltip> : dot
 }
 
 export default StatusTag

@@ -12,6 +12,8 @@ import { systemApi, type SystemItem, type SystemUrl, type DeployRow, type Create
 import { userApi } from '@/api/user.api'
 import { useAppSelector } from '@/hooks/redux'
 import { showToast } from '@/utils/toast'
+import { useTranslation } from 'react-i18next'
+import DateInput from '@/components/common/DateInput'
 
 const { Link } = Typography
 
@@ -22,16 +24,17 @@ const EMPTY_DEPLOY_ROW: DeployRow = {
 }
 
 const SystemListPage: React.FC = () => {
+  const { t } = useTranslation()
   const isAdmin  = useAppSelector((s) => s.auth.isAdmin)
   const navigate = useNavigate()
 
   const TOGGLEABLE_COLS = ['sys_group', 'maintainer_names', 'go_live_date', 'urls'] as const
   type ColKey = typeof TOGGLEABLE_COLS[number]
   const COL_LABELS: Record<ColKey, string> = {
-    sys_group:        '分组',
-    maintainer_names: '维护人员',
-    go_live_date:     '上线时间',
-    urls:             '访问网址',
+    sys_group:        t('system.group'),
+    maintainer_names: t('system.maintainers'),
+    go_live_date:     t('system.goLiveDate'),
+    urls:             t('system.urls'),
   }
   const [visibleCols, setVisibleCols] = useState<Set<ColKey>>(new Set(TOGGLEABLE_COLS))
   const toggleCol = (key: ColKey) =>
@@ -126,39 +129,39 @@ const SystemListPage: React.FC = () => {
       }
       if (editTarget) {
         await systemApi.update(editTarget.id, payload)
-        showToast.success('更新成功')
+        showToast.success(t('system.updateSuccess'))
       } else {
         await systemApi.create(payload)
-        showToast.success('创建成功')
+        showToast.success(t('system.createSuccess'))
       }
       setFormOpen(false)
       loadList(1)
       loadGroups()
-    } catch (err: unknown) { showToast.error((err as string) || '操作失败') }
+    } catch (err: unknown) { showToast.error((err as string) || t('common.error')) }
     finally { setSaving(false) }
   }
 
   const handleDelete = async (id: string) => {
     try {
       await systemApi.delete(id)
-      showToast.success('已删除')
+      showToast.success(t('common.deleteSuccess'))
       loadList(page)
-    } catch { showToast.error('删除失败') }
+    } catch { showToast.error(t('common.deleteFailed')) }
   }
 
   const rawColumns: ColumnsType<SystemItem> = [
     {
-      title: '系统名称', dataIndex: 'sys_nm', ellipsis: true, width: 260,
+      title: t('system.name'), dataIndex: 'sys_nm', ellipsis: true, width: 260,
       render: (v: string, r) => (
         <Button type="link" style={{ padding: 0, fontWeight: 500 }} onClick={() => navigate(`/systems/${r.id}`)}>{v}</Button>
       ),
     },
     ...(visibleCols.has('sys_group') ? [{
-      title: '分组', dataIndex: 'sys_group', width: 120,
+      title: t('system.group'), dataIndex: 'sys_group', width: 120,
       render: (v: string) => v ? <Tag color="blue">{v}</Tag> : <span className="text-slate-300 text-xs">—</span>,
     } as ColumnsType<SystemItem>[number]] : []),
     ...(visibleCols.has('maintainer_names') ? [{
-      title: '维护人员', dataIndex: 'maintainer_names', width: 180,
+      title: t('system.maintainers'), dataIndex: 'maintainer_names', width: 180,
       render: (v: { work_no: string; name: string }[]) => (
         <Avatar.Group max={{ count: 4 }} size="small">
           {(v ?? []).map((u) => (
@@ -172,11 +175,11 @@ const SystemListPage: React.FC = () => {
       ),
     } as ColumnsType<SystemItem>[number]] : []),
     ...(visibleCols.has('go_live_date') ? [{
-      title: '上线时间', dataIndex: 'go_live_date', width: 120,
+      title: t('system.goLiveDate'), dataIndex: 'go_live_date', width: 120,
       render: (v: string) => v || <span className="text-slate-300 text-xs">—</span>,
     } as ColumnsType<SystemItem>[number]] : []),
     ...(visibleCols.has('urls') ? [{
-      title: '访问网址', dataIndex: 'urls', width: 220,
+      title: t('system.urls'), dataIndex: 'urls', width: 220,
       render: (v: SystemUrl[]) => {
         if (!v?.length) return <span className="text-slate-300 text-xs">—</span>
         return (
@@ -194,19 +197,19 @@ const SystemListPage: React.FC = () => {
       },
     } as ColumnsType<SystemItem>[number]] : []),
     {
-      title: '操作', key: 'action', width: isAdmin ? 110 : 70, fixed: 'right',
+      title: t('common.operation'), key: 'action', width: isAdmin ? 110 : 70, fixed: 'right',
       render: (_: unknown, r) => (
         <Space size={0}>
-          <Tooltip title="查看详情">
+          <Tooltip title={t('system.viewDetail')}>
             <Button icon={<EyeIcon className="w-4 h-4" />} size="small" type="text" onClick={() => navigate(`/systems/${r.id}`)} />
           </Tooltip>
           {isAdmin && (
             <>
-              <Tooltip title="编辑">
+              <Tooltip title={t('common.edit')}>
                 <Button icon={<PencilSquareIcon className="w-4 h-4" />} size="small" type="text" onClick={() => openEdit(r)} />
               </Tooltip>
-              <Popconfirm title="确认删除此系统？" onConfirm={() => handleDelete(r.id)} okText="删除" cancelText="取消" okButtonProps={{ danger: true }}>
-                <Tooltip title="删除">
+              <Popconfirm title={t('system.confirmDelete')} onConfirm={() => handleDelete(r.id)} okText={t('common.delete')} cancelText={t('common.cancel')} okButtonProps={{ danger: true }}>
+                <Tooltip title={t('common.delete')}>
                   <Button icon={<TrashIcon className="w-4 h-4" />} size="small" type="text" danger />
                 </Tooltip>
               </Popconfirm>
@@ -224,13 +227,13 @@ const SystemListPage: React.FC = () => {
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">系统管理</h1>
-          <p className="text-slate-400 text-sm mt-0.5">查看所有系统基本资料与部署详情</p>
+          <h1 className="text-2xl font-bold text-slate-800">{t('system.title')}</h1>
+          <p className="text-slate-400 text-sm mt-0.5">{t('system.subtitle')}</p>
         </div>
         {isAdmin && (
           <Button type="primary" icon={<PlusIcon className="w-4 h-4" />}
             onClick={openCreate} style={{ background: '#2563eb', fontWeight: 500 }}>
-            新增系统
+            {t('system.create')}
           </Button>
         )}
       </div>
@@ -238,13 +241,13 @@ const SystemListPage: React.FC = () => {
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3 mb-4 bg-white p-3 rounded-xl shadow-sm border border-slate-100">
         <Input.Search
-          placeholder="搜索系统名称..."
+          placeholder={t('system.searchPlaceholder')}
           allowClear
           style={{ width: 220 }}
           onSearch={(v) => { setKeyword(v); loadList(1, pageSize, v, group) }}
         />
         <Select
-          placeholder="分组" allowClear style={{ width: 150 }}
+          placeholder={t('system.group')} allowClear style={{ width: 150 }}
           value={group}
           onChange={(v) => { setGroup(v); loadList(1, pageSize, keyword, v) }}
           options={groups.map((g) => ({ value: g, label: g }))}
@@ -255,7 +258,7 @@ const SystemListPage: React.FC = () => {
             placement="bottomRight"
             content={
               <div className="flex flex-col gap-2 py-1">
-                <span className="text-xs text-slate-400 font-medium px-1">显示栏位</span>
+                <span className="text-xs text-slate-400 font-medium px-1">{t('system.showColumns')}</span>
                 {TOGGLEABLE_COLS.map((key) => (
                   <Checkbox key={key} checked={visibleCols.has(key)} onChange={() => toggleCol(key)}>
                     {COL_LABELS[key]}
@@ -265,7 +268,7 @@ const SystemListPage: React.FC = () => {
             }
           >
             <Button icon={<AdjustmentsHorizontalIcon className="w-4 h-4" />} size="middle">
-              栏位
+              {t('system.columns')}
             </Button>
           </Popover>
         </div>
@@ -281,7 +284,7 @@ const SystemListPage: React.FC = () => {
           components={tableComponents}
           pagination={{
             current: page, pageSize, total,
-            showSizeChanger: true, showTotal: (t) => `共 ${t} 条`,
+            showSizeChanger: true, showTotal: (tot) => t('common.total', { count: tot }),
             onChange: (p, s) => { setPageSize(s); loadList(p, s) },
           }}
           size="middle"
@@ -291,61 +294,61 @@ const SystemListPage: React.FC = () => {
 
       {/* Create / Edit Modal */}
       <Modal
-        title={editTarget ? `编辑系统 — ${editTarget.sys_nm}` : '新增系统'}
+        title={editTarget ? `${t('system.editSystem')} — ${editTarget.sys_nm}` : t('system.create')}
         open={formOpen}
         onCancel={() => setFormOpen(false)}
         onOk={handleSave}
         confirmLoading={saving}
-        okText={editTarget ? '保存' : '创建'}
+        okText={editTarget ? t('common.save') : t('system.createBtn')}
         width="min(900px, 92vw)"
         destroyOnClose
       >
         <Form form={form} layout="vertical" className="mt-4">
           <div className="grid grid-cols-2 gap-x-4">
-            <Form.Item name="sys_nm" label="系统名称" rules={[{ required: true, message: '请输入系统名称' }]}>
-              <Input placeholder="请输入系统名称" />
+            <Form.Item name="sys_nm" label={t('system.name')} rules={[{ required: true, message: t('system.nameRequired') }]}>
+              <Input placeholder={t('system.namePlaceholder')} />
             </Form.Item>
-            <Form.Item name="sys_group" label="所属分组">
+            <Form.Item name="sys_group" label={t('system.belongGroup')}>
               <AutoComplete
-                placeholder="选择或输入分组名称..."
+                placeholder={t('system.groupPlaceholder')}
                 allowClear
                 options={groups.map((g) => ({ value: g }))}
                 filterOption={(input, opt) => (opt?.value ?? '').toLowerCase().includes(input.toLowerCase())}
               />
             </Form.Item>
-            <Form.Item name="go_live_date" label="上线时间">
-              <Input type="date" />
+            <Form.Item name="go_live_date" label={t('system.goLiveDate')}>
+              <DateInput/>
             </Form.Item>
-            <Form.Item name="maintainers" label="维护人员">
+            <Form.Item name="maintainers" label={t('system.maintainers')}>
               <Select
-                mode="multiple" placeholder="选择维护人员"
+                mode="multiple" placeholder={t('system.maintainersPlaceholder')}
                 options={userOptions} showSearch allowClear
                 filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
                 onDropdownVisibleChange={(open) => { if (open) loadUsers() }}
               />
             </Form.Item>
           </div>
-          <Form.Item name="description" label="系统功能介绍">
-            <Input.TextArea rows={3} placeholder="请描述系统功能..." />
+          <Form.Item name="description" label={t('system.functionDesc')}>
+            <Input.TextArea rows={3} placeholder={t('system.functionDescPlaceholder')} />
           </Form.Item>
 
           {/* URL List */}
           <div className="mb-4">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-slate-700">访问网址</span>
+              <span className="text-sm font-medium text-slate-700">{t('system.urls')}</span>
               <Button
                 size="small" type="dashed"
                 icon={<PlusCircleIcon className="w-3.5 h-3.5" />}
                 onClick={() => setUrlList([...urlList, { name: '', url: '' }])}
               >
-                添加网址
+                {t('system.addUrl')}
               </Button>
             </div>
             <div className="space-y-2">
               {urlList.map((u, i) => (
                 <div key={i} className="flex items-center gap-2">
                   <Input
-                    placeholder="环境名称（如：生产）"
+                    placeholder={t('system.envNamePlaceholder')}
                     value={u.name}
                     style={{ width: 150 }}
                     onChange={(e) => {
@@ -375,13 +378,13 @@ const SystemListPage: React.FC = () => {
           {/* Deploy Info Cards */}
           <div>
             <div className="flex items-center justify-between mb-3">
-              <span className="text-sm font-medium text-slate-700">部署详情</span>
+              <span className="text-sm font-medium text-slate-700">{t('system.deployInfo')}</span>
               <Button
                 size="small" type="dashed"
                 icon={<PlusCircleIcon className="w-3.5 h-3.5" />}
                 onClick={() => setDeployRows([...deployRows, { ...EMPTY_DEPLOY_ROW }])}
               >
-                添加环境
+                {t('system.addEnv')}
               </Button>
             </div>
             <div className="space-y-3">
@@ -394,7 +397,7 @@ const SystemListPage: React.FC = () => {
                     {/* Card header */}
                     <div className="flex items-center justify-between mb-3">
                       <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                        环境 #{i + 1}
+                        {t('system.envIndex', { index: i + 1 })}
                       </span>
                       {deployRows.length > 1 && (
                         <button
@@ -403,7 +406,7 @@ const SystemListPage: React.FC = () => {
                           onClick={() => setDeployRows(deployRows.filter((_, j) => j !== i))}
                         >
                           <MinusCircleIcon className="w-3.5 h-3.5" />
-                          删除
+                          {t('common.delete')}
                         </button>
                       )}
                     </div>
@@ -411,26 +414,26 @@ const SystemListPage: React.FC = () => {
                     <div className="mb-2">
                       <div className="text-xs font-medium text-blue-600 mb-1.5 flex items-center gap-1">
                         <span className="w-1.5 h-1.5 rounded-full bg-blue-500 inline-block" />
-                        前端
+                        {t('system.frontend')}
                       </div>
                       <div className="grid grid-cols-4 gap-2">
                         {/* IP地址 + 端口号 并排占一列区域，用 flex */}
                         <div className="flex gap-1 items-end">
                           <div className="flex-1 min-w-0">
-                            <div className="text-xs text-slate-400 mb-0.5">IP地址</div>
+                            <div className="text-xs text-slate-400 mb-0.5">{t('system.ipAddress')}</div>
                             <Input size="small" value={row.fe_host} onChange={(e) => update('fe_host', e.target.value)} placeholder="192.168.x.x" />
                           </div>
                           <div style={{ width: 72 }}>
-                            <div className="text-xs text-slate-400 mb-0.5">端口</div>
+                            <div className="text-xs text-slate-400 mb-0.5">{t('system.port')}</div>
                             <Input size="small" value={row.fe_port} onChange={(e) => update('fe_port', e.target.value)} placeholder="8080" />
                           </div>
                         </div>
                         <div>
-                          <div className="text-xs text-slate-400 mb-0.5">部署路径</div>
+                          <div className="text-xs text-slate-400 mb-0.5">{t('system.deployPath')}</div>
                           <Input size="small" value={row.fe_path} onChange={(e) => update('fe_path', e.target.value)} placeholder="/app/xxx" />
                         </div>
                         <div className="col-span-2">
-                          <div className="text-xs text-slate-400 mb-0.5">应用名 <span className="text-slate-300">（代码包名称）</span></div>
+                          <div className="text-xs text-slate-400 mb-0.5">{t('system.appName')} <span className="text-slate-300">({t('system.packageName')})</span></div>
                           <Input size="small" value={row.fe_app_nm} onChange={(e) => update('fe_app_nm', e.target.value)} placeholder="frontend-app.tar.gz" />
                         </div>
                       </div>
@@ -439,37 +442,37 @@ const SystemListPage: React.FC = () => {
                     <div className="mb-2">
                       <div className="text-xs font-medium text-green-600 mb-1.5 flex items-center gap-1">
                         <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
-                        后端
+                        {t('system.backend')}
                       </div>
                       <div className="grid grid-cols-4 gap-2">
                         <div className="flex gap-1 items-end">
                           <div className="flex-1 min-w-0">
-                            <div className="text-xs text-slate-400 mb-0.5">IP地址</div>
+                            <div className="text-xs text-slate-400 mb-0.5">{t('system.ipAddress')}</div>
                             <Input size="small" value={row.be_host} onChange={(e) => update('be_host', e.target.value)} placeholder="192.168.x.x" />
                           </div>
                           <div style={{ width: 72 }}>
-                            <div className="text-xs text-slate-400 mb-0.5">端口</div>
+                            <div className="text-xs text-slate-400 mb-0.5">{t('system.port')}</div>
                             <Input size="small" value={row.be_port} onChange={(e) => update('be_port', e.target.value)} placeholder="8080" />
                           </div>
                         </div>
                         <div>
-                          <div className="text-xs text-slate-400 mb-0.5">路径</div>
+                          <div className="text-xs text-slate-400 mb-0.5">{t('system.path')}</div>
                           <Input size="small" value={row.be_path} onChange={(e) => update('be_path', e.target.value)} placeholder="/app/xxx" />
                         </div>
                         <div className="col-span-2">
-                          <div className="text-xs text-slate-400 mb-0.5">应用名 <span className="text-slate-300">（代码包名称）</span></div>
+                          <div className="text-xs text-slate-400 mb-0.5">{t('system.appName')} <span className="text-slate-300">({t('system.packageName')})</span></div>
                           <Input size="small" value={row.be_app_nm} onChange={(e) => update('be_app_nm', e.target.value)} placeholder="backend-service.jar" />
                         </div>
                       </div>
                     </div>
                     {/* Remark */}
                     <div>
-                      <div className="text-xs text-slate-400 mb-0.5">备注</div>
+                      <div className="text-xs text-slate-400 mb-0.5">{t('common.remark')}</div>
                       <Input
                         size="small"
                         value={row.remark}
                         onChange={(e) => update('remark', e.target.value)}
-                        placeholder="请输入备注"
+                        placeholder={t('system.remarkPlaceholder')}
                       />
                     </div>
                   </div>

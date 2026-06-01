@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import dayjs from 'dayjs'
 import FilePreviewModal from './FilePreviewModal'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
@@ -23,7 +24,7 @@ import { tokenStorage } from '@/api/httpClient'
 import AttachmentPreview from '@/components/ui/AttachmentPreview'
 import { userApi } from '@/api/user.api'
 import { ProjectFunction, Milestone, ProjectFile, UserProfile, Requirement } from '@/types/api.types'
-import { FUNCTION_STATUS_MAP, PRIORITY_MAP } from '@/utils/status'
+import { FUNCTION_STATUS_MAP, PRIORITY_MAP , benefitUnitLabel } from '@/utils/status'
 import { showToast } from '@/utils/toast'
 import FunctionDetailDrawer from './FunctionDetailDrawer'
 import GanttChart from './GanttChart'
@@ -31,47 +32,33 @@ import MilestoneTab from './MilestoneTab'
 import RichTextEditor from '@/components/common/RichTextEditor'
 import RichTextContent from '@/components/common/RichTextContent'
 import { useResizableColumns, tableComponents } from '@/hooks/useResizableColumns'
+import DateInput from '@/components/common/DateInput'
 
 // ─── Office Preview Sub-components ────────────────────────────────────────────
 
 
-const PRIORITY_OPTIONS = [
-  { value: 1, label: '低' }, { value: 2, label: '中' },
-  { value: 3, label: '高' }, { value: 4, label: '緊急' },
-]
+const PRIORITY_VALUES = [1, 2, 3, 4]
 
-const REQ_STATUS_MAP: Record<number, { label: string; color: string }> = {
-  0: { label: '草稿',   color: 'default'    },
-  1: { label: '審核中', color: 'processing' },
-  2: { label: '進行中', color: 'blue'       },
-  3: { label: '已拒絕', color: 'error'      },
-  4: { label: '已完結', color: 'success'    },
-  8: { label: '搁置',   color: 'warning'    },
+const REQ_STATUS_COLORS: Record<number, string> = {
+  0: 'default', 1: 'processing', 2: 'blue', 3: 'error', 4: 'success', 8: 'warning',
 }
 
 const PRIORITY_COLORS = ['', '#22c55e', '#f59e0b', '#ef4444', '#7c3aed']
 
 // ─── Status Steps ─────────────────────────────────────────────────────────────
-const STATUS_STEPS = [
-  { title: '草稿',     statuses: [1]  },
-  { title: '立案審核', statuses: [2]  },
-  { title: '規劃中',   statuses: [3]  },
-  { title: '規劃審核', statuses: [4]  },
-  { title: '排程安排', statuses: [10] },
-  { title: '排程審核', statuses: [11] },
-  { title: '執行中',   statuses: [5]  },
-  { title: '完結審核', statuses: [6]  },
-  { title: '已完結',   statuses: [7]  },
+const STATUS_STEP_STATUSES = [
+  [1], [2], [3], [4], [10], [11], [5], [6], [7],
 ]
 
 const getStepIndex = (status: number) => {
-  const idx = STATUS_STEPS.findIndex((s) => s.statuses.includes(status))
+  const idx = STATUS_STEP_STATUSES.findIndex((s) => s.includes(status))
   return idx >= 0 ? idx : 0
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 const ProjectDetailPage: React.FC = () => {
+  const { t } = useTranslation()
   const { id }   = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -81,7 +68,29 @@ const ProjectDetailPage: React.FC = () => {
   const workNo = useAppSelector((s) => s.auth.workNo) ?? ''
   const { isAdmin, isSupervisor } = useAppSelector((s) => s.auth)
   const toName = useWorkNoToName()
-  const withToken = (url: string) => { const t = tokenStorage.get(); return t ? `${url}?token=${t}` : url }
+  const withToken = (url: string) => { const tk = tokenStorage.get(); return tk ? `${url}?token=${tk}` : url }
+
+  // Computed i18n helpers
+  const PRIORITY_OPTIONS = PRIORITY_VALUES.map((v) => ({ value: v, label: t(`status.priority.${v}`) }))
+  const REQ_STATUS_MAP: Record<number, { label: string; color: string }> = {
+    0: { label: t('projectDetail.reqStatus.draft'), color: REQ_STATUS_COLORS[0] },
+    1: { label: t('projectDetail.reqStatus.reviewing'), color: REQ_STATUS_COLORS[1] },
+    2: { label: t('projectDetail.reqStatus.inProgress'), color: REQ_STATUS_COLORS[2] },
+    3: { label: t('projectDetail.reqStatus.rejected'), color: REQ_STATUS_COLORS[3] },
+    4: { label: t('projectDetail.reqStatus.completed'), color: REQ_STATUS_COLORS[4] },
+    8: { label: t('projectDetail.reqStatus.shelved'), color: REQ_STATUS_COLORS[8] },
+  }
+  const STATUS_STEPS = [
+    t('projectDetail.step.draft'), t('projectDetail.step.initReview'), t('projectDetail.step.planning'),
+    t('projectDetail.step.planReview'), t('projectDetail.step.scheduling'), t('projectDetail.step.schedReview'),
+    t('projectDetail.step.executing'), t('projectDetail.step.completionReview'), t('projectDetail.step.completed'),
+  ]
+  const FILE_CATEGORIES = [
+    { value: 'requirement', label: t('projectDetail.fileCategory.requirement'), color: '#2563eb' },
+    { value: 'design',      label: t('projectDetail.fileCategory.design'), color: '#7c3aed' },
+    { value: 'progress',    label: t('projectDetail.fileCategory.progress'), color: '#059669' },
+    { value: 'other',       label: t('projectDetail.fileCategory.other'), color: '#64748b' },
+  ]
   const isPm = (current?.project_pm?.toLowerCase() ?? '') === workNo.toLowerCase() && !!workNo
   // 完結審核中，除系統管理員外任何人不得操作
   const isProjectLocked = current?.status === 6 && !isAdmin
@@ -295,10 +304,10 @@ const ProjectDetailPage: React.FC = () => {
     try {
       if (editReq) {
         await requirementApi.update(id, editReq.id, values as Parameters<typeof requirementApi.update>[2])
-        showToast.success('需求已更新')
+        showToast.success(t('projectDetail.reqUpdated'))
       } else {
         await requirementApi.create(id, values as unknown as Parameters<typeof requirementApi.create>[1])
-        showToast.success('需求已新增')
+        showToast.success(t('projectDetail.reqCreated'))
       }
       setShowAddReq(false)
       setEditReq(null)
@@ -312,7 +321,7 @@ const ProjectDetailPage: React.FC = () => {
     if (!id) return
     try {
       await requirementApi.delete(id, reqId)
-      showToast.success('需求已刪除')
+      showToast.success(t('projectDetail.reqDeleted'))
       loadRequirements(id)
       loadFiles(id)
     } catch { /* global */ }
@@ -323,7 +332,7 @@ const ProjectDetailPage: React.FC = () => {
     setReqReviewSaving(true)
     try {
       await requirementApi.submitReview(id, reviewReqId, reqModalReviewers.map((r) => r.work_no))
-      showToast.success('已提交審核')
+      showToast.success(t('projectDetail.reviewSubmitted'))
       setShowReqReview(false)
       setReviewReqId(null)
       loadRequirements(id)
@@ -398,7 +407,7 @@ const ProjectDetailPage: React.FC = () => {
     setBatchReviewSaving(true)
     try {
       await requirementApi.batchSubmitReview(id, selectedReqIds, reqModalReviewers.map((r) => r.work_no))
-      showToast.success(`已批量提交 ${selectedReqIds.length} 筆需求審核（單一審核單）`)
+      showToast.success(t('projectDetail.batchReviewSubmitted', { count: selectedReqIds.length }))
       setShowBatchReview(false)
       setSelectedReqIds([])
       loadRequirements(id)
@@ -458,7 +467,7 @@ const ProjectDetailPage: React.FC = () => {
     setDraftReviewSaving(true)
     try {
       await projectApi.submitTaskAdditionReview(id, selectedDraftFuncIds, draftReviewers.map((r) => r.work_no))
-      showToast.success(`已提交 ${selectedDraftFuncIds.length} 個新增任務的審核申請`)
+      showToast.success(t('projectDetail.draftReviewSubmitted', { count: selectedDraftFuncIds.length }))
       setShowDraftReview(false)
       setSelectedDraftFuncIds([])
       if (id) loadFunctions(id)
@@ -471,7 +480,7 @@ const ProjectDetailPage: React.FC = () => {
     setReqShelveSaving(true)
     try {
       await requirementApi.submitShelve(id, shelveReqId, values.reviewer)
-      showToast.success('搁置申請已提交')
+      showToast.success(t('projectDetail.shelveSubmitted'))
       setShowReqShelve(false)
       setShelveReqId(null)
       reqShelveForm.resetFields()
@@ -485,9 +494,9 @@ const ProjectDetailPage: React.FC = () => {
     setUploading(true)
     try {
       await projectApi.uploadFile(id, file, category)
-      showToast.success('上傳成功')
+      showToast.success(t('projectDetail.uploadSuccess'))
       loadFiles(id)
-    } catch { showToast.error('上傳失敗') }
+    } catch { showToast.error(t('projectDetail.uploadFailed')) }
     finally { setUploading(false) }
     return false
   }
@@ -500,12 +509,7 @@ const ProjectDetailPage: React.FC = () => {
     return 'other'
   }
 
-  const FILE_CATEGORIES = [
-    { value: 'requirement', label: '需求文件', color: '#2563eb' },
-    { value: 'design',      label: '規劃設計', color: '#7c3aed' },
-    { value: 'progress',    label: '進度報告', color: '#059669' },
-    { value: 'other',       label: '其他',     color: '#64748b' },
-  ]
+  // FILE_CATEGORIES is now computed at the top of the component
 
   // 各状态下锁定的分类（上传/删除均不可用，上传在有变更审批后可解锁）
   const UPLOAD_LOCKED: Record<number, Set<string>> = {
@@ -538,9 +542,9 @@ const ProjectDetailPage: React.FC = () => {
     if (!id) return
     try {
       await projectApi.deleteFile(id, fileId)
-      showToast.success('已刪除')
+      showToast.success(t('common.deleteSuccess'))
       setFiles((prev) => prev.filter((f) => f.id !== fileId))
-    } catch { showToast.error('刪除失敗') }
+    } catch { showToast.error(t('common.deleteFailed')) }
   }
 
   const handleSubmitChangeRequest = async (values: { reviewer: string[]; description: string }) => {
@@ -548,11 +552,11 @@ const ProjectDetailPage: React.FC = () => {
     setChangeReqSaving(true)
     try {
       await projectApi.submitChangeRequest(id, values.reviewer, values.description)
-      showToast.success('需求變更申請已提交')
+      showToast.success(t('projectDetail.changeReqSubmitted'))
       setChangeReqModal(false)
       changeReqForm.resetFields()
       dispatch(fetchProjectThunk(id))  // 刷新专案状态
-    } catch { showToast.error('提交失敗') }
+    } catch { showToast.error(t('common.submitFailed')) }
     finally { setChangeReqSaving(false) }
   }
 
@@ -575,7 +579,7 @@ const ProjectDetailPage: React.FC = () => {
         expected_end_date:    values.expected_end_date as string | undefined,
         requirement_id: values.requirement_id as string | undefined,
       })
-      showToast.success('功能新增成功')
+      showToast.success(t('projectDetail.funcAddSuccess'))
       setShowAddFunc(false)
       funcForm.resetFields()
       loadFunctions(id)
@@ -587,7 +591,7 @@ const ProjectDetailPage: React.FC = () => {
     if (!id) return
     try {
       await projectApi.deleteFunction(id, fid)
-      showToast.success('功能刪除成功'); loadFunctions(id)
+      showToast.success(t('projectDetail.funcDeleteSuccess')); loadFunctions(id)
     } catch { /* global */ }
   }
 
@@ -603,9 +607,9 @@ const ProjectDetailPage: React.FC = () => {
       await dispatch(fetchDepartmentsThunk())
       editForm.setFieldValue('department', nm)
       setNewDeptName('')
-      showToast.success(`部門「${nm}」已建立`)
+      showToast.success(t('project.deptCreated', { name: nm }))
     } catch {
-      showToast.error('建立部門失敗')
+      showToast.error(t('project.deptCreateFailed'))
     } finally {
       setCreatingDept(false)
     }
@@ -694,9 +698,9 @@ const ProjectDetailPage: React.FC = () => {
       await projectApi.createGroup(nm)
       await dispatch(fetchProjectGroupsThunk())
       setNewGroupName('')
-      showToast.success(`分組「${nm}」已建立`)
+      showToast.success(t('project.groupCreated', { name: nm }))
     } catch {
-      showToast.error('建立分組失敗')
+      showToast.error(t('project.groupCreateFailed'))
     } finally {
       setCreatingGroup(false)
     }
@@ -707,7 +711,7 @@ const ProjectDetailPage: React.FC = () => {
     setEditSaving(true)
     try {
       await projectApi.update(id, values as Parameters<typeof projectApi.update>[1])
-      showToast.success('專案已更新')
+      showToast.success(t('projectDetail.projectUpdated'))
       setShowEdit(false)
       dispatch(fetchProjectThunk(id))
     } catch { /* global */ }
@@ -743,7 +747,7 @@ const ProjectDetailPage: React.FC = () => {
       await projectApi.updateFunction(id, quickResponsible.fid, {
         responsible: quickResponsible.persons.map((p) => p.work_no),
       })
-      showToast.success('負責人已更新')
+      showToast.success(t('projectDetail.responsibleUpdated'))
       setQuickResponsible(null)
       loadFunctions(id)
     } catch { /* global */ }
@@ -773,7 +777,7 @@ const ProjectDetailPage: React.FC = () => {
     setFuncEditSaving(true)
     try {
       await projectApi.updateFunction(id, editFunctionId, values as Parameters<typeof projectApi.updateFunction>[2])
-      showToast.success('任務已更新')
+      showToast.success(t('projectDetail.taskUpdated'))
       setEditFunctionId(null)
       loadFunctions(id)
     } catch { /* global */ }
@@ -785,7 +789,7 @@ const ProjectDetailPage: React.FC = () => {
     setSetPmSaving(true)
     try {
       await projectApi.setProjectPm(id, setPmValue.trim())
-      showToast.success('專案PM已設定')
+      showToast.success(t('projectDetail.pmSet'))
       setShowSetPm(false)
       setSetPmValue('')
       dispatch(fetchProjectThunk(id))
@@ -885,7 +889,7 @@ const ProjectDetailPage: React.FC = () => {
       const statusMap: Record<number, number> = { 1: 2, 3: 4, 10: 11, 5: 6 }
       const targetStatus = statusMap[current.status] ?? 2
       await projectApi.submitForReview(id, submitReviewers.map((r) => r.work_no), targetStatus)
-      showToast.success(isCompletionSubmit ? '完結申請已提交' : '已提交審核')
+      showToast.success(isCompletionSubmit ? t('projectDetail.completionSubmitted') : t('projectDetail.reviewSubmitted'))
       setShowSubmit(false)
       dispatch(fetchProjectThunk(id))
     } catch { /* global */ }
@@ -912,7 +916,7 @@ const ProjectDetailPage: React.FC = () => {
   const groupedFunctions = useMemo(() => {
     const map = new Map<string, ProjectFunction[]>()
     displayedFunctions.forEach((f) => {
-      const g = f.group1 || '未分組'
+      const g = f.group1 || t('common.ungrouped')
       if (!map.has(g)) map.set(g, [])
       map.get(g)!.push(f)
     })
@@ -931,7 +935,7 @@ const ProjectDetailPage: React.FC = () => {
       const key = f.requirement_id || '__none__'
       if (!map.has(key)) {
         const req = f.requirement_id ? requirements.find((r) => r.id === f.requirement_id) : undefined
-        map.set(key, { reqNm: req ? req.req_nm : '未關聯需求', expectedEndDate: req?.expected_end_date ?? '', items: [] })
+        map.set(key, { reqNm: req ? req.req_nm : t('projectDetail.noLinkedReq'), expectedEndDate: req?.expected_end_date ?? '', items: [] })
       }
       map.get(key)!.items.push(f)
     })
@@ -949,7 +953,7 @@ const ProjectDetailPage: React.FC = () => {
       .map(([key, { reqNm, expectedEndDate, items }]) => {
         const groupMap = new Map<string, ProjectFunction[]>()
         items.forEach((f) => {
-          const g = f.group1 || '未分組'
+          const g = f.group1 || t('common.ungrouped')
           if (!groupMap.has(g)) groupMap.set(g, [])
           groupMap.get(g)!.push(f)
         })
@@ -974,7 +978,7 @@ const ProjectDetailPage: React.FC = () => {
 
   const rawFuncColumnsGrouped: ColumnsType<ProjectFunction> = [
     {
-      title: '功能名稱', dataIndex: 'function_nm', width: 220, ellipsis: true,
+      title: t('projectDetail.colFuncName'), dataIndex: 'function_nm', width: 220, ellipsis: true,
       render: (name: string, r) => {
         const req = r.requirement_id ? requirements.find((x) => x.id === r.requirement_id) : null
         return (
@@ -982,25 +986,25 @@ const ProjectDetailPage: React.FC = () => {
             <div style={{ width: 3, height: 24, borderRadius: 2, flexShrink: 0, background: PRIORITY_COLORS[r.priority] }} />
             <div style={{ minWidth: 0 }}>
               <Button type="link" style={{ padding: 0, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%' }} onClick={() => setSelectedFid(r.id)}>{name}</Button>
-              {req && <div style={{ fontSize: 10, color: '#6366f1', marginTop: 1, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>需求: {req.req_nm}</div>}
+              {req && <div style={{ fontSize: 10, color: '#6366f1', marginTop: 1, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t('projectDetail.reqLabel')}: {req.req_nm}</div>}
             </div>
           </div>
         )
       },
     },
     {
-      title: '狀態', dataIndex: 'status', width: 110,
+      title: t('common.status'), dataIndex: 'status', width: 110,
       render: (v: number) => {
         const s = FUNCTION_STATUS_MAP[v]
         return s ? <div className="flex items-center gap-1.5"><span className="status-dot" style={{ background: s.dot }} /><span className="text-sm">{s.label}</span></div> : v
       },
     },
     {
-      title: '優先級', dataIndex: 'priority', width: 80,
+      title: t('common.priority'), dataIndex: 'priority', width: 80,
       render: (v: number) => { const p = PRIORITY_MAP[v]; return p ? <Tag color={p.color} style={{ fontSize: 11 }}>{p.label}</Tag> : v },
     },
     {
-      title: '進度', dataIndex: 'progress', width: 140,
+      title: t('common.progress'), dataIndex: 'progress', width: 140,
       render: (v: number) => (
         <div className="flex items-center gap-2">
           <Progress percent={v ?? 0} size="small" showInfo={false} style={{ flex: 1 }} strokeColor="#2563eb" trailColor="#f1f5f9" />
@@ -1009,7 +1013,7 @@ const ProjectDetailPage: React.FC = () => {
       ),
     },
     {
-      title: '負責人', dataIndex: 'responsible', width: 150,
+      title: t('projectDetail.colResponsible'), dataIndex: 'responsible', width: 150,
       render: (v: string[], record) => {
         const ispm = isPm && [3, 5, 10].includes(current?.status ?? 0) && record.status !== 4 && record.status !== 3 && !isProjectLocked
         const openPicker = async () => {
@@ -1044,28 +1048,28 @@ const ProjectDetailPage: React.FC = () => {
                   <Avatar size={22} style={{ background: '#94a3b8', fontSize: 10, border: '2px solid white', marginLeft: -6 }}>+{extra}</Avatar>
                 )}
               </div>
-              <span className="text-xs text-slate-600">{toName(v[0])}{v.length > 1 ? ` 等${v.length}人` : ''}</span>
+              <span className="text-xs text-slate-600">{toName(v[0])}{v.length > 1 ? ` ${t('common.andMore', { count: v.length })}` : ''}</span>
               {ispm && (
-                <button className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-blue-500 border-0 outline-none bg-transparent p-0 cursor-pointer" onClick={openPicker} title="修改負責人">
+                <button className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-blue-500 border-0 outline-none bg-transparent p-0 cursor-pointer" onClick={openPicker} title={t('projectDetail.editResponsible')}>
                   <PencilSquareIcon className="w-3.5 h-3.5" />
                 </button>
               )}
             </div>
           )
         }
-        if (!ispm) return <span className="text-slate-300 text-xs">未指定</span>
+        if (!ispm) return <span className="text-slate-300 text-xs">{t('common.notAssigned')}</span>
         return (
           <button
             className="flex items-center gap-1 text-xs text-slate-400 hover:text-blue-500 hover:bg-blue-50 px-2 py-0.5 rounded-full border border-dashed border-slate-300 hover:border-blue-300 transition-colors"
             onClick={openPicker}
           >
-            <PlusIcon className="w-3 h-3" />指定負責人
+            <PlusIcon className="w-3 h-3" />{t('projectDetail.assignResponsible')}
           </button>
         )
       },
     },
     {
-      title: '預計完成', dataIndex: 'expected_end_date', width: 110,
+      title: t('common.expectedEndDate'), dataIndex: 'expected_end_date', width: 110,
       render: (v: string, record) => {
         if (!v) return <span className="text-slate-300 text-xs">—</span>
         const isLate = record.end_time && record.end_time > v
@@ -1078,7 +1082,7 @@ const ProjectDetailPage: React.FC = () => {
       },
     },
     {
-      title: '實際完成', dataIndex: 'end_time', width: 110,
+      title: t('common.actualEndDate'), dataIndex: 'end_time', width: 110,
       render: (v: string, record) => {
         if (!v) return <span className="text-slate-300 text-xs">—</span>
         const exp = record.expected_end_date
@@ -1091,18 +1095,18 @@ const ProjectDetailPage: React.FC = () => {
       },
     },
     {
-      title: '操作', key: 'action', width: isPm ? 110 : 80, fixed: 'right',
+      title: t('common.operation'), key: 'action', width: isPm ? 110 : 80, fixed: 'right',
       render: (_: unknown, record) => {
         const canModifyTask = [3, 10].includes(current?.status ?? 0)
         return (
           <Space size={0}>
-            <Tooltip title="查看"><Button icon={<EyeIcon className="w-4 h-4" />} size="small" type="text" onClick={() => setSelectedFid(record.id)} /></Tooltip>
+            <Tooltip title={t('common.view')}><Button icon={<EyeIcon className="w-4 h-4" />} size="small" type="text" onClick={() => setSelectedFid(record.id)} /></Tooltip>
             {isPm && canModifyTask && (
-              <Tooltip title="編輯"><Button icon={<EditIcon className="w-4 h-4" />} size="small" type="text" onClick={() => handleOpenFuncEdit(record.id)} /></Tooltip>
+              <Tooltip title={t('common.edit')}><Button icon={<EditIcon className="w-4 h-4" />} size="small" type="text" onClick={() => handleOpenFuncEdit(record.id)} /></Tooltip>
             )}
             {canModifyTask && (
-              <Popconfirm title="確認刪除？" onConfirm={() => handleDeleteFunction(record.id)} okText="確認" cancelText="取消">
-                <Tooltip title="刪除"><Button icon={<TrashIcon className="w-4 h-4" />} size="small" type="text" danger /></Tooltip>
+              <Popconfirm title={t('common.confirmDelete')} onConfirm={() => handleDeleteFunction(record.id)} okText={t('common.confirm')} cancelText={t('common.cancel')}>
+                <Tooltip title={t('common.delete')}><Button icon={<TrashIcon className="w-4 h-4" />} size="small" type="text" danger /></Tooltip>
               </Popconfirm>
             )}
           </Space>
@@ -1113,13 +1117,13 @@ const ProjectDetailPage: React.FC = () => {
 
   const rawFuncColumnsFlat: ColumnsType<ProjectFunction> = [
     rawFuncColumnsGrouped[0], // 功能名稱
-    { title: '分組', dataIndex: 'group1', width: 100, render: (v: string) => <Tag style={{ fontSize: 10 }}>{v || '未分組'}</Tag> },
+    { title: t('projectDetail.colGroup'), dataIndex: 'group1', width: 100, render: (v: string) => <Tag style={{ fontSize: 10 }}>{v || t('common.ungrouped')}</Tag> },
     ...rawFuncColumnsGrouped.slice(1), // 狀態, 優先級, 進度, 負責人, 預計完成, 實際完成, 操作
   ]
 
   const rawFileColumns: ColumnsType<ProjectFile> = [
     {
-      title: '文件名',
+      title: t('projectDetail.colFileName'),
       dataIndex: 'file_nm',
       render: (name: string, record) => {
         const ext = record.file_ext.toLowerCase()
@@ -1144,29 +1148,29 @@ const ProjectDetailPage: React.FC = () => {
               )}
             </div>
             {isReqFile && record.req_nm && (
-              <span className="text-[11px] text-slate-400">來自需求：{record.req_nm}</span>
+              <span className="text-[11px] text-slate-400">{t('projectDetail.fromReq')}：{record.req_nm}</span>
             )}
           </div>
         )
       },
     },
     {
-      title: '分類',
+      title: t('projectDetail.colCategory'),
       dataIndex: 'file_category',
       width: 90,
       render: (v: string) => {
         const cat = FILE_CATEGORIES.find(c => c.value === v)
-        return <Tag color={cat?.color} style={{ fontSize: 11 }}>{cat?.label ?? '其他'}</Tag>
+        return <Tag color={cat?.color} style={{ fontSize: 11 }}>{cat?.label ?? t('projectDetail.fileCategory.other')}</Tag>
       },
     },
     {
-      title: '類型',
+      title: t('common.type'),
       dataIndex: 'file_ext',
       width: 65,
       render: (v: string) => <Tag style={{ fontSize: 11 }}>{v.toUpperCase()}</Tag>,
     },
     {
-      title: '大小',
+      title: t('projectDetail.colSize'),
       dataIndex: 'file_size',
       width: 85,
       render: (v: number) => {
@@ -1175,10 +1179,10 @@ const ProjectDetailPage: React.FC = () => {
         return `${v} B`
       },
     },
-    { title: '上傳人', dataIndex: 'uploader', width: 90 },
-    { title: '上傳時間', dataIndex: 'created_at', width: 140 },
+    { title: t('projectDetail.colUploader'), dataIndex: 'uploader', width: 90 },
+    { title: t('projectDetail.colUploadTime'), dataIndex: 'created_at', width: 140 },
     {
-      title: '操作',
+      title: t('common.operation'),
       width: 90,
       render: (_: unknown, record) => {
         const isReqFile = record.source === 'requirement_attachment'
@@ -1187,7 +1191,7 @@ const ProjectDetailPage: React.FC = () => {
           : projectApi.getFileDownloadUrl(id!, record.id)
         return (
         <Space size={0}>
-          <Tooltip title="下載">
+          <Tooltip title={t('common.download')}>
             <a href={downloadUrl}
               target="_blank" rel="noreferrer">
               <Button type="text" size="small"
@@ -1196,11 +1200,11 @@ const ProjectDetailPage: React.FC = () => {
           </Tooltip>
           {!isReqFile && current?.can_manage_files && canDeleteCategory(record.file_category) && (
             <Popconfirm
-              title="確認刪除此附件？"
+              title={t('projectDetail.confirmDeleteAttachment')}
               onConfirm={() => handleDeleteFile(record.id)}
-              okText="確認" cancelText="取消"
+              okText={t('common.confirm')} cancelText={t('common.cancel')}
             >
-              <Tooltip title="刪除">
+              <Tooltip title={t('common.delete')}>
                 <Button type="text" size="small" danger
                   icon={<TrashIcon className="w-4 h-4" />} />
               </Tooltip>
@@ -1234,7 +1238,7 @@ const ProjectDetailPage: React.FC = () => {
   }, [isPm, current?.status, selectedDraftFuncIds])
 
   if (isLoading) return <div className="flex items-center justify-center h-64"><Spin size="large" /></div>
-  if (!current)  return <Empty description="專案不存在" className="mt-20" />
+  if (!current)  return <Empty description={t('projectDetail.projectNotFound')} className="mt-20" />
 
   const stepIndex = getStepIndex(current.status)
 
@@ -1249,16 +1253,16 @@ const ProjectDetailPage: React.FC = () => {
             <Tag color="blue" style={{ fontSize: 12 }}>{current.department}</Tag>
             {current.product_pm && (
               <div className="flex items-center gap-1 text-xs text-slate-500">
-                <UserCircleIcon className="w-3.5 h-3.5" /> 産品：{toName(current.product_pm)}
+                <UserCircleIcon className="w-3.5 h-3.5" /> {t('projectDetail.productLabel')}：{toName(current.product_pm)}
               </div>
             )}
             <div className="flex items-center gap-1 text-xs text-slate-500">
-              <UserCircleIcon className="w-3.5 h-3.5" /> 專案：{toName(current.project_pm)}
+              <UserCircleIcon className="w-3.5 h-3.5" /> {t('projectDetail.projectLabel')}：{toName(current.project_pm)}
             </div>
             {current.code_url && (
               <a href={current.code_url} target="_blank" rel="noreferrer"
                 className="flex items-center gap-1 text-xs text-blue-500 hover:underline">
-                <CodeBracketIcon className="w-3.5 h-3.5" /> 代碼庫
+                <CodeBracketIcon className="w-3.5 h-3.5" /> {t('projectDetail.codeRepo')}
               </a>
             )}
           </div>
@@ -1268,37 +1272,37 @@ const ProjectDetailPage: React.FC = () => {
           {/* 草稿且有權限才可編輯（産品PM或其直屬上級） */}
           {current.status === 1 && current.can_edit && (
             <Button icon={<EditIcon className="w-4 h-4" />} onClick={handleEditOpen}>
-              編輯
+              {t('common.edit')}
             </Button>
           )}
           {/* 提交立案審核：僅草稿階段且當前用戶是産品PM */}
           {current.status === 1 && current.can_submit_review && (
             <Button type="primary" style={{ background: '#2563eb' }} onClick={handleOpenSubmitModal}>
-              提交立案審核
+              {t('projectDetail.submitInitReview')}
             </Button>
           )}
           {/* 設定專案PM：規劃中且尚未設定PM，由創建人/産品PM操作 */}
           {current.status === 3 && current.can_set_project_pm && (
             <Button onClick={() => { setSetPmValue(''); setShowSetPm(true) }}>
-              設定專案PM
+              {t('projectDetail.setProjectPm')}
             </Button>
           )}
           {/* 提交規劃審核：規劃中且當前用戶是專案PM */}
           {current.status === 3 && current.can_submit_review && (
             <Button type="primary" style={{ background: '#2563eb' }} onClick={handleOpenSubmitModal}>
-              提交規劃審核
+              {t('projectDetail.submitPlanReview')}
             </Button>
           )}
           {/* 提交排程審核：排程安排階段且當前用戶是專案PM */}
           {current.status === 10 && current.can_submit_review && (
             <Button type="primary" style={{ background: '#7c3aed' }} onClick={handleOpenSubmitModal}>
-              提交排程審核
+              {t('projectDetail.submitSchedReview')}
             </Button>
           )}
           {/* 提交完結申請：執行中 + 進度100% + 專案PM */}
           {current.status === 5 && isPm && current.progress === 100 && (
             <Button type="primary" style={{ background: '#059669' }} onClick={handleOpenCompletionModal}>
-              提交完結申請
+              {t('projectDetail.submitCompletion')}
             </Button>
           )}
         </div>
@@ -1310,13 +1314,13 @@ const ProjectDetailPage: React.FC = () => {
           current={stepIndex}
           size="small"
           items={STATUS_STEPS.map((s, i) => ({
-            title: <span style={{ fontSize: 12 }}>{s.title}</span>,
+            title: <span style={{ fontSize: 12 }}>{s}</span>,
             status: i < stepIndex ? 'finish' : i === stepIndex ? 'process' : 'wait',
           }))}
         />
         {current.progress != null && (
           <div className="flex items-center gap-3 mt-4">
-            <span className="text-xs text-slate-400 w-14">整體進度</span>
+            <span className="text-xs text-slate-400 w-14">{t('projectDetail.overallProgress')}</span>
             <Progress percent={current.progress} size="small" strokeColor="#2563eb" trailColor="#f1f5f9" style={{ flex: 1 }} />
           </div>
         )}
@@ -1327,10 +1331,9 @@ const ProjectDetailPage: React.FC = () => {
         <div className="mb-5 rounded-xl border border-violet-200 bg-violet-50 px-5 py-4 flex items-start gap-3">
           <span className="text-2xl flex-shrink-0">📋</span>
           <div>
-            <div className="font-semibold text-violet-800 text-sm mb-1">排程安排階段</div>
+            <div className="font-semibold text-violet-800 text-sm mb-1">{t('projectDetail.schedulingPhaseTitle')}</div>
             <div className="text-xs text-violet-600 leading-relaxed">
-              規劃審核已通過，請在「功能任務」分頁中建立任務、分配開發人員並設定開發時程。
-              安排完成後，由專案PM點擊「提交排程審核」，通過審批後專案將正式進入執行中。
+              {t('projectDetail.schedulingPhaseDesc')}
             </div>
           </div>
         </div>
@@ -1349,25 +1352,25 @@ const ProjectDetailPage: React.FC = () => {
         items={[
           {
             key: 'info',
-            label: '基本資訊',
+            label: t('projectDetail.tabInfo'),
             children: (
               <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: 24 } }}>
                 <Descriptions bordered column={2} size="small"
                   labelStyle={{ background: '#f8fafc', color: '#64748b', fontWeight: 500, fontSize: 12 }}
                   contentStyle={{ fontSize: 13 }}
                 >
-                  <Descriptions.Item label="優先級">
+                  <Descriptions.Item label={t('common.priority')}>
                     {(() => { const p = PRIORITY_MAP[current.priority]; return p ? <Tag color={p.color}>{p.label}</Tag> : current.priority })()}
                   </Descriptions.Item>
-                  <Descriptions.Item label="建立人">{toName(current.creator)}</Descriptions.Item>
-                  <Descriptions.Item label="産品PM">{toName(current.product_pm)}</Descriptions.Item>
-                  <Descriptions.Item label="專案PM">{toName(current.project_pm)}</Descriptions.Item>
-                  <Descriptions.Item label="預計完成">{current.expected_end_date ?? '—'}</Descriptions.Item>
-                  <Descriptions.Item label="建立時間">{current.created_at}</Descriptions.Item>
-                  <Descriptions.Item label="描述" span={2}><RichTextContent html={current.describe} /></Descriptions.Item>
-                  <Descriptions.Item label="預估效益">
+                  <Descriptions.Item label={t('projectDetail.creator')}>{toName(current.creator)}</Descriptions.Item>
+                  <Descriptions.Item label={t('project.productPm')}>{toName(current.product_pm)}</Descriptions.Item>
+                  <Descriptions.Item label={t('project.projectPm')}>{toName(current.project_pm)}</Descriptions.Item>
+                  <Descriptions.Item label={t('common.expectedEndDate')}>{current.expected_end_date ?? '—'}</Descriptions.Item>
+                  <Descriptions.Item label={t('common.createdAt')}>{current.created_at}</Descriptions.Item>
+                  <Descriptions.Item label={t('common.description')} span={2}><RichTextContent html={current.describe} /></Descriptions.Item>
+                  <Descriptions.Item label={t('projectDetail.estimatedBenefit')}>
                     {current.benefit_amount != null
-                      ? <>{current.benefit_amount} {current.benefit_unit ?? '元/年'}{current.expected_benefit ? <span className="text-slate-400 ml-2 text-xs">（{current.expected_benefit}）</span> : null}</>
+                      ? <>{current.benefit_amount} {benefitUnitLabel(current.benefit_unit ?? "元/年")}{current.expected_benefit ? <span className="text-slate-400 ml-2 text-xs">（{current.expected_benefit}）</span> : null}</>
                       : current.expected_benefit || '—'
                     }
                   </Descriptions.Item>
@@ -1378,16 +1381,16 @@ const ProjectDetailPage: React.FC = () => {
           },
           {
             key: 'requirements',
-            label: `需求 (${requirements.length})`,
+            label: `${t('projectDetail.tabReq')} (${requirements.length})`,
             children: (
               <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: 0 } }}>
                 <div className="flex justify-between items-center px-4 py-3 border-b border-slate-100">
                   <div className="flex items-center gap-3">
-                    <span className="text-sm font-medium text-slate-600">需求列表</span>
+                    <span className="text-sm font-medium text-slate-600">{t('projectDetail.reqList')}</span>
                     {selectedReqIds.length > 0 && current?.status === 5 && (
                       <Button size="small" type="primary" ghost
                         onClick={() => openBatchReviewModal()}>
-                        批量提交審核（{selectedReqIds.length}）
+                        {t('projectDetail.batchSubmitReview', { count: selectedReqIds.length })}
                       </Button>
                     )}
                   </div>
@@ -1407,7 +1410,7 @@ const ProjectDetailPage: React.FC = () => {
                           }).catch(() => {})
                         }
                       }}>
-                      新增需求
+                      {t('projectDetail.addReq')}
                     </Button>
                   )}
                 </div>
@@ -1422,7 +1425,7 @@ const ProjectDetailPage: React.FC = () => {
                     onChange: (keys) => setSelectedReqIds(keys as string[]),
                     getCheckboxProps: (req: Requirement) => ({ disabled: req.status !== 0 }),
                   } : undefined}
-                  locale={{ emptyText: <Empty description="暫無需求" className="py-8" /> }}
+                  locale={{ emptyText: <Empty description={t('projectDetail.noReq')} className="py-8" /> }}
                   expandable={{
                     expandRowByClick: true,
                     expandedRowKeys: expandedReqKeys,
@@ -1430,26 +1433,26 @@ const ProjectDetailPage: React.FC = () => {
                     expandedRowRender: (req: Requirement) => (
                       <div className="bg-slate-50 px-6 py-4 grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
                         <div className="col-span-2">
-                          <span className="text-xs text-slate-400 mr-2">需求描述</span>
+                          <span className="text-xs text-slate-400 mr-2">{t('projectDetail.reqDesc')}</span>
                           <span className="text-slate-700">{req.describe || '—'}</span>
                         </div>
                         <div>
-                          <span className="text-xs text-slate-400 mr-2">期望完成</span>
+                          <span className="text-xs text-slate-400 mr-2">{t('projectDetail.expectedComplete')}</span>
                           <span className="text-slate-700">{req.expected_end_date || '—'}</span>
                         </div>
                         {(req.expected_benefit || req.benefit_amount != null) && (
                           <div className="col-span-2">
-                            <span className="text-xs text-slate-400 mr-2">效益說明</span>
+                            <span className="text-xs text-slate-400 mr-2">{t('projectDetail.benefitDesc')}</span>
                             <span className="text-emerald-600">
-                              {req.benefit_amount != null ? `${req.benefit_amount} ${req.benefit_unit ?? '元/年'}` : ''}
+                              {req.benefit_amount != null ? `${req.benefit_amount} ${benefitUnitLabel(req.benefit_unit ?? "元/年")}` : ''}
                               {req.expected_benefit ? `  ${req.expected_benefit}` : ''}
                             </span>
-                            {req.is_addon && <Tag color="orange" className="ml-2 text-xs">追加需求</Tag>}
+                            {req.is_addon && <Tag color="orange" className="ml-2 text-xs">{t('projectDetail.addonReq')}</Tag>}
                           </div>
                         )}
                         {(req.files?.length ?? 0) > 0 && (
                           <div className="col-span-2">
-                            <span className="text-xs text-slate-400 mr-2">附件</span>
+                            <span className="text-xs text-slate-400 mr-2">{t('projectDetail.attachments')}</span>
                             <div className="mt-1">
                               <AttachmentPreview
                                 files={req.files!.map((f) => ({ ...f, url: withToken(f.file_id ? requirementApi.getFilePreviewUrl(id!, req.id, f.file_id) : f.url) }))}
@@ -1463,18 +1466,18 @@ const ProjectDetailPage: React.FC = () => {
                   }}
                   columns={[
                     {
-                      title: '需求名稱', dataIndex: 'req_nm', ellipsis: true,
+                      title: t('projectDetail.colReqName'), dataIndex: 'req_nm', ellipsis: true,
                       render: (name: string) => <span className="font-medium text-slate-800">{name}</span>,
                     },
                     {
-                      title: '狀態', dataIndex: 'status', width: 90,
+                      title: t('common.status'), dataIndex: 'status', width: 90,
                       render: (v: number) => {
                         const st = REQ_STATUS_MAP[v] ?? { label: String(v), color: 'default' }
                         return <Tag color={st.color} style={{ fontSize: 11 }}>{st.label}</Tag>
                       },
                     },
                     {
-                      title: '進度', dataIndex: 'progress', width: 110,
+                      title: t('common.progress'), dataIndex: 'progress', width: 110,
                       render: (v: number, req: Requirement) => {
                         if (req.status !== 2 && req.status !== 4) return <span className="text-slate-300 text-xs">—</span>
                         return (
@@ -1487,21 +1490,21 @@ const ProjectDetailPage: React.FC = () => {
                       },
                     },
                     {
-                      title: '優先級', dataIndex: 'priority', width: 72,
+                      title: t('common.priority'), dataIndex: 'priority', width: 72,
                       render: (v: number) => { const p = PRIORITY_MAP[v]; return p ? <Tag color={p.color} style={{ fontSize: 11 }}>{p.label}</Tag> : v },
                     },
                     {
-                      title: '期望完成', dataIndex: 'expected_end_date', width: 100,
+                      title: t('projectDetail.expectedComplete'), dataIndex: 'expected_end_date', width: 100,
                       render: (v: string) => <span className="text-xs text-slate-500">{v || '—'}</span>,
                     },
                     {
-                      title: '預估效益', width: 140, ellipsis: true,
+                      title: t('projectDetail.estimatedBenefit'), width: 140, ellipsis: true,
                       render: (_: unknown, req: Requirement) => req.benefit_amount != null
-                        ? <span className="text-xs text-emerald-600">{req.benefit_amount} {req.benefit_unit ?? '元/年'}</span>
+                        ? <span className="text-xs text-emerald-600">{req.benefit_amount} {benefitUnitLabel(req.benefit_unit ?? "元/年")}</span>
                         : <span className="text-xs text-slate-300">—</span>,
                     },
                     {
-                      title: '操作', width: 148, align: 'center' as const,
+                      title: t('common.operation'), width: 148, align: 'center' as const,
                       render: (_: unknown, req: Requirement) => {
                         const isProductPm = workNo.toLowerCase() === (current?.product_pm ?? '').toLowerCase()
                         const canEdit = isProductPm && req.status === 0 && [1, 5].includes(current?.status ?? 0)
@@ -1513,11 +1516,11 @@ const ProjectDetailPage: React.FC = () => {
                             {canSubmitReview && (
                               <Button size="small"
                                 onClick={(e) => { e.stopPropagation(); openReqReviewModal(req.id) }}>
-                                提交審核
+                                {t('projectDetail.submitReview')}
                               </Button>
                             )}
                             {canEdit && (
-                              <Tooltip title="編輯">
+                              <Tooltip title={t('common.edit')}>
                                 <Button size="small" icon={<EditIcon className="w-3.5 h-3.5" />}
                                   onClick={(e) => {
                                     e.stopPropagation()
@@ -1547,13 +1550,13 @@ const ProjectDetailPage: React.FC = () => {
                             {canShelve && (
                               <Button size="small"
                                 onClick={(e) => { e.stopPropagation(); setShelveReqId(req.id); setShowReqShelve(true) }}>
-                                搁置
+                                {t('projectDetail.shelve')}
                               </Button>
                             )}
                             {canDelete && (
-                              <Popconfirm title="確認刪除此需求？" onConfirm={() => handleDeleteReq(req.id)} okText="刪除" cancelText="取消"
+                              <Popconfirm title={t('projectDetail.confirmDeleteReq')} onConfirm={() => handleDeleteReq(req.id)} okText={t('common.delete')} cancelText={t('common.cancel')}
                                 onPopupClick={(e) => e.stopPropagation()}>
-                                <Tooltip title="刪除">
+                                <Tooltip title={t('common.delete')}>
                                   <Button size="small" danger icon={<TrashIcon className="w-3.5 h-3.5" />}
                                     onClick={(e) => e.stopPropagation()} />
                                 </Tooltip>
@@ -1570,7 +1573,7 @@ const ProjectDetailPage: React.FC = () => {
           },
           {
             key: 'functions',
-            label: `功能任務 (${functions.length})`,
+            label: `${t('project.functions')} (${functions.length})`,
             children: (
               <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: 0 } }}>
                 <div className="flex justify-between items-center px-4 py-3 border-b border-slate-100">
@@ -1580,8 +1583,8 @@ const ProjectDetailPage: React.FC = () => {
                       value={funcView}
                       onChange={(v) => setFuncView(v as 'all' | 'mine')}
                       options={[
-                        { label: `全部 (${functions.length})`, value: 'all'  },
-                        { label: `我的 (${myFunctions.length})`, value: 'mine' },
+                        { label: `${t('common.all')} (${functions.length})`, value: 'all'  },
+                        { label: `${t('common.mine')} (${myFunctions.length})`, value: 'mine' },
                       ]}
                     />
                     <div className="w-px h-5 bg-slate-200" />
@@ -1590,9 +1593,9 @@ const ProjectDetailPage: React.FC = () => {
                       value={funcGroupMode}
                       onChange={(v) => setFuncGroupMode(v as 'flat' | 'grouped' | 'by_req')}
                       options={[
-                        { label: '按需求', value: 'by_req'  },
-                        { label: '分組',   value: 'grouped' },
-                        { label: '平面',   value: 'flat'    },
+                        { label: t('common.byReq'), value: 'by_req'  },
+                        { label: t('common.grouped'),   value: 'grouped' },
+                        { label: t('common.flat'),   value: 'flat'    },
                       ]}
                     />
                   </div>
@@ -1600,7 +1603,7 @@ const ProjectDetailPage: React.FC = () => {
                     {isPm && current?.status === 5 && selectedDraftFuncIds.length > 0 && (
                       <Button size="small" type="primary" ghost
                         onClick={() => openDraftReviewModal()}>
-                        提交新增任務審核（{selectedDraftFuncIds.length}）
+                        {t('projectDetail.submitDraftReview', { count: selectedDraftFuncIds.length })}
                       </Button>
                     )}
                     {isPm && ([3, 5, 10].includes(current?.status ?? 0)) && !isProjectLocked && (
@@ -1617,7 +1620,7 @@ const ProjectDetailPage: React.FC = () => {
                             loadRequirements(id)
                           }
                         }} size="small" style={{ background: '#2563eb' }}>
-                        新增功能
+                        {t('projectDetail.addFunc')}
                       </Button>
                     )}
                   </div>
@@ -1635,7 +1638,7 @@ const ProjectDetailPage: React.FC = () => {
                         total: funcTotal,
                         showSizeChanger: true,
                         pageSizeOptions: ['20', '50', '100', '200'],
-                        showTotal: (total) => `共 ${total} 筆`,
+                        showTotal: (total) => t('projectDetail.totalItems', { count: total }),
                         onChange: (page, size) => {
                           setFuncPageSize(size)
                           if (id) loadFunctions(id, page, size)
@@ -1648,12 +1651,12 @@ const ProjectDetailPage: React.FC = () => {
                     {funcLoading ? (
                       <div className="flex justify-center py-8"><Spin /></div>
                     ) : groupedByRequirement.length === 0 ? (
-                      <Empty description="暫無功能任務" className="py-8" />
+                      <Empty description={t('projectDetail.noFuncTasks')} className="py-8" />
                     ) : (() => {
                       const reqGroups  = groupedByRequirement.filter((g) => g.key !== '__none__')
                       const noReqGroup = groupedByRequirement.find((g) => g.key === '__none__')
                       const renderSubGroups = (g: typeof groupedByRequirement[0], prefix: string) =>
-                        g.subGroups.length === 1 && g.subGroups[0].name === '未分組' ? (
+                        g.subGroups.length === 1 && g.subGroups[0].name === t('common.ungrouped') ? (
                           <Table key={prefix} rowKey="id" columns={funcColumnsGrouped} dataSource={g.subGroups[0].items}
                             components={tableComponents} pagination={false} size="small" scroll={{ x: 800 }}
                             rowSelection={makeDraftRowSelection(g.subGroups[0].items)} />
@@ -1666,12 +1669,12 @@ const ProjectDetailPage: React.FC = () => {
                                   <div className="flex items-center gap-2">
                                     <FolderIcon className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
                                     <span className="font-medium text-slate-600 text-xs">{sg.name}</span>
-                                    <Tag color="blue" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>{sg.count} 項</Tag>
+                                    <Tag color="blue" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>{t('common.itemCount', { count: sg.count })}</Tag>
                                     <Progress percent={sg.avgProgress} size="small" showInfo={false}
                                       style={{ width: 60 }} strokeColor="#2563eb" trailColor="#e2e8f0" />
                                     <span className="text-xs text-slate-400">{sg.avgProgress}%</span>
                                     {sg.overdueCount > 0 && (
-                                      <Tag color="error" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>超時 {sg.overdueCount}</Tag>
+                                      <Tag color="error" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>{t('common.overdueCount', { count: sg.overdueCount })}</Tag>
                                     )}
                                   </div>
                                 }
@@ -1693,15 +1696,15 @@ const ProjectDetailPage: React.FC = () => {
                                   header={
                                     <div className="flex items-center gap-3">
                                       <span className="font-semibold text-slate-700">{g.reqNm}</span>
-                                      <Tag color="purple" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>{g.count} 項</Tag>
+                                      <Tag color="purple" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>{t('common.itemCount', { count: g.count })}</Tag>
                                       {g.expectedEndDate && (
-                                        <span className="text-xs text-slate-400">期望完成 {g.expectedEndDate}</span>
+                                        <span className="text-xs text-slate-400">{t('projectDetail.expectedComplete')} {g.expectedEndDate}</span>
                                       )}
                                       <Progress percent={g.avgProgress} size="small" showInfo={false}
                                         style={{ width: 80 }} strokeColor="#7c3aed" trailColor="#e2e8f0" />
                                       <span className="text-xs text-slate-400">{g.avgProgress}%</span>
                                       {g.overdueCount > 0 && (
-                                        <Tag color="error" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>超時 {g.overdueCount}</Tag>
+                                        <Tag color="error" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>{t('common.overdueCount', { count: g.overdueCount })}</Tag>
                                       )}
                                     </div>
                                   }
@@ -1721,7 +1724,7 @@ const ProjectDetailPage: React.FC = () => {
                     {funcLoading ? (
                       <div className="flex justify-center py-8"><Spin /></div>
                     ) : groupedFunctions.length === 0 ? (
-                      <Empty description="暫無功能任務" className="py-8" />
+                      <Empty description={t('projectDetail.noFuncTasks')} className="py-8" />
                     ) : (
                       <Collapse
                         defaultActiveKey={[]}
@@ -1735,7 +1738,7 @@ const ProjectDetailPage: React.FC = () => {
                               <div className="flex items-center gap-3">
                                 <FolderIcon className="w-4 h-4 text-blue-500" />
                                 <span className="font-semibold text-slate-700">{g.name}</span>
-                                <Tag color="blue" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>{g.count} 項</Tag>
+                                <Tag color="blue" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>{t('common.itemCount', { count: g.count })}</Tag>
                                 <Progress
                                   percent={g.avgProgress} size="small" showInfo={false}
                                   style={{ width: 80 }} strokeColor="#2563eb" trailColor="#e2e8f0"
@@ -1743,7 +1746,7 @@ const ProjectDetailPage: React.FC = () => {
                                 <span className="text-xs text-slate-400">{g.avgProgress}%</span>
                                 {g.overdueCount > 0 && (
                                   <Tag color="error" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>
-                                    超時 {g.overdueCount}
+                                    {t('common.overdueCount', { count: g.overdueCount })}
                                   </Tag>
                                 )}
                               </div>
@@ -1764,11 +1767,11 @@ const ProjectDetailPage: React.FC = () => {
           },
           {
             key: 'dynamics',
-            label: '成員動態',
+            label: t('project.members'),
             children: (
               <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: '16px 24px' } }}>
                 {dynamics.length === 0 ? (
-                  <Empty description="暫無動態記錄" />
+                  <Empty description={t('projectDetail.noDynamics')} />
                 ) : (
                   <>
                     <Timeline
@@ -1797,7 +1800,7 @@ const ProjectDetailPage: React.FC = () => {
                     {dynamicsHasMore && (
                       <div className="flex justify-center mt-2">
                         <Button size="small" loading={dynamicsLoadingMore} onClick={loadMoreDynamics}>
-                          載入更多
+                          {t('projectDetail.loadMore')}
                         </Button>
                       </div>
                     )}
@@ -1808,7 +1811,7 @@ const ProjectDetailPage: React.FC = () => {
           },
           {
             key: 'gantt',
-            label: '甘特圖',
+            label: t('project.gantt'),
             children: (
               <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: 16 } }}>
                 <GanttChart functions={functions} milestones={milestones} requirements={requirements} />
@@ -1817,7 +1820,7 @@ const ProjectDetailPage: React.FC = () => {
           },
           {
             key: 'milestones',
-            label: `里程碑 (${milestones.length})`,
+            label: `${t('project.milestones')} (${milestones.length})`,
             children: (
               <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: 20 } }}>
                 {id && <MilestoneTab
@@ -1830,27 +1833,27 @@ const ProjectDetailPage: React.FC = () => {
           },
           {
             key: 'files',
-            label: `附件 (${files.length})`,
+            label: `${t('project.files')} (${files.length})`,
             children: (
               <Card
                 variant="borderless"
                 className="shadow-sm"
                 styles={{ body: { padding: '16px 24px' } }}
-                title={<span className="text-sm font-medium text-slate-600">附件列表</span>}
+                title={<span className="text-sm font-medium text-slate-600">{t('projectDetail.fileList')}</span>}
                 extra={
                   <Space size={8}>
                     {/* 需求变更申请按钮：执行阶段且 PM 且当前没有待审/通过的申请 */}
                     {current.can_submit_change_request && !isProjectLocked && (
                       <Button size="small" onClick={() => setChangeReqModal(true)}>
-                        申請需求變更
+                        {t('projectDetail.applyChangeReq')}
                       </Button>
                     )}
                     {/* 变更申请状态提示 */}
                     {current.change_request_status === 1 && (
-                      <Tag color="processing">需求變更審核中</Tag>
+                      <Tag color="processing">{t('projectDetail.changeReqReviewing')}</Tag>
                     )}
                     {current.has_approved_change_request && (
-                      <Tag color="success">變更已批准</Tag>
+                      <Tag color="success">{t('projectDetail.changeReqApproved')}</Tag>
                     )}
                     {current.can_manage_files && (
                       <Upload
@@ -1859,7 +1862,7 @@ const ProjectDetailPage: React.FC = () => {
                           const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
                           const LEGACY = { doc: '.docx', ppt: '.pptx', xls: '.xlsx' } as Record<string, string>
                           if (LEGACY[ext]) {
-                            showToast.error(`不支持 .${ext} 格式，請另存為 ${LEGACY[ext]} 後再上傳`)
+                            showToast.error(t('projectDetail.unsupportedFormat', { ext, format: LEGACY[ext] }))
                             return false
                           }
                           setUploadModal({
@@ -1878,7 +1881,7 @@ const ProjectDetailPage: React.FC = () => {
                           loading={uploading}
                           size="small"
                         >
-                          上傳附件
+                          {t('projectDetail.uploadAttachment')}
                         </Button>
                       </Upload>
                     )}
@@ -1887,7 +1890,7 @@ const ProjectDetailPage: React.FC = () => {
               >
                 {/* 分類篩選 */}
                 <div className="flex gap-2 mb-3 flex-wrap items-center">
-                  {[{ value: 'all', label: `全部 (${files.length})`, locked: false },
+                  {[{ value: 'all', label: `${t('common.all')} (${files.length})`, locked: false },
                     ...FILE_CATEGORIES.map(c => ({
                       value: c.value,
                       label: `${c.label} (${files.filter(f => f.file_category === c.value).length})`,
@@ -1905,7 +1908,7 @@ const ProjectDetailPage: React.FC = () => {
                         fontWeight: fileCategoryFilter === tab.value ? 600 : 400,
                       }}
                     >
-                      {tab.locked && <span title="已鎖定，不可新增">🔒</span>}
+                      {tab.locked && <span title={t('projectDetail.lockedNoAdd')}>🔒</span>}
                       {tab.label}
                     </button>
                   ))}
@@ -1915,7 +1918,7 @@ const ProjectDetailPage: React.FC = () => {
                 {filesLoading ? (
                   <Spin />
                 ) : files.length === 0 ? (
-                  <Empty description="暫無附件" />
+                  <Empty description={t('projectDetail.noFiles')} />
                 ) : (
                   <Table
                     rowKey="id"
@@ -1935,7 +1938,7 @@ const ProjectDetailPage: React.FC = () => {
       {/* 附件預覽 Modal */}
       {/* Upload Modal */}
       <Modal
-        title="上傳附件"
+        title={t('projectDetail.uploadAttachment')}
         open={uploadModal.open}
         onCancel={() => setUploadModal({ open: false, file: null, category: 'other' })}
         onOk={async () => {
@@ -1944,26 +1947,26 @@ const ProjectDetailPage: React.FC = () => {
           }
           setUploadModal({ open: false, file: null, category: 'other' })
         }}
-        okText="確認上傳"
-        cancelText="取消"
+        okText={t('projectDetail.confirmUpload')}
+        cancelText={t('common.cancel')}
         confirmLoading={uploading}
         width={420}
         destroyOnHidden
       >
         <div className="mt-4 mb-2 flex flex-col gap-4">
           <div>
-            <div className="text-sm text-slate-500 mb-1">文件</div>
+            <div className="text-sm text-slate-500 mb-1">{t('projectDetail.file')}</div>
             <div className="text-slate-800 text-sm font-medium truncate">{uploadModal.file?.name}</div>
           </div>
           <div>
-            <div className="text-sm text-slate-500 mb-2">文件分類</div>
+            <div className="text-sm text-slate-500 mb-2">{t('projectDetail.fileClassification')}</div>
             <div className="flex flex-wrap gap-2">
               {FILE_CATEGORIES.map(c => {
                 const locked = !canUploadCategory(c.value)
                 return (
                   <Tooltip
                     key={c.value}
-                    title={locked ? '當前狀態已鎖定，需通過需求變更審批後方可上傳' : ''}
+                    title={locked ? t('projectDetail.lockedNeedChange') : ''}
                   >
                     <button
                       disabled={locked}
@@ -1984,10 +1987,10 @@ const ProjectDetailPage: React.FC = () => {
               })}
             </div>
             <div className="text-xs text-slate-400 mt-2">
-              {uploadModal.category === 'requirement' && '適用：草稿階段整理的需求説明、用戶故事等文件'}
-              {uploadModal.category === 'design' && '適用：系統架構、技術方案、UI 設計等規劃文件'}
-              {uploadModal.category === 'progress' && '適用：執行過程中的進度匯報、週報等文件'}
-              {uploadModal.category === 'other' && '其他類型文件'}
+              {uploadModal.category === 'requirement' && t('projectDetail.catHintReq')}
+              {uploadModal.category === 'design' && t('projectDetail.catHintDesign')}
+              {uploadModal.category === 'progress' && t('projectDetail.catHintProgress')}
+              {uploadModal.category === 'other' && t('projectDetail.catHintOther')}
             </div>
           </div>
         </div>
@@ -1995,25 +1998,25 @@ const ProjectDetailPage: React.FC = () => {
 
       {/* 需求變更申請 Modal */}
       <Modal
-        title="申請需求變更"
+        title={t('projectDetail.applyChangeReq')}
         open={changeReqModal}
         onCancel={() => { setChangeReqModal(false); changeReqForm.resetFields() }}
         onOk={() => changeReqForm.submit()}
-        okText="提交申請"
-        cancelText="取消"
+        okText={t('projectDetail.submitApplication')}
+        cancelText={t('common.cancel')}
         confirmLoading={changeReqSaving}
         width={480}
         destroyOnHidden
       >
         <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded p-3 mb-4">
-          審批通過後，可在本專案補充需求文件與規劃設計文件，但不可刪除原始文件。
+          {t('projectDetail.changeReqHint')}
         </div>
         <Form form={changeReqForm} layout="vertical" onFinish={handleSubmitChangeRequest}>
-          <Form.Item name="reviewer" label="審核人" rules={[{ required: true, message: '請填寫審核人工號' }]}>
-            <Select mode="tags" placeholder="輸入審核人工號，按 Enter 確認" />
+          <Form.Item name="reviewer" label={t('projectDetail.reviewer')} rules={[{ required: true, message: t('projectDetail.reviewerRequired') }]}>
+            <Select mode="tags" placeholder={t('projectDetail.reviewerPlaceholder')} />
           </Form.Item>
-          <Form.Item name="description" label="變更原因" rules={[{ required: true, message: '請說明變更原因' }]}>
-            <Input.TextArea rows={4} placeholder="說明本次需求變更的原因及需要補充的文件..." />
+          <Form.Item name="description" label={t('projectDetail.changeReason')} rules={[{ required: true, message: t('projectDetail.changeReasonRequired') }]}>
+            <Input.TextArea rows={4} placeholder={t('projectDetail.changeReasonPlaceholder')} />
           </Form.Item>
         </Form>
       </Modal>
@@ -2034,67 +2037,67 @@ const ProjectDetailPage: React.FC = () => {
 
       {/* 新增/編輯需求 Modal */}
       <Modal
-        title={editReq ? '編輯需求' : '新增需求'}
+        title={editReq ? t('projectDetail.editReq') : t('projectDetail.addReq')}
         open={showAddReq}
         onCancel={() => { setShowAddReq(false); setEditReq(null); reqForm.resetFields() }}
         onOk={() => reqForm.submit()}
-        okText={editReq ? '儲存' : '新增'}
-        cancelText="取消"
+        okText={editReq ? t('common.save') : t('common.add')}
+        cancelText={t('common.cancel')}
         confirmLoading={reqSaving}
         okButtonProps={{ style: { background: '#2563eb' } }}
         width={520}
         destroyOnHidden
       >
         <Form form={reqForm} layout="vertical" onFinish={handleSaveRequirement} className="mt-4">
-          <Form.Item name="req_nm" label="需求名稱" rules={[{ required: true, message: '請輸入需求名稱' }]}>
-            <Input placeholder="請輸入需求名稱" />
+          <Form.Item name="req_nm" label={t('projectDetail.colReqName')} rules={[{ required: true, message: t('projectDetail.reqNameRequired') }]}>
+            <Input placeholder={t('projectDetail.reqNamePlaceholder')} />
           </Form.Item>
-          <Form.Item name="describe" label="需求描述">
-            <Input.TextArea rows={3} placeholder="描述需求背景和目標（選填）" />
+          <Form.Item name="describe" label={t('projectDetail.reqDesc')}>
+            <Input.TextArea rows={3} placeholder={t('projectDetail.reqDescPlaceholder')} />
           </Form.Item>
           <div className="grid grid-cols-2 gap-x-4">
-            <Form.Item name="priority" label="優先級" initialValue={2} rules={[{ required: true }]}>
+            <Form.Item name="priority" label={t('common.priority')} initialValue={2} rules={[{ required: true }]}>
               <Select options={PRIORITY_OPTIONS} />
             </Form.Item>
-            <Form.Item name="expected_end_date" label="期望完成">
-              <Input type="date" />
+            <Form.Item name="expected_end_date" label={t('projectDetail.expectedComplete')}>
+              <DateInput/>
             </Form.Item>
           </div>
-          <Form.Item name="responsible" label="負責人">
+          <Form.Item name="responsible" label={t('projectDetail.colResponsible')}>
             <Select
-              mode="multiple" placeholder="選擇負責人（選填）"
+              mode="multiple" placeholder={t('projectDetail.responsibleOptionalPlaceholder')}
               options={reqUserOptions} showSearch allowClear
               filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
             />
           </Form.Item>
-          <Form.Item label="效益數量" style={{ marginBottom: 8 }}>
+          <Form.Item label={t('projectDetail.benefitAmount')} style={{ marginBottom: 8 }}>
             <Form.Item name="benefit_amount" noStyle>
               <InputNumber
                 style={{ width: '60%' }}
-                placeholder="數字（選填）"
+                placeholder={t('projectDetail.numberOptional')}
                 addonAfter={
                   <Form.Item name="benefit_unit" noStyle initialValue="元/年">
                     <Select style={{ width: 100 }} options={[
-                      { value: '元/年', label: '元/年' },
-                      { value: '人/年', label: '人/年' },
-                      { value: '工時/年', label: '工時/年' },
+                      { value: '元/年', label: t('project.benefitUnitMoney') },
+                      { value: '人/年', label: t('project.benefitUnitPerson') },
+                      { value: '工時/年', label: t('project.benefitUnitHour') },
                     ]} />
                   </Form.Item>
                 }
               />
             </Form.Item>
           </Form.Item>
-          <Form.Item name="expected_benefit" label="效益說明">
-            <Input.TextArea rows={3} placeholder="文字說明（選填）" />
+          <Form.Item name="expected_benefit" label={t('projectDetail.benefitDesc')}>
+            <Input.TextArea rows={3} placeholder={t('projectDetail.benefitDescPlaceholder')} />
           </Form.Item>
-          <Form.Item name="is_addon" label="需求類型" valuePropName="checked" initialValue={false}>
-            <Switch checkedChildren="追加需求" unCheckedChildren="立案需求" />
+          <Form.Item name="is_addon" label={t('projectDetail.reqType')} valuePropName="checked" initialValue={false}>
+            <Switch checkedChildren={t('projectDetail.addonReq')} unCheckedChildren={t('projectDetail.initReq')} />
           </Form.Item>
-          <div className="text-xs text-slate-400 -mt-3 mb-3 ml-1">追加需求的效益金額會獨立計入專案效益合計；立案需求的效益已含在專案中，不重複計算。</div>
+          <div className="text-xs text-slate-400 -mt-3 mb-3 ml-1">{t('projectDetail.reqTypeHint')}</div>
           {/* 附件上傳（僅編輯已存在需求時顯示） */}
           {editReq && (
             <div className="mt-1">
-              <div className="text-sm text-slate-600 mb-2">附件</div>
+              <div className="text-sm text-slate-600 mb-2">{t('projectDetail.attachments')}</div>
               {(editReq.files?.length ?? 0) > 0 && (
                 <div className="mb-2">
                   <AttachmentPreview
@@ -2103,7 +2106,7 @@ const ProjectDetailPage: React.FC = () => {
                   />
                   <div className="flex flex-wrap gap-1 mt-1">
                     {editReq.files!.map((f) => (
-                      <Popconfirm key={f.url} title="確認刪除此附件？"
+                      <Popconfirm key={f.url} title={t('projectDetail.confirmDeleteAttachment')}
                         onConfirm={async () => {
                           try {
                             await requirementApi.deleteFile(id!, editReq.id, f.url)
@@ -2112,9 +2115,9 @@ const ProjectDetailPage: React.FC = () => {
                             loadFiles(id!)
                           } catch { /* global */ }
                         }}
-                        okText="刪除" cancelText="取消">
+                        okText={t('common.delete')} cancelText={t('common.cancel')}>
                         <button className="text-xs text-red-400 hover:text-red-600 border border-red-200 bg-white rounded px-1.5 py-0.5 cursor-pointer">
-                          刪除「{f.name}」
+                          {t('projectDetail.deleteFile', { name: f.name })}
                         </button>
                       </Popconfirm>
                     ))}
@@ -2131,15 +2134,15 @@ const ProjectDetailPage: React.FC = () => {
                     setEditReq((prev) => prev ? { ...prev, files: updated } : null)
                     loadRequirements(id!)
                     loadFiles(id!)
-                    showToast.success('上傳成功')
-                  } catch { showToast.error('上傳失敗') }
+                    showToast.success(t('projectDetail.uploadSuccess'))
+                  } catch { showToast.error(t('projectDetail.uploadFailed')) }
                   finally { setReqUploading(false) }
                   return false
                 }}
                 accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.gif,.zip,.rar,.txt,.md"
                 disabled={reqUploading}
               >
-                <Button size="small" icon={<PlusIcon className="w-3.5 h-3.5" />} loading={reqUploading}>上傳附件</Button>
+                <Button size="small" icon={<PlusIcon className="w-3.5 h-3.5" />} loading={reqUploading}>{t('projectDetail.uploadAttachment')}</Button>
               </Upload>
             </div>
           )}
@@ -2147,17 +2150,17 @@ const ProjectDetailPage: React.FC = () => {
       </Modal>
 
       {/* 需求提交審核 Modal */}
-      <Modal title="提交需求審核" open={showReqReview}
+      <Modal title={t('projectDetail.submitReqReview')} open={showReqReview}
         onCancel={() => { setShowReqReview(false); setReviewReqId(null) }}
         footer={null} width={520} destroyOnHidden>
         <div className="mt-4 space-y-4">
-          <div className="text-xs text-slate-400">審核人將依列表順序逐一審核（OA流程），可拖動或上下移動調整順序。</div>
+          <div className="text-xs text-slate-400">{t('projectDetail.reviewFlowHint')}</div>
           <div>
-            <div className="text-sm font-medium text-slate-600 mb-2">審核流程</div>
+            <div className="text-sm font-medium text-slate-600 mb-2">{t('projectDetail.reviewFlow')}</div>
             {reqModalReviewersLoading ? (
               <div className="flex justify-center py-4"><Spin size="small" /></div>
             ) : reqModalReviewers.length === 0 ? (
-              <div className="border border-dashed border-slate-300 rounded-lg py-5 text-center text-slate-400 text-sm">尚未添加審核人，請搜尋並加入</div>
+              <div className="border border-dashed border-slate-300 rounded-lg py-5 text-center text-slate-400 text-sm">{t('projectDetail.noReviewerAdded')}</div>
             ) : (
               <div className="border border-slate-200 rounded-lg overflow-hidden">
                 {reqModalReviewers.map((r, i) => (
@@ -2178,9 +2181,9 @@ const ProjectDetailPage: React.FC = () => {
             )}
           </div>
           <div>
-            <div className="text-sm font-medium text-slate-600 mb-2">加簽審核人</div>
+            <div className="text-sm font-medium text-slate-600 mb-2">{t('projectDetail.addReviewer')}</div>
             <div className="relative">
-              <Input placeholder="輸入姓名或工號搜尋" value={reqModalSearch}
+              <Input placeholder={t('projectDetail.searchReviewerPlaceholder')} value={reqModalSearch}
                 onChange={(e) => handleSearchReqReviewer(e.target.value)}
                 prefix={reqModalSearchLoading ? <Spin size="small" /> : undefined} allowClear />
               {reqModalSearchResults.length > 0 && (
@@ -2196,7 +2199,7 @@ const ProjectDetailPage: React.FC = () => {
                           <div className="text-sm font-medium text-slate-800">{u.name}</div>
                           <div className="text-xs text-slate-400">{u.department}{u.position ? ` · ${u.position}` : ''} · {u.work_no}</div>
                         </div>
-                        {already && <span className="text-xs text-slate-400">已添加</span>}
+                        {already && <span className="text-xs text-slate-400">{t('projectDetail.alreadyAdded')}</span>}
                       </div>
                     )
                   })}
@@ -2206,25 +2209,25 @@ const ProjectDetailPage: React.FC = () => {
           </div>
           <Divider style={{ margin: '8px 0' }} />
           <div className="flex justify-end gap-3">
-            <Button onClick={() => { setShowReqReview(false); setReviewReqId(null) }}>取消</Button>
+            <Button onClick={() => { setShowReqReview(false); setReviewReqId(null) }}>{t('common.cancel')}</Button>
             <Button type="primary" loading={reqReviewSaving} disabled={reqModalReviewers.length === 0}
-              style={{ background: '#2563eb' }} onClick={handleSubmitReqReview}>提交審核</Button>
+              style={{ background: '#2563eb' }} onClick={handleSubmitReqReview}>{t('projectDetail.submitReview')}</Button>
           </div>
         </div>
       </Modal>
 
       {/* 批量提交需求審核 Modal */}
-      <Modal title={`批量提交需求審核（共 ${selectedReqIds.length} 筆）`} open={showBatchReview}
+      <Modal title={t('projectDetail.batchReviewTitle', { count: selectedReqIds.length })} open={showBatchReview}
         onCancel={() => setShowBatchReview(false)}
         footer={null} width={520} destroyOnHidden>
         <div className="mt-4 space-y-4">
-          <div className="text-xs text-slate-400">以下 {selectedReqIds.length} 筆草稿需求將使用相同的審核人依序提交。審核人將逐一審核（OA流程），可調整順序。</div>
+          <div className="text-xs text-slate-400">{t('projectDetail.batchReviewDesc', { count: selectedReqIds.length })}</div>
           <div>
-            <div className="text-sm font-medium text-slate-600 mb-2">審核流程</div>
+            <div className="text-sm font-medium text-slate-600 mb-2">{t('projectDetail.reviewFlow')}</div>
             {reqModalReviewersLoading ? (
               <div className="flex justify-center py-4"><Spin size="small" /></div>
             ) : reqModalReviewers.length === 0 ? (
-              <div className="border border-dashed border-slate-300 rounded-lg py-5 text-center text-slate-400 text-sm">尚未添加審核人，請搜尋並加入</div>
+              <div className="border border-dashed border-slate-300 rounded-lg py-5 text-center text-slate-400 text-sm">{t('projectDetail.noReviewerAdded')}</div>
             ) : (
               <div className="border border-slate-200 rounded-lg overflow-hidden">
                 {reqModalReviewers.map((r, i) => (
@@ -2245,9 +2248,9 @@ const ProjectDetailPage: React.FC = () => {
             )}
           </div>
           <div>
-            <div className="text-sm font-medium text-slate-600 mb-2">加簽審核人</div>
+            <div className="text-sm font-medium text-slate-600 mb-2">{t('projectDetail.addReviewer')}</div>
             <div className="relative">
-              <Input placeholder="輸入姓名或工號搜尋" value={reqModalSearch}
+              <Input placeholder={t('projectDetail.searchReviewerPlaceholder')} value={reqModalSearch}
                 onChange={(e) => handleSearchReqReviewer(e.target.value)}
                 prefix={reqModalSearchLoading ? <Spin size="small" /> : undefined} allowClear />
               {reqModalSearchResults.length > 0 && (
@@ -2263,7 +2266,7 @@ const ProjectDetailPage: React.FC = () => {
                           <div className="text-sm font-medium text-slate-800">{u.name}</div>
                           <div className="text-xs text-slate-400">{u.department}{u.position ? ` · ${u.position}` : ''} · {u.work_no}</div>
                         </div>
-                        {already && <span className="text-xs text-slate-400">已添加</span>}
+                        {already && <span className="text-xs text-slate-400">{t('projectDetail.alreadyAdded')}</span>}
                       </div>
                     )
                   })}
@@ -2273,27 +2276,27 @@ const ProjectDetailPage: React.FC = () => {
           </div>
           <Divider style={{ margin: '8px 0' }} />
           <div className="flex justify-end gap-3">
-            <Button onClick={() => setShowBatchReview(false)}>取消</Button>
+            <Button onClick={() => setShowBatchReview(false)}>{t('common.cancel')}</Button>
             <Button type="primary" loading={batchReviewSaving} disabled={reqModalReviewers.length === 0}
-              style={{ background: '#2563eb' }} onClick={handleBatchSubmitReview}>提交審核</Button>
+              style={{ background: '#2563eb' }} onClick={handleBatchSubmitReview}>{t('projectDetail.submitReview')}</Button>
           </div>
         </div>
       </Modal>
 
       {/* 提交新增任務審核 Modal */}
-      <Modal title={`提交新增任務審核（共 ${selectedDraftFuncIds.length} 個草稿任務）`} open={showDraftReview}
+      <Modal title={t('projectDetail.draftReviewTitle', { count: selectedDraftFuncIds.length })} open={showDraftReview}
         onCancel={() => setShowDraftReview(false)}
         footer={null} width={520} destroyOnHidden>
         <div className="mt-4 space-y-4">
           <div className="text-xs text-amber-600 bg-amber-50 rounded px-3 py-2">
-            以下 {selectedDraftFuncIds.length} 個草稿任務將在審核通過後正式啟動（狀態改為「待開始」）。
+            {t('projectDetail.draftReviewDesc', { count: selectedDraftFuncIds.length })}
           </div>
           <div>
-            <div className="text-sm font-medium text-slate-600 mb-2">審核流程</div>
+            <div className="text-sm font-medium text-slate-600 mb-2">{t('projectDetail.reviewFlow')}</div>
             {draftReviewersLoading ? (
               <div className="flex justify-center py-4"><Spin size="small" /></div>
             ) : draftReviewers.length === 0 ? (
-              <div className="border border-dashed border-slate-300 rounded-lg py-5 text-center text-slate-400 text-sm">尚未添加審核人，請搜尋並加入</div>
+              <div className="border border-dashed border-slate-300 rounded-lg py-5 text-center text-slate-400 text-sm">{t('projectDetail.noReviewerAdded')}</div>
             ) : (
               <div className="border border-slate-200 rounded-lg overflow-hidden">
                 {draftReviewers.map((r, i) => (
@@ -2314,9 +2317,9 @@ const ProjectDetailPage: React.FC = () => {
             )}
           </div>
           <div>
-            <div className="text-sm font-medium text-slate-600 mb-2">加簽審核人</div>
+            <div className="text-sm font-medium text-slate-600 mb-2">{t('projectDetail.addReviewer')}</div>
             <div className="relative">
-              <Input placeholder="輸入姓名或工號搜尋" value={draftReviewSearch}
+              <Input placeholder={t('projectDetail.searchReviewerPlaceholder')} value={draftReviewSearch}
                 onChange={(e) => handleSearchDraftReviewer(e.target.value)}
                 prefix={draftReviewSearchLoading ? <Spin size="small" /> : undefined} allowClear />
               {draftReviewSearchResults.length > 0 && (
@@ -2332,7 +2335,7 @@ const ProjectDetailPage: React.FC = () => {
                           <div className="text-sm font-medium text-slate-800">{u.name}</div>
                           <div className="text-xs text-slate-400">{u.department}{u.position ? ` · ${u.position}` : ''} · {u.work_no}</div>
                         </div>
-                        {already && <span className="text-xs text-slate-400">已添加</span>}
+                        {already && <span className="text-xs text-slate-400">{t('projectDetail.alreadyAdded')}</span>}
                       </div>
                     )
                   })}
@@ -2342,73 +2345,73 @@ const ProjectDetailPage: React.FC = () => {
           </div>
           <Divider style={{ margin: '8px 0' }} />
           <div className="flex justify-end gap-3">
-            <Button onClick={() => setShowDraftReview(false)}>取消</Button>
+            <Button onClick={() => setShowDraftReview(false)}>{t('common.cancel')}</Button>
             <Button type="primary" loading={draftReviewSaving} disabled={draftReviewers.length === 0}
-              style={{ background: '#2563eb' }} onClick={handleSubmitDraftReview}>提交審核</Button>
+              style={{ background: '#2563eb' }} onClick={handleSubmitDraftReview}>{t('projectDetail.submitReview')}</Button>
           </div>
         </div>
       </Modal>
 
       {/* 需求搁置審核 Modal */}
       <Modal
-        title="申請搁置需求"
+        title={t('projectDetail.applyShelve')}
         open={showReqShelve}
         onCancel={() => { setShowReqShelve(false); setShelveReqId(null); reqShelveForm.resetFields() }}
         onOk={() => reqShelveForm.submit()}
-        okText="提交申請"
-        cancelText="取消"
+        okText={t('projectDetail.submitApplication')}
+        cancelText={t('common.cancel')}
         confirmLoading={reqShelveSaving}
         destroyOnHidden
       >
         <Form form={reqShelveForm} layout="vertical" onFinish={handleSubmitReqShelve} className="mt-4">
           <div className="text-sm text-amber-600 bg-amber-50 rounded px-3 py-2 mb-4">
-            搁置後需求將不再參與排程規劃，如需重新啟用請聯繫管理員。
+            {t('projectDetail.shelveHint')}
           </div>
-          <Form.Item name="reviewer" label="審核人工號" rules={[{ required: true, message: '請填寫至少一位審核人' }]}>
-            <Select mode="tags" placeholder="輸入工號，按 Enter 確認" tokenSeparators={[',']} />
+          <Form.Item name="reviewer" label={t('projectDetail.reviewerWorkNo')} rules={[{ required: true, message: t('projectDetail.reviewerAtLeastOne') }]}>
+            <Select mode="tags" placeholder={t('projectDetail.workNoEnterPlaceholder')} tokenSeparators={[',']} />
           </Form.Item>
         </Form>
       </Modal>
 
       {/* Add Function Modal */}
-      <Modal title="新增功能任務" open={showAddFunc}
+      <Modal title={t('projectDetail.addFuncTask')} open={showAddFunc}
         onCancel={() => { setShowAddFunc(false); funcForm.resetFields() }}
         footer={null} width="min(780px, 88vw)" destroyOnHidden>
         <Form form={funcForm} layout="vertical" onFinish={handleAddFunction} className="mt-4">
-          <Form.Item name="function_nm" label="功能名稱" rules={[{ required: true }]}>
-            <Input placeholder="請輸入功能名稱" />
+          <Form.Item name="function_nm" label={t('function.functionName')} rules={[{ required: true }]}>
+            <Input placeholder={t('function.functionNamePlaceholder')} />
           </Form.Item>
           <div className="grid grid-cols-2 gap-x-4">
-            <Form.Item name="priority" label="優先級" rules={[{ required: true }]} initialValue={2}>
-              <Select options={[{value:1,label:'低'},{value:2,label:'中'},{value:3,label:'高'},{value:4,label:'緊急'}]} />
+            <Form.Item name="priority" label={t('common.priority')} rules={[{ required: true }]} initialValue={2}>
+              <Select options={PRIORITY_OPTIONS} />
             </Form.Item>
-            <Form.Item name="group1" label="任務分組">
+            <Form.Item name="group1" label={t('function.taskGroupLabel')}>
               <AutoComplete
                 options={groupAutoOptions}
-                placeholder="選擇或輸入分組名稱（選填）"
+                placeholder={t('projectDetail.groupPlaceholder')}
                 filterOption={(input, option) => (option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
                 allowClear
               />
             </Form.Item>
-            <Form.Item name="expected_start_date" label="預計開始"><Input type="date" /></Form.Item>
-            <Form.Item name="expected_end_date"   label="預計結束"><Input type="date" /></Form.Item>
+            <Form.Item name="expected_start_date" label={t('function.expectedStartDate')}><DateInput/></Form.Item>
+            <Form.Item name="expected_end_date"   label={t('function.expectedEndDate')}><DateInput/></Form.Item>
           </div>
 
-          <Form.Item name="requirement_id" label="關聯需求（選填）">
+          <Form.Item name="requirement_id" label={t('projectDetail.linkedReqOptional')}>
             <Select
               allowClear
-              placeholder={reqLoading ? '載入中…' : requirements.length === 0 ? '暫無需求' : '選擇關聯需求（可不選）'}
+              placeholder={reqLoading ? t('common.loading') : requirements.length === 0 ? t('projectDetail.noReq') : t('projectDetail.selectLinkedReq')}
               loading={reqLoading}
               disabled={reqLoading}
               options={requirements.filter((r) => r.status === 2 || r.status === 4).map((r) => ({ value: r.id, label: r.req_nm }))}
-              notFoundContent={reqLoading ? '載入中…' : '暫無已通過審核的需求'}
+              notFoundContent={reqLoading ? t('common.loading') : t('projectDetail.noApprovedReq')}
             />
           </Form.Item>
 
-          <Form.Item name="responsible" label="負責人">
+          <Form.Item name="responsible" label={t('projectDetail.colResponsible')}>
             <Select
               mode="multiple"
-              placeholder="選擇負責人"
+              placeholder={t('function.assigneePlaceholder')}
               options={funcModalUserOptions}
               showSearch
               filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
@@ -2424,26 +2427,26 @@ const ProjectDetailPage: React.FC = () => {
               return (
                 <div className="mb-4">
                   <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-sm text-slate-700">功能描述</span>
+                    <span className="text-sm text-slate-700">{t('function.funcDesc')}</span>
                     <button
                       type="button"
                       onClick={handleOpenAddFuncExpand}
                       className="flex items-center gap-1 text-xs text-slate-500 hover:text-blue-600 border border-slate-200 rounded-md px-2 py-1 hover:border-blue-300 bg-white transition-colors"
                     >
                       <ArrowsPointingOutIcon className="w-3.5 h-3.5" />
-                      展開富文本編輯
+                      {t('project.expandRichText')}
                     </button>
                   </div>
                   <Input.TextArea
                     value={displayValue}
                     onChange={(e) => funcForm.setFieldValue('describe', e.target.value)}
                     rows={3}
-                    placeholder="請描述功能需求，或點擊右上角展開富文本編輯器..."
+                    placeholder={t('function.funcDescPlaceholder')}
                     style={{ resize: 'vertical', minHeight: 80 }}
                   />
                   <Form.Item name="describe" noStyle><input type="hidden" /></Form.Item>
                   {isHtml(v) && (
-                    <p className="text-xs text-blue-500 mt-1">已套用富文本格式，點擊「展開富文本編輯」可繼續修改</p>
+                    <p className="text-xs text-blue-500 mt-1">{t('project.richTextApplied')}</p>
                   )}
                 </div>
               )
@@ -2451,8 +2454,8 @@ const ProjectDetailPage: React.FC = () => {
           </Form.Item>
 
           <div className="flex justify-end gap-3">
-            <Button onClick={() => { setShowAddFunc(false); funcForm.resetFields() }}>取消</Button>
-            <Button type="primary" htmlType="submit" loading={addFuncLoading} style={{ background: '#2563eb' }}>新增</Button>
+            <Button onClick={() => { setShowAddFunc(false); funcForm.resetFields() }}>{t('common.cancel')}</Button>
+            <Button type="primary" htmlType="submit" loading={addFuncLoading} style={{ background: '#2563eb' }}>{t('common.add')}</Button>
           </div>
         </Form>
       </Modal>
@@ -2460,18 +2463,18 @@ const ProjectDetailPage: React.FC = () => {
       {/* 新增功能描述展開 Modal */}
       <Modal
         open={addFuncExpandOpen}
-        title="功能描述"
+        title={t('function.funcDescModalTitle')}
         onCancel={() => setAddFuncExpandOpen(false)}
         width="80vw"
         style={{ top: 40, maxWidth: 1100 }}
         styles={{ body: { padding: '16px 24px 24px' } }}
         footer={
           <div className="flex justify-end gap-2">
-            <Button onClick={() => setAddFuncExpandOpen(false)}>取消</Button>
+            <Button onClick={() => setAddFuncExpandOpen(false)}>{t('common.cancel')}</Button>
             <Button type="primary" style={{ background: '#2563eb' }} onClick={() => {
               funcForm.setFieldValue('describe', addFuncExpandDraft)
               setAddFuncExpandOpen(false)
-            }}>完成</Button>
+            }}>{t('project.completeBtn')}</Button>
           </div>
         }
         destroyOnClose
@@ -2479,7 +2482,7 @@ const ProjectDetailPage: React.FC = () => {
         <RichTextEditor
           value={addFuncExpandDraft}
           onChange={setAddFuncExpandDraft}
-          placeholder="請描述功能需求（支援標題、列表、粗體等格式）"
+          placeholder={t('function.funcDescExpandPlaceholder')}
           minHeight={480}
         />
       </Modal>
@@ -2496,19 +2499,19 @@ const ProjectDetailPage: React.FC = () => {
 
 
       {/* 編輯專案 Modal */}
-      <Modal title="編輯專案" open={showEdit} onCancel={() => setShowEdit(false)}
+      <Modal title={t('projectDetail.editProject')} open={showEdit} onCancel={() => setShowEdit(false)}
         footer={null} width="min(960px, 90vw)" destroyOnHidden>
         <Form form={editForm} layout="vertical" onFinish={handleEditSave} className="mt-4">
           <div className="grid grid-cols-2 gap-x-4">
-            <Form.Item name="project_nm" label="專案名稱" rules={[{ required: true }]} className="col-span-2">
+            <Form.Item name="project_nm" label={t('project.projectName')} rules={[{ required: true }]} className="col-span-2">
               <Input />
             </Form.Item>
 
             {/* 部門 — 選擇或新增 */}
-            <Form.Item name="department" label="部門" rules={[{ required: true }]}>
+            <Form.Item name="department" label={t('project.department')} rules={[{ required: true }]}>
               <Select
                 showSearch
-                placeholder="輸入或選擇部門"
+                placeholder={t('project.selectOrInputDept')}
                 filterOption={(input, opt) =>
                   (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())
                 }
@@ -2522,13 +2525,13 @@ const ProjectDetailPage: React.FC = () => {
                         value={newDeptName}
                         onChange={(e) => setNewDeptName(e.target.value)}
                         onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCreateDept() } }}
-                        placeholder="輸入新部門名稱"
+                        placeholder={t('project.newDeptPlaceholder')}
                         style={{ flex: 1, padding: '4px 8px', border: '1px solid #d9d9d9', borderRadius: 6, fontSize: 13, outline: 'none' }}
                       />
                       <Button type="text" icon={<span>+</span>} size="small"
                         loading={creatingDept} disabled={!newDeptName.trim()}
                         onClick={handleCreateDept}>
-                        新增部門
+                        {t('project.addDept')}
                       </Button>
                     </Space>
                   </>
@@ -2536,40 +2539,40 @@ const ProjectDetailPage: React.FC = () => {
               />
             </Form.Item>
 
-            <Form.Item name="priority" label="優先級" rules={[{ required: true }]}>
+            <Form.Item name="priority" label={t('common.priority')} rules={[{ required: true }]}>
               <Select options={PRIORITY_OPTIONS} />
             </Form.Item>
 
             {/* 專案PM — 搜尋選擇 */}
-            <Form.Item name="project_pm" label="專案PM" rules={[{ required: true }]}>
+            <Form.Item name="project_pm" label={t('project.projectPm')} rules={[{ required: true }]}>
               <Select
                 showSearch
-                placeholder="輸入工號或姓名搜索..."
+                placeholder={t('project.searchPmPlaceholder')}
                 filterOption={false}
                 onSearch={handlePmSearch}
-                notFoundContent={pmSearching ? <Spin size="small" /> : '未找到用戶，請繼續輸入'}
+                notFoundContent={pmSearching ? <Spin size="small" /> : t('project.userNotFound')}
                 options={pmOptions}
                 allowClear
               />
             </Form.Item>
 
             {/* 産品PM — 搜尋選擇 */}
-            <Form.Item name="product_pm" label="産品PM">
+            <Form.Item name="product_pm" label={t('project.productPm')}>
               <Select
                 showSearch
-                placeholder="輸入工號或姓名搜索（可留空）"
+                placeholder={t('project.searchPmOptionalPlaceholder')}
                 filterOption={false}
                 onSearch={handlePmSearch}
-                notFoundContent={pmSearching ? <Spin size="small" /> : '未找到用戶，請繼續輸入'}
+                notFoundContent={pmSearching ? <Spin size="small" /> : t('project.userNotFound')}
                 options={pmOptions}
                 allowClear
               />
             </Form.Item>
 
-            <Form.Item name="group_id" label="專案分組" rules={[{ required: true, message: '請選擇專案分組' }]}>
+            <Form.Item name="group_id" label={t('project.projectGroup')} rules={[{ required: true, message: t('projectDetail.groupRequired') }]}>
               <Select
                 options={groups.map((g) => ({ value: g.id, label: g.group_nm }))}
-                placeholder="請選擇分組"
+                placeholder={t('project.selectGroupPlaceholder')}
                 popupRender={canManageGroups ? (menu) => (
                   <>
                     {menu}
@@ -2579,12 +2582,12 @@ const ProjectDetailPage: React.FC = () => {
                         value={newGroupName}
                         onChange={(e) => setNewGroupName(e.target.value)}
                         onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCreateGroup() } }}
-                        placeholder="輸入新分組名稱"
+                        placeholder={t('project.newGroupPlaceholder')}
                         style={{ flex: 1, padding: '4px 8px', border: '1px solid #d9d9d9', borderRadius: 6, fontSize: 13, outline: 'none' }}
                       />
                       <Button type="text" icon={<span>+</span>} loading={creatingGroup}
                         onClick={handleCreateGroup} disabled={!newGroupName.trim()} size="small">
-                        新建分組
+                        {t('project.createGroup')}
                       </Button>
                     </Space>
                   </>
@@ -2592,29 +2595,29 @@ const ProjectDetailPage: React.FC = () => {
               />
             </Form.Item>
 
-            <Form.Item name="expected_end_date" label="預計完成日期"
+            <Form.Item name="expected_end_date" label={t('common.expectedEndDate')}
               getValueProps={(v) => ({ value: v ? dayjs(v) : null })}
               getValueFromEvent={(date) => date ? date.format('YYYY-MM-DD') : ''}>
               <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
             </Form.Item>
 
-            <Form.Item name="code_url" label="代碼庫地址" className="col-span-2">
+            <Form.Item name="code_url" label={t('project.codeUrl')} className="col-span-2">
               <Input placeholder="https://..." />
             </Form.Item>
 
-            <Form.Item label="預估效益數量" style={{ marginBottom: 0 }}>
+            <Form.Item label={t('project.benefitAmount')} style={{ marginBottom: 0 }}>
               <Form.Item name="benefit_amount" style={{ display: 'inline-block', width: '100%', marginBottom: 0 }}>
                 <InputNumber
                   style={{ width: '100%' }}
-                  placeholder="請輸入數字（支援小數）"
+                  placeholder={t('project.benefitAmountPlaceholder')}
                   min={0}
                   addonAfter={
                     <Form.Item name="benefit_unit" noStyle initialValue="元/年">
                       <Select
                         options={[
-                          { value: '元/年', label: '元/年' },
-                          { value: '人/年', label: '人/年' },
-                          { value: '工時/年', label: '工時/年' },
+                          { value: '元/年', label: t('project.benefitUnitMoney') },
+                          { value: '人/年', label: t('project.benefitUnitPerson') },
+                          { value: '工時/年', label: t('project.benefitUnitHour') },
                         ]}
                         style={{ width: 80 }}
                       />
@@ -2626,8 +2629,8 @@ const ProjectDetailPage: React.FC = () => {
 
 
 
-            <Form.Item name="expected_benefit" label="效益說明">
-              <Input.TextArea rows={2} placeholder="例：預計減少人工作業30%，每年節省約50萬元" />
+            <Form.Item name="expected_benefit" label={t('project.benefitDesc')}>
+              <Input.TextArea rows={2} placeholder={t('project.benefitPlaceholder')} />
             </Form.Item>
 
           </div>
@@ -2640,27 +2643,27 @@ const ProjectDetailPage: React.FC = () => {
               return (
                 <div className="mb-4">
                   <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-sm text-slate-700">專案描述</span>
+                    <span className="text-sm text-slate-700">{t('project.projectDesc')}</span>
                     <button
                       type="button"
                       onClick={handleOpenExpandEdit}
                       className="flex items-center gap-1 text-xs text-slate-500 hover:text-blue-600 border border-slate-200 rounded-md px-2 py-1 hover:border-blue-300 bg-white transition-colors"
                     >
                       <ArrowsPointingOutIcon className="w-3.5 h-3.5" />
-                      展開富文本編輯
+                      {t('project.expandRichText')}
                     </button>
                   </div>
                   <Input.TextArea
                     value={displayValue}
                     onChange={(e) => editForm.setFieldValue('describe', e.target.value)}
                     rows={3}
-                    placeholder="請輸入專案描述，或點擊右上角展開富文本編輯器..."
+                    placeholder={t('project.descExpandPlaceholder')}
                     style={{ resize: 'vertical', minHeight: 80 }}
                   />
                   {/* Hidden Form.Item carries the value on submit */}
                   <Form.Item name="describe" noStyle><input type="hidden" /></Form.Item>
                   {isHtml(v) && (
-                    <p className="text-xs text-blue-500 mt-1">已套用富文本格式，點擊「展開富文本編輯」可繼續修改</p>
+                    <p className="text-xs text-blue-500 mt-1">{t('project.richTextApplied')}</p>
                   )}
                 </div>
               )
@@ -2668,8 +2671,8 @@ const ProjectDetailPage: React.FC = () => {
           </Form.Item>
 
           <div className="flex justify-end gap-3">
-            <Button onClick={() => setShowEdit(false)}>取消</Button>
-            <Button type="primary" htmlType="submit" loading={editSaving} style={{ background: '#2563eb' }}>保存</Button>
+            <Button onClick={() => setShowEdit(false)}>{t('common.cancel')}</Button>
+            <Button type="primary" htmlType="submit" loading={editSaving} style={{ background: '#2563eb' }}>{t('common.save')}</Button>
           </div>
         </Form>
       </Modal>
@@ -2677,15 +2680,15 @@ const ProjectDetailPage: React.FC = () => {
       {/* 描述展開編輯 Modal（編輯專案用） */}
       <Modal
         open={editExpandOpen}
-        title="專案描述"
+        title={t('project.descModalTitle')}
         onCancel={() => setEditExpandOpen(false)}
         width="80vw"
         style={{ top: 40, maxWidth: 1100 }}
         styles={{ body: { padding: '16px 24px 24px' } }}
         footer={
           <div className="flex justify-end gap-2">
-            <Button onClick={() => setEditExpandOpen(false)}>取消</Button>
-            <Button type="primary" onClick={handleConfirmExpandEdit} style={{ background: '#2563eb' }}>完成</Button>
+            <Button onClick={() => setEditExpandOpen(false)}>{t('common.cancel')}</Button>
+            <Button type="primary" onClick={handleConfirmExpandEdit} style={{ background: '#2563eb' }}>{t('project.completeBtn')}</Button>
           </div>
         }
         destroyOnClose
@@ -2693,18 +2696,18 @@ const ProjectDetailPage: React.FC = () => {
         <RichTextEditor
           value={editExpandDraft}
           onChange={setEditExpandDraft}
-          placeholder="請輸入專案描述（支援標題、列表、粗體等格式）"
+          placeholder={t('project.descPlaceholder')}
           minHeight={480}
         />
       </Modal>
 
       {/* 快速設定任務負責人 Modal */}
       <Modal
-        title="設定任務負責人"
+        title={t('projectDetail.setResponsible')}
         open={!!quickResponsible}
         onCancel={() => setQuickResponsible(null)}
         onOk={handleQuickSetResponsible}
-        okText="確認儲存"
+        okText={t('projectDetail.confirmSave')}
         confirmLoading={quickSaving}
         okButtonProps={{ style: { background: '#2563eb' } }}
         width={440}
@@ -2713,12 +2716,12 @@ const ProjectDetailPage: React.FC = () => {
         <div className="py-3 space-y-4">
           {/* 搜尋區 */}
           <div>
-            <div className="text-sm font-medium text-slate-700 mb-2">透過工號搜尋人員</div>
+            <div className="text-sm font-medium text-slate-700 mb-2">{t('projectDetail.searchByWorkNo')}</div>
             <Input
               ref={respSearchRef}
               value={respSearchKw}
               onChange={(e) => setRespSearchKw(e.target.value)}
-              placeholder="輸入工號，自動搜索（如：EMP001）"
+              placeholder={t('projectDetail.workNoSearchPlaceholder')}
               suffix={respSearching ? <Spin size="small" /> : null}
               autoFocus
             />
@@ -2726,7 +2729,7 @@ const ProjectDetailPage: React.FC = () => {
             {/* 搜尋結果 */}
             {respSearchResult === false && (
               <div className="mt-2 text-xs text-red-500 flex items-center gap-1">
-                <XMarkIcon className="w-3.5 h-3.5" />查無此工號，請確認後重試
+                <XMarkIcon className="w-3.5 h-3.5" />{t('projectDetail.workNoNotFound')}
               </div>
             )}
             {respSearchResult && typeof respSearchResult === 'object' && (
@@ -2751,7 +2754,7 @@ const ProjectDetailPage: React.FC = () => {
                     setRespSearchKw(''); setRespSearchResult(null)
                   }}
                 >
-                  {quickResponsible?.persons.some((p) => p.work_no === (respSearchResult as UserProfile).work_no) ? '已加入' : '加入'}
+                  {quickResponsible?.persons.some((p) => p.work_no === (respSearchResult as UserProfile).work_no) ? t('projectDetail.alreadyAddedPerson') : t('projectDetail.addPerson')}
                 </Button>
               </div>
             )}
@@ -2760,15 +2763,15 @@ const ProjectDetailPage: React.FC = () => {
           {/* 已選人員列表 */}
           <div>
             <div className="text-sm font-medium text-slate-700 mb-2">
-              已選負責人
+              {t('projectDetail.selectedResponsible')}
               {quickResponsible && quickResponsible.persons.length > 0 && (
-                <span className="ml-1.5 text-xs font-normal text-slate-400">（共 {quickResponsible.persons.length} 人，儲存後生效）</span>
+                <span className="ml-1.5 text-xs font-normal text-slate-400">{t('projectDetail.selectedCount', { count: quickResponsible.persons.length })}</span>
               )}
             </div>
             {respPreloading ? (
-              <div className="flex items-center justify-center py-5 text-slate-400 text-xs gap-2"><Spin size="small" />載入中…</div>
+              <div className="flex items-center justify-center py-5 text-slate-400 text-xs gap-2"><Spin size="small" />{t('common.loading')}</div>
             ) : !quickResponsible || quickResponsible.persons.length === 0 ? (
-              <div className="border border-dashed border-slate-200 rounded-lg py-5 text-center text-slate-400 text-xs">尚未加入任何負責人</div>
+              <div className="border border-dashed border-slate-200 rounded-lg py-5 text-center text-slate-400 text-xs">{t('projectDetail.noPersonAdded')}</div>
             ) : (
               <div className="space-y-1.5">
                 {quickResponsible.persons.map((p, i) => (
@@ -2797,11 +2800,11 @@ const ProjectDetailPage: React.FC = () => {
 
       {/* 任務編輯 Modal */}
       <Modal
-        title="編輯功能任務"
+        title={t('function.editTaskTitle')}
         open={!!editFunctionId}
         onCancel={() => setEditFunctionId(null)}
         onOk={() => funcEditForm.submit()}
-        okText="儲存"
+        okText={t('common.save')}
         confirmLoading={funcEditSaving}
         okButtonProps={{ style: { background: '#2563eb' } }}
         width="min(780px, 88vw)"
@@ -2811,22 +2814,22 @@ const ProjectDetailPage: React.FC = () => {
           <div className="flex items-center justify-center py-12"><Spin /></div>
         ) : (
           <Form form={funcEditForm} layout="vertical" onFinish={handleFuncEditSave} className="mt-2">
-            <Form.Item name="function_nm" label="功能名稱" rules={[{ required: true, message: '請輸入功能名稱' }]}>
+            <Form.Item name="function_nm" label={t('function.functionName')} rules={[{ required: true, message: t('function.functionNamePlaceholder') }]}>
               <Input />
             </Form.Item>
             <div className="grid grid-cols-2 gap-x-4">
-              <Form.Item name="priority" label="優先級" rules={[{ required: true }]}>
-                <Select options={[{value:1,label:'低'},{value:2,label:'中'},{value:3,label:'高'},{value:4,label:'緊急'}]} />
+              <Form.Item name="priority" label={t('common.priority')} rules={[{ required: true }]}>
+                <Select options={PRIORITY_OPTIONS} />
               </Form.Item>
-              <Form.Item name="group1" label="任務分組">
+              <Form.Item name="group1" label={t('function.taskGroupLabel')}>
                 <AutoComplete
                   options={groupAutoOptions}
-                  placeholder="選擇或輸入分組名稱（選填）"
+                  placeholder={t('projectDetail.groupPlaceholder')}
                   filterOption={(input, option) => (option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
                 />
               </Form.Item>
-              <Form.Item name="expected_start_date" label="預計開始"><Input type="date" /></Form.Item>
-              <Form.Item name="expected_end_date" label="預計完成"><Input type="date" /></Form.Item>
+              <Form.Item name="expected_start_date" label={t('function.expectedStartDate')}><DateInput/></Form.Item>
+              <Form.Item name="expected_end_date" label={t('function.expectedEndDate')}><DateInput/></Form.Item>
             </div>
             {/* 功能描述 — 小輸入框 + 展開富文本編輯 */}
             <Form.Item shouldUpdate={(prev, curr) => prev.describe !== curr.describe} noStyle>
@@ -2836,26 +2839,26 @@ const ProjectDetailPage: React.FC = () => {
                 return (
                   <div className="mb-2">
                     <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-sm text-slate-700">功能描述</span>
+                      <span className="text-sm text-slate-700">{t('function.funcDesc')}</span>
                       <button
                         type="button"
                         onClick={handleOpenFuncEditExpand}
                         className="flex items-center gap-1 text-xs text-slate-500 hover:text-blue-600 border border-slate-200 rounded-md px-2 py-1 hover:border-blue-300 bg-white transition-colors"
                       >
                         <ArrowsPointingOutIcon className="w-3.5 h-3.5" />
-                        展開富文本編輯
+                        {t('project.expandRichText')}
                       </button>
                     </div>
                     <Input.TextArea
                       value={displayValue}
                       onChange={(e) => funcEditForm.setFieldValue('describe', e.target.value)}
                       rows={3}
-                      placeholder="請描述功能需求，或點擊右上角展開富文本編輯器..."
+                      placeholder={t('function.funcDescPlaceholder')}
                       style={{ resize: 'vertical', minHeight: 80 }}
                     />
                     <Form.Item name="describe" noStyle><input type="hidden" /></Form.Item>
                     {isHtml(v) && (
-                      <p className="text-xs text-blue-500 mt-1">已套用富文本格式，點擊「展開富文本編輯」可繼續修改</p>
+                      <p className="text-xs text-blue-500 mt-1">{t('project.richTextApplied')}</p>
                     )}
                   </div>
                 )
@@ -2868,18 +2871,18 @@ const ProjectDetailPage: React.FC = () => {
       {/* 編輯功能描述展開 Modal */}
       <Modal
         open={funcEditExpandOpen}
-        title="功能描述"
+        title={t('function.funcDescModalTitle')}
         onCancel={() => setFuncEditExpandOpen(false)}
         width="80vw"
         style={{ top: 40, maxWidth: 1100 }}
         styles={{ body: { padding: '16px 24px 24px' } }}
         footer={
           <div className="flex justify-end gap-2">
-            <Button onClick={() => setFuncEditExpandOpen(false)}>取消</Button>
+            <Button onClick={() => setFuncEditExpandOpen(false)}>{t('common.cancel')}</Button>
             <Button type="primary" style={{ background: '#2563eb' }} onClick={() => {
               funcEditForm.setFieldValue('describe', funcEditExpandDraft)
               setFuncEditExpandOpen(false)
-            }}>完成</Button>
+            }}>{t('project.completeBtn')}</Button>
           </div>
         }
         destroyOnClose
@@ -2887,32 +2890,32 @@ const ProjectDetailPage: React.FC = () => {
         <RichTextEditor
           value={funcEditExpandDraft}
           onChange={setFuncEditExpandDraft}
-          placeholder="請描述功能需求（支援標題、列表、粗體等格式）"
+          placeholder={t('function.funcDescExpandPlaceholder')}
           minHeight={480}
         />
       </Modal>
 
       {/* 設定專案PM Modal */}
       <Modal
-        title="設定專案PM"
+        title={t('projectDetail.setProjectPm')}
         open={showSetPm}
         onCancel={() => setShowSetPm(false)}
         onOk={handleSetProjectPm}
-        okText="確認設定"
+        okText={t('projectDetail.confirmSet')}
         confirmLoading={setPmSaving}
         width={400}
         destroyOnHidden
       >
         <div className="py-3 space-y-3">
           <div className="text-sm text-slate-500">
-            立案審核通過後，專案PM尚未設定。請輸入專案PM的工號，設定後由專案PM負責提交規劃審核。
+            {t('projectDetail.setPmDesc')}
           </div>
           <div>
-            <div className="text-sm font-medium text-slate-700 mb-1.5">專案PM 工號</div>
+            <div className="text-sm font-medium text-slate-700 mb-1.5">{t('projectDetail.pmWorkNo')}</div>
             <Input
               value={setPmValue}
               onChange={(e) => setSetPmValue(e.target.value.toLowerCase())}
-              placeholder="請輸入工號"
+              placeholder={t('projectDetail.enterWorkNo')}
               onPressEnter={handleSetProjectPm}
               autoFocus
             />
@@ -2923,25 +2926,25 @@ const ProjectDetailPage: React.FC = () => {
       {/* 提交審核 Modal */}
       <Modal
         title={
-          isCompletionSubmit ? '提交完結申請' :
-          current.status === 1 ? '提交立案審核' :
-          current.status === 3 ? '提交規劃審核' :
-          '提交排程審核'
+          isCompletionSubmit ? t('projectDetail.submitCompletion') :
+          current.status === 1 ? t('projectDetail.submitInitReview') :
+          current.status === 3 ? t('projectDetail.submitPlanReview') :
+          t('projectDetail.submitSchedReview')
         }
         open={showSubmit} onCancel={() => setShowSubmit(false)}
         footer={null} width={520} destroyOnHidden>
         <div className="mt-4 space-y-4">
           {/* 審核流程說明 */}
-          <div className="text-xs text-slate-400">審核人將依列表順序逐一審核（OA流程），可拖動或上下移動調整順序。</div>
+          <div className="text-xs text-slate-400">{t('projectDetail.reviewFlowHint')}</div>
 
           {/* 審核人列表 */}
           <div>
-            <div className="text-sm font-medium text-slate-600 mb-2">審核流程</div>
+            <div className="text-sm font-medium text-slate-600 mb-2">{t('projectDetail.reviewFlow')}</div>
             {supervisorsLoading ? (
               <div className="flex justify-center py-4"><Spin size="small" /></div>
             ) : submitReviewers.length === 0 ? (
               <div className="border border-dashed border-slate-300 rounded-lg py-5 text-center text-slate-400 text-sm">
-                尚未添加審核人，請搜尋並加入
+                {t('projectDetail.noReviewerAdded')}
               </div>
             ) : (
               <div className="border border-slate-200 rounded-lg overflow-hidden">
@@ -2979,10 +2982,10 @@ const ProjectDetailPage: React.FC = () => {
 
           {/* 搜尋加簽 */}
           <div>
-            <div className="text-sm font-medium text-slate-600 mb-2">加簽審核人</div>
+            <div className="text-sm font-medium text-slate-600 mb-2">{t('projectDetail.addReviewer')}</div>
             <div className="relative">
               <Input
-                placeholder="輸入姓名或工號搜尋"
+                placeholder={t('projectDetail.searchReviewerPlaceholder')}
                 value={reviewerSearch}
                 onChange={(e) => handleSearchReviewer(e.target.value)}
                 prefix={searchLoading ? <Spin size="small" /> : undefined}
@@ -3003,7 +3006,7 @@ const ProjectDetailPage: React.FC = () => {
                           <div className="text-sm font-medium text-slate-800">{u.name}</div>
                           <div className="text-xs text-slate-400">{u.department}{u.position ? ` · ${u.position}` : ''} · {u.work_no}</div>
                         </div>
-                        {already && <span className="text-xs text-slate-400">已添加</span>}
+                        {already && <span className="text-xs text-slate-400">{t('projectDetail.alreadyAdded')}</span>}
                       </div>
                     )
                   })}
@@ -3014,12 +3017,12 @@ const ProjectDetailPage: React.FC = () => {
 
           <Divider style={{ margin: '8px 0' }} />
           <div className="flex justify-end gap-3">
-            <Button onClick={() => setShowSubmit(false)}>取消</Button>
+            <Button onClick={() => setShowSubmit(false)}>{t('common.cancel')}</Button>
             <Button type="primary" loading={submitSaving}
               disabled={submitReviewers.length === 0}
               style={{ background: isCompletionSubmit ? '#059669' : '#2563eb' }}
               onClick={handleSubmitReview}>
-              {isCompletionSubmit ? '提交完結申請' : '提交審核'}
+              {isCompletionSubmit ? t('projectDetail.submitCompletion') : t('projectDetail.submitReview')}
             </Button>
           </div>
         </div>

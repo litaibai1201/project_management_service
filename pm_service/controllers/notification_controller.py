@@ -97,8 +97,8 @@ class NotificationController:
             return 0
         push_notification(
             recipients=clean,
-            title="📋 請記得填寫今日工作日報",
-            desc="您今日尚未提交工作日報，請盡快前往系統填寫。",
+            title="请记得填写今日工作日报",
+            desc="您今日尚未提交工作日报，请尽快前往系统填写。",
             link_type="daily_log",
         )
         return len(clean)

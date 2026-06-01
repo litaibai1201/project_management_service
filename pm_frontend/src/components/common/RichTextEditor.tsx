@@ -11,6 +11,7 @@ import TaskItem from '@tiptap/extension-task-item'
 import Placeholder from '@tiptap/extension-placeholder'
 import Image from '@tiptap/extension-image'
 import { Select } from 'antd'
+import { useTranslation } from 'react-i18next'
 
 // ─── Toolbar Button ───────────────────────────────────────────────────────────
 
@@ -123,6 +124,7 @@ interface ResizableImageViewProps {
 }
 
 const ResizableImageView: React.FC<ResizableImageViewProps> = ({ node, updateAttributes, selected }) => {
+  const { t } = useTranslation()
   const { src, alt, title, width } = node.attrs
   const containerRef = useRef<HTMLSpanElement>(null)
 
@@ -165,7 +167,7 @@ const ResizableImageView: React.FC<ResizableImageViewProps> = ({ node, updateAtt
         {selected && (
           <div
             onMouseDown={onMouseDown}
-            title="拖曳調整圖片寬度"
+            title={t('rte.dragToResize')}
             style={{
               position: 'absolute',
               right: 0,
@@ -196,7 +198,8 @@ const ResizableImage = Image.extend({
     }
   },
   addNodeView() {
-    return ReactNodeViewRenderer(ResizableImageView)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return ReactNodeViewRenderer(ResizableImageView as any)
   },
 })
 
@@ -214,10 +217,11 @@ interface RichTextEditorProps {
 const RichTextEditor: React.FC<RichTextEditorProps> = ({
   value = '',
   onChange,
-  placeholder = '請輸入描述...',
+  placeholder,
   minHeight = 150,
   onImageUpload,
 }) => {
+  const { t } = useTranslation()
   const imgInputRef = React.useRef<HTMLInputElement>(null)
 
   const editor = useEditor({
@@ -284,10 +288,10 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
           value={headingLevel}
           style={{ width: 80 }}
           options={[
-            { value: 'p',  label: '正文' },
-            { value: 'h1', label: '標題 1' },
-            { value: 'h2', label: '標題 2' },
-            { value: 'h3', label: '標題 3' },
+            { value: 'p',  label: t('rte.paragraph') },
+            { value: 'h1', label: t('rte.heading1') },
+            { value: 'h2', label: t('rte.heading2') },
+            { value: 'h3', label: t('rte.heading3') },
           ]}
           onChange={(v) => {
             if (v === 'p') editor.chain().focus().setParagraph().run()
@@ -299,69 +303,69 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
         <Sep />
 
         {/* Bold */}
-        <ToolBtn active={editor.isActive('bold')} onClick={() => editor.chain().focus().toggleBold().run()} title="粗體 (Ctrl+B)">
+        <ToolBtn active={editor.isActive('bold')} onClick={() => editor.chain().focus().toggleBold().run()} title={t('rte.bold')}>
           <span className="font-bold text-[13px] leading-none">B</span>
         </ToolBtn>
 
         {/* Italic */}
-        <ToolBtn active={editor.isActive('italic')} onClick={() => editor.chain().focus().toggleItalic().run()} title="斜體 (Ctrl+I)">
+        <ToolBtn active={editor.isActive('italic')} onClick={() => editor.chain().focus().toggleItalic().run()} title={t('rte.italic')}>
           <span className="italic font-serif text-[14px] leading-none">I</span>
         </ToolBtn>
 
         {/* Underline */}
-        <ToolBtn active={editor.isActive('underline')} onClick={() => editor.chain().focus().toggleUnderline().run()} title="下劃線 (Ctrl+U)">
+        <ToolBtn active={editor.isActive('underline')} onClick={() => editor.chain().focus().toggleUnderline().run()} title={t('rte.underline')}>
           <span className="underline text-[13px] leading-none">U</span>
         </ToolBtn>
 
         {/* Strikethrough */}
-        <ToolBtn active={editor.isActive('strike')} onClick={() => editor.chain().focus().toggleStrike().run()} title="刪除線">
+        <ToolBtn active={editor.isActive('strike')} onClick={() => editor.chain().focus().toggleStrike().run()} title={t('rte.strikethrough')}>
           <span className="line-through text-[13px] leading-none">S</span>
         </ToolBtn>
 
         {/* Inline code */}
-        <ToolBtn active={editor.isActive('code')} onClick={() => editor.chain().focus().toggleCode().run()} title="行內代碼">
+        <ToolBtn active={editor.isActive('code')} onClick={() => editor.chain().focus().toggleCode().run()} title={t('rte.inlineCode')}>
           <span className="font-mono text-[11px] leading-none">&lt;/&gt;</span>
         </ToolBtn>
 
         <Sep />
 
         {/* Bullet list */}
-        <ToolBtn active={editor.isActive('bulletList')} onClick={() => editor.chain().focus().toggleBulletList().run()} title="無序列表">
+        <ToolBtn active={editor.isActive('bulletList')} onClick={() => editor.chain().focus().toggleBulletList().run()} title={t('rte.bulletList')}>
           <BulletListIcon />
         </ToolBtn>
 
         {/* Ordered list */}
-        <ToolBtn active={editor.isActive('orderedList')} onClick={() => editor.chain().focus().toggleOrderedList().run()} title="有序列表">
+        <ToolBtn active={editor.isActive('orderedList')} onClick={() => editor.chain().focus().toggleOrderedList().run()} title={t('rte.orderedList')}>
           <OrderedListIcon />
         </ToolBtn>
 
         {/* Task list */}
-        <ToolBtn active={editor.isActive('taskList')} onClick={() => editor.chain().focus().toggleTaskList().run()} title="任務清單">
+        <ToolBtn active={editor.isActive('taskList')} onClick={() => editor.chain().focus().toggleTaskList().run()} title={t('rte.taskList')}>
           <TaskListIcon />
         </ToolBtn>
 
         <Sep />
 
         {/* Alignment */}
-        <ToolBtn active={editor.isActive({ textAlign: 'left' })} onClick={() => editor.chain().focus().setTextAlign('left').run()} title="靠左對齊">
+        <ToolBtn active={editor.isActive({ textAlign: 'left' })} onClick={() => editor.chain().focus().setTextAlign('left').run()} title={t('rte.alignLeft')}>
           <AlignLeftIcon />
         </ToolBtn>
-        <ToolBtn active={editor.isActive({ textAlign: 'center' })} onClick={() => editor.chain().focus().setTextAlign('center').run()} title="置中對齊">
+        <ToolBtn active={editor.isActive({ textAlign: 'center' })} onClick={() => editor.chain().focus().setTextAlign('center').run()} title={t('rte.alignCenter')}>
           <AlignCenterIcon />
         </ToolBtn>
-        <ToolBtn active={editor.isActive({ textAlign: 'right' })} onClick={() => editor.chain().focus().setTextAlign('right').run()} title="靠右對齊">
+        <ToolBtn active={editor.isActive({ textAlign: 'right' })} onClick={() => editor.chain().focus().setTextAlign('right').run()} title={t('rte.alignRight')}>
           <AlignRightIcon />
         </ToolBtn>
 
         <Sep />
 
         {/* Highlight */}
-        <ToolBtn active={editor.isActive('highlight')} onClick={() => editor.chain().focus().toggleHighlight().run()} title="螢光標記">
+        <ToolBtn active={editor.isActive('highlight')} onClick={() => editor.chain().focus().toggleHighlight().run()} title={t('rte.highlight')}>
           <span className="bg-yellow-200 px-0.5 text-[12px] leading-none rounded text-slate-700">A</span>
         </ToolBtn>
 
         {/* Blockquote */}
-        <ToolBtn active={editor.isActive('blockquote')} onClick={() => editor.chain().focus().toggleBlockquote().run()} title="引用">
+        <ToolBtn active={editor.isActive('blockquote')} onClick={() => editor.chain().focus().toggleBlockquote().run()} title={t('rte.blockquote')}>
           <BlockquoteIcon />
         </ToolBtn>
 
@@ -369,7 +373,7 @@ const RichTextEditor: React.FC<RichTextEditorProps> = ({
         {onImageUpload && (
           <>
             <Sep />
-            <ToolBtn onClick={() => imgInputRef.current?.click()} title="插入圖片">
+            <ToolBtn onClick={() => imgInputRef.current?.click()} title={t('rte.insertImage')}>
               <ImageIcon />
             </ToolBtn>
             <input

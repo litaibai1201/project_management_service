@@ -3,7 +3,7 @@ import {
   Drawer, Descriptions, Progress, Button, Form, Input, InputNumber,
   Timeline, Avatar, Typography, Tag, Upload, Spin, Divider, Steps, Select, Modal, Popover, Tooltip, Popconfirm,
 } from 'antd'
-import { PlusIcon, PaperClipIcon, PencilSquareIcon, CalendarDaysIcon, ClockIcon, ArrowsPointingOutIcon } from '@heroicons/react/24/outline'
+import { PlusIcon, PaperClipIcon, PencilSquareIcon, CalendarDaysIcon, ArrowsPointingOutIcon } from '@heroicons/react/24/outline'
 import RichTextEditor from '@/components/common/RichTextEditor'
 import RichTextContent from '@/components/common/RichTextContent'
 import AttachmentPreview from '@/components/ui/AttachmentPreview'
@@ -19,6 +19,9 @@ import { FUNCTION_STATUS_MAP, PRIORITY_MAP } from '@/utils/status'
 import { showToast } from '@/utils/toast'
 import { useAppSelector } from '@/hooks/redux'
 import { useWorkNoToName } from '@/hooks/useWorkNoToName'
+import { useTranslation } from 'react-i18next'
+import dayjs from 'dayjs'
+import DateInput from '@/components/common/DateInput'
 
 const { Text } = Typography
 
@@ -40,21 +43,22 @@ const RescheduleButton: React.FC<{
   currentEnd: string
   onSuccess: () => void
 }> = ({ projectId, functionId, currentEnd, onSuccess }) => {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [newDate, setNewDate] = useState('')
   const [reason, setReason] = useState('')
   const [loading, setLoading] = useState(false)
 
   const handleSubmit = async () => {
-    if (!newDate) { showToast.warning('請選擇新的預計完成時間'); return }
-    if (newDate <= currentEnd) { showToast.warning('新日期必須晚於當前預計完成時間'); return }
+    if (!newDate) { showToast.warning(t('function.selectNewEndDate')); return }
+    if (newDate <= currentEnd) { showToast.warning(t('function.newDateMustBeLater')); return }
     setLoading(true)
     try {
       await projectApi.rescheduleFunction(projectId, functionId, { new_end_date: newDate, reason })
-      showToast.success('延期成功')
+      showToast.success(t('function.rescheduleSuccess'))
       setOpen(false); setNewDate(''); setReason('')
       onSuccess()
-    } catch { showToast.error('延期失敗') }
+    } catch { showToast.error(t('function.rescheduleFailed')) }
     finally { setLoading(false) }
   }
 
@@ -67,28 +71,28 @@ const RescheduleButton: React.FC<{
       title={
         <div className="flex items-center gap-2">
           <CalendarDaysIcon className="w-4 h-4 text-orange-500" />
-          <span className="text-xs font-semibold text-slate-700">任務延期</span>
-          <span className="text-[10px] text-slate-400">當前截止: {currentEnd}</span>
+          <span className="text-xs font-semibold text-slate-700">{t('function.rescheduleTitle')}</span>
+          <span className="text-[10px] text-slate-400">{t('function.currentDeadline', { date: currentEnd })}</span>
         </div>
       }
       content={
         <div className="w-64">
           <div className="mb-2">
-            <label className="text-[10px] text-slate-500 block mb-1">新的預計完成時間</label>
-            <Input type="date" size="small" value={newDate} onChange={(e) => setNewDate(e.target.value)} min={currentEnd} />
+            <label className="text-[10px] text-slate-500 block mb-1">{t('function.newExpectedEnd')}</label>
+            <DateInput size="small" value={newDate} onChange={(v) => setNewDate(v)} minDate={currentEnd ? dayjs(currentEnd) : undefined} />
           </div>
           <div className="mb-2">
-            <label className="text-[10px] text-slate-500 block mb-1">延期原因（選填）</label>
-            <Input.TextArea rows={2} size="small" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="說明延期原因..." />
+            <label className="text-[10px] text-slate-500 block mb-1">{t('function.rescheduleReason')}</label>
+            <Input.TextArea rows={2} size="small" value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t('function.rescheduleReasonPlaceholder')} />
           </div>
           <div className="flex justify-end gap-1.5">
-            <Button size="small" onClick={() => setOpen(false)}>取消</Button>
-            <Button size="small" type="primary" loading={loading} onClick={handleSubmit} style={{ background: '#d97706' }}>確認延期</Button>
+            <Button size="small" onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
+            <Button size="small" type="primary" loading={loading} onClick={handleSubmit} style={{ background: '#d97706' }}>{t('function.confirmReschedule')}</Button>
           </div>
         </div>
       }
     >
-      <Button size="small">延期</Button>
+      <Button size="small">{t('function.rescheduleBtn')}</Button>
     </Popover>
   )
 }
@@ -101,19 +105,14 @@ const ALLOWED_EXTENSIONS = new Set([
 ])
 
 // Map function status to Steps index
-const FUNC_STEPS = ['待開始', '進行中', '完結審核', '已完結']
 const statusToStep = (s: number) => ({ 1: 0, 2: 1, 3: 2, 4: 3 }[s] ?? 0)
-
-const PRIORITY_OPTIONS = [
-  { value: 1, label: '低' }, { value: 2, label: '中' },
-  { value: 3, label: '高' }, { value: 4, label: '緊急' },
-]
 
 const PAGE_SIZE = 10
 
 const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
   projectId, functionId, open, onClose, onRefresh, isProjectPm = false, projectStatus, projectPm,
 }) => {
+  const { t } = useTranslation()
   const workNo = useAppSelector((s) => s.auth.workNo) ?? ''
   const toName = useWorkNoToName()
   const [previewFile, setPreviewFile] = useState<FileInfo | null>(null)
@@ -228,7 +227,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
         time_consum:     values.time_consum as number | undefined,
         cooperator:      values.cooperator as string[] | undefined,
       }, Object.keys(files).length > 0 ? files : undefined)
-      showToast.success('進度更新成功')
+      showToast.success(t('function.progressUpdateSuccess'))
       setShowForm(false); form.resetFields(); setFileList([])
       loadData(); onRefresh?.()
 
@@ -236,17 +235,17 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
       if ((values.progress as number) === 100) {
         const submitterIsPm = !!projectPm && workNo.toLowerCase() === projectPm.toLowerCase()
         Modal.confirm({
-          title: '任務已完成',
+          title: t('function.taskCompletedTitle'),
           content: submitterIsPm
-            ? '進度已達 100%，確認後將直接標記任務為已完結，後續無法繼續更新進度，是否繼續？'
-            : `進度已達 100%，確認後將提交功能完結審核至專案 PM（${projectPm ?? ''}），審核通過後功能標記完結，後續無法繼續更新進度，是否繼續？`,
-          okText: '確認完結',
-          cancelText: '稍後再說',
+            ? t('function.progressAt100ContentPm')
+            : t('function.progressAt100Content', { pm: projectPm ?? '' }),
+          okText: t('function.confirmCompleteBtn'),
+          cancelText: t('function.remindLater'),
           onOk: async () => {
             try {
               const res = await projectApi.submitFunctionCompletion(projectId, functionId)
               const direct = (res.content as { direct_complete?: boolean })?.direct_complete
-              showToast.success(direct ? '任務已完結' : '完結審核已提交至專案 PM，等待審核')
+              showToast.success(direct ? t('function.taskDirectCompleted') : t('function.reviewSubmitted'))
               loadData(); onRefresh?.()
             } catch { /* global */ }
           },
@@ -281,7 +280,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
     setEditSaving(true)
     try {
       await projectApi.updateFunction(projectId, functionId, values as Parameters<typeof projectApi.updateFunction>[2])
-      showToast.success('任務已更新')
+      showToast.success(t('function.taskUpdated'))
       setShowEdit(false)
       loadData()
       onRefresh?.()
@@ -325,7 +324,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
             <span className="font-semibold text-slate-800">{funcData.function_nm}</span>
             {(() => { const s = FUNCTION_STATUS_MAP[funcData.status]; return s ? <Tag color={s.color} style={{ fontSize: 11, marginLeft: 4 }}>{s.label}</Tag> : null })()}
           </div>
-        ) : '功能詳情'
+        ) : t('function.detailTitle')
       }
       open={open}
       onClose={onClose}
@@ -334,7 +333,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
         <div className="flex gap-2">
           {canEdit && (
             <Button icon={<PencilSquareIcon className="w-4 h-4" />} size="small" onClick={handleEditOpen}>
-              編輯
+              {t('function.editBtn')}
             </Button>
           )}
           {!canEdit && !!projectPm && workNo.toLowerCase() === projectPm.toLowerCase() &&
@@ -344,29 +343,29 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
               currentEnd={funcData.expected_end_date} onSuccess={loadData} />
           )}
           {canHold && funcData && [1, 2].includes(funcData.status) && (
-            <Popconfirm title="確認搁置此任務？" onConfirm={async () => {
+            <Popconfirm title={t('function.holdConfirm')} onConfirm={async () => {
               await projectApi.setFunctionStatus(projectId, functionId, 8)
-              showToast.success('已搁置')
+              showToast.success(t('function.holdSuccess'))
               loadData()
               onRefresh?.()
-            }} okText="確認" cancelText="取消">
-              <Button size="small">搁置</Button>
+            }} okText={t('common.confirm')} cancelText={t('common.cancel')}>
+              <Button size="small">{t('function.holdBtn')}</Button>
             </Popconfirm>
           )}
           {canHold && funcData?.status === 8 && (
-            <Popconfirm title="確認恢復此任務為進行中？" onConfirm={async () => {
+            <Popconfirm title={t('function.resumeConfirm')} onConfirm={async () => {
               await projectApi.setFunctionStatus(projectId, functionId, 2)
-              showToast.success('已恢復進行中')
+              showToast.success(t('function.resumeSuccess'))
               loadData()
               onRefresh?.()
-            }} okText="確認" cancelText="取消">
-              <Button size="small" type="primary" style={{ background: '#2563eb' }}>恢復進行中</Button>
+            }} okText={t('common.confirm')} cancelText={t('common.cancel')}>
+              <Button size="small" type="primary" style={{ background: '#2563eb' }}>{t('function.resumeBtn')}</Button>
             </Popconfirm>
           )}
           {canUpdateProgress && (
             <Button type="primary" icon={<PlusIcon className="w-4 h-4" />} size="small"
               style={{ background: '#2563eb' }} onClick={() => setShowForm((v) => !v)}>
-              更新進度
+              {t('function.updateProgressBtn')}
             </Button>
           )}
         </div>
@@ -379,13 +378,16 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
           {/* Status Steps */}
           <Steps
             size="small" current={statusToStep(funcData.status)}
-            items={FUNC_STEPS.map((t) => ({ title: <span style={{ fontSize: 11 }}>{t}</span> }))}
+            items={[
+              t('status.function.1'), t('status.function.2'),
+              t('status.function.3'), t('status.function.4'),
+            ].map((label) => ({ title: <span style={{ fontSize: 11 }}>{label}</span> }))}
             className="mb-4"
           />
 
           {/* Progress bar */}
           <div className="flex items-center gap-3 bg-slate-50 rounded-xl p-3 mb-4">
-            <span className="text-xs text-slate-400 flex-shrink-0">整體進度</span>
+            <span className="text-xs text-slate-400 flex-shrink-0">{t('function.overallProgress')}</span>
             <Progress
               percent={funcData.progress ?? 0} size="small" strokeColor="#2563eb" trailColor="#e2e8f0"
               style={{ flex: 1, marginBottom: 0 }}
@@ -396,37 +398,37 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
           <Descriptions column={2} size="small" className="mb-4"
             labelStyle={{ color: '#94a3b8', fontSize: 12, fontWeight: 500 }}
             contentStyle={{ fontSize: 13, color: '#334155' }}>
-            <Descriptions.Item label="優先級">
+            <Descriptions.Item label={t('function.priority')}>
               {(() => { const p = PRIORITY_MAP[funcData.priority]; return p ? <Tag color={p.color} style={{ fontSize: 11 }}>{p.label}</Tag> : funcData.priority })()}
             </Descriptions.Item>
-            <Descriptions.Item label="負責人">
+            <Descriptions.Item label={t('function.assignees')}>
               {funcData.responsible && funcData.responsible.length > 0
                 ? funcData.responsible.map((wn) => (
                     <Tag key={wn} style={{ marginBottom: 2 }} color="purple">{toName(wn)}</Tag>
                   ))
                 : '—'}
             </Descriptions.Item>
-            <Descriptions.Item label="分組">{funcData.group1 ?? '—'}</Descriptions.Item>
-            <Descriptions.Item label="預計開始">{funcData.expected_start_date ?? '—'}</Descriptions.Item>
-            <Descriptions.Item label="預計完成">
+            <Descriptions.Item label={t('function.groupLabel')}>{funcData.group1 ?? '—'}</Descriptions.Item>
+            <Descriptions.Item label={t('function.expectedStart')}>{funcData.expected_start_date ?? '—'}</Descriptions.Item>
+            <Descriptions.Item label={t('function.expectedEnd')}>
               <div className="flex items-center gap-2 flex-wrap">
                 <span>{funcData.expected_end_date ?? '—'}</span>
                 {(funcData.reschedule_count ?? 0) > 0 && (
                   <>
-                    <Tooltip title={`原始預計完成: ${funcData.original_end_date ?? '—'}`}>
+                    <Tooltip title={t('function.originalExpectedEnd', { date: funcData.original_end_date ?? '—' })}>
                       <Tag color="orange" style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px' }}>
-                        已延期 {funcData.reschedule_count} 次
+                        {t('function.rescheduledTimes', { count: funcData.reschedule_count })}
                       </Tag>
                     </Tooltip>
                     <span className="text-[10px] text-slate-400">
-                      原始: {funcData.original_end_date ?? '—'}
+                      {t('function.originalDate', { date: funcData.original_end_date ?? '—' })}
                     </span>
                   </>
                 )}
               </div>
             </Descriptions.Item>
             {funcData.describe && (
-              <Descriptions.Item label="描述" span={2}><RichTextContent html={funcData.describe} /></Descriptions.Item>
+              <Descriptions.Item label={t('function.describe')} span={2}><RichTextContent html={funcData.describe} /></Descriptions.Item>
             )}
           </Descriptions>
 
@@ -434,7 +436,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
           {/* ── Reschedule history timeline ── */}
           {(funcData.reschedule_history ?? []).length > 0 && (
             <div className="bg-orange-50 border border-orange-100 rounded-xl p-3 mb-4">
-              <p className="text-[11px] font-semibold text-orange-700 mb-2">延期記錄</p>
+              <p className="text-[11px] font-semibold text-orange-700 mb-2">{t('function.rescheduleHistory')}</p>
               <Timeline
                 className="!mb-0"
                 items={(funcData.reschedule_history ?? []).map((h, i) => ({
@@ -461,13 +463,13 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
           {/* Progress submit form */}
           {showForm && canUpdateProgress && (
             <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 mb-4">
-              <p className="font-semibold text-slate-700 text-sm mb-3">提交本次進度</p>
+              <p className="font-semibold text-slate-700 text-sm mb-3">{t('function.submitProgress')}</p>
               <Form form={form} layout="vertical" onFinish={handleSubmit}>
                 <div className="grid grid-cols-2 gap-x-3">
-                  <Form.Item name="progress" label="完成 (%)" rules={[{ required: true }]}>
+                  <Form.Item name="progress" label={t('function.completionPct')} rules={[{ required: true }]}>
                     <InputNumber min={1} max={100} style={{ width: '100%' }} addonAfter="%" />
                   </Form.Item>
-                  <Form.Item name="time_consum" label="耗時 (h)">
+                  <Form.Item name="time_consum" label={t('function.timeConsumed')}>
                     <InputNumber min={0} step={0.5} style={{ width: '100%' }} addonAfter="h" />
                   </Form.Item>
                 </div>
@@ -475,7 +477,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
                   name="progress_record"
                   label={
                     <div className="flex items-center justify-between w-full">
-                      <span>進度說明</span>
+                      <span>{t('function.progressNote')}</span>
                       <button
                         type="button"
                         onClick={() => {
@@ -486,35 +488,35 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
                         className="flex items-center gap-1 text-xs text-slate-500 hover:text-blue-600 border border-slate-200 rounded-md px-2 py-0.5 hover:border-blue-300 bg-white transition-colors ml-2"
                       >
                         <ArrowsPointingOutIcon className="w-3.5 h-3.5" />
-                        展開編輯
+                        {t('function.expandEdit')}
                       </button>
                     </div>
                   }
                 >
                   <RichTextEditor
-                    placeholder="本次完成了哪些工作...（支援格式化文字與圖片混排）"
+                    placeholder={t('function.progressNotePlaceholder')}
                     minHeight={120}
                     onImageUpload={handleImageUpload}
                   />
                 </Form.Item>
-                <Form.Item name="cooperator" label="合作人">
+                <Form.Item name="cooperator" label={t('function.cooperator')}>
                   <Select
                     mode="multiple"
                     showSearch
-                    placeholder="搜尋並選擇合作人（選填）"
+                    placeholder={t('function.cooperatorPlaceholder')}
                     optionFilterProp="label"
                     options={userOpts.filter((u) => u.value.toLowerCase() !== workNo.toLowerCase())}
                     allowClear
                   />
                 </Form.Item>
-                <Form.Item label="附件（非圖片文件）">
+                <Form.Item label={t('function.attachment')}>
                   <Upload
                     fileList={fileList}
                     onChange={({ fileList: fl }) => setFileList(fl)}
                     beforeUpload={(file) => {
                       const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
                       if (!ALLOWED_EXTENSIONS.has(ext)) {
-                        showToast.error(`不支持的文件類型：.${ext}`)
+                        showToast.error(t('function.unsupportedFileType', { ext }))
                         return Upload.LIST_IGNORE
                       }
                       return false
@@ -522,28 +524,28 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
                     multiple
                     accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.rar,.txt,.md"
                   >
-                    <Button icon={<PaperClipIcon className="w-4 h-4" />} size="small">選擇附件</Button>
+                    <Button icon={<PaperClipIcon className="w-4 h-4" />} size="small">{t('function.selectAttachment')}</Button>
                   </Upload>
                 </Form.Item>
                 <div className="flex justify-end gap-2">
-                  <Button size="small" onClick={() => { setShowForm(false); form.resetFields(); setFileList([]) }}>取消</Button>
-                  <Button type="primary" size="small" htmlType="submit" loading={isSaving} style={{ background: '#2563eb' }}>提交</Button>
+                  <Button size="small" onClick={() => { setShowForm(false); form.resetFields(); setFileList([]) }}>{t('common.cancel')}</Button>
+                  <Button type="primary" size="small" htmlType="submit" loading={isSaving} style={{ background: '#2563eb' }}>{t('common.submit')}</Button>
                 </div>
               </Form>
             </div>
           )}
 
           <Divider style={{ fontSize: 12, color: '#94a3b8' }}>
-            進度記錄（共 {progressTotal} 條）
+            {t('function.progressRecords', { total: progressTotal })}
             {logEntries.length > 0 && (
               <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400, marginLeft: 6 }}>
-                · 含 {logEntries.length} 條日誌記錄
+                · {t('function.logRecords', { count: logEntries.length })}
               </span>
             )}
           </Divider>
 
           {records.length === 0 && logEntries.length === 0 ? (
-            <Text type="secondary" className="block text-center py-8 text-sm">暫無進度記錄</Text>
+            <Text type="secondary" className="block text-center py-8 text-sm">{t('function.noProgressRecords')}</Text>
           ) : (() => {
             // ── 構建合併時間軸 ──────────────────────────────────────────
             const updatedMap = new Map<string, TaskLogEntry[]>()
@@ -602,7 +604,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
                                   <div className="flex items-center gap-2 flex-wrap">
                                     <span className="font-semibold text-slate-700 text-sm">{toName(item.submitter)}</span>
                                     {(item.cooperator ?? []).length > 0 && (
-                                      <Tooltip title={`合作人：${(item.cooperator ?? []).map((c) => toName(c) || c).join('、')}`}>
+                                      <Tooltip title={t('function.cooperatorsLabel', { names: (item.cooperator ?? []).map((c) => toName(c) || c).join('、') })}>
                                         <div className="flex items-center gap-0.5">
                                           <span className="text-xs text-slate-400">+</span>
                                           {(item.cooperator ?? []).map((c) => (
@@ -633,9 +635,9 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
                                   {latestUpd && (
                                     <div className="flex items-center gap-1 flex-shrink-0">
                                       <Tag style={{ fontSize: 10, padding: '0 4px', lineHeight: '16px', margin: 0 }}>
-                                        {latestUpd.log_status === 2 ? '已提交' : '草稿'}
+                                        {latestUpd.log_status === 2 ? t('function.submitted') : t('function.draft')}
                                       </Tag>
-                                      <Tag color="orange" style={{ fontSize: 10, padding: '0 5px', lineHeight: '16px', margin: 0 }}>日誌更新</Tag>
+                                      <Tag color="orange" style={{ fontSize: 10, padding: '0 5px', lineHeight: '16px', margin: 0 }}>{t('function.logUpdated')}</Tag>
                                     </div>
                                   )}
                                 </div>
@@ -695,7 +697,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
                                     <div className="mt-1 space-y-1">
                                       {removedFiles.map((f, fi) => (
                                         <div key={fi} className="flex items-center gap-1.5">
-                                          <Tag color="red" style={{ fontSize: 9, padding: '0 4px', lineHeight: '14px', flexShrink: 0 }}>已刪除</Tag>
+                                          <Tag color="red" style={{ fontSize: 9, padding: '0 4px', lineHeight: '14px', flexShrink: 0 }}>{t('function.deleted')}</Tag>
                                           <span className="text-xs text-slate-400" style={{ textDecoration: 'line-through' }}>{f.name}</span>
                                         </div>
                                       ))}
@@ -731,9 +733,9 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
                                       )}
                                     </div>
                                     <div className="flex items-center gap-1 flex-shrink-0">
-                                      <Tag color="purple" style={{ fontSize: 9, padding: '0 4px', lineHeight: '16px', margin: 0 }}>合作人更新</Tag>
+                                      <Tag color="purple" style={{ fontSize: 9, padding: '0 4px', lineHeight: '16px', margin: 0 }}>{t('function.cooperatorUpdated')}</Tag>
                                       <Tag style={{ fontSize: 9, padding: '0 4px', lineHeight: '16px', margin: 0 }}>
-                                        {upd.log_status === 2 ? '已提交' : '草稿'}
+                                        {upd.log_status === 2 ? t('function.submitted') : t('function.draft')}
                                       </Tag>
                                     </div>
                                   </div>
@@ -776,9 +778,9 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
                               </div>
                               <div className="flex items-center gap-1 flex-shrink-0">
                                 <Tag style={{ fontSize: 10, padding: '0 4px', lineHeight: '16px', margin: 0 }}>
-                                  {entry.log_status === 2 ? '已提交' : '草稿'}
+                                  {entry.log_status === 2 ? t('function.submitted') : t('function.draft')}
                                 </Tag>
-                                <Tag color="green" style={{ fontSize: 10, padding: '0 5px', lineHeight: '16px', margin: 0 }}>日誌新增</Tag>
+                                <Tag color="green" style={{ fontSize: 10, padding: '0 5px', lineHeight: '16px', margin: 0 }}>{t('function.logAdded')}</Tag>
                               </div>
                             </div>
                             {entry.description && (
@@ -805,20 +807,20 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
                   </div>
                 )}
                 {!progressLoading && records.length >= progressTotal && progressTotal > 0 && (
-                  <p className="text-center text-xs text-slate-300 pb-2">已顯示全部 {progressTotal} 條記錄</p>
+                  <p className="text-center text-xs text-slate-300 pb-2">{t('function.showingAll', { total: progressTotal })}</p>
                 )}
               </>
             )
           })()}
         </>
       ) : (
-        <Text type="secondary" className="block text-center py-10">功能資料不存在</Text>
+        <Text type="secondary" className="block text-center py-10">{t('function.notFound')}</Text>
       )}
     </Drawer>
 
     {/* ── Edit Function Modal ─────────────────────────────────────────────── */}
     <Modal
-      title="編輯功能任務"
+      title={t('function.editTaskTitle')}
       open={showEdit}
       onCancel={() => { setShowEdit(false); editForm.resetFields() }}
       footer={null}
@@ -826,23 +828,28 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
       destroyOnHidden
     >
       <Form form={editForm} layout="vertical" onFinish={handleEditSave} className="mt-4">
-        <Form.Item name="function_nm" label="功能名稱" rules={[{ required: true }]}>
-          <Input placeholder="請輸入功能名稱" />
+        <Form.Item name="function_nm" label={t('function.functionName')} rules={[{ required: true }]}>
+          <Input placeholder={t('function.functionNamePlaceholder')} />
         </Form.Item>
         <div className="grid grid-cols-2 gap-x-4">
-          <Form.Item name="priority" label="優先級">
-            <Select options={PRIORITY_OPTIONS} />
+          <Form.Item name="priority" label={t('function.priority')}>
+            <Select options={[
+              { value: 1, label: t('status.priority.1') },
+              { value: 2, label: t('status.priority.2') },
+              { value: 3, label: t('status.priority.3') },
+              { value: 4, label: t('status.priority.4') },
+            ]} />
           </Form.Item>
-          <Form.Item name="group1" label="任務分組">
-            <Input placeholder="請輸入分組名稱" />
+          <Form.Item name="group1" label={t('function.taskGroupLabel')}>
+            <Input placeholder={t('function.taskGroupPlaceholder')} />
           </Form.Item>
-          <Form.Item name="expected_start_date" label="預計開始"><Input type="date" /></Form.Item>
-          <Form.Item name="expected_end_date"   label="預計結束"><Input type="date" /></Form.Item>
+          <Form.Item name="expected_start_date" label={t('function.expectedStartDate')}><DateInput/></Form.Item>
+          <Form.Item name="expected_end_date"   label={t('function.expectedEndDate')}><DateInput/></Form.Item>
         </div>
-        <Form.Item name="responsible" label="負責人">
+        <Form.Item name="responsible" label={t('function.assignees')}>
           <Select
             mode="multiple"
-            placeholder="選擇負責人"
+            placeholder={t('function.assigneePlaceholder')}
             options={userOpts}
             showSearch
             filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
@@ -858,26 +865,26 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
             return (
               <div className="mb-4">
                 <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-sm text-slate-700">功能描述</span>
+                  <span className="text-sm text-slate-700">{t('function.funcDesc')}</span>
                   <button
                     type="button"
                     onClick={handleOpenEditExpand}
                     className="flex items-center gap-1 text-xs text-slate-500 hover:text-blue-600 border border-slate-200 rounded-md px-2 py-1 hover:border-blue-300 bg-white transition-colors"
                   >
                     <ArrowsPointingOutIcon className="w-3.5 h-3.5" />
-                    展開富文本編輯
+                    {t('function.expandEdit')}
                   </button>
                 </div>
                 <Input.TextArea
                   value={displayValue}
                   onChange={(e) => editForm.setFieldValue('describe', e.target.value)}
                   rows={3}
-                  placeholder="請描述功能需求，或點擊右上角展開富文本編輯器..."
+                  placeholder={t('function.funcDescPlaceholder')}
                   style={{ resize: 'vertical', minHeight: 80 }}
                 />
                 <Form.Item name="describe" noStyle><input type="hidden" /></Form.Item>
                 {isHtml(v) && (
-                  <p className="text-xs text-blue-500 mt-1">已套用富文本格式，點擊「展開富文本編輯」可繼續修改</p>
+                  <p className="text-xs text-blue-500 mt-1">{t('function.richTextApplied')}</p>
                 )}
               </div>
             )
@@ -885,8 +892,8 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
         </Form.Item>
 
         <div className="flex justify-end gap-3">
-          <Button onClick={() => { setShowEdit(false); editForm.resetFields() }}>取消</Button>
-          <Button type="primary" htmlType="submit" loading={editSaving} style={{ background: '#2563eb' }}>儲存</Button>
+          <Button onClick={() => { setShowEdit(false); editForm.resetFields() }}>{t('common.cancel')}</Button>
+          <Button type="primary" htmlType="submit" loading={editSaving} style={{ background: '#2563eb' }}>{t('common.save')}</Button>
         </div>
       </Form>
     </Modal>
@@ -894,18 +901,18 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
     {/* ── 描述展開富文本 Modal ────────────────────────────────────────────── */}
     <Modal
       open={editExpandOpen}
-      title="功能描述"
+      title={t('function.funcDescModalTitle')}
       onCancel={() => setEditExpandOpen(false)}
       width="80vw"
       style={{ top: 40, maxWidth: 1100 }}
       styles={{ body: { padding: '16px 24px 24px' } }}
       footer={
         <div className="flex justify-end gap-2">
-          <Button onClick={() => setEditExpandOpen(false)}>取消</Button>
+          <Button onClick={() => setEditExpandOpen(false)}>{t('common.cancel')}</Button>
           <Button type="primary" style={{ background: '#2563eb' }} onClick={() => {
             editForm.setFieldValue('describe', editExpandDraft)
             setEditExpandOpen(false)
-          }}>完成</Button>
+          }}>{t('project.completeBtn')}</Button>
         </div>
       }
       destroyOnClose
@@ -913,25 +920,25 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
       <RichTextEditor
         value={editExpandDraft}
         onChange={setEditExpandDraft}
-        placeholder="請描述功能需求（支援標題、列表、粗體等格式）"
+        placeholder={t('function.funcDescExpandPlaceholder')}
         minHeight={480}
       />
     </Modal>
     {/* ── 進度說明展開編輯 Modal ───────────────────────────────────────────── */}
     <Modal
       open={progExpandOpen}
-      title="進度說明"
+      title={t('function.progressNoteModalTitle')}
       onCancel={() => setProgExpandOpen(false)}
       width="80vw"
       style={{ top: 40, maxWidth: 1100 }}
       styles={{ body: { padding: '16px 24px 24px' } }}
       footer={
         <div className="flex justify-end gap-2">
-          <Button onClick={() => setProgExpandOpen(false)}>取消</Button>
+          <Button onClick={() => setProgExpandOpen(false)}>{t('common.cancel')}</Button>
           <Button type="primary" style={{ background: '#2563eb' }} onClick={() => {
             form.setFieldValue('progress_record', progExpandDraft)
             setProgExpandOpen(false)
-          }}>完成</Button>
+          }}>{t('project.completeBtn')}</Button>
         </div>
       }
       destroyOnClose
@@ -939,7 +946,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
       <RichTextEditor
         value={progExpandDraft}
         onChange={setProgExpandDraft}
-        placeholder="本次完成了哪些工作...（支援格式化文字與圖片混排）"
+        placeholder={t('function.progressNotePlaceholder')}
         minHeight={480}
         onImageUpload={handleImageUpload}
       />

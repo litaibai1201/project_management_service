@@ -173,9 +173,9 @@ class CeleryClientManager:
 
                 # 时区配置
                 'timezone': timezone,
-                'enable_utc': (
-                    app.config.get("CELERY_ENABLE_UTC", "true").lower() == "true"
-                ),
+                'enable_utc': str(
+                    app.config.get("CELERY_ENABLE_UTC", "true")
+                ).lower() == "true",
 
                 # 任务配置
                 'task_track_started': True,

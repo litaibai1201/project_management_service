@@ -6,6 +6,7 @@ import {
 } from 'antd'
 import type { UploadFile } from 'antd'
 import { PlusIcon, PaperClipIcon, TrashIcon, ArrowsPointingOutIcon } from '@heroicons/react/24/outline'
+import { useTranslation } from 'react-i18next'
 import { userApi } from '@/api/user.api'
 import { systemApi, type SystemItem } from '@/api/system.api'
 import { standaloneReqApi } from '@/api/standalone_req.api'
@@ -23,20 +24,22 @@ import { tokenStorage } from '@/api/httpClient'
 import { DUTY_STATUS_MAP, PRIORITY_MAP } from '@/utils/status'
 import { showToast } from '@/utils/toast'
 import dayjs from 'dayjs'
+import DateInput from '@/components/common/DateInput'
 
 const { Text } = Typography
 
-const DUTY_STEPS = ['未開始', '進行中', '完結審核', '已完結']
+const DUTY_STEP_KEYS = ['status.duty.6', 'status.duty.1', 'status.duty.2', 'status.duty.3'] as const
 const statusToStep = (s: number) => ({ 6: 0, 1: 1, 2: 2, 3: 3 }[s] ?? 0)
 const PRIORITY_COLORS = ['', '#22c55e', '#f59e0b', '#ef4444', '#7c3aed']
 
 const DaysLeftBadge: React.FC<{ date?: string }> = ({ date }) => {
+  const { t } = useTranslation()
   if (!date) return null
   const days = dayjs(date).diff(dayjs(), 'day')
-  if (days < 0)  return <span className="days-overdue">已超期 {Math.abs(days)} 天</span>
-  if (days <= 3) return <span className="days-overdue">剩 {days} 天</span>
-  if (days <= 7) return <span className="days-warning">剩 {days} 天</span>
-  return <span className="days-ok">剩 {days} 天</span>
+  if (days < 0)  return <span className="days-overdue">{t('duty.detail.overdueDays', { days: Math.abs(days) })}</span>
+  if (days <= 3) return <span className="days-overdue">{t('common.daysLeft', { days })}</span>
+  if (days <= 7) return <span className="days-warning">{t('common.daysLeft', { days })}</span>
+  return <span className="days-ok">{t('common.daysLeft', { days })}</span>
 }
 
 interface Props {
@@ -53,6 +56,7 @@ const normalizeCooperator = (c: unknown): string[] => {
 }
 
 const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
+  const { t } = useTranslation()
   const workNo = useAppSelector((s) => s.auth.workNo)
   const toName = useWorkNoToName()
 
@@ -210,7 +214,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
         expected_start_date:  values.expected_start_date,
         expected_end_date:    values.expected_end_date,
       })
-      showToast.success('任務資訊已更新')
+      showToast.success(t('duty.detail.taskInfoUpdated'))
       setShowEditModal(false)
       await reloadDuty()
     } catch { /* global */ }
@@ -240,7 +244,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
         expected_start_date:  values.expected_start_date,
         expected_end_date:    values.expected_end_date,
       })
-      showToast.success('任務已激活')
+      showToast.success(t('duty.detail.taskActivated'))
       setShowActivateModal(false)
       activateForm.resetFields()
       await reloadDuty()
@@ -266,7 +270,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
     setIsRescheduling(true)
     try {
       await dutyApi.reschedule(duty.id, values.new_end_date, values.reason)
-      showToast.success('延期成功')
+      showToast.success(t('duty.detail.rescheduleSuccess'))
       setShowRescheduleModal(false)
       rescheduleForm.resetFields()
       await reloadDuty()
@@ -279,7 +283,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
     setIsActing(true)
     try {
       await dutyApi.submitCompletion(dutyId, selectedReviewers)
-      showToast.success('已提交完結審核')
+      showToast.success(t('duty.detail.completionSubmitted'))
       setShowSubmitModal(false)
       await reloadDuty()
     } catch { /* global */ }
@@ -292,7 +296,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
     try {
       const res = await dutyApi.submitCompletion(dutyId, [])
       const c = res.content as { direct?: boolean }
-      showToast.success(c.direct ? '任務已直接完結' : '已提交完結審核，等待需求責任人審核')
+      showToast.success(c.direct ? t('duty.detail.taskDirectCompleted') : t('duty.detail.completionWaitingReview'))
       setShowReqCompleteConfirm(false)
       await reloadDuty()
     } catch { /* global */ }
@@ -331,7 +335,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
       await dutyApi.submitReqTaskReview(duty.id, {
         reviewer: reqReviewers.map((r) => r.work_no),
       })
-      showToast.success('已提交審核')
+      showToast.success(t('duty.detail.reviewSubmitted'))
       setShowReqReviewModal(false)
       await reloadDuty()
     } catch { /* global */ }
@@ -369,7 +373,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
         cooperator: values.cooperator,
         submitter: workNo,
       }, Object.keys(files).length > 0 ? files : undefined)
-      showToast.success('進度更新成功')
+      showToast.success(t('duty.detail.progressUpdated'))
       setShowForm(false); form.resetFields(); setFileList([])
       loadProgress()
       const dutyRes = await dutyApi.get(dutyId)
@@ -407,7 +411,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
             <div className="w-1.5 h-5 rounded-full flex-shrink-0" style={{ background: priorityColor }} />
             <span className="font-bold text-slate-800 text-base leading-tight">{duty.duty_nm}</span>
           </div>
-        ) : 'AR詳情'
+        ) : t('duty.detail.arDetail')
       }
       styles={{ body: { padding: '16px 24px', overflowY: 'auto' } }}
       extra={
@@ -426,25 +430,25 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
                 <Button size="small" onClick={() => {
                   rescheduleForm.setFieldsValue({ new_end_date: '', reason: '' })
                   setShowRescheduleModal(true)
-                }}>延期</Button>
+                }}>{t('duty.detail.reschedule')}</Button>
               )}
               {/* 擱置 */}
               {[1, 6].includes(duty.status) && canReqHold && (
-                <Popconfirm title="確認擱置此任務？" onConfirm={() => doAction(() => dutyApi.hold(duty.id))} okText="確認" cancelText="取消">
-                  <Button size="small" loading={isActing}>擱置</Button>
+                <Popconfirm title={t('duty.detail.confirmHold')} onConfirm={() => doAction(() => dutyApi.hold(duty.id))} okText={t('common.confirm')} cancelText={t('common.cancel')}>
+                  <Button size="small" loading={isActing}>{t('duty.detail.hold')}</Button>
                 </Popconfirm>
               )}
               {/* 恢復 */}
               {duty.status === 8 && canReqHold && (
                 <Button size="small" loading={isActing} onClick={() => doAction(() => dutyApi.resume(duty.id))}>
-                  恢復進行中
+                  {t('duty.detail.resumeInProgress')}
                 </Button>
               )}
               {/* 更新進度 */}
               {(duty.status === 1 || duty.status === 6) && isResponsible && (
                 <Button type="primary" icon={<PlusIcon className="w-4 h-4" />} size="small"
                   style={{ background: '#2563eb' }} onClick={() => { setShowForm((v) => !v); ensureUserOptions() }}>
-                  更新進度
+                  {t('duty.addProgress')}
                 </Button>
               )}
             </div>
@@ -456,7 +460,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
       {loading ? (
         <div className="flex items-center justify-center h-48"><Spin size="large" /></div>
       ) : !duty ? (
-        <Empty description="任務不存在" className="mt-16" />
+        <Empty description={t('duty.detail.taskNotExist')} className="mt-16" />
       ) : (
         <div className="space-y-4">
           {/* Status badge row */}
@@ -479,15 +483,15 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
             if (duty.status !== 0 || !canAct) return null
             return (
               <div className="flex flex-wrap gap-2 mb-1">
-                <Button size="small" onClick={openEditModal}>編輯資訊</Button>
+                <Button size="small" onClick={openEditModal}>{t('duty.detail.editInfo')}</Button>
                 {duty.standalone_req_id && (
                   <Button type="primary" size="small" style={{ background: '#7c3aed' }} onClick={openReqReviewModal}>
-                    提交審核
+                    {t('duty.detail.submitReview')}
                   </Button>
                 )}
                 {!duty.standalone_req_id && (
                   <Button type="primary" size="small" loading={isActing} style={{ background: '#2563eb' }} onClick={openActivateModal}>
-                    激活任務
+                    {t('duty.detail.activateTask')}
                   </Button>
                 )}
               </div>
@@ -498,9 +502,9 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
           {(duty.status === 6 || (duty.status >= 1 && duty.status <= 3)) && (
             <Card bordered={false} className="shadow-sm" styles={{ body: { padding: '14px 20px' } }}>
               <Steps size="small" current={statusToStep(duty.status)}
-                items={DUTY_STEPS.map((t) => ({ title: <span style={{ fontSize: 12 }}>{t}</span> }))} />
+                items={DUTY_STEP_KEYS.map((k) => ({ title: <span style={{ fontSize: 12 }}>{t(k)}</span> }))} />
               <div className="flex items-center gap-3 mt-3">
-                <span className="text-xs text-slate-400 w-14">整體進度</span>
+                <span className="text-xs text-slate-400 w-14">{t('duty.detail.overallProgress')}</span>
                 <Progress percent={duty.progress ?? 0} size="small" strokeColor="#2563eb" trailColor="#e2e8f0"
                   style={{ flex: 1, marginBottom: 0 }} />
               </div>
@@ -512,8 +516,8 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
             <Descriptions column={2} size="small"
               labelStyle={{ color: '#94a3b8', fontSize: 12, fontWeight: 500 }}
               contentStyle={{ fontSize: 13, color: '#334155' }}>
-              <Descriptions.Item label="建立人">{toName(duty.creator)}</Descriptions.Item>
-              <Descriptions.Item label="負責人">
+              <Descriptions.Item label={t('duty.detail.creator')}>{toName(duty.creator)}</Descriptions.Item>
+              <Descriptions.Item label={t('duty.assignee')}>
                 {duty.responsible?.length
                   ? <div className="flex items-center gap-1.5">
                       <Avatar size={18} style={{ background: '#7c3aed', fontSize: 10, fontWeight: 600 }}>
@@ -521,34 +525,34 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
                       </Avatar>
                       <span>{duty.responsible.map((wn) => toName(wn)).join(', ')}</span>
                     </div>
-                  : <span className="text-slate-300">未分配</span>}
+                  : <span className="text-slate-300">{t('common.notAssigned')}</span>}
               </Descriptions.Item>
-              <Descriptions.Item label="預計開始">{duty.expected_start_date || '—'}</Descriptions.Item>
-              <Descriptions.Item label="預計完成">
+              <Descriptions.Item label={t('duty.expectedStart')}>{duty.expected_start_date || '—'}</Descriptions.Item>
+              <Descriptions.Item label={t('duty.expectedComplete')}>
                 <div className="flex items-center gap-2 flex-wrap">
                   <span>{duty.expected_end_date || '—'}</span>
                   {(duty.reschedule_count ?? 0) > 0 && (
                     <>
                       <Tag color="orange" style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px' }}>
-                        已延期 {duty.reschedule_count} 次
+                        {t('duty.detail.rescheduledCount', { count: duty.reschedule_count })}
                       </Tag>
-                      <span className="text-[10px] text-slate-400">原始: {duty.original_end_date || '—'}</span>
+                      <span className="text-[10px] text-slate-400">{t('duty.detail.original')}: {duty.original_end_date || '—'}</span>
                     </>
                   )}
                 </div>
               </Descriptions.Item>
               {duty.group && (
-                <Descriptions.Item label="任務分組">
+                <Descriptions.Item label={t('duty.taskGroup')}>
                   <Tag color="processing" style={{ fontSize: 11 }}>{duty.group}</Tag>
                 </Descriptions.Item>
               )}
               {duty.system_nm && (
-                <Descriptions.Item label="關聯系統">
+                <Descriptions.Item label={t('duty.linkedSystem')}>
                   <span className="text-blue-600 text-xs">{duty.system_nm}</span>
                 </Descriptions.Item>
               )}
               {duty.describe && (
-                <Descriptions.Item label="描述" span={2}><RichTextContent html={duty.describe} /></Descriptions.Item>
+                <Descriptions.Item label={t('common.description')} span={2}><RichTextContent html={duty.describe} /></Descriptions.Item>
               )}
             </Descriptions>
           </Card>
@@ -556,7 +560,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
           {/* Reschedule history */}
           {(duty.reschedule_history ?? []).length > 0 && (
             <div className="bg-orange-50 border border-orange-100 rounded-xl p-3">
-              <p className="text-[11px] font-semibold text-orange-700 mb-2">延期記錄</p>
+              <p className="text-[11px] font-semibold text-orange-700 mb-2">{t('duty.detail.rescheduleHistory')}</p>
               <Timeline className="!mb-0" items={(duty.reschedule_history ?? []).map((h, i) => ({
                 key: i,
                 color: 'orange',
@@ -580,10 +584,10 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
             bordered={false} className="shadow-sm"
             title={
               <span className="font-semibold text-slate-700 text-sm">
-                進度記錄（共 {records.length} 條）
+                {t('duty.detail.progressRecords', { count: records.length })}
                 {logEntries.length > 0 && (
                   <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400, marginLeft: 6 }}>
-                    · 含 {logEntries.length} 條日誌記錄
+                    · {t('duty.detail.includesLogEntries', { count: logEntries.length })}
                   </span>
                 )}
               </span>
@@ -593,10 +597,10 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
               <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 mb-4">
                 <Form form={form} layout="vertical" onFinish={handleSubmit}>
                   <div className="grid grid-cols-2 gap-x-3">
-                    <Form.Item name="progress" label="完成 (%)" rules={[{ required: true }]}>
+                    <Form.Item name="progress" label={t('duty.detail.completionPercent')} rules={[{ required: true }]}>
                       <InputNumber min={1} max={100} style={{ width: '100%' }} addonAfter="%" />
                     </Form.Item>
-                    <Form.Item name="time_consum" label="耗時 (h)">
+                    <Form.Item name="time_consum" label={t('duty.detail.timeConsumed')}>
                       <InputNumber min={0} step={0.5} style={{ width: '100%' }} addonAfter="h" />
                     </Form.Item>
                   </div>
@@ -604,7 +608,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
                     name="progress_record"
                     label={
                       <div className="flex items-center justify-between w-full">
-                        <span>進度說明</span>
+                        <span>{t('duty.detail.progressDescription')}</span>
                         <button
                           type="button"
                           onClick={() => {
@@ -615,42 +619,42 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
                           className="flex items-center gap-1 text-xs text-slate-500 hover:text-blue-600 border border-slate-200 rounded-md px-2 py-0.5 hover:border-blue-300 bg-white transition-colors ml-2"
                         >
                           <ArrowsPointingOutIcon className="w-3.5 h-3.5" />
-                          展開編輯
+                          {t('duty.detail.expandEdit')}
                         </button>
                       </div>
                     }
                   >
                     <RichTextEditor
-                      placeholder="本次完成了哪些工作...（支援格式化文字與圖片混排）"
+                      placeholder={t('duty.detail.progressPlaceholder')}
                       minHeight={120}
                       onImageUpload={handleImageUpload}
                     />
                   </Form.Item>
-                  <Form.Item name="cooperator" label="合作人">
+                  <Form.Item name="cooperator" label={t('duty.detail.cooperator')}>
                     <Select
                       mode="multiple"
                       showSearch
-                      placeholder="搜尋並選擇合作人（選填）"
+                      placeholder={t('duty.detail.cooperatorPlaceholder')}
                       optionFilterProp="label"
                       options={userOptions.filter((u) => u.value.toLowerCase() !== (workNo ?? '').toLowerCase())}
                       allowClear
                     />
                   </Form.Item>
-                  <Form.Item label="附件（非圖片文件）">
+                  <Form.Item label={t('duty.detail.attachments')}>
                     <Upload fileList={fileList} onChange={({ fileList: fl }) => setFileList(fl)} beforeUpload={() => false} multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.rar,.txt,.md">
-                      <Button icon={<PaperClipIcon className="w-4 h-4" />} size="small">選擇附件</Button>
+                      <Button icon={<PaperClipIcon className="w-4 h-4" />} size="small">{t('duty.detail.selectAttachment')}</Button>
                     </Upload>
                   </Form.Item>
                   <div className="flex justify-end gap-2">
-                    <Button size="small" onClick={() => { setShowForm(false); form.resetFields(); setFileList([]) }}>取消</Button>
-                    <Button type="primary" size="small" htmlType="submit" loading={isSaving} style={{ background: '#2563eb' }}>提交</Button>
+                    <Button size="small" onClick={() => { setShowForm(false); form.resetFields(); setFileList([]) }}>{t('common.cancel')}</Button>
+                    <Button type="primary" size="small" htmlType="submit" loading={isSaving} style={{ background: '#2563eb' }}>{t('common.submit')}</Button>
                   </div>
                 </Form>
               </div>
             )}
 
             {records.length === 0 && logEntries.length === 0 ? (
-              <Text type="secondary" className="block text-center py-8 text-sm">暫無進度記錄</Text>
+              <Text type="secondary" className="block text-center py-8 text-sm">{t('duty.detail.noProgressRecords')}</Text>
             ) : (() => {
               // ── 構建合併時間軸（與 FunctionDetailDrawer 相同邏輯）──────────
               const updatedMap = new Map<string, TaskLogEntry[]>()
@@ -702,7 +706,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="font-semibold text-slate-700 text-sm">{toName(String(item.submitter ?? ''))}</span>
                               {((item.cooperator as string[] | undefined) ?? []).length > 0 && (
-                                <Tooltip title={`合作人：${((item.cooperator as string[] | undefined) ?? []).map((c) => toName(c) || c).join('、')}`}>
+                                <Tooltip title={`${t('duty.detail.cooperator')}：${((item.cooperator as string[] | undefined) ?? []).map((c) => toName(c) || c).join('、')}`}>
                                   <div className="flex items-center gap-0.5">
                                     <span className="text-xs text-slate-400">+</span>
                                     {((item.cooperator as string[] | undefined) ?? []).map((c) => (
@@ -733,9 +737,9 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
                             {latestUpd && (
                               <div className="flex items-center gap-1 flex-shrink-0">
                                 <Tag style={{ fontSize: 10, padding: '0 4px', lineHeight: '16px', margin: 0 }}>
-                                  {latestUpd.log_status === 2 ? '已提交' : '草稿'}
+                                  {latestUpd.log_status === 2 ? t('duty.detail.submitted') : t('duty.detail.draft')}
                                 </Tag>
-                                <Tag color="orange" style={{ fontSize: 10, padding: '0 5px', lineHeight: '16px', margin: 0 }}>日誌更新</Tag>
+                                <Tag color="orange" style={{ fontSize: 10, padding: '0 5px', lineHeight: '16px', margin: 0 }}>{t('duty.detail.logUpdated')}</Tag>
                               </div>
                             )}
                           </div>
@@ -794,7 +798,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
                                   <div className="mt-1 space-y-1">
                                     {removedFiles.map((f, fi) => (
                                       <div key={fi} className="flex items-center gap-1.5">
-                                        <Tag color="red" style={{ fontSize: 9, padding: '0 4px', lineHeight: '14px', flexShrink: 0 }}>已刪除</Tag>
+                                        <Tag color="red" style={{ fontSize: 9, padding: '0 4px', lineHeight: '14px', flexShrink: 0 }}>{t('duty.detail.deleted')}</Tag>
                                         <span className="text-xs text-slate-400" style={{ textDecoration: 'line-through' }}>{f.name}</span>
                                       </div>
                                     ))}
@@ -829,9 +833,9 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
                                     )}
                                   </div>
                                   <div className="flex items-center gap-1 flex-shrink-0">
-                                    <Tag color="purple" style={{ fontSize: 9, padding: '0 4px', lineHeight: '16px', margin: 0 }}>合作人更新</Tag>
+                                    <Tag color="purple" style={{ fontSize: 9, padding: '0 4px', lineHeight: '16px', margin: 0 }}>{t('duty.detail.cooperatorUpdate')}</Tag>
                                     <Tag style={{ fontSize: 9, padding: '0 4px', lineHeight: '16px', margin: 0 }}>
-                                      {upd.log_status === 2 ? '已提交' : '草稿'}
+                                      {upd.log_status === 2 ? t('duty.detail.submitted') : t('duty.detail.draft')}
                                     </Tag>
                                   </div>
                                 </div>
@@ -868,9 +872,9 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
                             </div>
                             <div className="flex items-center gap-1 flex-shrink-0">
                               <Tag style={{ fontSize: 10, padding: '0 4px', lineHeight: '16px', margin: 0 }}>
-                                {e.log_status === 2 ? '已提交' : '草稿'}
+                                {e.log_status === 2 ? t('duty.detail.submitted') : t('duty.detail.draft')}
                               </Tag>
-                              <Tag color="green" style={{ fontSize: 10, padding: '0 5px', lineHeight: '16px', margin: 0 }}>日誌新增</Tag>
+                              <Tag color="green" style={{ fontSize: 10, padding: '0 5px', lineHeight: '16px', margin: 0 }}>{t('duty.detail.logAdded')}</Tag>
                             </div>
                           </div>
                           {e.description && (
@@ -891,35 +895,35 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
         </div>
       )}
       <Modal
-        title="編輯任務資訊"
+        title={t('duty.detail.editTaskInfo')}
         open={showEditModal}
         onCancel={() => setShowEditModal(false)}
         onOk={handleEdit}
-        okText="儲存"
-        cancelText="取消"
+        okText={t('common.save')}
+        cancelText={t('common.cancel')}
         okButtonProps={{ loading: isActing, style: { background: '#2563eb' } }}
         width="min(680px, 88vw)"
         destroyOnHidden
       >
         <Form form={editForm} layout="vertical" className="mt-3">
-          <Form.Item name="duty_nm" label="任務名稱" rules={[{ required: true }]}>
-            <Input placeholder="請輸入任務名稱" />
+          <Form.Item name="duty_nm" label={t('duty.taskName')} rules={[{ required: true }]}>
+            <Input placeholder={t('duty.taskNamePlaceholder')} />
           </Form.Item>
           <div className="grid grid-cols-2 gap-x-4">
-            <Form.Item name="priority" label="優先級" rules={[{ required: true }]}>
-              <Select options={[{value:1,label:'低'},{value:2,label:'中'},{value:3,label:'高'},{value:4,label:'緊急'}]} />
+            <Form.Item name="priority" label={t('common.priority')} rules={[{ required: true }]}>
+              <Select options={[{value:1,label:t('status.priority.1')},{value:2,label:t('status.priority.2')},{value:3,label:t('status.priority.3')},{value:4,label:t('status.priority.4')}]} />
             </Form.Item>
-            <Form.Item name="group" label="任務分組">
+            <Form.Item name="group" label={t('duty.taskGroup')}>
               <AutoComplete
                 options={[]}
-                placeholder="選擇或輸入分組"
+                placeholder={t('duty.groupPlaceholder')}
               />
             </Form.Item>
           </div>
-          <Form.Item name="responsible" label="負責人">
+          <Form.Item name="responsible" label={t('duty.assignee')}>
             <Select
               mode="multiple"
-              placeholder="選擇負責人"
+              placeholder={t('duty.assigneePlaceholder')}
               options={userOptions}
               showSearch
               filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
@@ -927,16 +931,16 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
             />
           </Form.Item>
           <div className="grid grid-cols-2 gap-x-4">
-            <Form.Item name="expected_start_date" label="預計開始">
-              <Input type="date" />
+            <Form.Item name="expected_start_date" label={t('duty.expectedStart')}>
+              <DateInput/>
             </Form.Item>
-            <Form.Item name="expected_end_date" label="預計完成">
-              <Input type="date" />
+            <Form.Item name="expected_end_date" label={t('duty.expectedComplete')}>
+              <DateInput/>
             </Form.Item>
           </div>
-          <Form.Item name="system_id" label="關聯系統">
+          <Form.Item name="system_id" label={t('duty.linkedSystem')}>
             <Select
-              placeholder="選擇關聯系統（選填）"
+              placeholder={t('duty.linkedSystemPlaceholder')}
               options={systemOptions}
               showSearch
               filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
@@ -951,57 +955,57 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
               }}
             />
           </Form.Item>
-          <Form.Item name="describe" label="任務描述">
-            <Input.TextArea rows={3} placeholder="請描述任務內容" />
+          <Form.Item name="describe" label={t('duty.taskDescription')}>
+            <Input.TextArea rows={3} placeholder={t('duty.descriptionPlaceholder')} />
           </Form.Item>
         </Form>
       </Modal>
 
       <Modal
-        title="激活任務 — 補充必填資訊"
+        title={t('duty.detail.activateTitle')}
         open={showActivateModal}
         onCancel={() => setShowActivateModal(false)}
         onOk={handleActivate}
-        okText="確認激活"
-        cancelText="取消"
+        okText={t('duty.detail.confirmActivate')}
+        cancelText={t('common.cancel')}
         okButtonProps={{ loading: isActing, style: { background: '#2563eb' } }}
         destroyOnHidden
       >
-        <p className="text-sm text-slate-500 mb-4">激活前需指定負責人及預計時間。</p>
+        <p className="text-sm text-slate-500 mb-4">{t('duty.detail.activateHint')}</p>
         <Form form={activateForm} layout="vertical">
-          <Form.Item name="responsible" label="負責人" rules={[{ required: true, message: '請指定負責人' }]}>
+          <Form.Item name="responsible" label={t('duty.assignee')} rules={[{ required: true, message: t('duty.detail.assigneeRequired') }]}>
             <Select
               mode="multiple"
-              placeholder="選擇負責人"
+              placeholder={t('duty.assigneePlaceholder')}
               options={userOptions}
               showSearch
               filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
             />
           </Form.Item>
           <div className="grid grid-cols-2 gap-x-4">
-            <Form.Item name="expected_start_date" label="預計開始" rules={[{ required: true, message: '請設定預計開始' }]}>
-              <Input type="date" />
+            <Form.Item name="expected_start_date" label={t('duty.expectedStart')} rules={[{ required: true, message: t('duty.detail.expectedStartRequired') }]}>
+              <DateInput/>
             </Form.Item>
-            <Form.Item name="expected_end_date" label="預計完成" rules={[{ required: true, message: '請設定預計完成' }]}>
-              <Input type="date" />
+            <Form.Item name="expected_end_date" label={t('duty.expectedComplete')} rules={[{ required: true, message: t('duty.detail.expectedEndRequired') }]}>
+              <DateInput/>
             </Form.Item>
           </div>
         </Form>
       </Modal>
 
       <Modal
-        title="提交完結審核"
+        title={t('duty.detail.submitCompletionTitle')}
         open={showSubmitModal}
         onCancel={() => setShowSubmitModal(false)}
         onOk={handleSubmitCompletion}
-        okText="提交"
-        cancelText="取消"
+        okText={t('common.submit')}
+        cancelText={t('common.cancel')}
         okButtonProps={{ disabled: selectedReviewers.length === 0, loading: isActing, style: { background: '#2563eb' } }}
       >
-        <p className="text-sm text-slate-500 mb-3">請選擇審核人，審核通過後任務將自動標記為「已完結」。</p>
+        <p className="text-sm text-slate-500 mb-3">{t('duty.detail.submitCompletionHint')}</p>
         <Select
           mode="multiple"
-          placeholder="選擇審核人（可多選）"
+          placeholder={t('duty.detail.selectReviewers')}
           style={{ width: '100%' }}
           options={reviewerOptions}
           value={selectedReviewers}
@@ -1013,43 +1017,43 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
 
       {/* 延期 Modal */}
       <Modal
-        title="延期任務"
+        title={t('duty.detail.rescheduleTitle')}
         open={showRescheduleModal}
         onCancel={() => { setShowRescheduleModal(false); rescheduleForm.resetFields() }}
         onOk={handleReschedule}
-        okText="確認延期"
-        cancelText="取消"
+        okText={t('duty.detail.confirmReschedule')}
+        cancelText={t('common.cancel')}
         okButtonProps={{ loading: isRescheduling, danger: true }}
       >
         <p className="text-sm text-slate-500 mb-3">
-          當前預計完成：<span className="font-semibold text-orange-600">{duty?.expected_end_date || '—'}</span>
+          {t('duty.detail.currentExpectedEnd')}<span className="font-semibold text-orange-600">{duty?.expected_end_date || '—'}</span>
         </p>
         <Form form={rescheduleForm} layout="vertical">
-          <Form.Item name="new_end_date" label="新的預計完成日期" rules={[{ required: true, message: '請選擇新日期' }]}>
-            <Input type="date" />
+          <Form.Item name="new_end_date" label={t('duty.detail.newEndDate')} rules={[{ required: true, message: t('duty.detail.newEndDateRequired') }]}>
+            <DateInput/>
           </Form.Item>
-          <Form.Item name="reason" label="延期原因">
-            <Input.TextArea rows={2} placeholder="說明延期原因（選填）" />
+          <Form.Item name="reason" label={t('duty.detail.rescheduleReason')}>
+            <Input.TextArea rows={2} placeholder={t('duty.detail.rescheduleReasonPlaceholder')} />
           </Form.Item>
         </Form>
       </Modal>
 
       {/* 需求任務提交審核 Modal */}
       <Modal
-        title="提交需求任務審核"
+        title={t('duty.detail.submitReqReviewTitle')}
         open={showReqReviewModal}
         onCancel={() => setShowReqReviewModal(false)}
         footer={null} width={520} destroyOnClose
       >
         <div className="mt-4 space-y-4">
-          <div className="text-xs text-slate-400">審核人將依序審核，通過後任務將進入進行中狀態。</div>
+          <div className="text-xs text-slate-400">{t('duty.detail.reqReviewHint')}</div>
           <div>
-            <div className="text-sm font-medium text-slate-600 mb-2">審核流程</div>
+            <div className="text-sm font-medium text-slate-600 mb-2">{t('duty.detail.reviewFlow')}</div>
             {reqReviewersLoading ? (
               <div className="flex justify-center py-4"><Spin size="small" /></div>
             ) : reqReviewers.length === 0 ? (
               <div className="border border-dashed border-slate-300 rounded-lg py-5 text-center text-slate-400 text-sm">
-                尚未添加審核人，請搜尋並加入
+                {t('duty.detail.noReviewerAdded')}
               </div>
             ) : (
               <div className="border border-slate-200 rounded-lg overflow-hidden">
@@ -1076,9 +1080,9 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
             )}
           </div>
           <div>
-            <div className="text-sm font-medium text-slate-600 mb-2">加簽審核人</div>
+            <div className="text-sm font-medium text-slate-600 mb-2">{t('duty.detail.addReviewer')}</div>
             <div className="relative">
-              <Input placeholder="輸入姓名或工號搜尋" value={reqReviewSearch}
+              <Input placeholder={t('duty.detail.searchReviewerPlaceholder')} value={reqReviewSearch}
                 onChange={(e) => handleReqReviewSearchChange(e.target.value)}
                 prefix={reqReviewSearchLoading ? <Spin size="small" /> : undefined} allowClear />
               {reqReviewSearchResults.length > 0 && (
@@ -1099,7 +1103,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
                           <div className="text-sm font-medium text-slate-800">{u.name}</div>
                           <div className="text-xs text-slate-400">{u.department}{u.position ? ` · ${u.position}` : ''} · {u.work_no}</div>
                         </div>
-                        {already && <span className="text-xs text-slate-400">已添加</span>}
+                        {already && <span className="text-xs text-slate-400">{t('duty.alreadyAdded')}</span>}
                       </div>
                     )
                   })}
@@ -1109,11 +1113,11 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
           </div>
           <Divider style={{ margin: '8px 0' }} />
           <div className="flex justify-end gap-3">
-            <Button onClick={() => setShowReqReviewModal(false)}>取消</Button>
+            <Button onClick={() => setShowReqReviewModal(false)}>{t('common.cancel')}</Button>
             <Button type="primary" loading={reqReviewSaving} disabled={reqReviewers.length === 0}
               style={{ background: '#7c3aed' }}
               onClick={handleSubmitReqReview}>
-              提交審核
+              {t('duty.detail.submitReview')}
             </Button>
           </div>
         </div>
@@ -1128,23 +1132,23 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
             title={
               <div className="flex items-center gap-2">
                 <span className="text-lg">🎉</span>
-                <span>任務進度已達100%</span>
+                <span>{t('duty.detail.progress100Title')}</span>
               </div>
             }
             open={show100Prompt}
             onOk={() => { setShow100Prompt(false); openSubmitModal() }}
             onCancel={() => setShow100Prompt(false)}
-            okText={isReqResp ? '確認完結' : '立即提交完結'}
-            cancelText="稍後再說"
+            okText={isReqResp ? t('duty.detail.confirmComplete') : t('duty.detail.submitCompletionNow')}
+            cancelText={t('duty.detail.later')}
             okButtonProps={{ style: { background: '#16a34a' } }}
             width={400}
           >
             <p className="text-sm text-slate-600 mt-2">
               {isReqTask
                 ? isReqResp
-                  ? '您是此需求的責任人，確認後任務將直接標記為「已完結」，無需審核。'
-                  : `任務完結申請將提交給需求責任人（${reqResponsible.map((w) => toName(w) || w).join('、')}）審核通過後完結。`
-                : '是否立即提交完結審核，讓審核人確認任務完成？'}
+                  ? t('duty.detail.reqRespDirectComplete')
+                  : t('duty.detail.reqSubmitToResponsible', { names: reqResponsible.map((w) => toName(w) || w).join('、') })
+                : t('duty.detail.submitCompletionPrompt')}
             </p>
           </Modal>
         )
@@ -1155,20 +1159,20 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
         const isReqResp = reqResponsible.some((w) => w.toLowerCase() === (workNo ?? '').toLowerCase())
         return (
           <Modal
-            title="確認完結任務"
+            title={t('duty.detail.confirmCompleteTitle')}
             open={showReqCompleteConfirm}
             onOk={handleReqCompleteConfirm}
             onCancel={() => setShowReqCompleteConfirm(false)}
-            okText={isReqResp ? '直接完結' : '提交審核'}
-            cancelText="取消"
+            okText={isReqResp ? t('duty.detail.directComplete') : t('duty.detail.submitReview')}
+            cancelText={t('common.cancel')}
             confirmLoading={isActing}
             okButtonProps={{ style: { background: '#16a34a' } }}
             width={400}
           >
             <p className="text-sm text-slate-600 mt-2">
               {isReqResp
-                ? '您是此需求的責任人，確認後任務將直接標記為「已完結」，無需審核。'
-                : `任務完結申請將提交給需求責任人（${reqResponsible.map((w) => toName(w) || w).join('、')}）審核通過後完結。`}
+                ? t('duty.detail.reqRespDirectComplete')
+                : t('duty.detail.reqSubmitToResponsible', { names: reqResponsible.map((w) => toName(w) || w).join('、') })}
             </p>
           </Modal>
         )
@@ -1177,18 +1181,18 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
       {/* 進度說明展開編輯 Modal */}
       <Modal
         open={expandOpen}
-        title="進度說明"
+        title={t('duty.detail.progressDescription')}
         onCancel={() => setExpandOpen(false)}
         width="80vw"
         style={{ top: 40, maxWidth: 1100 }}
         styles={{ body: { padding: '16px 24px 24px' } }}
         footer={
           <div className="flex justify-end gap-2">
-            <Button onClick={() => setExpandOpen(false)}>取消</Button>
+            <Button onClick={() => setExpandOpen(false)}>{t('common.cancel')}</Button>
             <Button type="primary" style={{ background: '#2563eb' }} onClick={() => {
               form.setFieldValue('progress_record', expandDraft)
               setExpandOpen(false)
-            }}>完成</Button>
+            }}>{t('duty.detail.done')}</Button>
           </div>
         }
         destroyOnClose
@@ -1196,7 +1200,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
         <RichTextEditor
           value={expandDraft}
           onChange={setExpandDraft}
-          placeholder="本次完成了哪些工作...（支援格式化文字與圖片混排）"
+          placeholder={t('duty.detail.progressPlaceholder')}
           minHeight={480}
           onImageUpload={handleImageUpload}
         />

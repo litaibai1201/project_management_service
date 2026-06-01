@@ -11,6 +11,7 @@ import AttachmentPreview from '@/components/ui/AttachmentPreview'
 import FilePreviewModal from '@/features/project/FilePreviewModal'
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
 import { useWorkNoToName } from '@/hooks/useWorkNoToName'
+import { useTranslation } from 'react-i18next'
 import { fetchDutyThunk, clearCurrentDuty } from './dutySlice'
 import { dutyApi } from '@/api/duty.api'
 import { userApi } from '@/api/user.api'
@@ -23,16 +24,16 @@ import dayjs from 'dayjs'
 
 const { Text } = Typography
 
-const DUTY_STEPS = ['進行中', '完結審核', '已完結']
 const statusToStep = (s: number) => ({ 1: 0, 2: 1, 3: 2 }[s] ?? 0)
 
 const DaysLeftBadge: React.FC<{ date?: string }> = ({ date }) => {
+  const { t } = useTranslation()
   if (!date) return null
   const days = dayjs(date).diff(dayjs(), 'day')
-  if (days < 0)  return <span className="days-overdue">已超期 {Math.abs(days)} 天</span>
-  if (days <= 3) return <span className="days-overdue">剩 {days} 天</span>
-  if (days <= 7) return <span className="days-warning">剩 {days} 天</span>
-  return <span className="days-ok">剩 {days} 天</span>
+  if (days < 0)  return <span className="days-overdue">{t('common.daysOverdue', { days: Math.abs(days) })}</span>
+  if (days <= 3) return <span className="days-overdue">{t('common.daysLeft', { days })}</span>
+  if (days <= 7) return <span className="days-warning">{t('common.daysLeft', { days })}</span>
+  return <span className="days-ok">{t('common.daysLeft', { days })}</span>
 }
 
 const PRIORITY_COLORS = ['', '#22c55e', '#f59e0b', '#ef4444', '#7c3aed']
@@ -45,12 +46,15 @@ const normalizeCooperator = (c: unknown): string[] => {
 }
 
 const DutyDetailPage: React.FC = () => {
+  const { t } = useTranslation()
   const { id }   = useParams<{ id: string }>()
   const navigate = useNavigate()
   const dispatch = useAppDispatch()
   const workNo   = useAppSelector((s) => s.auth.workNo)
   const toName   = useWorkNoToName()
   const { current, isLoading } = useAppSelector((s) => s.duty)
+
+  const DUTY_STEPS = [t('duty.stepInProgress'), t('duty.stepReview'), t('duty.stepCompleted')]
 
   const [records,    setRecords]    = useState<Record<string, unknown>[]>([])
   const [logEntries, setLogEntries] = useState<TaskLogEntry[]>([])
@@ -103,14 +107,14 @@ const DutyDetailPage: React.FC = () => {
       fileList.forEach((f) => { if (f.originFileObj) { if (!files.files) files.files = []; files.files.push(f.originFileObj) } })
       await dutyApi.createProgress(id, { progress: values.progress, progress_record: values.progress_record, time_consum: values.time_consum, cooperator: values.cooperator, submitter: workNo },
         Object.keys(files).length > 0 ? files : undefined)
-      showToast.success('進度更新成功')
+      showToast.success(t('duty.progressUpdateSuccess'))
       setShowForm(false); form.resetFields(); setFileList([]); loadProgress(id)
     } catch { /* global */ }
     finally { setIsSaving(false) }
   }
 
   if (isLoading) return <div className="flex items-center justify-center h-64"><Spin size="large" /></div>
-  if (!current)  return <Empty description="任務不存在" className="mt-20" />
+  if (!current)  return <Empty description={t('duty.taskNotExist')} className="mt-20" />
 
   const priorityColor = PRIORITY_COLORS[current.priority] ?? '#94a3b8'
   const statusInfo    = DUTY_STATUS_MAP[current.status]
@@ -144,7 +148,7 @@ const DutyDetailPage: React.FC = () => {
           <Steps size="small" current={statusToStep(current.status)}
             items={DUTY_STEPS.map((t) => ({ title: <span style={{ fontSize: 12 }}>{t}</span> }))} />
           <div className="flex items-center gap-3 mt-4">
-            <span className="text-xs text-slate-400 w-14">整體進度</span>
+            <span className="text-xs text-slate-400 w-14">{t('duty.overallProgress')}</span>
             <Progress percent={current.progress ?? 0} size="small" strokeColor="#2563eb" trailColor="#e2e8f0" style={{ flex: 1, marginBottom: 0 }} />
           </div>
         </Card>
@@ -155,25 +159,25 @@ const DutyDetailPage: React.FC = () => {
         <Descriptions column={2} size="small"
           labelStyle={{ color: '#94a3b8', fontSize: 12, fontWeight: 500 }}
           contentStyle={{ fontSize: 13, color: '#334155' }}>
-          <Descriptions.Item label="建立人">{toName(current.creator)}</Descriptions.Item>
-          <Descriptions.Item label="負責人">
+          <Descriptions.Item label={t('duty.creator')}>{toName(current.creator)}</Descriptions.Item>
+          <Descriptions.Item label={t('duty.responsible')}>
             {current.responsible?.length
               ? <div className="flex items-center gap-1.5">
                   <Avatar size={18} style={{ background: '#7c3aed', fontSize: 10, fontWeight: 600 }}>{current.responsible[0]?.[0]?.toUpperCase()}</Avatar>
                   <span>{current.responsible.join(', ')}</span>
                 </div>
-              : <span className="text-slate-300">未分配</span>}
+              : <span className="text-slate-300">{t('common.notAssigned')}</span>}
           </Descriptions.Item>
-          <Descriptions.Item label="預計開始">{current.expected_start_date ?? '—'}</Descriptions.Item>
-          <Descriptions.Item label="預計完成">{current.expected_end_date ?? '—'}</Descriptions.Item>
+          <Descriptions.Item label={t('duty.expectedStart')}>{current.expected_start_date ?? '—'}</Descriptions.Item>
+          <Descriptions.Item label={t('duty.expectedEnd')}>{current.expected_end_date ?? '—'}</Descriptions.Item>
           {(current.reschedule_count ?? 0) > 0 && (
-            <Descriptions.Item label="延期次數">
-              <Tag color="orange">{current.reschedule_count} 次</Tag>
-              <span className="text-[10px] text-slate-400 ml-1">原始: {current.original_end_date || '—'}</span>
+            <Descriptions.Item label={t('duty.rescheduleCount')}>
+              <Tag color="orange">{t('duty.times', { count: current.reschedule_count })}</Tag>
+              <span className="text-[10px] text-slate-400 ml-1">{t('duty.original')}: {current.original_end_date || '—'}</span>
             </Descriptions.Item>
           )}
           {current.describe && (
-            <Descriptions.Item label="描述" span={2}>{current.describe}</Descriptions.Item>
+            <Descriptions.Item label={t('common.description')} span={2}>{current.describe}</Descriptions.Item>
           )}
         </Descriptions>
       </Card>
@@ -183,10 +187,10 @@ const DutyDetailPage: React.FC = () => {
         bordered={false} className="shadow-sm"
         title={
           <span className="font-semibold text-slate-700 text-sm">
-            進度記錄（共 {records.length} 條）
+            {t('duty.progressRecords', { count: records.length })}
             {logEntries.length > 0 && (
               <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400, marginLeft: 6 }}>
-                · 含 {logEntries.length} 條日誌記錄
+                {t('duty.includingLogEntries', { count: logEntries.length })}
               </span>
             )}
           </span>
@@ -195,7 +199,7 @@ const DutyDetailPage: React.FC = () => {
           current.status === 1 && (current.responsible ?? []).some((w) => w.toLowerCase() === (workNo?.toLowerCase() ?? '')) && (
             <Button type="primary" icon={<PlusIcon className="w-4 h-4" />} size="small"
               style={{ background: '#2563eb' }} onClick={() => setShowForm((v) => !v)}>
-              更新進度
+              {t('duty.updateProgress')}
             </Button>
           )
         }
@@ -204,41 +208,41 @@ const DutyDetailPage: React.FC = () => {
           <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 mb-4">
             <Form form={form} layout="vertical" onFinish={handleSubmit}>
               <div className="grid grid-cols-2 gap-x-3">
-                <Form.Item name="progress" label="完成 (%)" rules={[{ required: true }]}>
+                <Form.Item name="progress" label={t('duty.completionPercent')} rules={[{ required: true }]}>
                   <InputNumber min={1} max={100} style={{ width: '100%' }} addonAfter="%" />
                 </Form.Item>
-                <Form.Item name="time_consum" label="耗時 (h)">
+                <Form.Item name="time_consum" label={t('duty.timeConsumed')}>
                   <InputNumber min={0} step={0.5} style={{ width: '100%' }} addonAfter="h" />
                 </Form.Item>
               </div>
-              <Form.Item name="progress_record" label="進度說明">
-                <Input.TextArea rows={2} placeholder="本次完成了哪些工作..." />
+              <Form.Item name="progress_record" label={t('duty.progressDescription')}>
+                <Input.TextArea rows={2} placeholder={t('duty.progressPlaceholder')} />
               </Form.Item>
-              <Form.Item name="cooperator" label="合作人">
+              <Form.Item name="cooperator" label={t('duty.cooperator')}>
                 <Select
                   mode="multiple"
                   showSearch
                   optionFilterProp="label"
-                  placeholder="選擇本次一同完成的合作人（選填）"
+                  placeholder={t('duty.cooperatorPlaceholder')}
                   options={userOpts.filter((u) => u.value.toLowerCase() !== (workNo ?? '').toLowerCase())}
                   allowClear
                 />
               </Form.Item>
-              <Form.Item label="附件">
+              <Form.Item label={t('duty.attachment')}>
                 <Upload fileList={fileList} onChange={({ fileList: fl }) => setFileList(fl)} beforeUpload={() => false} multiple>
-                  <Button icon={<PaperClipIcon className="w-4 h-4" />} size="small">選擇附件</Button>
+                  <Button icon={<PaperClipIcon className="w-4 h-4" />} size="small">{t('duty.selectAttachment')}</Button>
                 </Upload>
               </Form.Item>
               <div className="flex justify-end gap-2">
-                <Button size="small" onClick={() => { setShowForm(false); form.resetFields(); setFileList([]) }}>取消</Button>
-                <Button type="primary" size="small" htmlType="submit" loading={isSaving} style={{ background: '#2563eb' }}>提交</Button>
+                <Button size="small" onClick={() => { setShowForm(false); form.resetFields(); setFileList([]) }}>{t('common.cancel')}</Button>
+                <Button type="primary" size="small" htmlType="submit" loading={isSaving} style={{ background: '#2563eb' }}>{t('common.submit')}</Button>
               </div>
             </Form>
           </div>
         )}
 
         {records.length === 0 && logEntries.length === 0 ? (
-          <Text type="secondary" className="block text-center py-8 text-sm">暫無進度記錄</Text>
+          <Text type="secondary" className="block text-center py-8 text-sm">{t('duty.noProgressRecords')}</Text>
         ) : (() => {
           // ── 構建合併時間軸 ──────────────────────────────────────────────
           const updatedMap = new Map<string, TaskLogEntry[]>()
@@ -290,7 +294,7 @@ const DutyDetailPage: React.FC = () => {
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-semibold text-slate-700 text-sm">{toName(String(item.submitter ?? ''))}</span>
                           {((item.cooperator as string[] | undefined) ?? []).length > 0 && (
-                            <Tooltip title={`合作人：${((item.cooperator as string[] | undefined) ?? []).map((c) => toName(c) || c).join('、')}`}>
+                            <Tooltip title={`${t('duty.cooperator')}${t('duty.colon')}${((item.cooperator as string[] | undefined) ?? []).map((c) => toName(c) || c).join('、')}`}>
                               <div className="flex items-center gap-0.5">
                                 <span className="text-xs text-slate-400">+</span>
                                 {((item.cooperator as string[] | undefined) ?? []).map((c) => (
@@ -321,9 +325,9 @@ const DutyDetailPage: React.FC = () => {
                         {latestUpd && (
                           <div className="flex items-center gap-1 flex-shrink-0">
                             <Tag style={{ fontSize: 10, padding: '0 4px', lineHeight: '16px', margin: 0 }}>
-                              {latestUpd.log_status === 2 ? '已提交' : '草稿'}
+                              {latestUpd.log_status === 2 ? t('duty.submitted') : t('duty.draft')}
                             </Tag>
-                            <Tag color="orange" style={{ fontSize: 10, padding: '0 5px', lineHeight: '16px', margin: 0 }}>日誌更新</Tag>
+                            <Tag color="orange" style={{ fontSize: 10, padding: '0 5px', lineHeight: '16px', margin: 0 }}>{t('duty.logUpdated')}</Tag>
                           </div>
                         )}
                       </div>
@@ -370,7 +374,7 @@ const DutyDetailPage: React.FC = () => {
                               <div className="mt-1 space-y-1">
                                 {removedFiles.map((f, fi) => (
                                   <div key={fi} className="flex items-center gap-1.5">
-                                    <Tag color="red" style={{ fontSize: 9, padding: '0 4px', lineHeight: '14px', flexShrink: 0 }}>已刪除</Tag>
+                                    <Tag color="red" style={{ fontSize: 9, padding: '0 4px', lineHeight: '14px', flexShrink: 0 }}>{t('duty.deleted')}</Tag>
                                     <span className="text-xs text-slate-400" style={{ textDecoration: 'line-through' }}>{f.name}</span>
                                   </div>
                                 ))}
@@ -404,9 +408,9 @@ const DutyDetailPage: React.FC = () => {
                                 )}
                               </div>
                               <div className="flex items-center gap-1 flex-shrink-0">
-                                <Tag color="purple" style={{ fontSize: 9, padding: '0 4px', lineHeight: '16px', margin: 0 }}>合作人更新</Tag>
+                                <Tag color="purple" style={{ fontSize: 9, padding: '0 4px', lineHeight: '16px', margin: 0 }}>{t('duty.cooperatorUpdated')}</Tag>
                                 <Tag style={{ fontSize: 9, padding: '0 4px', lineHeight: '16px', margin: 0 }}>
-                                  {upd.log_status === 2 ? '已提交' : '草稿'}
+                                  {upd.log_status === 2 ? t('duty.submitted') : t('duty.draft')}
                                 </Tag>
                               </div>
                             </div>
@@ -440,9 +444,9 @@ const DutyDetailPage: React.FC = () => {
                         </div>
                         <div className="flex items-center gap-1 flex-shrink-0">
                           <Tag style={{ fontSize: 10, padding: '0 4px', lineHeight: '16px', margin: 0 }}>
-                            {e.log_status === 2 ? '已提交' : '草稿'}
+                            {e.log_status === 2 ? t('duty.submitted') : t('duty.draft')}
                           </Tag>
-                          <Tag color="green" style={{ fontSize: 10, padding: '0 5px', lineHeight: '16px', margin: 0 }}>日誌新增</Tag>
+                          <Tag color="green" style={{ fontSize: 10, padding: '0 5px', lineHeight: '16px', margin: 0 }}>{t('duty.logAdded')}</Tag>
                         </div>
                       </div>
                       {e.description && <p className="text-sm text-slate-600 mt-1 mb-1 leading-tight">{e.description}</p>}

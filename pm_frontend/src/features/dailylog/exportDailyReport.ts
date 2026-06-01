@@ -176,7 +176,7 @@ function parseHtmlForExport(html: string): DocxBlock[] {
       if (tag === 'IMG') {
         const src = el.getAttribute('src')
         if (src) {
-          const wAttr = el.getAttribute('width') ?? el.style?.width ?? ''
+          const wAttr = el.getAttribute('width') ?? (el as HTMLElement).style?.width ?? ''
           runs.push({ type: 'img', src, widthPx: parseInt(wAttr) || undefined })
         }
       } else {

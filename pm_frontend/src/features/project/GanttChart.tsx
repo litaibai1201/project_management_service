@@ -7,6 +7,7 @@ import { Segmented, Tooltip, Empty, Select } from 'antd'
 import { FunnelIcon, FolderIcon, ChevronRightIcon, ChevronDownIcon } from '@heroicons/react/24/outline'
 import { ProjectFunction, Milestone, Requirement } from '@/types/api.types'
 import { useWorkNoToName } from '@/hooks/useWorkNoToName'
+import { useTranslation } from 'react-i18next'
 import dayjs, { Dayjs } from 'dayjs'
 import isBetween from 'dayjs/plugin/isBetween'
 import weekOfYear from 'dayjs/plugin/weekOfYear'
@@ -45,17 +46,17 @@ function getDotColor(f: ProjectFunction, today: Dayjs): string {
   return overdue ? '#ef4444' : '#f59e0b'
 }
 
-const LEGEND_ITEMS = [
-  { label: '未開始 / 計劃剩餘', color: '#d1d5db' },
-  { label: '進行中(準時)',       color: '#fbbf24' },
-  { label: '超時進行中 / 超時完結', color: '#f87171' },
-  { label: '已完結',             color: '#4ade80' },
+const LEGEND_KEYS = [
+  { key: 'gantt.legendNotStarted', color: '#d1d5db' },
+  { key: 'gantt.legendOnTime',     color: '#fbbf24' },
+  { key: 'gantt.legendOverdue',    color: '#f87171' },
+  { key: 'gantt.legendCompleted',  color: '#4ade80' },
 ]
 
 const GROUP_COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#06b6d4']
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-function buildColumns(start: Dayjs, end: Dayjs, mode: ViewMode): Column[] {
+function buildColumns(start: Dayjs, end: Dayjs, mode: ViewMode, monthFmt?: (m: number) => string): Column[] {
   const cols: Column[] = []
   let cur = start.clone()
   const w = COL_W[mode]
@@ -63,7 +64,7 @@ function buildColumns(start: Dayjs, end: Dayjs, mode: ViewMode): Column[] {
     let label = ''
     if (mode === 'day')   label = cur.format('D')
     else if (mode === 'week') label = `${cur.format('M/D')}`
-    else label = cur.format('M月')
+    else label = monthFmt ? monthFmt(cur.month() + 1) : cur.format('M月')
     cols.push({ label, date: cur, width: w })
     if (mode === 'day')   cur = cur.add(1, 'day')
     else if (mode === 'week') cur = cur.add(1, 'week')
@@ -87,6 +88,7 @@ interface GanttChartProps {
 }
 
 const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [], requirements = [] }) => {
+  const { t } = useTranslation()
   const [mode, setMode]              = useState<ViewMode>('week')
   const [filterGroup, setFilterGroup] = useState<string | null>(null)
   const [filterDev,   setFilterDev]   = useState<string | null>(null)
@@ -138,7 +140,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [], req
     if (groupView !== 'grouped') return []
     const map = new Map<string, ProjectFunction[]>()
     visibleFunctions.forEach((f) => {
-      const g = f.group1 || '未分組'
+      const g = f.group1 || '__nogroup__'
       if (!map.has(g)) map.set(g, [])
       map.get(g)!.push(f)
     })
@@ -248,7 +250,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [], req
 
       if (showGroups) {
         ;[...byGroupMap.entries()].forEach(([gKey, gTasks]) => {
-          const gName      = gKey === '__nogroup__' ? '未分組' : gKey
+          const gName      = gKey === '__nogroup__' ? t('gantt.ungrouped') : gKey
           const grpTogKey  = isReqGroup ? `rg:${reqKey}::${gKey}` : `tg:${gKey}`
           const grpOpen    = !collapsed.has(grpTogKey)
           result.push({
@@ -303,7 +305,8 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [], req
     return { rangeStart: start, rangeEnd: end }
   }, [visibleFunctions, milestones, mode])
 
-  const columns = useMemo(() => buildColumns(rangeStart, rangeEnd, mode), [rangeStart, rangeEnd, mode])
+  const monthFmt = useCallback((m: number) => t('gantt.monthFormat', { month: m }), [t])
+  const columns = useMemo(() => buildColumns(rangeStart, rangeEnd, mode, monthFmt), [rangeStart, rangeEnd, mode, monthFmt])
   const totalW  = columns.reduce((s, c) => s + c.width, 0)
   const today   = dayjs()
   const todayX  = dateToOffset(today, rangeStart, mode) + COL_W[mode] / 2
@@ -316,7 +319,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [], req
     }
   }, [mode, todayX])
 
-  if (functions.length === 0) return <Empty description="暫無功能任務" className="my-12" />
+  if (functions.length === 0) return <Empty description={t('gantt.noTasks')} className="my-12" />
   const isFiltered = filterGroup !== null || filterDev !== null
 
   // Month label groups (for week/day modes, show month header)
@@ -327,7 +330,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [], req
     while (!cur.isAfter(rangeEnd)) {
       const next = cur.add(1, 'month').startOf('month')
       const span = columns.filter((c) => c.date.month() === cur.month() && c.date.year() === cur.year()).length
-      if (span > 0) mGroups.push({ label: cur.format('YYYY年M月'), span })
+      if (span > 0) mGroups.push({ label: t('gantt.yearMonthFormat', { year: cur.year(), month: cur.month() + 1 }), span })
       cur = next
     }
     return mGroups
@@ -418,19 +421,19 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [], req
     const tooltipContent = (
       <div style={{ fontSize: 11 }}>
         <div className="font-semibold mb-1">{f.function_nm}</div>
-        <div className="opacity-70">計劃：{f.expected_start_date || '—'} → {f.expected_end_date || '—'}</div>
+        <div className="opacity-70">{t('gantt.plan')}：{f.expected_start_date || '—'} → {f.expected_end_date || '—'}</div>
         {(f.start_time || f.end_time) && (
           <div className={isLateDone ? 'text-red-300' : 'text-green-300'}>
-            實際：{f.start_time || '—'} → {f.end_time || '進行中'}
-            {isLateDone ? ' ⚠ 超時' : f.end_time ? ' ✓ 準時' : ''}
+            {t('gantt.actual')}：{f.start_time || '—'} → {f.end_time || t('gantt.inProgress')}
+            {isLateDone ? ` ⚠ ${t('gantt.overdue')}` : f.end_time ? ` ✓ ${t('gantt.onTime')}` : ''}
           </div>
         )}
         {hasReschedule && (
           <div className="text-orange-300 mt-0.5">
-            原始截止：{f.original_end_date}，已延期 {f.reschedule_count} 次
+            {t('gantt.originalDeadline')}：{f.original_end_date}，{t('gantt.rescheduledTimes', { count: f.reschedule_count })}
           </div>
         )}
-        <div className="opacity-70 mt-0.5">進度 {f.progress}%</div>
+        <div className="opacity-70 mt-0.5">{t('common.progress')} {f.progress}%</div>
       </div>
     )
 
@@ -555,7 +558,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [], req
     const containerW = Math.max(20, toX(barEnd.add(1, 'day')) - containerX)
 
     return (
-      <Tooltip title={`${g.name}：${g.items.length} 項任務，平均進度 ${g.avgProgress}%`}>
+      <Tooltip title={t('gantt.groupTooltip', { name: g.name === '__nogroup__' ? t('gantt.ungrouped') : g.name, count: g.items.length, progress: g.avgProgress })}>
         <div
           style={{
             position: 'absolute',
@@ -641,7 +644,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [], req
     const containerW = Math.max(20, toX(barEnd.add(1, 'day')) - containerX)
 
     return (
-      <Tooltip title={`${row.reqNm}：${row.taskCount} 項任務，平均進度 ${avgProgress}%`}>
+      <Tooltip title={t('gantt.groupTooltip', { name: row.reqNm, count: row.taskCount, progress: avgProgress })}>
         <div style={{ position: 'absolute', left: containerX, top: 6, height: GROUP_H - 12, width: containerW, borderRadius: 5, overflow: 'hidden', cursor: 'pointer' }}>
           {segs.map((seg) => (
             <div key={seg.key} style={{ position: 'absolute', left: seg.left - containerX, top: 0, bottom: 0, width: seg.width, background: seg.color, opacity: 0.75 }} />
@@ -662,19 +665,19 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [], req
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4 px-1">
         {/* Legend */}
         <div className="flex items-center gap-3 text-xs text-slate-400 flex-wrap">
-          {LEGEND_ITEMS.map((item) => (
-            <div key={item.label} className="flex items-center gap-1">
+          {LEGEND_KEYS.map((item) => (
+            <div key={item.key} className="flex items-center gap-1">
               <div className="w-5 h-3 rounded-sm flex-shrink-0" style={{ background: item.color }} />
-              <span>{item.label}</span>
+              <span>{t(item.key)}</span>
             </div>
           ))}
           <div className="flex items-center gap-1">
             <div className="w-5 h-3 rounded-sm flex-shrink-0" style={{ background: 'rgba(251,146,60,0.28)', borderLeft: '2px solid #f97316' }} />
-            <span>任務延期範圍</span>
+            <span>{t('gantt.legendRescheduleRange')}</span>
           </div>
           <div className="flex items-center gap-1">
             <span className="text-base leading-none" style={{ color: '#2563eb' }}>◆</span>
-            <span>里程碑</span>
+            <span>{t('gantt.milestone')}</span>
           </div>
         </div>
 
@@ -686,9 +689,9 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [], req
             value={groupView}
             onChange={(v) => setGroupView(v as 'flat' | 'grouped' | 'by_req')}
             options={[
-              { label: '按需求', value: 'by_req'  },
-              { label: '分組',   value: 'grouped' },
-              { label: '平面',   value: 'flat'    },
+              { label: t('gantt.viewByReq'),   value: 'by_req'  },
+              { label: t('gantt.viewGrouped'), value: 'grouped' },
+              { label: t('gantt.viewFlat'),    value: 'flat'    },
             ]}
           />
 
@@ -701,7 +704,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [], req
           {groupOptions.length > 0 && (
             <Select
               allowClear
-              placeholder="分組"
+              placeholder={t('gantt.filterGroup')}
               size="small"
               style={{ width: 90 }}
               value={filterGroup}
@@ -714,7 +717,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [], req
           {devOptions.length > 0 && (
             <Select
               allowClear
-              placeholder="負責人"
+              placeholder={t('gantt.filterDeveloper')}
               size="small"
               style={{ width: 90 }}
               value={filterDev}
@@ -729,9 +732,9 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [], req
             value={mode}
             onChange={(v) => setMode(v as ViewMode)}
             options={[
-              { label: '日', value: 'day' },
-              { label: '週', value: 'week' },
-              { label: '月', value: 'month' },
+              { label: t('gantt.modeDay'),   value: 'day' },
+              { label: t('gantt.modeWeek'),  value: 'week' },
+              { label: t('gantt.modeMonth'), value: 'month' },
             ]}
           />
         </div>
@@ -739,7 +742,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [], req
 
       {/* Empty state after filter */}
       {visibleFunctions.length === 0 && (
-        <Empty description={`過濾條件下暫無任務${isFiltered ? '，請調整篩選條件' : ''}`} className="my-8" />
+        <Empty description={isFiltered ? t('gantt.noTasksFiltered') : t('gantt.noTasks')} className="my-8" />
       )}
 
       {/* Gantt Table */}
@@ -752,7 +755,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [], req
               className="border-b border-r border-slate-200 bg-slate-50 flex items-center px-3"
               style={{ height: mode === 'month' ? ROW_H : ROW_H * 2 }}
             >
-              <span className="text-xs font-semibold text-slate-500">功能任務</span>
+              <span className="text-xs font-semibold text-slate-500">{t('gantt.functionTasks')}</span>
             </div>
             {/* Task / Group rows */}
             {rows.map((row) => {
@@ -769,7 +772,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [], req
                       ? <ChevronDownIcon className="w-3 h-3 text-purple-400 flex-shrink-0" />
                       : <ChevronRightIcon className="w-3 h-3 text-purple-400 flex-shrink-0" />}
                     <span className="text-xs font-bold text-purple-700 truncate">{row.reqNm}</span>
-                    <span className="text-[10px] text-purple-400 flex-shrink-0 ml-auto">{row.taskCount} 項</span>
+                    <span className="text-[10px] text-purple-400 flex-shrink-0 ml-auto">{t('gantt.itemCount', { count: row.taskCount })}</span>
                   </div>
                 )
               }
@@ -787,8 +790,8 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [], req
                       ? <ChevronDownIcon className="w-3 h-3 text-slate-400 flex-shrink-0" />
                       : <ChevronRightIcon className="w-3 h-3 text-slate-400 flex-shrink-0" />}
                     <FolderIcon className="w-3.5 h-3.5 flex-shrink-0" style={{ color }} />
-                    <span className="text-xs font-bold text-slate-600 truncate">{row.group.name}</span>
-                    <span className="text-[10px] text-slate-400 flex-shrink-0 ml-auto">{row.group.items.length} 項</span>
+                    <span className="text-xs font-bold text-slate-600 truncate">{row.group.name === '__nogroup__' ? t('gantt.ungrouped') : row.group.name}</span>
+                    <span className="text-[10px] text-slate-400 flex-shrink-0 ml-auto">{t('gantt.itemCount', { count: row.group.items.length })}</span>
                   </div>
                 )
               }
@@ -817,7 +820,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [], req
             {milestones.length > 0 && (
               <div className="border-t-2 border-slate-200">
                 <div className="flex items-center px-3 border-b border-r border-slate-200 bg-slate-50" style={{ height: ROW_H }}>
-                  <span className="text-xs font-semibold text-slate-500">里程碑</span>
+                  <span className="text-xs font-semibold text-slate-500">{t('gantt.milestone')}</span>
                 </div>
                 {milestones.map((m) => {
                   // Dot color: if achieved, reflect early/on-time/late
@@ -948,8 +951,8 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [], req
                       }
 
                       const tooltipText = m.status === 'achieved' && m.achieved_at
-                        ? `${m.name} · 目標: ${m.target_date} · 達成: ${m.achieved_at.slice(0, 10)}`
-                        : `${m.name} · 目標: ${m.target_date}`
+                        ? `${m.name} · ${t('gantt.target')}: ${m.target_date} · ${t('gantt.achieved')}: ${m.achieved_at.slice(0, 10)}`
+                        : `${m.name} · ${t('gantt.target')}: ${m.target_date}`
 
                       return (
                         <div key={m.id} style={{ height: ROW_H, borderBottom: '1px solid #f1f5f9', position: 'relative' }}>

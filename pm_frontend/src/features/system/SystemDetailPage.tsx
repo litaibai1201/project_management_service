@@ -14,11 +14,12 @@ import type { InputRef } from 'antd'
 import { systemApi, type SystemItem } from '@/api/system.api'
 import { standaloneReqApi, type StandaloneReq } from '@/api/standalone_req.api'
 import AttachmentPreview from '@/components/ui/AttachmentPreview'
+import { useTranslation } from 'react-i18next'
 import { dutyApi } from '@/api/duty.api'
 import { userApi } from '@/api/user.api'
 import { useAppSelector } from '@/hooks/redux'
 import { useWorkNoToName } from '@/hooks/useWorkNoToName'
-import { PRIORITY_MAP, DUTY_STATUS_MAP } from '@/utils/status'
+import { PRIORITY_MAP, DUTY_STATUS_MAP , benefitUnitLabel } from '@/utils/status'
 import type { UserProfile } from '@/types/api.types'
 import { showToast } from '@/utils/toast'
 import { tokenStorage } from '@/api/httpClient'
@@ -26,18 +27,21 @@ import RichTextEditor from '@/components/common/RichTextEditor'
 import RichTextContent from '@/components/common/RichTextContent'
 import type { TemporaryDuty } from '@/types/api.types'
 import DutyDetailDrawer from '@/features/duty/DutyDetailDrawer'
-import dayjs from 'dayjs'
+import DateInput from '@/components/common/DateInput'
 
 const { Link } = Typography
 
-const REQ_STATUS_MAP: Record<number, { label: string; color: string }> = {
-  0: { label: '草稿',   color: 'default'    },
-  1: { label: '審核中', color: 'processing' },
-  2: { label: '進行中', color: 'blue'       },
-  3: { label: '已拒絕', color: 'error'      },
-  4: { label: '已完結', color: 'success'    },
-  8: { label: '搁置',   color: 'warning'    },
-  9: { label: '已刪除', color: 'error'      },
+const useReqStatusMap = () => {
+  const { t } = useTranslation()
+  return {
+    0: { label: t('system.reqStatus.draft'),      color: 'default'    },
+    1: { label: t('system.reqStatus.reviewing'),  color: 'processing' },
+    2: { label: t('system.reqStatus.inProgress'), color: 'blue'       },
+    3: { label: t('system.reqStatus.rejected'),   color: 'error'      },
+    4: { label: t('system.reqStatus.completed'),  color: 'success'    },
+    8: { label: t('system.reqStatus.onHold'),     color: 'warning'    },
+    9: { label: t('system.reqStatus.deleted'),    color: 'error'      },
+  } as Record<number, { label: string; color: string }>
 }
 
 const PRIORITY_COLORS = ['', '#22c55e', '#f59e0b', '#ef4444', '#7c3aed']
@@ -45,18 +49,11 @@ const PRIORITY_COLORS = ['', '#22c55e', '#f59e0b', '#ef4444', '#7c3aed']
 const isHtml = (v: string) => /<[a-z][\s\S]*>/i.test(v)
 const stripHtml = (html: string) => html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
 
-const DaysLeftBadge: React.FC<{ date?: string }> = ({ date }) => {
-  if (!date) return <span className="text-slate-300 text-xs">—</span>
-  const days = dayjs(date).diff(dayjs(), 'day')
-  if (days < 0)  return <span className="days-overdue">超期 {Math.abs(days)}天</span>
-  if (days <= 3) return <span className="days-overdue">剩 {days} 天</span>
-  if (days <= 7) return <span className="days-warning">剩 {days} 天</span>
-  return <span className="days-ok">{date}</span>
-}
-
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 const SystemDetailPage: React.FC = () => {
+  const { t } = useTranslation()
+  const REQ_STATUS_MAP = useReqStatusMap()
   const { id }   = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -226,20 +223,20 @@ const SystemDetailPage: React.FC = () => {
         benefit_amount:    values.benefit_amount as number | undefined,
         benefit_unit:      values.benefit_unit as string | undefined,
       })
-      showToast.success('需求建立成功')
+      showToast.success(t('system.reqCreateSuccess'))
       setShowCreate(false)
       createForm.resetFields()
       loadReqs(1)
-    } catch (err: unknown) { showToast.error((err as string) || '建立失敗') }
+    } catch (err: unknown) { showToast.error((err as string) || t('system.createFailed')) }
     finally { setCreateSaving(false) }
   }
 
   const handleDelete = async (reqId: string) => {
     try {
       await standaloneReqApi.delete(reqId)
-      showToast.success('已刪除')
+      showToast.success(t('system.deleted'))
       loadReqs(reqPage)
-    } catch { showToast.error('刪除失敗') }
+    } catch { showToast.error(t('system.deleteFailed')) }
   }
 
   const handleReqUpdated = useCallback(async () => {
@@ -288,11 +285,11 @@ const SystemDetailPage: React.FC = () => {
         benefit_amount:    values.benefit_amount as number | undefined,
         benefit_unit:      values.benefit_unit as string | undefined,
       })
-      showToast.success('已更新')
+      showToast.success(t('system.updated'))
       setShowEditReq(false)
       editForm.resetFields()
       handleReqUpdated()
-    } catch (err: unknown) { showToast.error((err as string) || '操作失敗') }
+    } catch (err: unknown) { showToast.error((err as string) || t('common.error')) }
     finally { setEditSaving(false) }
   }
 
@@ -323,7 +320,7 @@ const SystemDetailPage: React.FC = () => {
     setQuickDutySaving(true)
     try {
       await dutyApi.allocate(quickDutyResp.did, { responsible: quickDutyResp.persons.map((p) => p.work_no) })
-      showToast.success('負責人已更新')
+      showToast.success(t('system.responsibleUpdated'))
       setQuickDutyResp(null)
       loadDuties()
     } catch { /* global */ }
@@ -337,9 +334,9 @@ const SystemDetailPage: React.FC = () => {
     setUploading(true)
     try {
       await standaloneReqApi.uploadFile(uploadTargetReqId, file)
-      showToast.success('上傳成功')
+      showToast.success(t('system.uploadSuccess'))
       loadReqs(reqPage)
-    } catch { showToast.error('上傳失敗') }
+    } catch { showToast.error(t('system.uploadFailed')) }
     finally { setUploading(false); setUploadTargetReqId(null) }
   }
 
@@ -393,11 +390,11 @@ const SystemDetailPage: React.FC = () => {
     setReviewSaving(true)
     try {
       await standaloneReqApi.submitReview(reviewTargetReq.id, reviewers.map((r) => r.work_no))
-      showToast.success('已提交審核')
+      showToast.success(t('system.reviewSubmitted'))
       setShowReview(false)
       setReviewTargetReq(null)
       loadReqs(reqPage)
-    } catch (err: unknown) { showToast.error((err as string) || '操作失敗') }
+    } catch (err: unknown) { showToast.error((err as string) || t('common.error')) }
     finally { setReviewSaving(false) }
   }
 
@@ -408,11 +405,11 @@ const SystemDetailPage: React.FC = () => {
     try {
       const res = await standaloneReqApi.batchSubmitReview(selectedReqIds, reviewers.map((r) => r.work_no))
       const c = res.content as { count: number }
-      showToast.success(`已批量提交 ${c.count} 筆需求審核`)
+      showToast.success(t('system.batchReviewSubmitted', { count: c.count }))
       setShowReview(false)
       setSelectedReqIds([])
       loadReqs(reqPage)
-    } catch (err: unknown) { showToast.error((err as string) || '操作失敗') }
+    } catch (err: unknown) { showToast.error((err as string) || t('common.error')) }
     finally { setReviewSaving(false) }
   }
 
@@ -432,12 +429,12 @@ const SystemDetailPage: React.FC = () => {
         expected_start_date: values.expected_start_date as string | undefined,
         expected_end_date:   values.expected_end_date as string | undefined,
       })
-      showToast.success('任務已建立，請在任務列表勾選後提交審核')
+      showToast.success(t('system.dutyCreatedTip'))
       setShowCreateDuty(false)
       setDutyTargetReq(null)
       dutyForm.resetFields()
       loadDuties()
-    } catch (err: unknown) { showToast.error((err as string) || '建立失敗') }
+    } catch (err: unknown) { showToast.error((err as string) || t('system.createFailed')) }
     finally { setCreateDutySaving(false) }
   }
 
@@ -471,11 +468,11 @@ const SystemDetailPage: React.FC = () => {
     try {
       const res = await dutyApi.batchSubmitReqTaskReview(selectedReqDutyIds, batchDutyReviewers.map((r) => r.work_no))
       const c = res.content as { count: number }
-      showToast.success(`已提交 ${c.count} 個任務的審核申請`)
+      showToast.success(t('system.batchDutyReviewSubmitted', { count: c.count }))
       setShowBatchDutyReview(false)
       setSelectedReqDutyIds([])
       loadDuties()
-    } catch (err: unknown) { showToast.error((err as string) || '提交失敗') }
+    } catch (err: unknown) { showToast.error((err as string) || t('system.submitFailed')) }
     finally { setBatchDutyReviewSaving(false) }
   }
 
@@ -494,7 +491,7 @@ const displayedArDuties  = useMemo(() => arDutyView  === 'mine' ? myArDuties  : 
 const groupedArDuties = useMemo(() => {
     const map = new Map<string, TemporaryDuty[]>()
     displayedArDuties.forEach((d) => {
-      const g = d.group || '未分組'
+      const g = d.group || t('system.ungrouped')
       if (!map.has(g)) map.set(g, [])
       map.get(g)!.push(d)
     })
@@ -506,7 +503,7 @@ const groupedByReq = useMemo(() => {
       const items = displayedReqDuties.filter((d) => d.standalone_req_id === req.id)
       const groupMap = new Map<string, TemporaryDuty[]>()
       items.forEach((d) => {
-        const g = d.group || '未分組'
+        const g = d.group || t('system.ungrouped')
         if (!groupMap.has(g)) groupMap.set(g, [])
         groupMap.get(g)!.push(d)
       })
@@ -531,25 +528,25 @@ const groupedByReq = useMemo(() => {
 
   const reqColumns: ColumnsType<StandaloneReq> = [
     {
-      title: '需求名稱', dataIndex: 'req_nm', ellipsis: true,
+      title: t('system.reqName'), dataIndex: 'req_nm', ellipsis: true,
       render: (v: string) => <span className="font-medium text-slate-800">{v}</span>,
     },
     {
-      title: '狀態', dataIndex: 'status', width: 90,
+      title: t('system.status'), dataIndex: 'status', width: 90,
       render: (v: number) => {
         const c = REQ_STATUS_MAP[v] ?? { label: String(v), color: 'default' }
         return <Tag color={c.color} style={{ fontSize: 11 }}>{c.label}</Tag>
       },
     },
     {
-      title: '優先級', dataIndex: 'priority', width: 72,
+      title: t('system.priority'), dataIndex: 'priority', width: 72,
       render: (v: number) => {
         const p = PRIORITY_MAP[v]
         return p ? <Tag color={p.color} style={{ fontSize: 11 }}>{p.label}</Tag> : <span>{v}</span>
       },
     },
     {
-      title: '進度', dataIndex: 'progress', width: 110,
+      title: t('system.progress'), dataIndex: 'progress', width: 110,
       render: (v: number) => (
         <div className="flex items-center gap-2">
           <Progress percent={v ?? 0} size="small" showInfo={false} style={{ flex: 1 }}
@@ -559,11 +556,11 @@ const groupedByReq = useMemo(() => {
       ),
     },
     {
-      title: '期望完成', dataIndex: 'expected_end_date', width: 100,
+      title: t('system.expectedEnd'), dataIndex: 'expected_end_date', width: 100,
       render: (v: string) => <span className="text-xs text-slate-500">{v || '—'}</span>,
     },
     {
-      title: '負責人', dataIndex: 'responsible', width: 130,
+      title: t('system.responsible'), dataIndex: 'responsible', width: 130,
       render: (v: string[]) => (
         <Avatar.Group max={{ count: 3 }} size="small">
           {(v ?? []).map((wn) => (
@@ -575,40 +572,40 @@ const groupedByReq = useMemo(() => {
       ),
     },
     {
-      title: '建立人', key: 'creator', width: 80,
+      title: t('system.creator'), key: 'creator', width: 80,
       render: (_: unknown, r: StandaloneReq) => (
         <span className="text-xs text-slate-500">{r.creator_nm || toName(r.creator) || r.creator || '—'}</span>
       ),
     },
     {
-      title: '建立時間', dataIndex: 'created_at', width: 110,
+      title: t('system.createdAt'), dataIndex: 'created_at', width: 110,
       defaultSortOrder: 'descend' as const,
       sorter: (a: StandaloneReq, b: StandaloneReq) => (a.created_at ?? '').localeCompare(b.created_at ?? ''),
       render: (v: string) => <span className="text-xs text-slate-400">{v ? v.slice(0, 10) : '—'}</span>,
     },
     {
-      title: '操作', key: 'action', width: 160, fixed: 'right',
+      title: t('system.action'), key: 'action', width: 160, fixed: 'right',
       render: (_: unknown, r: StandaloneReq) => {
         // 只有草稿(0)才可編輯/刪除/上傳；進行中(2)可建立任務；其他狀態僅唯讀
         if (r.status === 0) {
           return (
             <Space size={4}>
-              <Tooltip title="上傳附件">
+              <Tooltip title={t('system.uploadAttachment')}>
                 <Button size="small" loading={uploading && uploadTargetReqId === r.id}
                   icon={<PaperClipIcon className="w-3.5 h-3.5" />}
                   onClick={(e) => { e.stopPropagation(); setUploadTargetReqId(r.id); fileInputRef.current?.click() }} />
               </Tooltip>
-              <Tooltip title="編輯">
+              <Tooltip title={t('common.edit')}>
                 <Button size="small" icon={<PencilSquareIcon className="w-3.5 h-3.5" />}
                   onClick={(e) => { e.stopPropagation(); openEditReq(r) }} />
               </Tooltip>
-              <Popconfirm title="確定刪除？" onConfirm={() => handleDelete(r.id)} okText="刪除" cancelText="取消" okButtonProps={{ danger: true }}>
+              <Popconfirm title={t('system.confirmDelete')} onConfirm={() => handleDelete(r.id)} okText={t('common.delete')} cancelText={t('common.cancel')} okButtonProps={{ danger: true }}>
                 <Button type="text" size="small" danger icon={<TrashIcon className="w-3.5 h-3.5" />}
                   onClick={(e) => e.stopPropagation()} />
               </Popconfirm>
               <Button size="small" type="primary" style={{ background: '#7c3aed', fontSize: 11 }}
                 onClick={(e) => { e.stopPropagation(); openReviewModal(r, false) }}>
-                提交審核
+                {t('system.submitReview')}
               </Button>
             </Space>
           )
@@ -620,7 +617,7 @@ const groupedByReq = useMemo(() => {
 
   const dutyColumns: ColumnsType<TemporaryDuty> = [
     {
-      title: '任務名稱', dataIndex: 'duty_nm', ellipsis: true, width: 220,
+      title: t('system.dutyName'), dataIndex: 'duty_nm', ellipsis: true, width: 220,
       render: (v: string, r: TemporaryDuty) => {
         const req = reqList.find((rq) => rq.id === r.standalone_req_id)
         return (
@@ -630,7 +627,7 @@ const groupedByReq = useMemo(() => {
               <Button type="link" style={{ padding: 0, fontWeight: 500, height: 'auto' }}
                 onClick={() => setSelectedDutyId(r.id)}>{v}</Button>
               {req && (
-                <div style={{ fontSize: 10, color: '#6366f1', marginTop: 1, lineHeight: 1.2 }}>需求: {req.req_nm}</div>
+                <div style={{ fontSize: 10, color: '#6366f1', marginTop: 1, lineHeight: 1.2 }}>{t('system.reqLabel')}: {req.req_nm}</div>
               )}
             </div>
           </div>
@@ -638,7 +635,7 @@ const groupedByReq = useMemo(() => {
       },
     },
     {
-      title: '狀態', dataIndex: 'status', width: 110,
+      title: t('system.status'), dataIndex: 'status', width: 110,
       render: (v: number) => {
         const s = DUTY_STATUS_MAP[v] ?? { label: String(v), dot: '#94a3b8' }
         return (
@@ -650,14 +647,14 @@ const groupedByReq = useMemo(() => {
       },
     },
     {
-      title: '優先級', dataIndex: 'priority', width: 80,
+      title: t('system.priority'), dataIndex: 'priority', width: 80,
       render: (v: number) => {
         const p = PRIORITY_MAP[v]
         return p ? <Tag color={p.color} style={{ fontSize: 11 }}>{p.label}</Tag> : <span className="text-slate-400">—</span>
       },
     },
     {
-      title: '進度', dataIndex: 'progress', width: 140,
+      title: t('system.progress'), dataIndex: 'progress', width: 140,
       render: (v: number) => (
         <div className="flex items-center gap-2">
           <Progress percent={v ?? 0} size="small" strokeColor="#2563eb" trailColor="#f1f5f9" showInfo={false}
@@ -667,7 +664,7 @@ const groupedByReq = useMemo(() => {
       ),
     },
     {
-      title: '負責人', dataIndex: 'responsible', width: 160,
+      title: t('system.responsible'), dataIndex: 'responsible', width: 160,
       render: (v: string[], record: TemporaryDuty) => {
         const req = reqList.find((rq) => rq.id === record.standalone_req_id)
         const canEdit = req ? (req.responsible ?? []).some((wn) => wn.toLowerCase() === workNo.toLowerCase()) : false
@@ -703,9 +700,9 @@ const groupedByReq = useMemo(() => {
                   <Avatar size={22} style={{ background: '#94a3b8', fontSize: 10, border: '2px solid white', marginLeft: -6 }}>+{extra}</Avatar>
                 )}
               </div>
-              <span className="text-xs text-slate-600">{toName(list[0]) || list[0]}{list.length > 1 ? ` 等${list.length}人` : ''}</span>
+              <span className="text-xs text-slate-600">{toName(list[0]) || list[0]}{list.length > 1 ? ` ${t('system.andNMore', { count: list.length })}` : ''}</span>
               {canEdit && (
-                <button className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-blue-500 border-0 outline-none bg-transparent p-0 cursor-pointer" onClick={openPicker} title="修改負責人">
+                <button className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-blue-500 border-0 outline-none bg-transparent p-0 cursor-pointer" onClick={openPicker} title={t('system.editResponsible')}>
                   <PencilSquareIcon className="w-3.5 h-3.5" />
                 </button>
               )}
@@ -718,17 +715,17 @@ const groupedByReq = useMemo(() => {
             className="flex items-center gap-1 text-xs text-slate-400 hover:text-blue-500 hover:bg-blue-50 px-2 py-0.5 rounded-full border border-dashed border-slate-300 hover:border-blue-300 transition-colors"
             onClick={openPicker}
           >
-            <PlusIcon className="w-3 h-3" />指定負責人
+            <PlusIcon className="w-3 h-3" />{t('system.assignResponsible')}
           </button>
         )
       },
     },
     {
-      title: '預計完成', dataIndex: 'expected_end_date', width: 100,
+      title: t('system.expectedEnd'), dataIndex: 'expected_end_date', width: 100,
       render: (v: string) => <span className="text-xs text-slate-500">{v || '—'}</span>,
     },
     {
-      title: '實際完成', dataIndex: 'end_time', width: 110,
+      title: t('system.actualEnd'), dataIndex: 'end_time', width: 110,
       render: (v: string, record: TemporaryDuty) => {
         if (!v) return <span className="text-slate-300 text-xs">—</span>
         const date = v.slice(0, 10)
@@ -742,9 +739,9 @@ const groupedByReq = useMemo(() => {
       },
     },
     {
-      title: '操作', key: 'action', width: 60, fixed: 'right',
+      title: t('system.action'), key: 'action', width: 60, fixed: 'right',
       render: (_: unknown, r: TemporaryDuty) => (
-        <Tooltip title="查看詳情">
+        <Tooltip title={t('common.detail')}>
           <Button type="text" size="small" icon={<EyeIcon className="w-4 h-4 text-slate-400" />}
             onClick={() => setSelectedDutyId(r.id)} />
         </Tooltip>
@@ -767,7 +764,7 @@ const groupedByReq = useMemo(() => {
               </div>
             ))}
             {system?.go_live_date && (
-              <span className="text-xs text-slate-400">上線：{system.go_live_date}</span>
+              <span className="text-xs text-slate-400">{t('system.goLive')}：{system.go_live_date}</span>
             )}
           </div>
         </div>
@@ -779,13 +776,13 @@ const groupedByReq = useMemo(() => {
           <div className="flex flex-wrap gap-6 text-sm">
             {system.description && (
               <div className="flex-1 min-w-0">
-                <span className="text-xs text-slate-400 mr-2">系統描述</span>
+                <span className="text-xs text-slate-400 mr-2">{t('system.description')}</span>
                 <span className="text-slate-600">{system.description}</span>
               </div>
             )}
             {system.urls.length > 0 && (
               <div className="flex items-center gap-3 flex-wrap">
-                <span className="text-xs text-slate-400">訪問網址</span>
+                <span className="text-xs text-slate-400">{t('system.urls')}</span>
                 {system.urls.map((u, i) => (
                   <div key={i} className="flex items-center gap-1">
                     {u.name && <Tag color="processing" style={{ fontSize: 10, padding: '0 4px' }}>{u.name}</Tag>}
@@ -806,7 +803,7 @@ const groupedByReq = useMemo(() => {
         items={[
           {
             key: 'info',
-            label: '基本資訊',
+            label: t('system.tabInfo'),
             children: (
               <div className="space-y-4">
                 <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: 24 } }}>
@@ -815,12 +812,12 @@ const groupedByReq = useMemo(() => {
                     labelStyle={{ background: '#f8fafc', color: '#64748b', fontWeight: 500, fontSize: 12 }}
                     contentStyle={{ fontSize: 13 }}
                   >
-                    <Descriptions.Item label="系統名稱" span={2}>{system?.sys_nm || '—'}</Descriptions.Item>
-                    <Descriptions.Item label="所屬分組">
+                    <Descriptions.Item label={t('system.sysName')} span={2}>{system?.sys_nm || '—'}</Descriptions.Item>
+                    <Descriptions.Item label={t('system.sysGroup')}>
                       {system?.sys_group ? <Tag color="blue">{system.sys_group}</Tag> : '—'}
                     </Descriptions.Item>
-                    <Descriptions.Item label="上線時間">{system?.go_live_date || '—'}</Descriptions.Item>
-                    <Descriptions.Item label="維護人員" span={2}>
+                    <Descriptions.Item label={t('system.goLiveDate')}>{system?.go_live_date || '—'}</Descriptions.Item>
+                    <Descriptions.Item label={t('system.maintainers')} span={2}>
                       <div className="flex flex-wrap gap-2">
                         {(system?.maintainer_names ?? []).length === 0
                           ? <span className="text-slate-400">—</span>
@@ -835,7 +832,7 @@ const groupedByReq = useMemo(() => {
                       </div>
                     </Descriptions.Item>
                     {(system?.urls ?? []).length > 0 && (
-                      <Descriptions.Item label="訪問網址" span={2}>
+                      <Descriptions.Item label={t('system.urls')} span={2}>
                         <div className="space-y-1.5">
                           {system!.urls.map((u, i) => (
                             <div key={i} className="flex items-center gap-2">
@@ -847,7 +844,7 @@ const groupedByReq = useMemo(() => {
                       </Descriptions.Item>
                     )}
                     {system?.description && (
-                      <Descriptions.Item label="系統描述" span={2}>
+                      <Descriptions.Item label={t('system.description')} span={2}>
                         <span style={{ whiteSpace: 'pre-wrap', color: '#475569' }}>{system.description}</span>
                       </Descriptions.Item>
                     )}
@@ -857,7 +854,7 @@ const groupedByReq = useMemo(() => {
                 {(system?.deploy_info ?? []).length > 0 && (
                   <Card
                     variant="borderless" className="shadow-sm"
-                    title={<span className="text-sm font-medium text-slate-600">部署資訊</span>}
+                    title={<span className="text-sm font-medium text-slate-600">{t('system.deployInfo')}</span>}
                     styles={{ body: { padding: '12px 24px 20px' } }}
                   >
                     <div className="space-y-3">
@@ -865,35 +862,35 @@ const groupedByReq = useMemo(() => {
                         <div key={i} className="border border-slate-200 rounded-lg overflow-hidden">
                           {/* header */}
                           <div className="bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-500 border-b border-slate-200">
-                            部署環境 #{i + 1}
+                            {t('system.deployEnv')} #{i + 1}
                             {row.remark && <span className="ml-3 text-slate-400 font-normal">{row.remark}</span>}
                           </div>
                           <div className="grid grid-cols-2 divide-x divide-slate-200">
                             {/* Frontend */}
                             <div className="p-3">
-                              <div className="text-xs font-semibold text-blue-600 mb-2">前端</div>
+                              <div className="text-xs font-semibold text-blue-600 mb-2">{t('system.frontend')}</div>
                               <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
-                                <div className="text-slate-400">主機 IP</div>
+                                <div className="text-slate-400">{t('system.hostIp')}</div>
                                 <div className="text-slate-700 font-mono">{row.fe_host || '—'}</div>
-                                <div className="text-slate-400">端口</div>
+                                <div className="text-slate-400">{t('system.port')}</div>
                                 <div className="text-slate-700 font-mono">{row.fe_port || '—'}</div>
-                                <div className="text-slate-400">部署路徑</div>
+                                <div className="text-slate-400">{t('system.deployPath')}</div>
                                 <div className="text-slate-700 font-mono break-all">{row.fe_path || '—'}</div>
-                                <div className="text-slate-400">應用名</div>
+                                <div className="text-slate-400">{t('system.appName')}</div>
                                 <div className="text-slate-700">{row.fe_app_nm || '—'}</div>
                               </div>
                             </div>
                             {/* Backend */}
                             <div className="p-3">
-                              <div className="text-xs font-semibold text-emerald-600 mb-2">後端</div>
+                              <div className="text-xs font-semibold text-emerald-600 mb-2">{t('system.backend')}</div>
                               <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
-                                <div className="text-slate-400">主機 IP</div>
+                                <div className="text-slate-400">{t('system.hostIp')}</div>
                                 <div className="text-slate-700 font-mono">{row.be_host || '—'}</div>
-                                <div className="text-slate-400">端口</div>
+                                <div className="text-slate-400">{t('system.port')}</div>
                                 <div className="text-slate-700 font-mono">{row.be_port || '—'}</div>
-                                <div className="text-slate-400">部署路徑</div>
+                                <div className="text-slate-400">{t('system.deployPath')}</div>
                                 <div className="text-slate-700 font-mono break-all">{row.be_path || '—'}</div>
-                                <div className="text-slate-400">應用名</div>
+                                <div className="text-slate-400">{t('system.appName')}</div>
                                 <div className="text-slate-700">{row.be_app_nm || '—'}</div>
                               </div>
                             </div>
@@ -908,16 +905,16 @@ const groupedByReq = useMemo(() => {
           },
           {
             key: 'requirements',
-            label: `需求 (${reqTotal})`,
+            label: `${t('system.requirements')} (${reqTotal})`,
             children: (
               <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: 0 } }}>
                 <div className="flex justify-between items-center px-4 py-3 border-b border-slate-100">
                   <div className="flex items-center gap-3">
-                    <span className="text-sm font-medium text-slate-600">需求列表</span>
+                    <span className="text-sm font-medium text-slate-600">{t('system.reqList')}</span>
                     {selectedReqIds.length > 0 && (
                       <Button size="small" type="primary" ghost
                         onClick={() => openReviewModal(null, true)}>
-                        批量提交審核（{selectedReqIds.length}）
+                        {t('system.batchSubmitReview', { count: selectedReqIds.length })}
                       </Button>
                     )}
                   </div>
@@ -927,7 +924,7 @@ const groupedByReq = useMemo(() => {
                     onClick={() => { setShowCreate(true); loadUsers() }}
                     style={{ background: '#2563eb' }}
                   >
-                    新增需求
+                    {t('system.addReq')}
                   </Button>
                 </div>
                 <Table<StandaloneReq>
@@ -948,45 +945,45 @@ const groupedByReq = useMemo(() => {
                     expandedRowRender: (req: StandaloneReq) => (
                       <div className="bg-slate-50 px-6 py-4 grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
                         <div className="col-span-2">
-                          <span className="text-xs text-slate-400 mr-2">需求描述</span>
+                          <span className="text-xs text-slate-400 mr-2">{t('system.reqDescribe')}</span>
                           {req.describe
                             ? isHtml(req.describe)
-                              ? <RichTextContent content={req.describe} />
+                              ? <RichTextContent html={req.describe} />
                               : <span className="text-slate-700">{req.describe}</span>
                             : <span className="text-slate-300">—</span>
                           }
                         </div>
                         <div>
-                          <span className="text-xs text-slate-400 mr-2">期望完成</span>
+                          <span className="text-xs text-slate-400 mr-2">{t('system.expectedEnd')}</span>
                           <span className="text-slate-700">{req.expected_end_date || '—'}</span>
                         </div>
                         <div>
-                          <span className="text-xs text-slate-400 mr-2">負責人</span>
+                          <span className="text-xs text-slate-400 mr-2">{t('system.responsible')}</span>
                           <span className="text-slate-700">
                             {(req.responsible ?? []).map((wn) => toName(wn) || wn).join('、') || '—'}
                           </span>
                         </div>
                         <div>
-                          <span className="text-xs text-slate-400 mr-2">建立人</span>
+                          <span className="text-xs text-slate-400 mr-2">{t('system.creator')}</span>
                           <span className="text-slate-700">{toName(req.creator) || req.creator || '—'}</span>
                         </div>
                         <div>
-                          <span className="text-xs text-slate-400 mr-2">建立時間</span>
+                          <span className="text-xs text-slate-400 mr-2">{t('system.createdAt')}</span>
                           <span className="text-slate-700">{req.created_at ? req.created_at.slice(0, 10) : '—'}</span>
                         </div>
                         {(req.benefit_amount != null || req.expected_benefit) && (
                           <div className="col-span-2">
-                            <span className="text-xs text-slate-400 mr-2">預估效益</span>
+                            <span className="text-xs text-slate-400 mr-2">{t('system.expectedBenefit')}</span>
                             <span className="text-slate-700">
                               {req.benefit_amount != null
-                                ? <>{req.benefit_amount} {req.benefit_unit ?? '元/年'}{req.expected_benefit ? <span className="text-slate-400 ml-2 text-xs">（{req.expected_benefit}）</span> : null}</>
+                                ? <>{req.benefit_amount} {benefitUnitLabel(req.benefit_unit ?? "元/年")}{req.expected_benefit ? <span className="text-slate-400 ml-2 text-xs">（{req.expected_benefit}）</span> : null}</>
                                 : req.expected_benefit}
                             </span>
                           </div>
                         )}
                         {(req.files?.length ?? 0) > 0 && (
                           <div className="col-span-2">
-                            <span className="text-xs text-slate-400 mr-2">附件</span>
+                            <span className="text-xs text-slate-400 mr-2">{t('system.attachments')}</span>
                             <div className="mt-1">
                               <AttachmentPreview
                                 files={req.files!.map((f) => ({ name: f.name, url: withToken(f.url), size: f.size }))}
@@ -999,10 +996,10 @@ const groupedByReq = useMemo(() => {
                   }}
                   pagination={{
                     current: reqPage, pageSize: reqPageSize, total: reqTotal,
-                    showSizeChanger: true, showTotal: (t) => `共 ${t} 條`,
+                    showSizeChanger: true, showTotal: (total) => t('common.total', { count: total }),
                     onChange: (page, size) => { setReqPageSize(size); loadReqs(page, size) },
                   }}
-                  locale={{ emptyText: <Empty description="暫無需求" className="py-8" /> }}
+                  locale={{ emptyText: <Empty description={t('system.noReqs')} className="py-8" /> }}
                   scroll={{ x: 680 }}
                 />
               </Card>
@@ -1010,27 +1007,27 @@ const groupedByReq = useMemo(() => {
           },
           {
             key: 'req_duties',
-            label: `需求任務 (${reqDuties.length})`,
+            label: `${t('system.reqDuties')} (${reqDuties.length})`,
             children: (
               <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: 0 } }}>
                 <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-100">
                   <Segmented size="small" value={reqDutyView} onChange={(v) => setReqDutyView(v as 'all' | 'mine')}
                     options={[
-                      { label: `全部 (${reqDuties.length})`,   value: 'all'  },
-                      { label: `我的 (${myReqDuties.length})`, value: 'mine' },
+                      { label: `${t('common.all')} (${reqDuties.length})`,   value: 'all'  },
+                      { label: `${t('system.mine')} (${myReqDuties.length})`, value: 'mine' },
                     ]}
                   />
                   <div className="w-px h-5 bg-slate-200" />
                   <Segmented size="small" value={reqDutyGroupMode} onChange={(v) => setReqDutyGroupMode(v as 'flat' | 'grouped')}
                     options={[
-                      { label: '分組', value: 'grouped' },
-                      { label: '平面', value: 'flat'    },
+                      { label: t('system.grouped'), value: 'grouped' },
+                      { label: t('system.flat'), value: 'flat'    },
                     ]}
                   />
                   {selectedReqDutyIds.length > 0 && (
                     <Button size="small" type="primary" ghost
                       onClick={openBatchDutyReviewModal}>
-                      提交需求任務審核（{selectedReqDutyIds.length}）
+                      {t('system.submitReqDutyReview', { count: selectedReqDutyIds.length })}
                     </Button>
                   )}
                 </div>
@@ -1038,7 +1035,7 @@ const groupedByReq = useMemo(() => {
                   {dutiesLoading ? (
                     <div className="flex justify-center py-8"><Spin /></div>
                   ) : groupedByReq.length === 0 ? (
-                    <Empty description="暫無需求任務" className="py-8" />
+                    <Empty description={t('system.noReqDuties')} className="py-8" />
                   ) : reqDutyGroupMode === 'flat' ? (
                     <Table<TemporaryDuty> rowKey="id" columns={dutyColumns}
                       dataSource={displayedReqDuties}
@@ -1056,15 +1053,15 @@ const groupedByReq = useMemo(() => {
                           header={
                             <div className="flex items-center gap-3">
                               <span className="font-semibold text-slate-700">{g.reqNm}</span>
-                              <Tag color="purple" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>{g.count} 項</Tag>
+                              <Tag color="purple" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>{g.count} {t('system.items')}</Tag>
                               {g.expectedEndDate && (
-                                <span className="text-xs text-slate-400">期望完成 {g.expectedEndDate}</span>
+                                <span className="text-xs text-slate-400">{t('system.expectedEnd')} {g.expectedEndDate}</span>
                               )}
                               <Progress percent={g.avgProgress} size="small" showInfo={false}
                                 style={{ width: 80 }} strokeColor="#7c3aed" trailColor="#e2e8f0" />
                               <span className="text-xs text-slate-400">{g.avgProgress}%</span>
                               {g.overdueCount > 0 && (
-                                <Tag color="error" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>超時 {g.overdueCount}</Tag>
+                                <Tag color="error" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>{t('system.overdue')} {g.overdueCount}</Tag>
                               )}
                             </div>
                           }
@@ -1080,11 +1077,11 @@ const groupedByReq = useMemo(() => {
                                 loadUsers()
                                 setShowCreateDuty(true)
                               }}>
-                              新增任務
+                              {t('system.addDuty')}
                             </Button>
                           ) : undefined}
                         >
-                          {reqDutyGroupMode === 'flat' || (g.subGroups.length === 1 && g.subGroups[0].name === '未分組') ? (
+                          {(g.subGroups.length === 1 && g.subGroups[0].name === t('system.ungrouped')) ? (
                             (() => {
                               const tableIds = g.subGroups.flatMap((sg) => sg.items.map((d) => d.id))
                               return (
@@ -1110,7 +1107,7 @@ const groupedByReq = useMemo(() => {
                                     <div className="flex items-center gap-2">
                                       <FolderIcon className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
                                       <span className="font-medium text-slate-600 text-xs">{sg.name}</span>
-                                      <Tag color="blue" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>{sg.items.length} 項</Tag>
+                                      <Tag color="blue" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>{sg.items.length} {t('system.items')}</Tag>
                                     </div>
                                   }
                                 >
@@ -1143,21 +1140,21 @@ const groupedByReq = useMemo(() => {
           },
           {
             key: 'ar_duties',
-            label: `AR任務 (${arDuties.length})`,
+            label: `${t('system.arDuties')} (${arDuties.length})`,
             children: (
               <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: 0 } }}>
                 <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-100">
                   <Segmented size="small" value={arDutyView} onChange={(v) => setArDutyView(v as 'all' | 'mine')}
                     options={[
-                      { label: `全部 (${arDuties.length})`,   value: 'all'  },
-                      { label: `我的 (${myArDuties.length})`, value: 'mine' },
+                      { label: `${t('common.all')} (${arDuties.length})`,   value: 'all'  },
+                      { label: `${t('system.mine')} (${myArDuties.length})`, value: 'mine' },
                     ]}
                   />
                   <div className="w-px h-5 bg-slate-200" />
                   <Segmented size="small" value={arDutyGroupMode} onChange={(v) => setArDutyGroupMode(v as 'flat' | 'grouped')}
                     options={[
-                      { label: '分組', value: 'grouped' },
-                      { label: '平面', value: 'flat'    },
+                      { label: t('system.grouped'), value: 'grouped' },
+                      { label: t('system.flat'), value: 'flat'    },
                     ]}
                   />
                 </div>
@@ -1169,7 +1166,7 @@ const groupedByReq = useMemo(() => {
                     columns={dutyColumns}
                     size="small"
                     pagination={false}
-                    locale={{ emptyText: <Empty description="暫無AR任務" className="py-8" /> }}
+                    locale={{ emptyText: <Empty description={t('system.noArDuties')} className="py-8" /> }}
                     scroll={{ x: 800 }}
                   />
                 ) : (
@@ -1177,7 +1174,7 @@ const groupedByReq = useMemo(() => {
                     {dutiesLoading ? (
                       <div className="flex justify-center py-8"><Spin /></div>
                     ) : groupedArDuties.length === 0 ? (
-                      <Empty description="暫無AR任務" className="py-8" />
+                      <Empty description={t('system.noArDuties')} className="py-8" />
                     ) : (
                       <Collapse activeKey={arOpenGroups}
                         onChange={(keys) => setArOpenGroups(Array.isArray(keys) ? keys : [keys])}
@@ -1188,7 +1185,7 @@ const groupedByReq = useMemo(() => {
                               <div className="flex items-center gap-2">
                                 <FolderIcon className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
                                 <span className="font-medium text-slate-600 text-xs">{g.name}</span>
-                                <Tag color="blue" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>{g.items.length} 項</Tag>
+                                <Tag color="blue" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>{g.items.length} {t('system.items')}</Tag>
                               </div>
                             }
                           >
@@ -1211,50 +1208,50 @@ const groupedByReq = useMemo(() => {
 
       {/* Edit Requirement Modal */}
       <Modal
-        title={editTarget ? `編輯需求 — ${editTarget.req_nm}` : '編輯需求'}
+        title={editTarget ? `${t('system.editReq')} — ${editTarget.req_nm}` : t('system.editReq')}
         open={showEditReq}
         onCancel={() => { setShowEditReq(false); editForm.resetFields() }}
         footer={null} width="min(600px, 88vw)" destroyOnClose
       >
         <Form form={editForm} layout="vertical" onFinish={handleEditReq} className="mt-4">
-          <Form.Item name="req_nm" label="需求名稱" rules={[{ required: true }]}>
+          <Form.Item name="req_nm" label={t('system.reqName')} rules={[{ required: true }]}>
             <Input />
           </Form.Item>
-          <Form.Item name="system_id" label="關聯系統" rules={[{ required: true }]}>
+          <Form.Item name="system_id" label={t('system.relatedSystem')} rules={[{ required: true }]}>
             <Select options={systemOptions} showSearch
               filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
               onDropdownVisibleChange={(open) => { if (open) loadSystemOptions() }}
             />
           </Form.Item>
           <div className="grid grid-cols-3 gap-x-4">
-            <Form.Item name="status" label="狀態">
+            <Form.Item name="status" label={t('system.status')}>
               <Select options={Object.entries(REQ_STATUS_MAP).map(([k, s]) => ({ value: Number(k), label: s.label }))} />
             </Form.Item>
-            <Form.Item name="priority" label="優先級">
-              <Select options={[{ value: 1, label: '低' }, { value: 2, label: '中' }, { value: 3, label: '高' }, { value: 4, label: '緊急' }]} />
+            <Form.Item name="priority" label={t('system.priority')}>
+              <Select options={[{ value: 1, label: t('system.priorityLow') }, { value: 2, label: t('system.priorityMed') }, { value: 3, label: t('system.priorityHigh') }, { value: 4, label: t('system.priorityUrgent') }]} />
             </Form.Item>
-            <Form.Item name="expected_end_date" label="期望完成時間">
-              <Input type="date" />
+            <Form.Item name="expected_end_date" label={t('system.expectedEndDate')}>
+              <DateInput/>
             </Form.Item>
           </div>
           <div className="grid grid-cols-2 gap-x-4">
-            <Form.Item name="benefit_amount" label="預估效益數量">
-              <Input type="number" min={0} placeholder="如：10" />
+            <Form.Item name="benefit_amount" label={t('system.benefitAmount')}>
+              <Input type="number" min={0} placeholder={t('system.benefitAmountPlaceholder')} />
             </Form.Item>
-            <Form.Item name="benefit_unit" label="效益單位">
-              <Select options={[{ value: '元/年', label: '元/年' }, { value: '人/年', label: '人/年' }, { value: '工時/年', label: '工時/年' }]} />
+            <Form.Item name="benefit_unit" label={t('system.benefitUnit')}>
+              <Select options={[{ value: '元/年', label: t('system.unitYuan') }, { value: '人/年', label: t('system.unitPerson') }, { value: '工時/年', label: t('system.unitHour') }]} />
             </Form.Item>
           </div>
-          <Form.Item name="expected_benefit" label="效益說明">
-            <Input.TextArea placeholder="選填" autoSize={{ minRows: 2, maxRows: 6 }} style={{ resize: 'vertical' }} />
+          <Form.Item name="expected_benefit" label={t('system.benefitDesc')}>
+            <Input.TextArea placeholder={t('system.optional')} autoSize={{ minRows: 2, maxRows: 6 }} style={{ resize: 'vertical' }} />
           </Form.Item>
-          <Form.Item name="responsible" label="負責人">
-            <Select mode="multiple" placeholder="選擇負責人" options={userOptions} showSearch allowClear
+          <Form.Item name="responsible" label={t('system.responsible')}>
+            <Select mode="multiple" placeholder={t('system.selectResponsible')} options={userOptions} showSearch allowClear
               filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
               onDropdownVisibleChange={(open) => { if (open) loadUsers() }}
             />
           </Form.Item>
-          <Form.Item label="需求描述">
+          <Form.Item label={t('system.reqDescribe')}>
             <div className="flex justify-end mb-1.5">
               <button type="button"
                 onClick={() => {
@@ -1264,35 +1261,35 @@ const groupedByReq = useMemo(() => {
                 }}
                 className="flex items-center gap-1 text-xs text-slate-500 hover:text-blue-600 border border-slate-200 rounded-md px-2 py-1 hover:border-blue-300 bg-white transition-colors"
               >
-                <ArrowsPointingOutIcon className="w-3.5 h-3.5" />展開富文本編輯
+                <ArrowsPointingOutIcon className="w-3.5 h-3.5" />{t('system.expandRichText')}
               </button>
             </div>
             <Form.Item name="describe" noStyle getValueProps={(v) => ({ value: v && isHtml(v) ? stripHtml(v) : (v ?? '') })}>
-              <Input.TextArea rows={3} placeholder="請輸入需求描述..." style={{ resize: 'vertical', minHeight: 72 }} />
+              <Input.TextArea rows={3} placeholder={t('system.reqDescPlaceholder')} style={{ resize: 'vertical', minHeight: 72 }} />
             </Form.Item>
             {editDescribeValue && isHtml(editDescribeValue as string) && (
-              <p className="text-xs text-blue-500 mt-1">已套用富文本格式，點擊「展開富文本編輯」可繼續修改</p>
+              <p className="text-xs text-blue-500 mt-1">{t('system.richTextApplied')}</p>
             )}
           </Form.Item>
           <div className="flex justify-end gap-3">
-            <Button onClick={() => { setShowEditReq(false); editForm.resetFields() }}>取消</Button>
-            <Button type="primary" htmlType="submit" loading={editSaving} style={{ background: '#2563eb' }}>保存</Button>
+            <Button onClick={() => { setShowEditReq(false); editForm.resetFields() }}>{t('common.cancel')}</Button>
+            <Button type="primary" htmlType="submit" loading={editSaving} style={{ background: '#2563eb' }}>{t('common.save')}</Button>
           </div>
         </Form>
       </Modal>
-      <Modal open={editExpandOpen} title="需求描述" onCancel={() => setEditExpandOpen(false)}
+      <Modal open={editExpandOpen} title={t('system.reqDescribe')} onCancel={() => setEditExpandOpen(false)}
         width="80vw" style={{ top: 40, maxWidth: 1100 }} styles={{ body: { padding: '16px 24px 24px' } }}
         footer={<div className="flex justify-end gap-2">
-          <Button onClick={() => setEditExpandOpen(false)}>取消</Button>
-          <Button type="primary" onClick={() => { editForm.setFieldValue('describe', editExpandDraft); setEditExpandOpen(false) }} style={{ background: '#2563eb' }}>完成</Button>
+          <Button onClick={() => setEditExpandOpen(false)}>{t('common.cancel')}</Button>
+          <Button type="primary" onClick={() => { editForm.setFieldValue('describe', editExpandDraft); setEditExpandOpen(false) }} style={{ background: '#2563eb' }}>{t('system.done')}</Button>
         </div>} destroyOnClose
       >
-        <RichTextEditor value={editExpandDraft} onChange={setEditExpandDraft} placeholder="請輸入需求描述..." minHeight={480} />
+        <RichTextEditor value={editExpandDraft} onChange={setEditExpandDraft} placeholder={t('system.reqDescPlaceholder')} minHeight={480} />
       </Modal>
 
       {/* Create Requirement Modal */}
       <Modal
-        title="新增需求"
+        title={t('system.addReq')}
         open={showCreate}
         onCancel={() => { setShowCreate(false); createForm.resetFields() }}
         footer={null}
@@ -1300,37 +1297,37 @@ const groupedByReq = useMemo(() => {
         destroyOnClose
       >
         <Form form={createForm} layout="vertical" onFinish={handleCreate} className="mt-4">
-          <Form.Item name="req_nm" label="需求名稱" rules={[{ required: true, message: '請輸入需求名稱' }]}>
-            <Input placeholder="請輸入需求名稱" />
+          <Form.Item name="req_nm" label={t('system.reqName')} rules={[{ required: true, message: t('system.reqNameRequired') }]}>
+            <Input placeholder={t('system.reqNamePlaceholder')} />
           </Form.Item>
           <div className="grid grid-cols-2 gap-x-4">
-            <Form.Item name="priority" label="優先級" initialValue={2}>
-              <Select options={[{ value: 1, label: '低' }, { value: 2, label: '中' }, { value: 3, label: '高' }, { value: 4, label: '緊急' }]} />
+            <Form.Item name="priority" label={t('system.priority')} initialValue={2}>
+              <Select options={[{ value: 1, label: t('system.priorityLow') }, { value: 2, label: t('system.priorityMed') }, { value: 3, label: t('system.priorityHigh') }, { value: 4, label: t('system.priorityUrgent') }]} />
             </Form.Item>
-            <Form.Item name="expected_end_date" label="期望完成時間">
-              <Input type="date" />
+            <Form.Item name="expected_end_date" label={t('system.expectedEndDate')}>
+              <DateInput/>
             </Form.Item>
           </div>
           <div className="grid grid-cols-2 gap-x-4">
-            <Form.Item name="benefit_amount" label="預估效益數量">
-              <Input type="number" min={0} placeholder="如：10" />
+            <Form.Item name="benefit_amount" label={t('system.benefitAmount')}>
+              <Input type="number" min={0} placeholder={t('system.benefitAmountPlaceholder')} />
             </Form.Item>
-            <Form.Item name="benefit_unit" label="效益單位" initialValue="元/年">
-              <Select options={[{ value: '元/年', label: '元/年' }, { value: '人/年', label: '人/年' }, { value: '工時/年', label: '工時/年' }]} />
+            <Form.Item name="benefit_unit" label={t('system.benefitUnit')} initialValue="元/年">
+              <Select options={[{ value: '元/年', label: t('system.unitYuan') }, { value: '人/年', label: t('system.unitPerson') }, { value: '工時/年', label: t('system.unitHour') }]} />
             </Form.Item>
           </div>
-          <Form.Item name="expected_benefit" label="效益說明">
-            <Input.TextArea placeholder="選填" autoSize={{ minRows: 2, maxRows: 6 }} style={{ resize: 'vertical' }} />
+          <Form.Item name="expected_benefit" label={t('system.benefitDesc')}>
+            <Input.TextArea placeholder={t('system.optional')} autoSize={{ minRows: 2, maxRows: 6 }} style={{ resize: 'vertical' }} />
           </Form.Item>
-          <Form.Item name="responsible" label="負責人">
+          <Form.Item name="responsible" label={t('system.responsible')}>
             <Select
-              mode="multiple" placeholder="選擇負責人"
+              mode="multiple" placeholder={t('system.selectResponsible')}
               options={userOptions} showSearch allowClear
               filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
               onDropdownVisibleChange={(open) => { if (open) loadUsers() }}
             />
           </Form.Item>
-          <Form.Item label="需求描述">
+          <Form.Item label={t('system.reqDescribe')}>
             <div className="flex justify-end mb-1.5">
               <button type="button"
                 onClick={() => {
@@ -1342,41 +1339,41 @@ const groupedByReq = useMemo(() => {
                 className="flex items-center gap-1 text-xs text-slate-500 hover:text-blue-600 border border-slate-200 rounded-md px-2 py-1 hover:border-blue-300 bg-white transition-colors"
               >
                 <ArrowsPointingOutIcon className="w-3.5 h-3.5" />
-                展開富文本編輯
+                {t('system.expandRichText')}
               </button>
             </div>
             <Form.Item name="describe" noStyle getValueProps={(v) => ({ value: v && isHtml(v) ? stripHtml(v) : (v ?? '') })}>
-              <Input.TextArea rows={3} placeholder="請描述需求內容..." style={{ resize: 'vertical', minHeight: 72 }} />
+              <Input.TextArea rows={3} placeholder={t('system.reqDescPlaceholder')} style={{ resize: 'vertical', minHeight: 72 }} />
             </Form.Item>
             {describeValue && isHtml(describeValue as string) && (
-              <p className="text-xs text-blue-500 mt-1">已套用富文本格式，點擊「展開富文本編輯」可繼續修改</p>
+              <p className="text-xs text-blue-500 mt-1">{t('system.richTextApplied')}</p>
             )}
           </Form.Item>
           <div className="flex justify-end gap-3">
-            <Button onClick={() => { setShowCreate(false); createForm.resetFields() }}>取消</Button>
-            <Button type="primary" htmlType="submit" loading={createSaving} style={{ background: '#2563eb' }}>建立</Button>
+            <Button onClick={() => { setShowCreate(false); createForm.resetFields() }}>{t('common.cancel')}</Button>
+            <Button type="primary" htmlType="submit" loading={createSaving} style={{ background: '#2563eb' }}>{t('system.create')}</Button>
           </div>
         </Form>
       </Modal>
 
       {/* Rich Text Expand for create */}
-      <Modal open={expandOpen} title="需求描述" onCancel={() => setExpandOpen(false)}
+      <Modal open={expandOpen} title={t('system.reqDescribe')} onCancel={() => setExpandOpen(false)}
         width="80vw" style={{ top: 40, maxWidth: 1100 }}
         styles={{ body: { padding: '16px 24px 24px' } }}
         footer={<div className="flex justify-end gap-2">
-          <Button onClick={() => setExpandOpen(false)}>取消</Button>
-          <Button type="primary" onClick={() => { createForm.setFieldValue('describe', expandDraft); setExpandOpen(false) }} style={{ background: '#2563eb' }}>完成</Button>
+          <Button onClick={() => setExpandOpen(false)}>{t('common.cancel')}</Button>
+          <Button type="primary" onClick={() => { createForm.setFieldValue('describe', expandDraft); setExpandOpen(false) }} style={{ background: '#2563eb' }}>{t('system.done')}</Button>
         </div>}
         destroyOnClose
       >
-        <RichTextEditor value={expandDraft} onChange={setExpandDraft} placeholder="請輸入需求描述..." minHeight={480} />
+        <RichTextEditor value={expandDraft} onChange={setExpandDraft} placeholder={t('system.reqDescPlaceholder')} minHeight={480} />
       </Modal>
 
       {/* 提交審核 Modal（單筆 + 批量共用） */}
       <Modal
         title={batchReviewMode
-          ? `批量提交需求審核（共 ${selectedReqIds.length} 筆）`
-          : `提交審核 — ${reviewTargetReq?.req_nm ?? ''}`}
+          ? t('system.batchReviewTitle', { count: selectedReqIds.length })
+          : `${t('system.submitReview')} — ${reviewTargetReq?.req_nm ?? ''}`}
         open={showReview}
         onCancel={() => { setShowReview(false); setReviewTargetReq(null); setBatchReviewMode(false) }}
         footer={null} width={520} destroyOnClose
@@ -1384,16 +1381,16 @@ const groupedByReq = useMemo(() => {
         <div className="mt-4 space-y-4">
           <div className="text-xs text-slate-400">
             {batchReviewMode
-              ? `以下 ${selectedReqIds.length} 筆草稿需求將使用相同的審核人依序提交，可調整順序。`
-              : '審核人將依序審核，可調整順序。'}
+              ? t('system.batchReviewDesc', { count: selectedReqIds.length })
+              : t('system.reviewDesc')}
           </div>
           <div>
-            <div className="text-sm font-medium text-slate-600 mb-2">審核流程</div>
+            <div className="text-sm font-medium text-slate-600 mb-2">{t('system.reviewFlow')}</div>
             {reviewersLoading ? (
               <div className="flex justify-center py-4"><Spin size="small" /></div>
             ) : reviewers.length === 0 ? (
               <div className="border border-dashed border-slate-300 rounded-lg py-5 text-center text-slate-400 text-sm">
-                尚未添加審核人，請搜尋並加入
+                {t('system.noReviewerYet')}
               </div>
             ) : (
               <div className="border border-slate-200 rounded-lg overflow-hidden">
@@ -1417,9 +1414,9 @@ const groupedByReq = useMemo(() => {
             )}
           </div>
           <div>
-            <div className="text-sm font-medium text-slate-600 mb-2">加簽審核人</div>
+            <div className="text-sm font-medium text-slate-600 mb-2">{t('system.addReviewer')}</div>
             <div className="relative">
-              <Input placeholder="輸入姓名或工號搜尋" value={reviewSearch}
+              <Input placeholder={t('system.searchReviewerPlaceholder')} value={reviewSearch}
                 onChange={(e) => handleSearchReviewer(e.target.value)}
                 prefix={reviewSearchLoading ? <Spin size="small" /> : undefined} allowClear />
               {reviewSearchResults.length > 0 && (
@@ -1435,7 +1432,7 @@ const groupedByReq = useMemo(() => {
                           <div className="text-sm font-medium text-slate-800">{u.name}</div>
                           <div className="text-xs text-slate-400">{u.department}{u.position ? ` · ${u.position}` : ''} · {u.work_no}</div>
                         </div>
-                        {already && <span className="text-xs text-slate-400">已添加</span>}
+                        {already && <span className="text-xs text-slate-400">{t('system.alreadyAdded')}</span>}
                       </div>
                     )
                   })}
@@ -1445,11 +1442,11 @@ const groupedByReq = useMemo(() => {
           </div>
           <Divider style={{ margin: '8px 0' }} />
           <div className="flex justify-end gap-3">
-            <Button onClick={() => { setShowReview(false); setReviewTargetReq(null); setBatchReviewMode(false) }}>取消</Button>
+            <Button onClick={() => { setShowReview(false); setReviewTargetReq(null); setBatchReviewMode(false) }}>{t('common.cancel')}</Button>
             <Button type="primary" loading={reviewSaving} disabled={reviewers.length === 0}
               style={{ background: '#7c3aed' }}
               onClick={batchReviewMode ? handleBatchSubmitReview : handleSubmitReview}>
-              提交審核
+              {t('system.submitReview')}
             </Button>
           </div>
         </div>
@@ -1457,7 +1454,7 @@ const groupedByReq = useMemo(() => {
 
       {/* 建立 AR 任務 Modal */}
       <Modal
-        title="新建任務"
+        title={t('system.createDuty')}
         open={showCreateDuty}
         onCancel={() => { setShowCreateDuty(false); setDutyTargetReq(null); dutyForm.resetFields() }}
         footer={null}
@@ -1465,28 +1462,28 @@ const groupedByReq = useMemo(() => {
         destroyOnClose
       >
         <Form form={dutyForm} layout="vertical" onFinish={handleCreateDutyFromReq} className="mt-4">
-          <Form.Item name="duty_nm" label="任務名稱" rules={[{ required: true, message: '請輸入任務名稱' }]}>
-            <Input placeholder="請輸入任務名稱" />
+          <Form.Item name="duty_nm" label={t('system.dutyName')} rules={[{ required: true, message: t('system.dutyNameRequired') }]}>
+            <Input placeholder={t('system.dutyNamePlaceholder')} />
           </Form.Item>
           <div className="grid grid-cols-2 gap-x-4">
-            <Form.Item name="priority" label="優先級" rules={[{ required: true }]} initialValue={2}>
-              <Select options={[{ value: 1, label: '低' }, { value: 2, label: '中' }, { value: 3, label: '高' }, { value: 4, label: '緊急' }]} />
+            <Form.Item name="priority" label={t('system.priority')} rules={[{ required: true }]} initialValue={2}>
+              <Select options={[{ value: 1, label: t('system.priorityLow') }, { value: 2, label: t('system.priorityMed') }, { value: 3, label: t('system.priorityHigh') }, { value: 4, label: t('system.priorityUrgent') }]} />
             </Form.Item>
-            <Form.Item name="group" label="任務分組">
-              <AutoComplete options={existingDutyGroups} placeholder="選擇或輸入分組"
+            <Form.Item name="group" label={t('system.dutyGroup')}>
+              <AutoComplete options={existingDutyGroups} placeholder={t('system.selectOrInputGroup')}
                 filterOption={(input, opt) => (opt?.label ?? '').toLowerCase().includes(input.toLowerCase())} />
             </Form.Item>
-            <Form.Item name="expected_start_date" label="預計開始"><Input type="date" /></Form.Item>
-            <Form.Item name="expected_end_date" label="預計完成"><Input type="date" /></Form.Item>
+            <Form.Item name="expected_start_date" label={t('system.expectedStart')}><DateInput/></Form.Item>
+            <Form.Item name="expected_end_date" label={t('system.expectedEnd')}><DateInput/></Form.Item>
           </div>
-          <Form.Item name="responsible" label="負責人">
-            <Select mode="multiple" placeholder="選擇負責人" options={userOptions} showSearch allowClear
+          <Form.Item name="responsible" label={t('system.responsible')}>
+            <Select mode="multiple" placeholder={t('system.selectResponsible')} options={userOptions} showSearch allowClear
               filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
               onDropdownVisibleChange={(open) => { if (open) loadUsers() }}
             />
           </Form.Item>
           {dutyTargetReq && (
-            <Form.Item label="關聯需求">
+            <Form.Item label={t('system.relatedReq')}>
               <div className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700">
                 {dutyTargetReq.req_nm}
               </div>
@@ -1500,7 +1497,7 @@ const groupedByReq = useMemo(() => {
               return (
                 <div className="mb-4">
                   <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-sm text-slate-700">任務描述</span>
+                    <span className="text-sm text-slate-700">{t('system.dutyDescribe')}</span>
                     <button type="button"
                       onClick={() => {
                         const html = isHtml(v) ? v : v.trim() ? `<p>${v.replace(/\n/g, '</p><p>')}</p>` : ''
@@ -1510,46 +1507,46 @@ const groupedByReq = useMemo(() => {
                       className="flex items-center gap-1 text-xs text-slate-500 hover:text-blue-600 border border-slate-200 rounded-md px-2 py-1 hover:border-blue-300 bg-white transition-colors"
                     >
                       <ArrowsPointingOutIcon className="w-3.5 h-3.5" />
-                      展開富文本編輯
+                      {t('system.expandRichText')}
                     </button>
                   </div>
                   <Input.TextArea value={displayValue}
                     onChange={(e) => dutyForm.setFieldValue('describe', e.target.value)}
-                    rows={3} placeholder="請描述任務內容，或點擊右上角展開富文本編輯器..."
+                    rows={3} placeholder={t('system.dutyDescPlaceholder')}
                     style={{ resize: 'vertical', minHeight: 80 }} />
                   <Form.Item name="describe" noStyle><input type="hidden" /></Form.Item>
                   {isHtml(v) && (
-                    <p className="text-xs text-blue-500 mt-1">已套用富文本格式，點擊「展開富文本編輯」可繼續修改</p>
+                    <p className="text-xs text-blue-500 mt-1">{t('system.richTextApplied')}</p>
                   )}
                 </div>
               )
             }}
           </Form.Item>
           <div className="flex justify-end gap-3">
-            <Button onClick={() => { setShowCreateDuty(false); setDutyTargetReq(null); dutyForm.resetFields() }}>取消</Button>
-            <Button type="primary" htmlType="submit" loading={createDutySaving} style={{ background: '#2563eb' }}>建立</Button>
+            <Button onClick={() => { setShowCreateDuty(false); setDutyTargetReq(null); dutyForm.resetFields() }}>{t('common.cancel')}</Button>
+            <Button type="primary" htmlType="submit" loading={createDutySaving} style={{ background: '#2563eb' }}>{t('system.create')}</Button>
           </div>
         </Form>
       </Modal>
 
       {/* 需求任務批量審核 Modal */}
       <Modal
-        title={`提交需求任務審核（共 ${selectedReqDutyIds.length} 個草稿任務）`}
+        title={t('system.batchDutyReviewTitle', { count: selectedReqDutyIds.length })}
         open={showBatchDutyReview}
         onCancel={() => setShowBatchDutyReview(false)}
         footer={null} width={520} destroyOnClose
       >
         <div className="mt-4 space-y-4">
           <div className="text-xs text-amber-600 bg-amber-50 rounded px-3 py-2">
-            以下 {selectedReqDutyIds.length} 個草稿任務將在審核通過後正式啟動（狀態改為「進行中」）。
+            {t('system.batchDutyReviewDesc', { count: selectedReqDutyIds.length })}
           </div>
           <div>
-            <div className="text-sm font-medium text-slate-600 mb-2">審核流程</div>
+            <div className="text-sm font-medium text-slate-600 mb-2">{t('system.reviewFlow')}</div>
             {batchDutyReviewersLoading ? (
               <div className="flex justify-center py-4"><Spin size="small" /></div>
             ) : batchDutyReviewers.length === 0 ? (
               <div className="border border-dashed border-slate-300 rounded-lg py-5 text-center text-slate-400 text-sm">
-                尚未添加審核人，請搜尋並加入
+                {t('system.noReviewerYet')}
               </div>
             ) : (
               <div className="border border-slate-200 rounded-lg overflow-hidden">
@@ -1576,9 +1573,9 @@ const groupedByReq = useMemo(() => {
             )}
           </div>
           <div>
-            <div className="text-sm font-medium text-slate-600 mb-2">加簽審核人</div>
+            <div className="text-sm font-medium text-slate-600 mb-2">{t('system.addReviewer')}</div>
             <div className="relative">
-              <Input placeholder="輸入姓名或工號搜尋" value={batchDutyReviewSearch}
+              <Input placeholder={t('system.searchReviewerPlaceholder')} value={batchDutyReviewSearch}
                 onChange={(e) => handleBatchDutyReviewSearch(e.target.value)}
                 prefix={batchDutyReviewSearchLoading ? <Spin size="small" /> : undefined} allowClear />
               {batchDutyReviewSearchRes.length > 0 && (
@@ -1599,7 +1596,7 @@ const groupedByReq = useMemo(() => {
                           <div className="text-sm font-medium text-slate-800">{u.name}</div>
                           <div className="text-xs text-slate-400">{u.department}{u.position ? ` · ${u.position}` : ''} · {u.work_no}</div>
                         </div>
-                        {already && <span className="text-xs text-slate-400">已添加</span>}
+                        {already && <span className="text-xs text-slate-400">{t('system.alreadyAdded')}</span>}
                       </div>
                     )
                   })}
@@ -1609,38 +1606,38 @@ const groupedByReq = useMemo(() => {
           </div>
           <Divider style={{ margin: '8px 0' }} />
           <div className="flex justify-end gap-3">
-            <Button onClick={() => setShowBatchDutyReview(false)}>取消</Button>
+            <Button onClick={() => setShowBatchDutyReview(false)}>{t('common.cancel')}</Button>
             <Button type="primary" loading={batchDutyReviewSaving} disabled={batchDutyReviewers.length === 0}
               style={{ background: '#7c3aed' }}
               onClick={handleSubmitBatchDutyReview}>
-              提交審核
+              {t('system.submitReview')}
             </Button>
           </div>
         </div>
       </Modal>
 
       {/* Duty describe rich text expand */}
-      <Modal open={dutyExpandOpen} title="任務描述"
+      <Modal open={dutyExpandOpen} title={t('system.dutyDescribe')}
         onCancel={() => setDutyExpandOpen(false)}
         width="80vw" style={{ top: 40, maxWidth: 1100 }}
         styles={{ body: { padding: '16px 24px 24px' } }}
         footer={
           <div className="flex justify-end gap-2">
-            <Button onClick={() => setDutyExpandOpen(false)}>取消</Button>
-            <Button type="primary" onClick={() => { dutyForm.setFieldValue('describe', dutyExpandDraft); setDutyExpandOpen(false) }} style={{ background: '#2563eb' }}>完成</Button>
+            <Button onClick={() => setDutyExpandOpen(false)}>{t('common.cancel')}</Button>
+            <Button type="primary" onClick={() => { dutyForm.setFieldValue('describe', dutyExpandDraft); setDutyExpandOpen(false) }} style={{ background: '#2563eb' }}>{t('system.done')}</Button>
           </div>
         }
         destroyOnClose
       >
-        <RichTextEditor value={dutyExpandDraft} onChange={setDutyExpandDraft} placeholder="請輸入任務描述..." minHeight={480} />
+        <RichTextEditor value={dutyExpandDraft} onChange={setDutyExpandDraft} placeholder={t('system.dutyDescPlaceholder')} minHeight={480} />
       </Modal>
       {/* 快速設定任務負責人 Modal */}
       <Modal
-        title="設定任務負責人"
+        title={t('system.setDutyResponsible')}
         open={!!quickDutyResp}
         onCancel={() => setQuickDutyResp(null)}
         onOk={handleQuickSetDutyResp}
-        okText="確認儲存"
+        okText={t('system.confirmSave')}
         confirmLoading={quickDutySaving}
         okButtonProps={{ style: { background: '#2563eb' } }}
         width={440}
@@ -1648,18 +1645,18 @@ const groupedByReq = useMemo(() => {
       >
         <div className="py-3 space-y-4">
           <div>
-            <div className="text-sm font-medium text-slate-700 mb-2">透過工號搜尋人員</div>
+            <div className="text-sm font-medium text-slate-700 mb-2">{t('system.searchByWorkNo')}</div>
             <Input
               ref={dutyRespRef}
               value={dutyRespKw}
               onChange={(e) => setDutyRespKw(e.target.value)}
-              placeholder="輸入工號，自動搜索（如：EMP001）"
+              placeholder={t('system.workNoSearchPlaceholder')}
               suffix={dutyRespSearching ? <Spin size="small" /> : null}
               autoFocus
             />
             {dutyRespResult === false && (
               <div className="mt-2 text-xs text-red-500 flex items-center gap-1">
-                <XMarkIcon className="w-3.5 h-3.5" />查無此工號，請確認後重試
+                <XMarkIcon className="w-3.5 h-3.5" />{t('system.workNoNotFound')}
               </div>
             )}
             {dutyRespResult && typeof dutyRespResult === 'object' && (
@@ -1684,22 +1681,22 @@ const groupedByReq = useMemo(() => {
                     setDutyRespKw(''); setDutyRespResult(null)
                   }}
                 >
-                  {quickDutyResp?.persons.some((p) => p.work_no === (dutyRespResult as UserProfile).work_no) ? '已加入' : '加入'}
+                  {quickDutyResp?.persons.some((p) => p.work_no === (dutyRespResult as UserProfile).work_no) ? t('system.alreadyAdded') : t('system.addPerson')}
                 </Button>
               </div>
             )}
           </div>
           <div>
             <div className="text-sm font-medium text-slate-700 mb-2">
-              已選負責人
+              {t('system.selectedResponsible')}
               {quickDutyResp && quickDutyResp.persons.length > 0 && (
-                <span className="ml-1.5 text-xs font-normal text-slate-400">（共 {quickDutyResp.persons.length} 人，儲存後生效）</span>
+                <span className="ml-1.5 text-xs font-normal text-slate-400">{t('system.personsCountSaveHint', { count: quickDutyResp.persons.length })}</span>
               )}
             </div>
             {dutyRespPreloading ? (
-              <div className="flex items-center justify-center py-5 text-slate-400 text-xs gap-2"><Spin size="small" />載入中…</div>
+              <div className="flex items-center justify-center py-5 text-slate-400 text-xs gap-2"><Spin size="small" />{t('common.loading')}</div>
             ) : !quickDutyResp || quickDutyResp.persons.length === 0 ? (
-              <div className="border border-dashed border-slate-200 rounded-lg py-5 text-center text-slate-400 text-xs">尚未加入任何負責人</div>
+              <div className="border border-dashed border-slate-200 rounded-lg py-5 text-center text-slate-400 text-xs">{t('system.noPersonYet')}</div>
             ) : (
               <div className="space-y-1.5">
                 {quickDutyResp.persons.map((p, i) => (

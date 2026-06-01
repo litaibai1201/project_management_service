@@ -42,7 +42,7 @@ export const loginThunk = createAsyncThunk(
       const res = await authApi.login(payload)
       return res.content
     } catch (err: unknown) {
-      return rejectWithValue((err as Error).message || '登入失敗')
+      return rejectWithValue((err as Error).message || 'Login failed')
     }
   },
 )

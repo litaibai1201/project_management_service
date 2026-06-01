@@ -1,12 +1,26 @@
 import React from 'react'
 import { ConfigProvider, App as AntApp } from 'antd'
 import zhTW from 'antd/locale/zh_TW'
+import zhCN from 'antd/locale/zh_CN'
+import enUS from 'antd/locale/en_US'
+import thTH from 'antd/locale/th_TH'
+import { useTranslation } from 'react-i18next'
 import AppRouter from '@/router'
 
+const ANT_LOCALES: Record<string, typeof zhTW> = {
+  zh: zhTW,
+  'zh-CN': zhCN,
+  en: enUS,
+  th: thTH,
+}
+
 const App: React.FC = () => {
+  const { i18n } = useTranslation()
+  const antLocale = ANT_LOCALES[i18n.language] ?? zhTW
+
   return (
     <ConfigProvider
-      locale={zhTW}
+      locale={antLocale}
       theme={{
         token: {
           colorPrimary:         '#2563eb',

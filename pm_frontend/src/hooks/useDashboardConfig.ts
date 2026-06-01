@@ -41,7 +41,6 @@ export const DEFAULT_LAYOUTS: DefaultLayoutMap = {
   team_project_status:   { x: 0,   y: 79,  w: 40,  h: 68,  minW: 12,  minH: 20 },
   team_task_pie:         { x: 40,  y: 79,  w: 40,  h: 68,  minW: 12,  minH: 20 },
   team_project_progress: { x: 80,  y: 79,  w: 40,  h: 68,  minW: 12,  minH: 20 },
-  latest_news:           { x: 80,  y: 117, w: 40,  h: 50,  minW: 12,  minH: 20 },
   member_task_chart:     { x: 0,   y: 147, w: 40,  h: 65,  minW: 12,  minH: 20 },
   team_review_types:     { x: 40,  y: 147, w: 40,  h: 65,  minW: 12,  minH: 20 },
   member_detail:         { x: 80,  y: 147, w: 40,  h: 65,  minW: 12,  minH: 20 },
