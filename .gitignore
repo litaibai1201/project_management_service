@@ -118,4 +118,5 @@ tmp/
 /bin/*
 /bin_/*
 
+*/uploads/*
 /uploads/*

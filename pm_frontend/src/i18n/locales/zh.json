@@ -1988,7 +1988,32 @@
     "confirmSet": "確認設定",
     "setPmDesc": "設定此專案的PM",
     "pmWorkNo": "PM工號",
-    "enterWorkNo": "輸入工號"
+    "enterWorkNo": "輸入工號",
+    "reqStatus": {
+      "draft": "草稿",
+      "reviewing": "審核中",
+      "inProgress": "進行中",
+      "rejected": "已拒絕",
+      "completed": "已完結",
+      "shelved": "擱置"
+    },
+    "step": {
+      "draft": "草稿",
+      "initReview": "立案審核",
+      "planning": "規劃中",
+      "planReview": "規劃審核",
+      "scheduling": "排程安排",
+      "schedReview": "排程審核",
+      "executing": "執行中",
+      "completionReview": "完結審核",
+      "completed": "已完結"
+    },
+    "fileCategory": {
+      "requirement": "需求文件",
+      "design": "設計文件",
+      "progress": "進度文件",
+      "other": "其他文件"
+    }
   },
   "projectReport": {
     "subtotal": "小計",
@@ -2094,5 +2119,28 @@
     "serverError": "伺服器錯誤，請稍後再試",
     "networkError": "網路連線異常，請檢查網路",
     "requestFailed": "請求失敗"
+  },
+  "milestone": {
+    "overdueDays": "已超期 {{days}} 天",
+    "dueToday": "今日到期",
+    "daysLeft": "剩餘 {{days}} 天",
+    "updateSuccess": "里程碑已更新",
+    "createSuccess": "里程碑已建立",
+    "statusPending": "待完成",
+    "statusAchieved": "已達成",
+    "statusOverdue": "已超期",
+    "colName": "里程碑名稱",
+    "colTargetDate": "目標日期",
+    "colAchievedAt": "達成日期",
+    "colLinkedTasks": "關聯任務",
+    "notLinked": "未關聯",
+    "addMilestone": "新增里程碑",
+    "editMilestone": "編輯里程碑",
+    "namePlaceholder": "輸入里程碑名稱",
+    "linkedFunctions": "關聯功能任務",
+    "linkedFunctionsPlaceholder": "選擇關聯的功能任務（可多選）",
+    "notePlaceholder": "備注說明（選填）",
+    "saveUpdate": "儲存修改",
+    "createMilestone": "建立里程碑"
   }
 }

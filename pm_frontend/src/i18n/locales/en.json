@@ -1761,7 +1761,28 @@
   "search": {
     "placeholder": "Search projects, tasks...",
     "title": "Search Results",
-    "noResults": "No results found"
+    "noResults": "No results found",
+    "deadline": "Deadline",
+    "enterKeyword": "Enter keyword",
+    "globalSearch": "Global Search",
+    "globalSearchSubtitle": "Search projects, tasks, requirements across all modules",
+    "hotSearch": "Hot Search",
+    "keywordLabel": "Keyword",
+    "noResultHint": "Try different keywords",
+    "noResultTitle": "No results found",
+    "resultCount": "{{count}} results",
+    "startPrompt": "Enter keywords to start searching",
+    "tabAll": "All",
+    "tabProject": "Projects",
+    "tabRequirement": "Requirements",
+    "tabTask": "Tasks",
+    "typeFunction": "Task",
+    "typeGroupProject": "Projects",
+    "typeGroupRequirement": "Requirements",
+    "typeGroupTask": "Tasks",
+    "typeProject": "Project",
+    "typeRequirement": "Requirement",
+    "viewAll": "View All"
   },
   "lang": {
     "zh": "繁體中文",
@@ -1967,7 +1988,32 @@
     "confirmSet": "Confirm",
     "setPmDesc": "Set the PM for this project",
     "pmWorkNo": "PM Work No.",
-    "enterWorkNo": "Enter work number"
+    "enterWorkNo": "Enter work number",
+    "reqStatus": {
+      "draft": "Draft",
+      "reviewing": "Reviewing",
+      "inProgress": "In Progress",
+      "rejected": "Rejected",
+      "completed": "Completed",
+      "shelved": "Shelved"
+    },
+    "step": {
+      "draft": "Draft",
+      "initReview": "Initiation Review",
+      "planning": "Planning",
+      "planReview": "Plan Review",
+      "scheduling": "Scheduling",
+      "schedReview": "Schedule Review",
+      "executing": "Executing",
+      "completionReview": "Completion Review",
+      "completed": "Completed"
+    },
+    "fileCategory": {
+      "requirement": "Requirements",
+      "design": "Design",
+      "progress": "Progress",
+      "other": "Other"
+    }
   },
   "projectReport": {
     "subtotal": "Subtotal",
@@ -2073,5 +2119,28 @@
     "serverError": "Server error, please try later",
     "networkError": "Network error, please check connection",
     "requestFailed": "Request failed"
+  },
+  "milestone": {
+    "overdueDays": "Overdue {{days}}d",
+    "dueToday": "Due today",
+    "daysLeft": "{{days}}d left",
+    "updateSuccess": "Milestone updated",
+    "createSuccess": "Milestone created",
+    "statusPending": "Pending",
+    "statusAchieved": "Achieved",
+    "statusOverdue": "Overdue",
+    "colName": "Milestone",
+    "colTargetDate": "Target Date",
+    "colAchievedAt": "Achieved Date",
+    "colLinkedTasks": "Linked Tasks",
+    "notLinked": "Not linked",
+    "addMilestone": "Add Milestone",
+    "editMilestone": "Edit Milestone",
+    "namePlaceholder": "Enter milestone name",
+    "linkedFunctions": "Linked Tasks",
+    "linkedFunctionsPlaceholder": "Select linked tasks (multiple)",
+    "notePlaceholder": "Notes (optional)",
+    "saveUpdate": "Save",
+    "createMilestone": "Create Milestone"
   }
 }
