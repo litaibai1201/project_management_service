@@ -86,7 +86,7 @@ class DailyLogController:
             "task_items":  task_items,
             "free_items":  free_items,
             "remark":      payload.get("remark", ""),
-            "log_status":  1,
+            "log_status":  int(payload.get("status", 1)),
             "total_hours": total_hours,
             "status":      1,
             "created_at":  now,

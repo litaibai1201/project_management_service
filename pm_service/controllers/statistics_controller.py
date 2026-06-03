@@ -97,7 +97,7 @@ class StatisticsController:
             if end_date:
                 log_q["log_date"]["$lte"] = end_date
         logs_by_user: dict = defaultdict(list)
-        for lg in col.find(log_q, {"work_no": 1, "log_date": 1, "total_hours": 1, "_id": 0}):
+        for lg in col.find(log_q, {"work_no": 1, "log_date": 1, "total_hours": 1, "task_items": 1, "free_items": 1, "_id": 0}):
             logs_by_user[lg["work_no"]].append(lg)
 
         members = []
@@ -165,18 +165,27 @@ class StatisticsController:
                     except ValueError:
                         pass
 
-        # 总工时从 MongoDB 汇总（去重按 log_date + work_no）
+        # 总工时从 MongoDB 汇总（排除休假工时）
         from dbs.mongo_db.client import mongo_client
         col = mongo_client.db["daily_logs"]
         total_hours = 0.0
+        leave_hours = 0.0
         for lg in col.find(
             {"work_no": {"$in": list(member_work_nos)}},
-            {"total_hours": 1, "_id": 0},
+            {"task_items": 1, "free_items": 1, "_id": 0},
         ):
-            total_hours += float(lg.get("total_hours") or 0)
+            for item in (lg.get("task_items") or []):
+                total_hours += float(item.get("work_hours") or 0)
+            for item in (lg.get("free_items") or []):
+                h = float(item.get("work_hours") or 0)
+                if (item.get("category") or "") == "leave":
+                    leave_hours += h
+                else:
+                    total_hours += h
 
         return {
             "total_hours": round(total_hours, 1),
+            "leave_hours": round(leave_hours, 1),
             "completed_tasks": len(completed),
             "in_progress_tasks": len(in_progress),
             "overdue_tasks": len(overdue),
@@ -277,14 +286,33 @@ class StatisticsController:
                 if end_date:
                     log_query["log_date"]["$lte"] = end_date
             logs = list(col.find(log_query))
-        total_hours = round(sum(float(lg.get("total_hours") or 0) for lg in logs), 1)
-
-        # ── 按周聚合工时 ──────────────────────────────────────────────
-        weekly_map: dict = {}
+        # 工时统计：分别计算工作工时和休假工时
+        total_hours = 0.0
+        leave_hours = 0.0
+        # 按日记录工作工时（排除休假），用于周聚合
+        daily_work_hours: dict = {}
         for lg in logs:
-            log_date = lg.get("log_date")
-            if not log_date:
-                continue
+            log_date = lg.get("log_date", "")
+            day_work = 0.0
+            day_leave = 0.0
+            for item in (lg.get("task_items") or []):
+                day_work += float(item.get("work_hours") or 0)
+            for item in (lg.get("free_items") or []):
+                h = float(item.get("work_hours") or 0)
+                if (item.get("category") or "") == "leave":
+                    day_leave += h
+                else:
+                    day_work += h
+            total_hours += day_work
+            leave_hours += day_leave
+            if log_date:
+                daily_work_hours[log_date] = day_work
+        total_hours = round(total_hours, 1)
+        leave_hours = round(leave_hours, 1)
+
+        # ── 按周聚合工时（仅工作工时，不含休假） ─────────────────────────
+        weekly_map: dict = {}
+        for log_date, work_h in daily_work_hours.items():
             try:
                 d = datetime.strptime(str(log_date), "%Y-%m-%d").date()
             except ValueError:
@@ -292,9 +320,7 @@ class StatisticsController:
             monday = d - timedelta(days=d.weekday())
             sunday = monday + timedelta(days=6)
             week_key = f"{monday.strftime('%m/%d')}~{sunday.strftime('%m/%d')}"
-            weekly_map[week_key] = round(
-                weekly_map.get(week_key, 0) + float(lg.get("total_hours") or 0), 1
-            )
+            weekly_map[week_key] = round(weekly_map.get(week_key, 0) + work_h, 1)
 
         weekly_hours = [
             {"week": k, "hours": v}
@@ -307,6 +333,7 @@ class StatisticsController:
             "department": user.department or "",
             "position": user.position or "",
             "total_hours": total_hours,
+            "leave_hours": leave_hours,
             "completed_tasks": completed_tasks,
             "in_progress_tasks": in_progress_tasks,
             "overdue_tasks": overdue_tasks,
@@ -337,6 +364,7 @@ class StatisticsController:
         project_map: dict  = {}   # project_nm -> hours
         category_map: dict = {}   # category   -> hours
         weekly_map: dict   = {}   # week_key   -> {normal, overtime}
+        leave_hours_total  = 0.0
 
         CATEGORY_LABEL = {
             "project":  "專案任務",
@@ -344,6 +372,7 @@ class StatisticsController:
             "meeting":  "會議",
             "training": "培訓",
             "cr_ar":    "CR/AR",
+            "leave":    "休假",
             "other":    "其他",
         }
 
@@ -377,7 +406,11 @@ class StatisticsController:
                 cat_key  = f.get("category") or "other"
                 cat_label = CATEGORY_LABEL.get(cat_key, cat_key)
                 category_map[cat_label] = round(category_map.get(cat_label, 0) + hours, 1)
-                self._add_weekly_overtime(log_date, hours, ot_hours, weekly_map)
+                # 休假不计入正常/加班工时统计
+                if cat_key == "leave":
+                    leave_hours_total += hours
+                else:
+                    self._add_weekly_overtime(log_date, hours, ot_hours, weekly_map)
 
         project_dist  = [{"name": k, "hours": v} for k, v in sorted(project_map.items(),  key=lambda x: -x[1])]
         category_dist = [{"name": k, "hours": v} for k, v in sorted(category_map.items(), key=lambda x: -x[1])]
@@ -387,9 +420,10 @@ class StatisticsController:
         ]
 
         return {
-            "project_dist":   project_dist,
-            "category_dist":  category_dist,
-            "weekly_overtime": weekly_overtime,
+            "project_dist":    project_dist,
+            "category_dist":   category_dist,
+            "weekly_overtime":  weekly_overtime,
+            "leave_hours":      round(leave_hours_total, 1),
         }
 
     @staticmethod

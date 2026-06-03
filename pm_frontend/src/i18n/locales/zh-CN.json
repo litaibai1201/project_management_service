@@ -874,7 +874,16 @@
     "csvContent": "工作内容",
     "csvHours": "耗时(h)",
     "csvOvertime": "加班",
-    "csvOvertimeHours": "加班时数(h)"
+    "csvOvertimeHours": "加班时数(h)",
+    "catLeave": "休假",
+    "leaveDateRange": "休假日期范围",
+    "leaveHint": "共 {{count}} 个工作日，每日 {{hours}}h（周末自动跳过，满8h自动提交）",
+    "leaveDefault": "休假",
+    "leaveFilled": "已自动填入 {{start}} ~ {{end}} 的休假记录",
+    "leaveHoursDefault": "默认每日工时",
+    "leaveSameAsDefault": "同默认",
+    "leaveAdjustDay": "调整某天工时",
+    "leaveHoursLabel": "休假工时"
   },
   "wbs": {
     "title": "专案进度总览",
@@ -1154,7 +1163,8 @@
     "chartInProgress": "进行中",
     "chartOverdue": "超时",
     "unitItems": "项",
-    "unitDays": "天"
+    "unitDays": "天",
+    "leaveHours": "休假工时"
   },
   "review": {
     "title": "审核管理",

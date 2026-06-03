@@ -874,7 +874,16 @@
     "csvContent": "เนื้อหา",
     "csvHours": "ชั่วโมง(h)",
     "csvOvertime": "โอที",
-    "csvOvertimeHours": "ชั่วโมง OT(h)"
+    "csvOvertimeHours": "ชั่วโมง OT(h)",
+    "catLeave": "ลาหยุด",
+    "leaveDateRange": "ช่วงวันลา",
+    "leaveHint": "{{count}} วันทำงาน, {{hours}} ชม./วัน (ข้ามวันหยุด, 8 ชม. ส่งอัตโนมัติ)",
+    "leaveDefault": "ลาหยุด",
+    "leaveFilled": "เติมบันทึกลาหยุด {{start}} ~ {{end}} แล้ว",
+    "leaveHoursDefault": "ชั่วโมงเริ่มต้น/วัน",
+    "leaveSameAsDefault": "เหมือนกัน",
+    "leaveAdjustDay": "ปรับวัน",
+    "leaveHoursLabel": "ชั่วโมงลา"
   },
   "wbs": {
     "title": "ภาพรวม WBS",
@@ -1154,7 +1163,8 @@
     "chartInProgress": "กำลังดำเนินการ",
     "chartOverdue": "เกินกำหนด",
     "unitItems": "รายการ",
-    "unitDays": "วัน"
+    "unitDays": "วัน",
+    "leaveHours": "ชั่วโมงลา"
   },
   "review": {
     "title": "การจัดการการอนุมัติ",

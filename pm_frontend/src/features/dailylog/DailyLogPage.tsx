@@ -21,6 +21,7 @@ import { useAppSelector } from '@/hooks/redux'
 import { useWorkNoToName } from '@/hooks/useWorkNoToName'
 import type { DailyLog, DailyLogEntry, WorkCategory } from '@/types/api.types'
 import { dailyLogApi, entriesToBackend, backendDetailToLog } from '@/api/daily_log.api'
+import { showToast } from '@/utils/toast'
 import { tokenStorage } from '@/api/httpClient'
 import FilePreviewModal from '@/features/project/FilePreviewModal'
 import RichTextContent from '@/components/common/RichTextContent'
@@ -45,6 +46,7 @@ const WORK_CATEGORIES: { value: WorkCategory; labelKey: string; color: string; i
   { value: 'training',   labelKey: 'dailyLog.catTraining',   color: '#d97706', icon: <AcademicCapIcon className="w-4 h-4" /> },
   { value: 'meeting',    labelKey: 'dailyLog.catMeeting',    color: '#dc2626', icon: <UsersIcon className="w-4 h-4" /> },
   { value: 'duty',       labelKey: 'dailyLog.catDuty',       color: '#7c3aed', icon: <DocumentTextIcon className="w-4 h-4" /> },
+  { value: 'leave',      labelKey: 'dailyLog.catLeave',      color: '#10b981', icon: <SunIcon className="w-4 h-4" /> },
   { value: 'other',      labelKey: 'dailyLog.catOther',      color: '#94a3b8', icon: <EllipsisHorizontalCircleIcon className="w-4 h-4" /> },
 ]
 
@@ -55,6 +57,7 @@ const CATEGORY_LABEL_KEYS: Record<string, string> = {
   training: 'dailyLog.catTraining',
   meeting: 'dailyLog.catMeeting',
   duty: 'dailyLog.catDuty',
+  leave: 'dailyLog.catLeave',
   other: 'dailyLog.catOther',
 }
 
@@ -312,8 +315,11 @@ const SelfReportView: React.FC<{
   }
 
   const allEntries = rangeLogs.flatMap((l) => l.entries.map((e) => ({ ...e, log_date: l.log_date, log_status: l.status })))
-  const totalHours  = allEntries.reduce((s, e) => s + e.hours, 0)
-  const totalOT     = allEntries.filter((e) => e.is_overtime).reduce((s, e) => s + (e.overtime_hours ?? e.hours), 0)
+  const workEntries = allEntries.filter((e) => e.work_category !== 'leave')
+  const leaveEntries = allEntries.filter((e) => e.work_category === 'leave')
+  const totalHours  = workEntries.reduce((s, e) => s + e.hours, 0)
+  const totalLeave  = leaveEntries.reduce((s, e) => s + e.hours, 0)
+  const totalOT     = workEntries.filter((e) => e.is_overtime).reduce((s, e) => s + (e.overtime_hours ?? e.hours), 0)
   const totalNormal = totalHours - totalOT
   const workedDays  = rangeLogs.length
 
@@ -330,6 +336,7 @@ const SelfReportView: React.FC<{
           { label: t('dailyLog.periodTotalHours'), value: totalHours.toFixed(1),  unit: 'h',  color: '#2563eb', bg: '#eff6ff', icon: <ClockIcon className="w-4 h-4 text-blue-500" /> },
           { label: t('dailyLog.normalHours'),      value: totalNormal.toFixed(1), unit: 'h',  color: '#16a34a', bg: '#f0fdf4', icon: <SunIcon className="w-4 h-4 text-green-500" /> },
           { label: t('dailyLog.overtimeHoursLabel'), value: totalOT.toFixed(1),   unit: 'h',  color: '#d97706', bg: '#fff7ed', icon: <MoonIcon className="w-4 h-4 text-orange-500" /> },
+          ...(totalLeave > 0 ? [{ label: t('dailyLog.leaveHoursLabel'), value: totalLeave.toFixed(1), unit: 'h', color: '#10b981', bg: '#ecfdf5', icon: <SunIcon className="w-4 h-4 text-emerald-500" /> }] : []),
           { label: t('dailyLog.reportedDays'),     value: workedDays,              unit: t('dailyLog.unitDay'), color: '#64748b', bg: '#f8fafc', icon: <CalendarDaysIcon className="w-4 h-4 text-slate-500" /> },
         ].map((s) => (
           <div key={s.label} className="bg-white rounded-xl border border-slate-100 shadow-sm px-4 py-3 flex items-center gap-3">
@@ -888,10 +895,12 @@ const DailyLogPage: React.FC = () => {
     return [...(currentLog?.entries ?? []), ...dedupedSuggest]
   }, [currentLog, suggestEntries, dateStr, dismissedVersion]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const totalHours = displayEntries.reduce((s, e) => s + e.hours, 0)
-  const overtimeHours = displayEntries.filter((e) => e.is_overtime).reduce((s, e) => s + (e.overtime_hours ?? e.hours), 0)
+  const dayWorkEntries = displayEntries.filter((e) => e.work_category !== 'leave')
+  const dayLeaveHours = displayEntries.filter((e) => e.work_category === 'leave').reduce((s, e) => s + e.hours, 0)
+  const totalHours = dayWorkEntries.reduce((s, e) => s + e.hours, 0)
+  const overtimeHours = dayWorkEntries.filter((e) => e.is_overtime).reduce((s, e) => s + (e.overtime_hours ?? e.hours), 0)
 
-  const sufficiencyPct = Math.round((totalHours / STANDARD_DAILY_HOURS) * 100)
+  const sufficiencyPct = Math.round(((totalHours + dayLeaveHours) / STANDARD_DAILY_HOURS) * 100)
   const isReadOnly = currentLog?.status === 'submitted' || currentLog?.status === 'confirmed'
 
   // Navigation
@@ -1022,6 +1031,67 @@ const DailyLogPage: React.FC = () => {
   // Save entry
   const handleSaveEntry = async (values: Record<string, unknown>) => {
     const cat = values.work_category as WorkCategory
+
+    // ── 休假批量填写 ─────────────────────────────────────────────
+    if (cat === 'leave' && values.leave_range) {
+      const [startDay, endDay] = values.leave_range as [dayjs.Dayjs, dayjs.Dayjs]
+      if (startDay && endDay) {
+        setSaving(true)
+        try {
+          const defaultHours = (values.hours as number) ?? 8
+          const overrides = (values.leave_day_hours as Record<string, number>) ?? {}
+          const desc = (values.description as string) || t('dailyLog.leaveDefault')
+
+          // Collect workdays from the date range
+          const workdays: string[] = []
+          let cur = startDay.startOf('day')
+          while (cur.isBefore(endDay) || cur.isSame(endDay, 'day')) {
+            if (cur.day() !== 0 && cur.day() !== 6) workdays.push(cur.format('YYYY-MM-DD'))
+            cur = cur.add(1, 'day')
+          }
+
+          for (const d of workdays) {
+            const hours = overrides[d] ?? defaultHours
+            const prevLog = logs[d] ?? { log_id: `log-${d}`, work_no: workNo, log_date: d, entries: [], total_hours: 0, overtime_hours: 0, status: 'draft' as const }
+            const hasLeave = prevLog.entries.some((e) => e.work_category === 'leave')
+            if (!hasLeave) {
+              const leaveEntry: DailyLogEntry = {
+                entry_id: `e-${Date.now()}-${d}`,
+                work_category: 'leave',
+                description: desc,
+                hours,
+                  is_overtime: false,
+                  overtime_hours: 0,
+                  source: 'manual',
+                  record_time: dayjs().format('HH:mm'),
+                }
+                const newEntries = [...prevLog.entries, leaveEntry]
+                const newTotal = newEntries.reduce((s, e) => s + e.hours, 0)
+                // 休假满8小时的日自动标记为已提交
+                const autoSubmit = hours >= 8
+                const newStatus = autoSubmit ? 'submitted' as const : prevLog.status
+                setLogs((p) => ({ ...p, [d]: { ...prevLog, entries: newEntries, total_hours: newTotal, status: newStatus } }))
+                // Persist to backend
+                const hasRealId = !!(prevLog.log_id && !prevLog.log_id.startsWith('log-'))
+                const payload = entriesToPayload(newEntries, d)
+                if (hasRealId) {
+                  await dailyLogApi.update(prevLog.log_id!, { task_items: payload.task_items, free_items: payload.free_items, ...(autoSubmit ? { status: 2 } : {}) }).catch(() => {})
+                } else {
+                  const createPayload = { ...payload, ...(autoSubmit ? { status: 2 as const } : {}) }
+                  const res = await dailyLogApi.create(createPayload).catch(() => null)
+                  if (res?.content?.log_id) {
+                    setLogs((p) => ({ ...p, [d]: { ...p[d], log_id: res.content!.log_id } }))
+                  }
+                }
+              }
+            }
+          showToast.success(t('dailyLog.leaveFilled', { start: startDay.format('MM/DD'), end: endDay.format('MM/DD') }))
+        } catch { showToast.error(t('common.error')) }
+        finally { setSaving(false); setModalOpen(false); form.resetFields() }
+        return
+      }
+    }
+
     const projId = values.project_id as string | undefined
     const funcId = values.function_id as string | undefined
     const dutyId = values.duty_id as string | undefined
@@ -1462,6 +1532,7 @@ const DailyLogPage: React.FC = () => {
               { label: t('dailyLog.todayTotalHours'), value: `${fmtH(totalHours)}`, unit: `/ ${STANDARD_DAILY_HOURS}h`, color: '#2563eb', bg: '#eff6ff', icon: <ClockIcon className="w-4 h-4 text-blue-500" /> },
               { label: t('dailyLog.normalHours'),     value: `${fmtH(totalHours - overtimeHours)}`, unit: 'h', color: '#16a34a', bg: '#f0fdf4', icon: <SunIcon className="w-4 h-4 text-green-500" /> },
               { label: t('dailyLog.overtimeHoursLabel'), value: `${fmtH(overtimeHours)}`, unit: 'h', color: '#d97706', bg: '#fff7ed', icon: <MoonIcon className="w-4 h-4 text-orange-500" /> },
+              ...(dayLeaveHours > 0 ? [{ label: t('dailyLog.leaveHoursLabel'), value: `${fmtH(dayLeaveHours)}`, unit: 'h', color: '#10b981', bg: '#ecfdf5', icon: <SunIcon className="w-4 h-4 text-emerald-500" /> }] : []),
               { label: t('dailyLog.sufficiencyRate'), value: `${sufficiencyPct}`, unit: '%', color: sufficiencyPct >= 100 ? '#16a34a' : sufficiencyPct >= 75 ? '#d97706' : '#dc2626', bg: '#f8fafc', icon: <CalendarDaysIcon className="w-4 h-4 text-slate-500" /> },
             ].map((s) => (
               <div key={s.label} className="bg-white rounded-xl border border-slate-100 shadow-sm px-4 py-3 flex items-center gap-3">
@@ -2024,6 +2095,84 @@ const DailyLogPage: React.FC = () => {
             </div>
           )}
 
+          {watchedCategory === 'leave' && (
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
+              <div className="grid grid-cols-2 gap-x-3">
+                <Form.Item name="leave_range" label={t('dailyLog.leaveDateRange')}>
+                  <DatePicker.RangePicker style={{ width: '100%' }} onChange={() => {
+                    // Reset overrides when range changes
+                    form.setFieldsValue({ leave_day_hours: {} })
+                  }} />
+                </Form.Item>
+                <Form.Item name="hours" label={t('dailyLog.leaveHoursDefault')} initialValue={8}>
+                  <InputNumber min={0.5} max={8} step={0.5} style={{ width: '100%' }} addonAfter="h" />
+                </Form.Item>
+              </div>
+              {/* Hidden field to store per-day overrides */}
+              <Form.Item name="leave_day_hours" hidden><input /></Form.Item>
+              <Form.Item noStyle shouldUpdate>
+                {({ getFieldValue }) => {
+                  const range = getFieldValue('leave_range') as [dayjs.Dayjs, dayjs.Dayjs] | null
+                  if (!range?.[0] || !range?.[1]) return null
+                  const defaultH = getFieldValue('hours') ?? 8
+                  const overrides = (getFieldValue('leave_day_hours') as Record<string, number>) ?? {}
+                  // Collect workdays
+                  const workdays: string[] = []
+                  let c = range[0].startOf('day')
+                  while (c.isBefore(range[1]) || c.isSame(range[1], 'day')) {
+                    if (c.day() !== 0 && c.day() !== 6) workdays.push(c.format('YYYY-MM-DD'))
+                    c = c.add(1, 'day')
+                  }
+                  // Only show overridden days (different from default)
+                  const adjustedDays = workdays.filter((d) => overrides[d] !== undefined && overrides[d] !== defaultH)
+                  // Days available to add override (not yet overridden)
+                  const availableDays = workdays.filter((d) => overrides[d] === undefined || overrides[d] === defaultH)
+                  return (
+                    <div className="mt-1">
+                      {adjustedDays.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mb-2">
+                          {adjustedDays.map((date) => (
+                            <div key={date} className="flex items-center gap-1.5 bg-white rounded-lg px-2.5 py-1 border border-green-200">
+                              <span className="text-xs text-slate-600">{date.slice(5)} <span className="text-slate-400">{dayjs(date).format('ddd')}</span></span>
+                              <InputNumber size="small" min={0.5} max={8} step={0.5} value={overrides[date]} style={{ width: 60 }}
+                                onChange={(v) => {
+                                  const next = { ...overrides }
+                                  if (v != null && v !== defaultH) next[date] = v
+                                  else delete next[date]
+                                  form.setFieldsValue({ leave_day_hours: next })
+                                }}
+                              />
+                              <span className="text-[10px] text-slate-400">h</span>
+                              <button type="button" className="text-slate-400 hover:text-red-500 text-xs cursor-pointer border-0 bg-transparent p-0"
+                                onClick={() => {
+                                  const next = { ...overrides }; delete next[date]
+                                  form.setFieldsValue({ leave_day_hours: next })
+                                }}>✕</button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {availableDays.length > 0 && (
+                        <Dropdown trigger={['click']} menu={{
+                          items: availableDays.map((d) => ({
+                            key: d,
+                            label: `${d.slice(5)} ${dayjs(d).format('ddd')}`,
+                            onClick: () => form.setFieldsValue({ leave_day_hours: { ...overrides, [d]: defaultH === 8 ? 4 : defaultH } }),
+                          })),
+                        }}>
+                          <Button size="small" type="dashed" icon={<PlusIcon className="w-3 h-3" />} className="text-green-600 border-green-300">
+                            {t('dailyLog.leaveAdjustDay')}
+                          </Button>
+                        </Dropdown>
+                      )}
+                      <p className="text-xs text-green-600 mt-2">{t('dailyLog.leaveHint', { count: workdays.length, hours: defaultH })}</p>
+                    </div>
+                  )
+                }}
+              </Form.Item>
+            </div>
+          )}
+
           <Form.Item name="bu_unit" label={t('dailyLog.buUnit')}>
             <AutoComplete
               placeholder={t('dailyLog.buPlaceholder')}
@@ -2051,7 +2200,7 @@ const DailyLogPage: React.FC = () => {
                 </button>
               </div>
             }
-            rules={[{ required: true, message: t('dailyLog.pleaseInputContent') }]}
+            rules={[{ required: watchedCategory !== 'leave', message: t('dailyLog.pleaseInputContent') }]}
           >
             <RichTextEditor
               placeholder={t('dailyLog.descriptionPlaceholder')}

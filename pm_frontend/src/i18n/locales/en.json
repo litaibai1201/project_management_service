@@ -874,7 +874,16 @@
     "csvContent": "Content",
     "csvHours": "Hours(h)",
     "csvOvertime": "Overtime",
-    "csvOvertimeHours": "OT Hours(h)"
+    "csvOvertimeHours": "OT Hours(h)",
+    "catLeave": "Leave",
+    "leaveDateRange": "Leave Date Range",
+    "leaveHint": "{{count}} workdays, {{hours}}h each (weekends skipped, 8h auto-submitted)",
+    "leaveDefault": "Leave",
+    "leaveFilled": "Leave entries filled for {{start}} ~ {{end}}",
+    "leaveHoursDefault": "Default Hours/Day",
+    "leaveSameAsDefault": "Same",
+    "leaveAdjustDay": "Adjust a day",
+    "leaveHoursLabel": "Leave Hours"
   },
   "wbs": {
     "title": "WBS Overview",
@@ -1154,7 +1163,8 @@
     "chartInProgress": "In Progress",
     "chartOverdue": "Overdue",
     "unitItems": "items",
-    "unitDays": "days"
+    "unitDays": "days",
+    "leaveHours": "Leave Hours"
   },
   "review": {
     "title": "Review Management",

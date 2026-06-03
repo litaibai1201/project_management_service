@@ -874,7 +874,16 @@
     "csvContent": "工作內容",
     "csvHours": "耗時(h)",
     "csvOvertime": "加班",
-    "csvOvertimeHours": "加班時數(h)"
+    "csvOvertimeHours": "加班時數(h)",
+    "catLeave": "休假",
+    "leaveDateRange": "休假日期範圍",
+    "leaveHint": "共 {{count}} 個工作日，每日 {{hours}}h（週末自動跳過，滿8h自動提交）",
+    "leaveDefault": "休假",
+    "leaveFilled": "已自動填入 {{start}} ~ {{end}} 的休假記錄",
+    "leaveHoursDefault": "默認每日工時",
+    "leaveSameAsDefault": "同默認",
+    "leaveAdjustDay": "調整某天工時",
+    "leaveHoursLabel": "休假工時"
   },
   "wbs": {
     "title": "專案進度總覽",
@@ -1154,7 +1163,8 @@
     "chartInProgress": "進行中",
     "chartOverdue": "超時",
     "unitItems": "項",
-    "unitDays": "天"
+    "unitDays": "天",
+    "leaveHours": "休假工時"
   },
   "review": {
     "title": "審核管理",

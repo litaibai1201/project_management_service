@@ -112,7 +112,7 @@ class GroupController:
         today = datetime.today().date()
         urgent_threshold = today + timedelta(days=7)
 
-        # ── 工时（MongoDB） ───────────────────────────────────────────
+        # ── 工时（MongoDB）— 排除休假 ────────────────────────────────
         col = mongo_client.db["daily_logs"]
         log_query: dict = {"work_no": work_no}
         if start_date or end_date:
@@ -122,14 +122,30 @@ class GroupController:
             if end_date:
                 log_query["log_date"]["$lte"] = end_date
         logs = list(col.find(log_query))
-        total_hours = round(sum(float(lg.get("total_hours") or 0) for lg in logs), 1)
 
-        # 按周聚合
-        weekly_map: dict = {}
+        total_hours = 0.0
+        leave_hours = 0.0
+        daily_work_hours: dict = {}
         for lg in logs:
-            log_date = lg.get("log_date")
-            if not log_date:
-                continue
+            log_date = lg.get("log_date", "")
+            day_work = 0.0
+            for item in (lg.get("task_items") or []):
+                day_work += float(item.get("work_hours") or 0)
+            for item in (lg.get("free_items") or []):
+                h = float(item.get("work_hours") or 0)
+                if (item.get("category") or "") == "leave":
+                    leave_hours += h
+                else:
+                    day_work += h
+            total_hours += day_work
+            if log_date:
+                daily_work_hours[log_date] = day_work
+        total_hours = round(total_hours, 1)
+        leave_hours = round(leave_hours, 1)
+
+        # 按周聚合（仅工作工时）
+        weekly_map: dict = {}
+        for log_date, work_h in daily_work_hours.items():
             try:
                 d = datetime.strptime(str(log_date), "%Y-%m-%d").date()
             except ValueError:
@@ -137,9 +153,7 @@ class GroupController:
             monday = d - timedelta(days=d.weekday())
             sunday = monday + timedelta(days=6)
             week_key = f"{monday.strftime('%m/%d')}~{sunday.strftime('%m/%d')}"
-            weekly_map[week_key] = round(
-                weekly_map.get(week_key, 0) + float(lg.get("total_hours") or 0), 1
-            )
+            weekly_map[week_key] = round(weekly_map.get(week_key, 0) + work_h, 1)
         weekly_hours = [{"week": k, "hours": v} for k, v in sorted(weekly_map.items())]
 
         # ── 任务统计（MySQL） ──────────────────────────────────────────
@@ -177,9 +191,10 @@ class GroupController:
             if work_no not in resp:
                 continue
             s = d.duty_status or 0
-            if s == 4:
+            # AR状态：0=草稿 1=进行中 2=完结审核 3=已完结 5=审核中 6=未开始
+            if s == 3:
                 completed_tasks += 1
-            elif s in (1, 2, 3):
+            elif s in (1, 2, 5, 6):
                 in_progress_tasks += 1
                 end = d.latest_expected_end_date or d.expected_end_date
                 if end:
@@ -191,6 +206,7 @@ class GroupController:
 
         return {
             "total_hours":       total_hours,
+            "leave_hours":       leave_hours,
             "completed_tasks":   completed_tasks,
             "in_progress_tasks": in_progress_tasks,
             "overdue_tasks":     overdue_tasks,

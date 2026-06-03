@@ -763,6 +763,12 @@ const MemberOverviewTab: React.FC = () => {
                           color={overview.overdue_tasks > 0 ? '#dc2626' : '#94a3b8'}
                           bg={overview.overdue_tasks > 0 ? 'bg-red-50' : 'bg-slate-50'} />
                       </Col>
+                      {(overview as any).leave_hours > 0 && (
+                        <Col span={12}>
+                          <MiniMemberStat label={t('statistics.leaveHours')} value={(overview as any).leave_hours} unit="h"
+                            icon={<SunIcon className="w-4 h-4" />} color="#10b981" bg="bg-emerald-50" />
+                        </Col>
+                      )}
                     </Row>
                     {overview.weekly_hours?.length > 0 && (
                       <div className="bg-white rounded-xl border border-slate-100 p-4">
@@ -1017,18 +1023,20 @@ const StatisticsPage: React.FC = () => {
     const projectData    = detail?.project_dist    ?? []
     const categoryData   = detail?.category_dist   ?? []
     const overtimeData   = detail?.weekly_overtime  ?? []
+    const leaveHrs       = (detail as any)?.leave_hours ?? 0
     const totalProjHours = projectData.reduce((s: number, d: { hours: number }) => s + d.hours, 0)
     const totalOvertime  = overtimeData.reduce((s, d) => s + d.overtime, 0)
     const totalNormal    = overtimeData.reduce((s, d) => s + d.normal, 0)
     const totalHrs       = totalNormal + totalOvertime
     return (
       <div className="space-y-4">
-        {/* 4 personal stat cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {/* personal stat cards */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           {[
             { label: t('statistics.totalHoursLabel'), value: totalHrs,     unit: 'h',  color: '#2563eb', bg: '#eff6ff', icon: <ClockIcon className="w-4 h-4 text-blue-500" /> },
             { label: t('statistics.normalHours'),     value: totalNormal,  unit: 'h',  color: '#16a34a', bg: '#f0fdf4', icon: <SunIcon className="w-4 h-4 text-green-500" /> },
             { label: t('statistics.overtimeHours'),   value: totalOvertime, unit: 'h', color: '#d97706', bg: '#fff7ed', icon: <MoonIcon className="w-4 h-4 text-orange-500" /> },
+            ...(leaveHrs > 0 ? [{ label: t('statistics.leaveHours'), value: leaveHrs, unit: 'h', color: '#10b981', bg: '#ecfdf5', icon: <SunIcon className="w-4 h-4 text-emerald-500" /> }] : []),
             { label: t('statistics.overtimeRatio'),   value: totalHrs > 0 ? Math.round((totalOvertime / totalHrs) * 100) : 0, unit: '%', color: '#dc2626', bg: '#fef2f2', icon: <ExclamationTriangleIcon className="w-4 h-4 text-red-500" /> },
           ].map((s) => (
             <div key={s.label} className="bg-white rounded-xl border border-slate-100 shadow-sm px-4 py-3 flex items-center gap-3">

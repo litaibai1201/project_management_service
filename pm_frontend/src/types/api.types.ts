@@ -426,6 +426,7 @@ export interface MemberWorkStat {
   work_no:           string
   department?:       string
   total_hours:       number
+  leave_hours?:      number
   completed_tasks:   number
   overdue_tasks:     number
   overdue_days?:     number
@@ -493,7 +494,7 @@ export interface CreateRequirementPayload {
 
 // ─── Daily Log ────────────────────────────────────────────────────────────────
 
-export type WorkCategory = 'project' | 'system_req' | 'cr_ar' | 'training' | 'meeting' | 'duty' | 'other'
+export type WorkCategory = 'project' | 'system_req' | 'cr_ar' | 'training' | 'meeting' | 'duty' | 'other' | 'leave'
 
 export interface DailyLogEntry {
   entry_id:        string
