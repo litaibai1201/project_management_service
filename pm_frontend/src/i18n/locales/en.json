@@ -707,7 +707,9 @@
     "addPerson": "Add",
     "selectedResponsible": "Selected Assignees",
     "personsCountSaveHint": "({{count}} selected, effective after save)",
-    "noPersonYet": "No person added yet"
+    "noPersonYet": "No person added yet",
+    "relatedReqRequired": "Please select a requirement",
+    "selectRelatedReq": "Select requirement"
   },
   "dailyLog": {
     "title": "Work Log",
@@ -2142,5 +2144,31 @@
     "notePlaceholder": "Notes (optional)",
     "saveUpdate": "Save",
     "createMilestone": "Create Milestone"
+  },
+  "adminGroup": {
+    "title": "Project Group Management",
+    "subtitle": "Manage project groups for categorization",
+    "create": "New Group",
+    "createTitle": "New Group",
+    "editTitle": "Edit Group",
+    "colName": "Group Name",
+    "colId": "Group ID",
+    "nameRequired": "Please enter group name",
+    "namePlaceholder": "Enter group name",
+    "createSuccess": "Group created",
+    "updateSuccess": "Group updated",
+    "deleteSuccess": "Group deleted",
+    "deleteConfirm": "Delete this group?"
+  },
+  "adminProject": {
+    "title": "Project Management",
+    "subtitle": "Manage project info, set Product PM and Project PM",
+    "updateSuccess": "Project updated",
+    "editTitle": "Edit Project",
+    "productPm": "Product PM",
+    "projectPm": "Project PM",
+    "selectPm": "Select PM",
+    "searchPlaceholder": "Search project name...",
+    "groupFilter": "Filter by group"
   }
 }

@@ -707,7 +707,9 @@
     "addPerson": "加入",
     "selectedResponsible": "已選負責人",
     "personsCountSaveHint": "（共 {{count}} 人，儲存後生效）",
-    "noPersonYet": "尚未加入任何人員"
+    "noPersonYet": "尚未加入任何人員",
+    "relatedReqRequired": "請選擇關聯需求",
+    "selectRelatedReq": "選擇關聯的需求"
   },
   "dailyLog": {
     "title": "工作日誌",
@@ -2142,5 +2144,31 @@
     "notePlaceholder": "備注說明（選填）",
     "saveUpdate": "儲存修改",
     "createMilestone": "建立里程碑"
+  },
+  "adminGroup": {
+    "title": "專案分組管理",
+    "subtitle": "管理專案分組，用於歸類專案",
+    "create": "新增分組",
+    "createTitle": "新增分組",
+    "editTitle": "編輯分組",
+    "colName": "分組名稱",
+    "colId": "分組ID",
+    "nameRequired": "請輸入分組名稱",
+    "namePlaceholder": "輸入分組名稱",
+    "createSuccess": "分組建立成功",
+    "updateSuccess": "分組更新成功",
+    "deleteSuccess": "分組已刪除",
+    "deleteConfirm": "確認刪除此分組？"
+  },
+  "adminProject": {
+    "title": "專案資料管理",
+    "subtitle": "管理專案基本資料、設定產品PM與專案PM",
+    "updateSuccess": "專案已更新",
+    "editTitle": "編輯專案",
+    "productPm": "產品PM",
+    "projectPm": "專案PM",
+    "selectPm": "選擇PM",
+    "searchPlaceholder": "搜索專案名稱...",
+    "groupFilter": "篩選分組"
   }
 }

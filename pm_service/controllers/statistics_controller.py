@@ -144,7 +144,7 @@ class StatisticsController:
                     except ValueError:
                         pass
 
-        # AR
+        # AR（状态：0=草稿 1=进行中 2=完结审核 3=已完结 5=审核中 6=未开始 8=搁置）
         all_duties = db.session.query(TemporaryDutyModel).filter(
             TemporaryDutyModel.status == 1,
         ).all()
@@ -153,9 +153,9 @@ class StatisticsController:
             if not any(w in member_work_nos for w in resp):
                 continue
             s = d.duty_status or 0
-            if s == 4:
+            if s == 3:
                 completed.add(('duty', d.id))
-            elif s in (1, 2, 3):
+            elif s in (1, 2, 5, 6):
                 in_progress.add(('duty', d.id))
                 end = d.latest_expected_end_date or d.expected_end_date
                 if end:
@@ -229,7 +229,7 @@ class StatisticsController:
         if duties is None:
             all_duties = db.session.query(TemporaryDutyModel).filter(
                 TemporaryDutyModel.status == 1,
-                TemporaryDutyModel.responsible.like(f"%{work_no}%"),
+                TemporaryDutyModel.responsible.like(f'%"{work_no}"%'),
             ).all()
         else:
             all_duties = duties
@@ -240,9 +240,10 @@ class StatisticsController:
                 continue
 
             s = d.duty_status or 0
-            if s == 4:
+            # AR状态：0=草稿 1=进行中 2=完结审核 3=已完结 5=审核中 6=未开始 8=搁置
+            if s == 3:
                 completed_tasks += 1
-            elif s in (1, 2, 3):
+            elif s in (1, 2, 5, 6):
                 in_progress_tasks += 1
                 end = d.latest_expected_end_date or d.expected_end_date
                 if end:
@@ -684,8 +685,8 @@ class StatisticsController:
                             "expected_start_date": d_start,
                             "expected_end_date": d_end,
                         })
-                elif s in (1, 2):
-                    # 进行中 / 待审核
+                elif s in (1, 2, 5):
+                    # 进行中(1) / 完结审核(2) / 审核中(5)
                     days_left = 999
                     task_status = "normal"
                     if d_end:
@@ -710,8 +711,8 @@ class StatisticsController:
                         "expected_end_date": d_end,
                         "hours": task_hours,
                     })
-                elif s == 0:
-                    # 未开始：仅显示预计开始时间在本期范围内的
+                elif s in (0, 6):
+                    # 草稿(0) / 未开始(6)：仅显示预计开始时间在本期范围内的
                     if d_start and start_date <= d_start <= end_date:
                         days_left = 999
                         task_status = "normal"

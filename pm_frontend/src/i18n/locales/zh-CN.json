@@ -707,7 +707,9 @@
     "addPerson": "加入",
     "selectedResponsible": "已选负责人",
     "personsCountSaveHint": "（共 {{count}} 人，储存后生效）",
-    "noPersonYet": "尚未加入任何人员"
+    "noPersonYet": "尚未加入任何人员",
+    "relatedReqRequired": "请选择关联需求",
+    "selectRelatedReq": "选择关联的需求"
   },
   "dailyLog": {
     "title": "工作日志",
@@ -2142,5 +2144,31 @@
     "notePlaceholder": "备注说明（选填）",
     "saveUpdate": "储存修改",
     "createMilestone": "建立里程碑"
+  },
+  "adminGroup": {
+    "title": "专案分组管理",
+    "subtitle": "管理专案分组，用于归类专案",
+    "create": "新增分组",
+    "createTitle": "新增分组",
+    "editTitle": "编辑分组",
+    "colName": "分组名称",
+    "colId": "分组ID",
+    "nameRequired": "请输入分组名称",
+    "namePlaceholder": "输入分组名称",
+    "createSuccess": "分组建立成功",
+    "updateSuccess": "分组更新成功",
+    "deleteSuccess": "分组已删除",
+    "deleteConfirm": "确认删除此分组？"
+  },
+  "adminProject": {
+    "title": "专案资料管理",
+    "subtitle": "管理专案基本资料、设定产品PM与专案PM",
+    "updateSuccess": "专案已更新",
+    "editTitle": "编辑专案",
+    "productPm": "产品PM",
+    "projectPm": "专案PM",
+    "selectPm": "选择PM",
+    "searchPlaceholder": "搜索专案名称...",
+    "groupFilter": "筛选分组"
   }
 }

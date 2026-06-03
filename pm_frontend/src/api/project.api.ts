@@ -143,9 +143,17 @@ export const projectApi = {
   groups: (): Promise<ApiResponse<ProjectGroup[]>> =>
     get('/project/project_group'),
 
-  /** POST /api/admin/project_group — 管理员或主管可新建分组 */
+  /** POST /api/project/project_group */
   createGroup: (group_nm: string): Promise<ApiResponse<ProjectGroup>> =>
-    post<ProjectGroup>('/admin/project_group', { group_nm }),
+    post<ProjectGroup>('/project/project_group', { group_nm }),
+
+  /** PUT /api/project/project_group/:id */
+  updateGroup: (id: string, group_nm: string): Promise<ApiResponse<null>> =>
+    put(`/project/project_group/${id}`, { group_nm }),
+
+  /** DELETE /api/project/project_group/:id */
+  deleteGroup: (id: string): Promise<ApiResponse<null>> =>
+    del(`/project/project_group/${id}`),
 
   // ─── Function ───────────────────────────────────────────────────────────────
 

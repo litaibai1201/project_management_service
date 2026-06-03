@@ -301,33 +301,36 @@ const AppLayout: React.FC = () => {
         collapsedWidth={64}
         style={{
           position: 'fixed', top: 0, left: 0, height: '100vh', zIndex: 100,
-          overflow: 'hidden', background: '#0f172a',
+          display: 'flex', flexDirection: 'column',
+          background: '#0f172a',
           borderRight: '1px solid rgba(255,255,255,0.06)',
           transition: 'width 0.2s',
         }}
       >
-        {/* Logo */}
-        <div className="flex items-center h-14 px-4 border-b" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+        {/* Logo — fixed top */}
+        <div className="flex items-center h-14 px-4 border-b flex-shrink-0" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
           <div className="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center flex-shrink-0">
             <FolderIcon className="w-4 h-4 text-white" />
           </div>
           {!collapsed && <span className="ml-2.5 text-white font-bold text-sm truncate">{t('nav.appTitle')}</span>}
         </div>
 
-        {/* Nav Menu */}
-        <Menu
-          theme="dark"
-          mode="inline"
-          selectedKeys={[currentKey]}
-          defaultOpenKeys={defaultOpenKeys}
-          style={{ background: 'transparent', border: 'none', marginTop: 8 }}
-          items={buildMenuItems(navItems)}
-        />
+        {/* Nav Menu — scrollable */}
+        <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
+          <Menu
+            theme="dark"
+            mode="inline"
+            selectedKeys={[currentKey]}
+            defaultOpenKeys={defaultOpenKeys}
+            style={{ background: 'transparent', border: 'none', marginTop: 8 }}
+            items={buildMenuItems(navItems)}
+          />
+        </div>
 
-        {/* Collapse toggle */}
+        {/* Collapse toggle — fixed bottom */}
         <div
           onClick={() => setCollapsed((v) => !v)}
-          className="absolute bottom-0 left-0 right-0 border-t flex items-center justify-center py-3 cursor-pointer hover:bg-white/5 transition-colors"
+          className="border-t flex items-center justify-center py-3 cursor-pointer hover:bg-white/5 transition-colors flex-shrink-0"
           style={{ borderColor: 'rgba(255,255,255,0.06)' }}
         >
           <ChevronDoubleLeftIcon

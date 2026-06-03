@@ -116,9 +116,24 @@ class DutyController:
         return result
 
     def create_duty(self, payload: dict, creator: str):
-        from utils.exceptions import ValidationException
+        from utils.exceptions import ValidationException, PermissionException
         if not payload.get("duty_nm", "").strip():
             raise ValidationException(msg="任务名称不能为空")
+
+        # ── 权限校验 ────────────────────────────────────────────────
+        standalone_req_id = payload.get("standalone_req_id", "") or ""
+        system_id = payload.get("system_id", "") or ""
+
+        if standalone_req_id:
+            # 系统需求任务：只有需求的负责人才能创建
+            req = db.session.query(StandaloneReqModel).filter_by(id=standalone_req_id).first()
+            if req:
+                req_resp = json.loads(req.responsible) if req.responsible else []
+                creator_lower = creator.lower()
+                if creator_lower not in [w.lower() for w in req_resp]:
+                    raise PermissionException(msg="仅需求负责人可新增任务")
+
+        # ── 正常创建 ────────────────────────────────────────────────
         resp = payload.get("responsible", [])
         if isinstance(resp, str):
             try:

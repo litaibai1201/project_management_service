@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react'
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import {
   Button, Tag, Spin, Empty, Table, Space, Tooltip, Popconfirm,
   Modal, Form, Input, Select, AutoComplete, Avatar, Descriptions,
@@ -56,6 +56,8 @@ const SystemDetailPage: React.FC = () => {
   const REQ_STATUS_MAP = useReqStatusMap()
   const { id }   = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
+  const isAdminPage = location.pathname.startsWith('/admin')
   const [searchParams] = useSearchParams()
   const toName     = useWorkNoToName()
   const withToken  = (url: string) => { const t = tokenStorage.get(); return t ? `${url}?token=${t}` : url }
@@ -118,7 +120,7 @@ const SystemDetailPage: React.FC = () => {
   const [batchReviewMode,     setBatchReviewMode]      = useState(false)
 
   // 建立 AR 任務 Modal (僅 status=2 進行中)
-  const [dutyTargetReq,    setDutyTargetReq]    = useState<StandaloneReq | null>(null)
+  const [, setDutyTargetReq] = useState<StandaloneReq | null>(null)
   const [showCreateDuty,   setShowCreateDuty]   = useState(false)
   const [createDutySaving, setCreateDutySaving] = useState(false)
   const [dutyForm]                              = Form.useForm()
@@ -415,13 +417,15 @@ const SystemDetailPage: React.FC = () => {
 
   // 建立 AR 任務
   const handleCreateDutyFromReq = async (values: Record<string, unknown>) => {
-    if (!dutyTargetReq) return
+    const selectedReqId = values.standalone_req_id as string
+    const selectedReq = reqList.find((r) => r.id === selectedReqId)
+    if (!selectedReq) return
     setCreateDutySaving(true)
     try {
       await dutyApi.create({
         duty_nm:             values.duty_nm as string,
-        system_id:           dutyTargetReq.system_id,
-        standalone_req_id:   dutyTargetReq.id,
+        system_id:           selectedReq.system_id,
+        standalone_req_id:   selectedReq.id,
         group:               values.group as string | undefined,
         describe:            values.describe as string | undefined,
         priority:            (values.priority as number) ?? 2,
@@ -498,8 +502,15 @@ const groupedArDuties = useMemo(() => {
     return [...map.entries()].map(([name, items]) => ({ name, items }))
   }, [displayedArDuties])
 const groupedByReq = useMemo(() => {
-    // 以 reqList 為主，確保每個需求都顯示（即使還沒有任務），按建立時間降序
-    return [...reqList].sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? '')).map((req) => {
+    // 「我的」模式下顯示：我是需求負責人 或 我負責的任務所屬的需求
+    const myTaskReqIds = new Set(myReqDuties.map((d) => d.standalone_req_id))
+    const filteredReqs = reqDutyView === 'mine'
+      ? reqList.filter((r) =>
+          (r.responsible ?? []).some((wn: string) => wn.toLowerCase() === workNo.toLowerCase())
+          || myTaskReqIds.has(r.id)
+        )
+      : reqList
+    return [...filteredReqs].sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? '')).map((req) => {
       const items = displayedReqDuties.filter((d) => d.standalone_req_id === req.id)
       const groupMap = new Map<string, TemporaryDuty[]>()
       items.forEach((d) => {
@@ -520,7 +531,7 @@ const groupedByReq = useMemo(() => {
       }).length
       return { key: req.id, reqNm: req.req_nm, expectedEndDate: req.expected_end_date, responsible: req.responsible ?? [], subGroups, count: items.length, avgProgress, overdueCount }
     })
-  }, [displayedReqDuties, reqList])
+  }, [displayedReqDuties, reqList, reqDutyView, workNo])
 
   if (sysLoading && !system) {
     return <div className="flex items-center justify-center h-64"><Spin size="large" /></div>
@@ -753,7 +764,7 @@ const groupedByReq = useMemo(() => {
     <div className="p-6">
       {/* Back + Title */}
       <div className="flex items-start gap-3 mb-5">
-        <Button icon={<ArrowLeftIcon className="w-4 h-4" />} onClick={() => navigate('/systems')} type="text" className="mt-1" />
+        <Button icon={<ArrowLeftIcon className="w-4 h-4" />} onClick={() => navigate(isAdminPage ? '/admin/systems' : '/systems')} type="text" className="mt-1" />
         <div className="flex-1">
           <h1 className="text-2xl font-bold text-slate-800">{system?.sys_nm ?? '—'}</h1>
           <div className="flex flex-wrap items-center gap-2 mt-1.5">
@@ -1030,6 +1041,22 @@ const groupedByReq = useMemo(() => {
                       {t('system.submitReqDutyReview', { count: selectedReqDutyIds.length })}
                     </Button>
                   )}
+                  {/* 新增任务按钮 — 当前用户是任意已通过需求的负责人时显示（不随分组/平面切换） */}
+                  {reqList.some((r) =>
+                    r.status === 2 && (r.responsible ?? []).some((wn: string) => wn.toLowerCase() === workNo.toLowerCase())
+                  ) && (
+                    <Button size="small" type="primary" icon={<PlusIcon className="w-3 h-3" />}
+                      className="ml-auto"
+                      style={{ background: '#2563eb', fontSize: 11 }}
+                      onClick={() => {
+                        setDutyTargetReq(null)
+                        dutyForm.resetFields()
+                        loadUsers()
+                        setShowCreateDuty(true)
+                      }}>
+                      {t('system.addDuty')}
+                    </Button>
+                  )}
                 </div>
                 <div className="px-2 py-2">
                   {dutiesLoading ? (
@@ -1065,21 +1092,7 @@ const groupedByReq = useMemo(() => {
                               )}
                             </div>
                           }
-                          extra={g.responsible.includes(workNo) ? (
-                            <Button size="small" type="primary" icon={<PlusIcon className="w-3 h-3" />}
-                              style={{ background: '#2563eb', fontSize: 11 }}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                const req = reqList.find((r) => r.id === g.key)
-                                if (!req) return
-                                setDutyTargetReq(req)
-                                dutyForm.resetFields()
-                                loadUsers()
-                                setShowCreateDuty(true)
-                              }}>
-                              {t('system.addDuty')}
-                            </Button>
-                          ) : undefined}
+                          extra={undefined}
                         >
                           {(g.subGroups.length === 1 && g.subGroups[0].name === t('system.ungrouped')) ? (
                             (() => {
@@ -1482,13 +1495,15 @@ const groupedByReq = useMemo(() => {
               onDropdownVisibleChange={(open) => { if (open) loadUsers() }}
             />
           </Form.Item>
-          {dutyTargetReq && (
-            <Form.Item label={t('system.relatedReq')}>
-              <div className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700">
-                {dutyTargetReq.req_nm}
-              </div>
-            </Form.Item>
-          )}
+          <Form.Item name="standalone_req_id" label={t('system.relatedReq')} rules={[{ required: true, message: t('system.relatedReqRequired') }]}>
+            <Select
+              placeholder={t('system.selectRelatedReq')}
+              options={reqList
+                .filter((r) => r.status === 2 && (r.responsible ?? []).some((wn: string) => wn.toLowerCase() === workNo.toLowerCase()))
+                .map((r) => ({ value: r.id, label: r.req_nm }))
+              }
+            />
+          </Form.Item>
           {/* 任務描述 */}
           <Form.Item shouldUpdate={(prev, curr) => prev.describe !== curr.describe} noStyle>
             {({ getFieldValue }) => {

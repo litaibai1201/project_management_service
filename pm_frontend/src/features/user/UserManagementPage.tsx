@@ -14,6 +14,7 @@ import { useAppDispatch, useAppSelector } from '@/hooks/redux'
 import { fetchUserListThunk, fetchDepartmentsThunk, createUserThunk, deleteUserThunk } from './userSlice'
 import { userApi, HierarchyRelation } from '@/api/user.api'
 import { groupApi } from '@/api/group.api'
+import { projectApi } from '@/api/project.api'
 import { UserProfile } from '@/types/api.types'
 import { showToast } from '@/utils/toast'
 import { useResizableColumns, tableComponents } from '@/hooks/useResizableColumns'
@@ -103,7 +104,7 @@ const DeptAutoComplete: React.FC<{
 
 // ─── Project groups (loaded from API) ──────────────────────────────────────────
 interface ProjectGroup { id: string; name: string; description: string; member_count: number; color: string }
-const INITIAL_GROUPS: ProjectGroup[] = []
+// Groups are loaded from API via adminApi.listGroups()
 
 // ─── HierarchyTab ──────────────────────────────────────────────────────────────
 const HierarchyTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor }) => {
@@ -283,14 +284,26 @@ const GROUP_COLORS = ['#2563eb','#7c3aed','#16a34a','#d97706','#0891b2','#db2777
 
 const GroupManagementTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor }) => {
   const { t } = useTranslation()
-  const [groups, setGroups] = useState<ProjectGroup[]>(INITIAL_GROUPS)
+  const [groups, setGroups] = useState<ProjectGroup[]>([])
   const [showCreate, setShowCreate] = useState(false)
   const [editTarget, setEditTarget] = useState<ProjectGroup | null>(null)
   const [createForm] = Form.useForm()
   const [editForm]   = Form.useForm()
   const [allMembers, setAllMembers] = useState<{ work_no: string; name: string; position?: string }[]>([])
 
+  const loadGroups = () => {
+    projectApi.groups()
+      .then((res) => {
+        const list = Array.isArray(res.content) ? res.content : []
+        setGroups(list.map((g: any, i: number) => ({ id: g.id, name: g.group_nm ?? g.name, description: '', member_count: 0, color: GROUP_COLORS[i % GROUP_COLORS.length] })))
+      })
+      .catch((err) => {
+        console.error('[loadGroups] failed:', err)
+      })
+  }
+
   useEffect(() => {
+    loadGroups()
     groupApi.members({ size: 200 })
       .then((res) => {
         const list = (res as { content?: { data_list?: { work_no: string; name: string; position?: string }[] } }).content?.data_list ?? []
@@ -299,32 +312,38 @@ const GroupManagementTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor 
       .catch(() => {})
   }, [])
 
-  const handleCreate = (values: { name: string; description: string; color: string }) => {
-    const newGroup: ProjectGroup = {
-      id: `g${Date.now()}`,
-      name: values.name,
-      description: values.description ?? '',
-      member_count: 0,
-      color: values.color ?? '#2563eb',
+  const handleCreate = async (values: { name: string; description: string; color: string }) => {
+    try {
+      await projectApi.createGroup(values.name)
+      showToast.success(t('user.createGroupSuccess'))
+      setShowCreate(false)
+      createForm.resetFields()
+      loadGroups()
+    } catch {
+      showToast.error(t('user.createFailed'))
     }
-    setGroups((prev) => [...prev, newGroup])
-    showToast.success(t('user.createGroupSuccess'))
-    setShowCreate(false)
-    createForm.resetFields()
   }
 
-  const handleEdit = (values: { name: string; description: string; color: string }) => {
+  const handleEdit = async (values: { name: string; description: string; color: string }) => {
     if (!editTarget) return
-    setGroups((prev) =>
-      prev.map((g) => g.id === editTarget.id ? { ...g, ...values } : g)
-    )
-    showToast.success(t('user.editGroupSuccess'))
-    setEditTarget(null)
+    try {
+      await projectApi.updateGroup(editTarget.id, values.name)
+      showToast.success(t('user.editGroupSuccess'))
+      setEditTarget(null)
+      loadGroups()
+    } catch {
+      showToast.error(t('common.error'))
+    }
   }
 
-  const handleDelete = (id: string) => {
-    setGroups((prev) => prev.filter((g) => g.id !== id))
-    showToast.success(t('user.deleteGroupSuccess'))
+  const handleDelete = async (id: string) => {
+    try {
+      await projectApi.deleteGroup(id)
+      showToast.success(t('user.deleteGroupSuccess'))
+      loadGroups()
+    } catch {
+      showToast.error(t('user.deleteFailed'))
+    }
   }
 
   const groupFormItems = (

@@ -707,7 +707,9 @@
     "addPerson": "เพิ่ม",
     "selectedResponsible": "ผู้รับผิดชอบที่เลือก",
     "personsCountSaveHint": "(เลือก {{count}} คน มีผลหลังบันทึก)",
-    "noPersonYet": "ยังไม่ได้เพิ่มบุคคล"
+    "noPersonYet": "ยังไม่ได้เพิ่มบุคคล",
+    "relatedReqRequired": "กรุณาเลือกความต้องการ",
+    "selectRelatedReq": "เลือกความต้องการ"
   },
   "dailyLog": {
     "title": "บันทึกการทำงาน",
@@ -2142,5 +2144,31 @@
     "totalMembers": "{{count}} สมาชิก",
     "weeklyHoursTrend": "แนวโน้มชั่วโมงรายสัปดาห์",
     "workHoursTooltip": "ชั่วโมงงาน"
+  },
+  "adminGroup": {
+    "title": "จัดการกลุ่มโครงการ",
+    "subtitle": "จัดการกลุ่มสำหรับจัดหมวดหมู่โครงการ",
+    "create": "สร้างกลุ่ม",
+    "createTitle": "สร้างกลุ่ม",
+    "editTitle": "แก้ไขกลุ่ม",
+    "colName": "ชื่อกลุ่ม",
+    "colId": "รหัสกลุ่ม",
+    "nameRequired": "กรุณากรอกชื่อกลุ่ม",
+    "namePlaceholder": "กรอกชื่อกลุ่ม",
+    "createSuccess": "สร้างกลุ่มแล้ว",
+    "updateSuccess": "อัปเดตกลุ่มแล้ว",
+    "deleteSuccess": "ลบกลุ่มแล้ว",
+    "deleteConfirm": "ลบกลุ่มนี้?"
+  },
+  "adminProject": {
+    "title": "จัดการโครงการ",
+    "subtitle": "จัดการข้อมูลโครงการ ตั้งค่า Product PM และ Project PM",
+    "updateSuccess": "อัปเดตโครงการแล้ว",
+    "editTitle": "แก้ไขโครงการ",
+    "productPm": "Product PM",
+    "projectPm": "Project PM",
+    "selectPm": "เลือก PM",
+    "searchPlaceholder": "ค้นหาชื่อโครงการ...",
+    "groupFilter": "กรองตามกลุ่ม"
   }
 }

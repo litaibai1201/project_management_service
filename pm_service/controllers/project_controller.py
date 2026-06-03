@@ -518,6 +518,30 @@ class ProjectController:
         groups = db.session.query(ProjectGroupModel).filter_by(status=1).all()
         return [g.to_dict() for g in groups]
 
+    def create_project_group(self, group_nm: str) -> dict:
+        from dbs.mysql_db.model_tables import generate_uuid
+        g = ProjectGroupModel(id=generate_uuid(), group_nm=group_nm)
+        db.session.add(g)
+        db.session.commit()
+        return {"id": g.id, "group_nm": g.group_nm}
+
+    def update_project_group(self, group_id: str, group_nm: str):
+        g = db.session.query(ProjectGroupModel).filter_by(id=group_id, status=1).first()
+        if not g:
+            from utils.exceptions import ResourceNotFoundException
+            raise ResourceNotFoundException(msg="分组不存在")
+        if group_nm:
+            g.group_nm = group_nm
+        db.session.commit()
+
+    def delete_project_group(self, group_id: str):
+        g = db.session.query(ProjectGroupModel).filter_by(id=group_id, status=1).first()
+        if not g:
+            from utils.exceptions import ResourceNotFoundException
+            raise ResourceNotFoundException(msg="分组不存在")
+        g.status = 0
+        db.session.commit()
+
     def _enrich_review(self, r: 'ReviewApplyModel', viewer_work_no: str = "",
                        viewer_is_supervisor: bool = False) -> dict:
         """为审批记录补充关联项目/功能/任务名称及提交人姓名，并标记当前用户是否轮到审核"""

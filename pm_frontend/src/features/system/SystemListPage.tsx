@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import {
   Table, Button, Input, Select, AutoComplete, Space, Tooltip, Popconfirm,
   Modal, Form, Tag, Avatar,
@@ -27,6 +27,9 @@ const SystemListPage: React.FC = () => {
   const { t } = useTranslation()
   const isAdmin  = useAppSelector((s) => s.auth.isAdmin)
   const navigate = useNavigate()
+  const location = useLocation()
+  const isAdminPage = location.pathname.startsWith('/admin')
+  const systemBasePath = isAdminPage ? '/admin/systems' : '/systems'
 
   const TOGGLEABLE_COLS = ['sys_group', 'maintainer_names', 'go_live_date', 'urls'] as const
   type ColKey = typeof TOGGLEABLE_COLS[number]
@@ -152,9 +155,9 @@ const SystemListPage: React.FC = () => {
   const rawColumns: ColumnsType<SystemItem> = [
     {
       title: t('system.name'), dataIndex: 'sys_nm', ellipsis: true, width: 260,
-      render: (v: string, r) => (
-        <Button type="link" style={{ padding: 0, fontWeight: 500 }} onClick={() => navigate(`/systems/${r.id}`)}>{v}</Button>
-      ),
+      render: (v: string, r) => isAdminPage
+        ? <span className="font-medium text-slate-700">{v}</span>
+        : <Button type="link" style={{ padding: 0, fontWeight: 500 }} onClick={() => navigate(`${systemBasePath}/${r.id}`)}>{v}</Button>,
     },
     ...(visibleCols.has('sys_group') ? [{
       title: t('system.group'), dataIndex: 'sys_group', width: 120,
@@ -200,9 +203,11 @@ const SystemListPage: React.FC = () => {
       title: t('common.operation'), key: 'action', width: isAdmin ? 110 : 70, fixed: 'right',
       render: (_: unknown, r) => (
         <Space size={0}>
-          <Tooltip title={t('system.viewDetail')}>
-            <Button icon={<EyeIcon className="w-4 h-4" />} size="small" type="text" onClick={() => navigate(`/systems/${r.id}`)} />
-          </Tooltip>
+          {!isAdminPage && (
+            <Tooltip title={t('system.viewDetail')}>
+              <Button icon={<EyeIcon className="w-4 h-4" />} size="small" type="text" onClick={() => navigate(`${systemBasePath}/${r.id}`)} />
+            </Tooltip>
+          )}
           {isAdmin && (
             <>
               <Tooltip title={t('common.edit')}>
@@ -289,6 +294,76 @@ const SystemListPage: React.FC = () => {
           }}
           size="middle"
           scroll={{ x: 800 }}
+          {...(isAdminPage ? {
+            expandable: {
+              expandedRowRender: (record) => (
+                <div className="px-4 py-3">
+                  <div className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm mb-4">
+                    <div><span className="text-slate-400 mr-2">{t('system.name')}:</span><span className="text-slate-700 font-medium">{record.sys_nm}</span></div>
+                    <div><span className="text-slate-400 mr-2">{t('system.group')}:</span><span className="text-slate-700">{record.sys_group || '—'}</span></div>
+                    <div><span className="text-slate-400 mr-2">{t('system.goLiveDate')}:</span><span className="text-slate-700">{record.go_live_date || '—'}</span></div>
+                    <div>
+                      <span className="text-slate-400 mr-2">{t('system.maintainers')}:</span>
+                      {(record.maintainer_names ?? []).length > 0
+                        ? record.maintainer_names.map((u) => <Tag key={u.work_no} color="blue" style={{ fontSize: 11 }}>{u.name}</Tag>)
+                        : <span className="text-slate-300">—</span>}
+                    </div>
+                  </div>
+                  {record.description && (
+                    <div className="mb-4">
+                      <div className="text-slate-400 text-sm mb-1">{t('common.description')}:</div>
+                      <div className="text-slate-600 text-sm bg-slate-50 rounded-lg p-3">{record.description}</div>
+                    </div>
+                  )}
+                  {(record.urls ?? []).length > 0 && (
+                    <div className="mb-4">
+                      <div className="text-slate-400 text-sm mb-1">{t('system.urls')}:</div>
+                      <div className="flex flex-col gap-1">
+                        {record.urls.map((u, i) => (
+                          <div key={i} className="flex items-center gap-2 text-sm">
+                            {u.name && <Tag color="processing" style={{ fontSize: 10, margin: 0 }}>{u.name}</Tag>}
+                            <a href={u.url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline truncate">{u.url}</a>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {(record.deploy_info ?? []).length > 0 && (
+                    <div>
+                      <div className="text-slate-400 text-sm mb-1">{t('system.deployInfo')}:</div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs border-collapse">
+                          <thead>
+                            <tr className="bg-slate-50">
+                              <th className="text-left px-3 py-1.5 border border-slate-200 text-slate-500">#</th>
+                              <th className="text-left px-3 py-1.5 border border-slate-200 text-slate-500">{t('system.frontend')} Host</th>
+                              <th className="text-left px-3 py-1.5 border border-slate-200 text-slate-500">{t('system.frontend')} {t('system.path')}</th>
+                              <th className="text-left px-3 py-1.5 border border-slate-200 text-slate-500">{t('system.backend')} Host</th>
+                              <th className="text-left px-3 py-1.5 border border-slate-200 text-slate-500">{t('system.backend')} {t('system.path')}</th>
+                              <th className="text-left px-3 py-1.5 border border-slate-200 text-slate-500">{t('common.remark')}</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {record.deploy_info.map((d, i) => (
+                              <tr key={i}>
+                                <td className="px-3 py-1.5 border border-slate-200">{i + 1}</td>
+                                <td className="px-3 py-1.5 border border-slate-200 font-mono">{d.fe_host ? `${d.fe_host}${d.fe_port ? ':' + d.fe_port : ''}` : '—'}</td>
+                                <td className="px-3 py-1.5 border border-slate-200">{d.fe_path || d.fe_app_nm || '—'}</td>
+                                <td className="px-3 py-1.5 border border-slate-200 font-mono">{d.be_host ? `${d.be_host}${d.be_port ? ':' + d.be_port : ''}` : '—'}</td>
+                                <td className="px-3 py-1.5 border border-slate-200">{d.be_path || d.be_app_nm || '—'}</td>
+                                <td className="px-3 py-1.5 border border-slate-200">{d.remark || '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ),
+              rowExpandable: () => true,
+            },
+          } : {})}
         />
       </div>
 

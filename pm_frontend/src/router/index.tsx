@@ -17,6 +17,8 @@ const AdminUsersPage   = lazy(() => import('@/features/admin/users/AdminUsersPag
 const SystemConfigPage = lazy(() => import('@/features/admin/config/SystemConfigPage'))
 const OperationLogsPage= lazy(() => import('@/features/admin/logs/OperationLogsPage'))
 const AdminAccountsPage= lazy(() => import('@/features/admin/admins/AdminAccountsPage'))
+const AdminGroupsPage  = lazy(() => import('@/features/admin/groups/AdminGroupsPage'))
+const AdminProjectsPage= lazy(() => import('@/features/admin/projects/AdminProjectsPage'))
 const DashboardPage    = lazy(() => import('@/features/auth/DashboardPage'))
 const ProjectListPage  = lazy(() => import('@/features/project/ProjectListPage'))
 const ProjectDetailPage= lazy(() => import('@/features/project/ProjectDetailPage'))
@@ -58,6 +60,7 @@ const router = createBrowserRouter([
 
   // Protected routes
   {
+    path: '/',
     element: <PrivateRoute />,
     children: [
       {
@@ -90,17 +93,20 @@ const router = createBrowserRouter([
 
   // Admin routes
   {
+    path: '/admin',
     element: <AdminRoute />,
     children: [
       {
         element: <AdminLayout />,
         children: [
-          { path: 'admin',         element: <Suspense fallback={<PageLoader />}><AdminDashboard /></Suspense> },
-          { path: 'admin/users',   element: <Suspense fallback={<PageLoader />}><AdminUsersPage /></Suspense> },
-          { path: 'admin/config',  element: <Suspense fallback={<PageLoader />}><SystemConfigPage /></Suspense> },
-          { path: 'admin/logs',    element: <Suspense fallback={<PageLoader />}><OperationLogsPage /></Suspense> },
-          { path: 'admin/admins',   element: <Suspense fallback={<PageLoader />}><AdminAccountsPage /></Suspense> },
-          { path: 'admin/systems',  element: <Suspense fallback={<PageLoader />}><AdminSystemPage /></Suspense> },
+          { index: true,        element: <Suspense fallback={<PageLoader />}><AdminDashboard /></Suspense> },
+          { path: 'users',      element: <Suspense fallback={<PageLoader />}><AdminUsersPage /></Suspense> },
+          { path: 'config',     element: <Suspense fallback={<PageLoader />}><SystemConfigPage /></Suspense> },
+          { path: 'logs',       element: <Suspense fallback={<PageLoader />}><OperationLogsPage /></Suspense> },
+          { path: 'admins',     element: <Suspense fallback={<PageLoader />}><AdminAccountsPage /></Suspense> },
+          { path: 'systems',    element: <Suspense fallback={<PageLoader />}><AdminSystemPage /></Suspense> },
+          { path: 'groups',     element: <Suspense fallback={<PageLoader />}><AdminGroupsPage /></Suspense> },
+          { path: 'projects',   element: <Suspense fallback={<PageLoader />}><AdminProjectsPage /></Suspense> },
         ],
       },
     ],

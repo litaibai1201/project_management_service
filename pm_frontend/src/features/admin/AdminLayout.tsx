@@ -11,6 +11,8 @@ import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   DesktopOutlined,
+  AppstoreOutlined,
+  ProjectOutlined,
 } from '@ant-design/icons'
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
 import { logout } from '@/features/auth/authSlice'
@@ -21,6 +23,8 @@ const { Sider, Header, Content } = Layout
 const MENU_ITEMS = [
   { key: '/admin',          icon: <DashboardOutlined />, label: '仪表盘' },
   { key: '/admin/users',    icon: <UserOutlined />,      label: '用户管理' },
+  { key: '/admin/projects', icon: <ProjectOutlined />,   label: '专案管理' },
+  { key: '/admin/groups',   icon: <AppstoreOutlined />,  label: '专案分组' },
   { key: '/admin/systems',  icon: <DesktopOutlined />,   label: '系统资料' },
   { key: '/admin/config',   icon: <SettingOutlined />,   label: '系统配置' },
   { key: '/admin/logs',     icon: <FileTextOutlined />,  label: '操作日志' },
@@ -62,9 +66,9 @@ const AdminLayout: React.FC = () => {
         collapsed={collapsed}
         trigger={null}
         width={220}
-        style={{ background: '#001529', overflow: 'auto', height: '100vh', position: 'fixed', left: 0, top: 0, bottom: 0 }}
+        style={{ background: '#001529', height: '100vh', position: 'fixed', left: 0, top: 0, bottom: 0, display: 'flex', flexDirection: 'column' }}
       >
-        {/* Logo */}
+        {/* Logo — fixed at top */}
         <div
           style={{
             height: 64,
@@ -73,6 +77,7 @@ const AdminLayout: React.FC = () => {
             justifyContent: collapsed ? 'center' : 'flex-start',
             padding: collapsed ? 0 : '0 20px',
             borderBottom: '1px solid rgba(255,255,255,0.1)',
+            flexShrink: 0,
           }}
         >
           <SettingOutlined style={{ color: '#1677ff', fontSize: 22 }} />
@@ -83,14 +88,17 @@ const AdminLayout: React.FC = () => {
           )}
         </div>
 
-        <Menu
-          theme="dark"
-          mode="inline"
-          selectedKeys={[selectedKey]}
-          items={MENU_ITEMS}
-          onClick={({ key }) => navigate(key)}
-          style={{ marginTop: 8 }}
-        />
+        {/* Menu — scrollable */}
+        <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
+          <Menu
+            theme="dark"
+            mode="inline"
+            selectedKeys={[selectedKey]}
+            items={MENU_ITEMS}
+            onClick={({ key }) => navigate(key)}
+            style={{ marginTop: 8 }}
+          />
+        </div>
       </Sider>
 
       <Layout style={{ marginLeft: collapsed ? 80 : 220, transition: 'margin-left 0.2s', display: 'flex', flexDirection: 'column', height: '100vh' }}>

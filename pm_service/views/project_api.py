@@ -237,6 +237,37 @@ class ProjectGroupApi(MethodView):
         """获取项目分组"""
         return response_result(content=proj_ctrl.get_project_groups())
 
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def post(self):
+        """新建项目分组"""
+        payload = request.get_json() or {}
+        group_nm = (payload.get("group_nm") or payload.get("group_name", "")).strip()
+        if not group_nm:
+            from utils.exceptions import ValidationException
+            raise ValidationException(msg="分组名称不能为空")
+        result = proj_ctrl.create_project_group(group_nm)
+        return response_result(content=result)
+
+
+@blp.route("/project_group/<string:group_id>")
+class ProjectGroupDetailApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def put(self, group_id):
+        """更新项目分组"""
+        payload = request.get_json() or {}
+        group_nm = (payload.get("group_nm") or payload.get("group_name", "")).strip()
+        proj_ctrl.update_project_group(group_id, group_nm)
+        return response_result()
+
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def delete(self, group_id):
+        """删除项目分组"""
+        proj_ctrl.delete_project_group(group_id)
+        return response_result()
+
 
 @blp.route("/report_stats")
 class ProjectReportStatsApi(MethodView):
