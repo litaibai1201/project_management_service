@@ -2032,7 +2032,8 @@
       "progress": "進度文件",
       "other": "其他文件"
     },
-    "stageTaskGroup": "📋 阶段任务"
+    "stageTaskGroup": "📋 阶段任务",
+    "defaultReviewer": "默認主管審核人，不可移除"
   },
   "projectReport": {
     "subtotal": "小計",

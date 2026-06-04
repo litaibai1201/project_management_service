@@ -205,6 +205,7 @@ const ProjectDetailPage: React.FC = () => {
   const [searchResults,     setSearchResults]     = useState<UserProfile[]>([])
   const [searchLoading,     setSearchLoading]     = useState(false)
   const [isCompletionSubmit, setIsCompletionSubmit] = useState(false)  // distinguish completion from other reviews
+  const [defaultReviewerWnos, setDefaultReviewerWnos] = useState<Set<string>>(new Set()) // 默认主管，不可删除
 
   // ── 執行階段草稿任務審核 ────────────────────────────────────────────────────
   const [selectedDraftFuncIds,    setSelectedDraftFuncIds]    = useState<string[]>([])
@@ -800,6 +801,7 @@ const ProjectDetailPage: React.FC = () => {
   const handleOpenSubmitModal = async () => {
     setIsCompletionSubmit(false)
     setSubmitReviewers([])
+    setDefaultReviewerWnos(new Set())
     setReviewerSearch('')
     setSearchResults([])
     setShowSubmit(true)
@@ -807,9 +809,9 @@ const ProjectDetailPage: React.FC = () => {
     try {
       const res = await userApi.getSupervisors(workNo)
       const list = (Array.isArray(res.content) ? res.content : []) as UserProfile[]
-      // 若非主管，預設帶入直屬主管作為審核人
-      if (!isSupervisor && list.length > 0) {
+      if (list.length > 0) {
         setSubmitReviewers(list)
+        setDefaultReviewerWnos(new Set(list.map((u) => u.work_no)))
       }
     } catch { /* ignore */ }
     finally { setSupervisorsLoading(false) }
@@ -818,6 +820,7 @@ const ProjectDetailPage: React.FC = () => {
   const handleOpenCompletionModal = async () => {
     setIsCompletionSubmit(true)
     setSubmitReviewers([])
+    setDefaultReviewerWnos(new Set())
     setReviewerSearch('')
     setSearchResults([])
     setShowSubmit(true)
@@ -844,7 +847,10 @@ const ProjectDetailPage: React.FC = () => {
           seenWnos.add(sup.work_no)
         }
       }
-      if (reviewers.length > 0) setSubmitReviewers(reviewers)
+      if (reviewers.length > 0) {
+        setSubmitReviewers(reviewers)
+        setDefaultReviewerWnos(new Set(reviewers.map((u) => u.work_no)))
+      }
     } catch { /* ignore */ }
     finally { setSupervisorsLoading(false) }
   }
@@ -869,6 +875,11 @@ const ProjectDetailPage: React.FC = () => {
   }
 
   const removeReviewer = (wn: string) => {
+    // 默认主管至少保留一个
+    if (defaultReviewerWnos.has(wn)) {
+      const remainingDefaults = submitReviewers.filter((r) => defaultReviewerWnos.has(r.work_no) && r.work_no !== wn)
+      if (remainingDefaults.length === 0) return // 最后一个默认主管不可删除
+    }
     setSubmitReviewers((prev) => prev.filter((r) => r.work_no !== wn))
   }
 
@@ -906,7 +917,7 @@ const ProjectDetailPage: React.FC = () => {
 
   // Group-related computed data
   const existingGroups = useMemo(
-    () => Array.from(new Set(functions.map((f) => f.group1).filter(Boolean))),
+    () => Array.from(new Set(functions.map((f) => f.group1).filter((g) => g && g !== '__stage__'))),
     [functions],
   )
   const groupAutoOptions = useMemo(
@@ -1100,13 +1111,14 @@ const ProjectDetailPage: React.FC = () => {
       title: t('common.operation'), key: 'action', width: isPm ? 110 : 80, fixed: 'right',
       render: (_: unknown, record) => {
         const canModifyTask = [3, 10].includes(current?.status ?? 0)
+        const isStage = record.group1 === '__stage__'
         return (
           <Space size={0}>
             <Tooltip title={t('common.view')}><Button icon={<EyeIcon className="w-4 h-4" />} size="small" type="text" onClick={() => setSelectedFid(record.id)} /></Tooltip>
-            {isPm && canModifyTask && (
+            {isPm && canModifyTask && !isStage && (
               <Tooltip title={t('common.edit')}><Button icon={<EditIcon className="w-4 h-4" />} size="small" type="text" onClick={() => handleOpenFuncEdit(record.id)} /></Tooltip>
             )}
-            {canModifyTask && (
+            {canModifyTask && !isStage && (
               <Popconfirm title={t('common.confirmDelete')} onConfirm={() => handleDeleteFunction(record.id)} okText={t('common.confirm')} cancelText={t('common.cancel')}>
                 <Tooltip title={t('common.delete')}><Button icon={<TrashIcon className="w-4 h-4" />} size="small" type="text" danger /></Tooltip>
               </Popconfirm>
@@ -2964,7 +2976,7 @@ const ProjectDetailPage: React.FC = () => {
                         {r.department}{r.position ? ` · ${r.position}` : ''} · {r.work_no}
                       </div>
                     </div>
-                    {/* 上下移動 + 刪除 */}
+                    {/* 上下移動 + 刪除（默认主管不可删除） */}
                     <div className="flex items-center gap-1 flex-shrink-0">
                       <Button size="small" type="text" disabled={i === 0}
                         onClick={() => moveReviewer(i, -1)}
@@ -2972,9 +2984,20 @@ const ProjectDetailPage: React.FC = () => {
                       <Button size="small" type="text" disabled={i === submitReviewers.length - 1}
                         onClick={() => moveReviewer(i, 1)}
                         style={{ padding: '0 4px', fontSize: 12, color: i === submitReviewers.length - 1 ? '#cbd5e1' : '#64748b' }}>↓</Button>
-                      <Button size="small" type="text" danger
-                        icon={<TrashIcon className="w-3.5 h-3.5" />}
-                        onClick={() => removeReviewer(r.work_no)} />
+                      {(() => {
+                        const isDefault = defaultReviewerWnos.has(r.work_no)
+                        const defaultCount = submitReviewers.filter((rv) => defaultReviewerWnos.has(rv.work_no)).length
+                        const isLastDefault = isDefault && defaultCount <= 1
+                        return isLastDefault ? (
+                          <Tooltip title={t('projectDetail.defaultReviewer')}>
+                            <span className="w-7 h-7 flex items-center justify-center text-slate-300"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5"><path fillRule="evenodd" d="M10 1a4.5 4.5 0 0 0-4.5 4.5V9H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-.5V5.5A4.5 4.5 0 0 0 10 1Zm3 8V5.5a3 3 0 1 0-6 0V9h6Z" clipRule="evenodd" /></svg></span>
+                          </Tooltip>
+                        ) : (
+                          <Button size="small" type="text" danger
+                            icon={<TrashIcon className="w-3.5 h-3.5" />}
+                            onClick={() => removeReviewer(r.work_no)} />
+                        )
+                      })()}
                     </div>
                   </div>
                 ))}

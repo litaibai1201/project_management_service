@@ -2008,7 +2008,8 @@
       "progress": "เอกสารความคืบหน้า",
       "other": "อื่นๆ"
     },
-    "stageTaskGroup": "📋 งานระยะ"
+    "stageTaskGroup": "📋 งานระยะ",
+    "defaultReviewer": "หัวหน้าเริ่มต้น ไม่สามารถลบได้"
   },
   "projectReport": {
     "subtotal": "ยอมรวม",

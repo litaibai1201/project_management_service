@@ -2032,7 +2032,8 @@
       "progress": "Progress",
       "other": "Other"
     },
-    "stageTaskGroup": "📋 Stage Tasks"
+    "stageTaskGroup": "📋 Stage Tasks",
+    "defaultReviewer": "Default supervisor, cannot be removed"
   },
   "projectReport": {
     "subtotal": "Subtotal",
