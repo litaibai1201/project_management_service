@@ -116,6 +116,7 @@ const SystemDetailPage: React.FC = () => {
   const [reviewSearch,        setReviewSearch]         = useState('')
   const [reviewSearchResults, setReviewSearchResults]  = useState<UserProfile[]>([])
   const [reviewSearchLoading, setReviewSearchLoading]  = useState(false)
+  const [defaultReviewerWnos, setDefaultReviewerWnos] = useState<Set<string>>(new Set())
   // true = 批量模式
   const [batchReviewMode,     setBatchReviewMode]      = useState(false)
 
@@ -137,6 +138,7 @@ const SystemDetailPage: React.FC = () => {
   const [batchDutyReviewSearchRes, setBatchDutyReviewSearchRes] = useState<UserProfile[]>([])
   const [batchDutyReviewSearchLoading, setBatchDutyReviewSearchLoading] = useState(false)
   const [batchDutyReviewSaving,    setBatchDutyReviewSaving]    = useState(false)
+  const [defaultDutyReviewerWnos, setDefaultDutyReviewerWnos] = useState<Set<string>>(new Set())
 
   // 需求任務 / AR任務 tab 視圖狀態
   const [reqDutyView,      setReqDutyView]      = useState<'all' | 'mine'>('all')
@@ -347,6 +349,7 @@ const SystemDetailPage: React.FC = () => {
     setReviewTargetReq(req)
     setBatchReviewMode(batch)
     setReviewers([])
+    setDefaultReviewerWnos(new Set())
     setReviewSearch('')
     setReviewSearchResults([])
     setShowReview(true)
@@ -355,6 +358,7 @@ const SystemDetailPage: React.FC = () => {
       const res = await userApi.getSupervisors(workNo)
       const list = (Array.isArray(res.content) ? res.content : []) as UserProfile[]
       setReviewers(list)
+      setDefaultReviewerWnos(new Set(list.map((u) => u.work_no)))
     } catch { /* ignore */ }
     finally { setReviewersLoading(false) }
   }
@@ -366,7 +370,13 @@ const SystemDetailPage: React.FC = () => {
     setReviewSearchResults([])
   }
 
-  const removeReviewer = (wn: string) => setReviewers((prev) => prev.filter((r) => r.work_no !== wn))
+  const removeReviewer = (wn: string) => {
+    if (defaultReviewerWnos.has(wn)) {
+      const remaining = reviewers.filter((r) => defaultReviewerWnos.has(r.work_no) && r.work_no !== wn)
+      if (remaining.length === 0) return
+    }
+    setReviewers((prev) => prev.filter((r) => r.work_no !== wn))
+  }
 
   const moveReviewer = (index: number, dir: -1 | 1) => {
     const next = index + dir
@@ -444,13 +454,16 @@ const SystemDetailPage: React.FC = () => {
 
   const openBatchDutyReviewModal = async () => {
     setBatchDutyReviewers([])
+    setDefaultDutyReviewerWnos(new Set())
     setBatchDutyReviewSearch('')
     setBatchDutyReviewSearchRes([])
     setShowBatchDutyReview(true)
     setBatchDutyReviewersLoading(true)
     try {
       const res = await userApi.getSupervisors(workNo)
-      setBatchDutyReviewers((Array.isArray(res.content) ? res.content : []) as UserProfile[])
+      const list = (Array.isArray(res.content) ? res.content : []) as UserProfile[]
+      setBatchDutyReviewers(list)
+      setDefaultDutyReviewerWnos(new Set(list.map((u) => u.work_no)))
     } catch { /* ignore */ }
     finally { setBatchDutyReviewersLoading(false) }
   }
@@ -1419,7 +1432,17 @@ const groupedByReq = useMemo(() => {
                         style={{ padding: '0 4px', fontSize: 12, color: i === 0 ? '#cbd5e1' : '#64748b' }}>↑</Button>
                       <Button size="small" type="text" disabled={i === reviewers.length - 1} onClick={() => moveReviewer(i, 1)}
                         style={{ padding: '0 4px', fontSize: 12, color: i === reviewers.length - 1 ? '#cbd5e1' : '#64748b' }}>↓</Button>
-                      <Button size="small" type="text" danger icon={<TrashIcon className="w-3.5 h-3.5" />} onClick={() => removeReviewer(r.work_no)} />
+                      {(() => {
+                        const isDefault = defaultReviewerWnos.has(r.work_no)
+                        const defaultCount = reviewers.filter((rv) => defaultReviewerWnos.has(rv.work_no)).length
+                        return isDefault && defaultCount <= 1 ? (
+                          <Tooltip title={t('system.defaultReviewer')}>
+                            <span className="w-7 h-7 flex items-center justify-center text-slate-300">🔒</span>
+                          </Tooltip>
+                        ) : (
+                          <Button size="small" type="text" danger icon={<TrashIcon className="w-3.5 h-3.5" />} onClick={() => removeReviewer(r.work_no)} />
+                        )
+                      })()}
                     </div>
                   </div>
                 ))}
@@ -1579,8 +1602,24 @@ const groupedByReq = useMemo(() => {
                       <Button size="small" type="text" disabled={i === batchDutyReviewers.length - 1}
                         onClick={() => setBatchDutyReviewers((prev) => { const a = [...prev]; [a[i], a[i+1]] = [a[i+1], a[i]]; return a })}
                         style={{ padding: '0 4px', fontSize: 12, color: i === batchDutyReviewers.length - 1 ? '#cbd5e1' : '#64748b' }}>↓</Button>
-                      <Button size="small" type="text" danger icon={<TrashIcon className="w-3.5 h-3.5" />}
-                        onClick={() => setBatchDutyReviewers((prev) => prev.filter((u) => u.work_no !== r.work_no))} />
+                      {(() => {
+                        const isDef = defaultDutyReviewerWnos.has(r.work_no)
+                        const defCount = batchDutyReviewers.filter((rv) => defaultDutyReviewerWnos.has(rv.work_no)).length
+                        return isDef && defCount <= 1 ? (
+                          <Tooltip title={t('system.defaultReviewer')}>
+                            <span className="w-7 h-7 flex items-center justify-center text-slate-300">🔒</span>
+                          </Tooltip>
+                        ) : (
+                          <Button size="small" type="text" danger icon={<TrashIcon className="w-3.5 h-3.5" />}
+                            onClick={() => {
+                              if (isDef) {
+                                const rem = batchDutyReviewers.filter((rv) => defaultDutyReviewerWnos.has(rv.work_no) && rv.work_no !== r.work_no)
+                                if (rem.length === 0) return
+                              }
+                              setBatchDutyReviewers((prev) => prev.filter((u) => u.work_no !== r.work_no))
+                            }} />
+                        )
+                      })()}
                     </div>
                   </div>
                 ))}

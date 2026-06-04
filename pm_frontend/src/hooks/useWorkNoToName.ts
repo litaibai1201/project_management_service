@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { userApi } from '@/api/user.api'
 
 type NameMap = Record<string, string>
@@ -24,17 +24,20 @@ function loadNameMap(): Promise<NameMap> {
   return _promise
 }
 
-/** Returns a function that maps work_no → display name (falls back to work_no if unknown) */
+/** Returns a function that maps work_no → display name (falls back to empty string if unknown) */
 export function useWorkNoToName(): (workNo: string | null | undefined) => string {
   const [nameMap, setNameMap] = useState<NameMap>(_cache ?? {})
+  const nameMapRef = useRef(nameMap)
+  nameMapRef.current = nameMap
 
   useEffect(() => {
     if (_cache) { setNameMap(_cache); return }
     loadNameMap().then(setNameMap)
   }, [])
 
-  return (workNo: string | null | undefined) => {
+  // Use useCallback to return a stable function that always reads the latest nameMap
+  return useCallback((workNo: string | null | undefined) => {
     if (!workNo) return ''
-    return nameMap[workNo.toLowerCase()] ?? workNo
-  }
+    return nameMapRef.current[workNo.toLowerCase()] ?? ''
+  }, [nameMap]) // eslint-disable-line react-hooks/exhaustive-deps
 }

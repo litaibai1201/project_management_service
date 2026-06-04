@@ -59,11 +59,11 @@ class NotificationController:
     def list_notifications(self, work_no: str, page: int = 1, size: int = 30):
         """获取当前用户通知列表（按时间倒序）"""
         q = (db.session.query(NotificationModel)
-             .filter_by(recipient=work_no)
+             .filter(db.func.lower(NotificationModel.recipient) == (work_no or "").lower())
              .order_by(NotificationModel.created_at.desc()))
         total = q.count()
         unread = (db.session.query(NotificationModel)
-                  .filter_by(recipient=work_no, is_read=False)
+                  .filter(db.func.lower(NotificationModel.recipient) == (work_no or "").lower(), NotificationModel.is_read == False)
                   .count())
         items = q.offset((page - 1) * size).limit(size).all()
         return {
@@ -75,7 +75,7 @@ class NotificationController:
     def mark_read(self, work_no: str, notif_id: str):
         """标记单条为已读"""
         n = (db.session.query(NotificationModel)
-             .filter_by(id=notif_id, recipient=work_no)
+             .filter(NotificationModel.id == notif_id, db.func.lower(NotificationModel.recipient) == (work_no or "").lower())
              .first())
         if n and not n.is_read:
             n.is_read = True

@@ -33,7 +33,7 @@ class DailyLogController:
     # ─── 列表 ─────────────────────────────────────────────────────────────
     def list_logs(self, page=1, size=20, start_date=None, end_date=None,
                   work_no=None, status=None):
-        target_work_no = work_no or get_identity()
+        target_work_no = (work_no or get_identity()).lower()
         query = {"work_no": target_work_no, "status": 1}
         if start_date:
             query.setdefault("log_date", {})["$gte"] = start_date
@@ -65,7 +65,7 @@ class DailyLogController:
 
     # ─── 新建 ─────────────────────────────────────────────────────────────
     def create_log(self, payload: dict):
-        work_no = get_identity()
+        work_no = get_identity().lower()
         log_date = payload.get("log_date")
         if not log_date:
             raise ValidationException(msg="log_date 不能为空")
@@ -96,7 +96,7 @@ class DailyLogController:
 
     # ─── 更新 ─────────────────────────────────────────────────────────────
     def update_log(self, log_id: str, payload: dict):
-        work_no = get_identity()
+        work_no = get_identity().lower()
         doc = _col().find_one({"log_id": log_id, "work_no": work_no, "status": 1})
         if not doc:
             raise ResourceNotFoundException(msg="日报不存在")

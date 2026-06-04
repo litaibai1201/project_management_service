@@ -1257,6 +1257,7 @@ const DashboardPage: React.FC = () => {
                 { name: t('dashboard.completedLabel'), value: taskData?.completed   ?? 0, color: '#16a34a' },
                 { name: t('dashboard.overdueTimeLabel'), value: taskData?.overdue   ?? 0, color: '#dc2626' },
                 { name: t('dashboard.urgentTimeLabel'), value: taskData?.urgent     ?? 0, color: '#f59e0b' },
+                { name: t('dashboard.draftLabel'),    value: (taskData as any)?.draft ?? 0, color: '#d1d5db' },
               ].filter((d) => d.value > 0)
               return (
                 <Card className="h-full" style={{ display: 'flex', flexDirection: 'column' }}

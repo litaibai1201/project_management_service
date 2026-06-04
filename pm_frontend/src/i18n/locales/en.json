@@ -497,7 +497,8 @@
       "completionWaitingReview": "Completion submitted, awaiting approval",
       "reviewSubmitted": "Review submitted",
       "progressUpdated": "Progress updated"
-    }
+    },
+    "projectTask": "Project Tasks"
   },
   "requirement": {
     "title": "Requirements",
@@ -715,7 +716,8 @@
     "personsCountSaveHint": "({{count}} selected, effective after save)",
     "noPersonYet": "No person added yet",
     "relatedReqRequired": "Please select a requirement",
-    "selectRelatedReq": "Select requirement"
+    "selectRelatedReq": "Select requirement",
+    "defaultReviewer": "Default supervisor, cannot remove"
   },
   "dailyLog": {
     "title": "Work Log",
@@ -1774,7 +1776,8 @@
     "urgentItem": "Urgent: {{count}}",
     "normalStatus": "Normal",
     "approvalTag": "Approval",
-    "applicationLabel": "Application"
+    "applicationLabel": "Application",
+    "draftLabel": "Draft"
   },
   "search": {
     "placeholder": "Search projects, tasks...",

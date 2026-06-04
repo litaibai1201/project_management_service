@@ -457,9 +457,9 @@ const ReviewDetailDrawer: React.FC<{
         {/* 申請人 */}
         <div className="flex flex-col items-center gap-1">
           <Avatar size={36} style={{ background: '#7c3aed', fontSize: 14, fontWeight: 600 }}>
-            {(record.submitter_name || toName(record.submitter))?.[0]?.toUpperCase()}
+            {(record.submitter_name || toName(record.submitter) || record.submitter)?.[0]?.toUpperCase()}
           </Avatar>
-          <div className="text-xs font-medium text-slate-700">{record.submitter_name || toName(record.submitter)}</div>
+          <div className="text-xs font-medium text-slate-700">{record.submitter_name || toName(record.submitter) || record.submitter}</div>
           <div className="text-[11px] text-slate-400">{t('review.applicant')}</div>
         </div>
 
@@ -1122,14 +1122,14 @@ const ReviewDetailDrawer: React.FC<{
               <div className="flex flex-col items-center gap-1 flex-shrink-0 min-w-[64px]">
                 <div className="relative">
                   <Avatar size={38} style={{ background: '#7c3aed', fontSize: 15, fontWeight: 600 }}>
-                    {(record.submitter_name || toName(record.submitter))?.[0]?.toUpperCase()}
+                    {(record.submitter_name || toName(record.submitter) || record.submitter)?.[0]?.toUpperCase()}
                   </Avatar>
                   <div className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-blue-500 border-2 border-white flex items-center justify-center">
                     <CheckIcon className="w-2.5 h-2.5 text-white" />
                   </div>
                 </div>
                 <div className="text-[11px] font-medium text-slate-700 text-center leading-tight mt-1">
-                  {record.submitter_name || toName(record.submitter)}
+                  {record.submitter_name || toName(record.submitter) || record.submitter}
                 </div>
                 <div className="text-[10px] text-blue-500">{t('review.submitApplication')}</div>
               </div>
@@ -1211,9 +1211,9 @@ const ReviewDetailDrawer: React.FC<{
                   <td className="px-3 py-2.5 border border-slate-200">
                     <div className="flex items-center gap-2">
                       <Avatar size={22} style={{ background: '#7c3aed', fontSize: 10, fontWeight: 600 }}>
-                        {(record.submitter_name || toName(record.submitter))?.[0]?.toUpperCase()}
+                        {(record.submitter_name || toName(record.submitter) || record.submitter)?.[0]?.toUpperCase()}
                       </Avatar>
-                      <span className="text-xs text-slate-700">{record.submitter_name || toName(record.submitter)}</span>
+                      <span className="text-xs text-slate-700">{record.submitter_name || toName(record.submitter) || record.submitter}</span>
                     </div>
                   </td>
                   <td className="px-3 py-2.5 border border-slate-200 text-xs text-blue-500">{t('review.submitApplication')}</td>
@@ -1481,15 +1481,8 @@ const ReviewListPage: React.FC = () => {
     {
       title: t('review.col.applicant'), dataIndex: 'submitter_name', width: 90,
       render: (v: string, r) => {
-        const display = v || toName(r.submitter) || '—'
-        return (
-          <div className="flex items-center gap-1.5">
-            <Avatar size={20} style={{ background: '#7c3aed', fontSize: 10, fontWeight: 600 }}>
-              {display[0]?.toUpperCase()}
-            </Avatar>
-            <span className="text-sm text-slate-600">{display}</span>
-          </div>
-        )
+        const display = v || toName(r.submitter) || r.submitter || '—'
+        return <span className="text-sm text-slate-700 font-medium">{display}</span>
       },
     },
     {
@@ -1500,34 +1493,25 @@ const ReviewListPage: React.FC = () => {
       },
     },
     {
-      title: t('review.col.approver'), key: 'nodes', width: 160,
+      title: t('review.col.approver'), key: 'nodes', width: 220,
       render: (_: unknown, r) => {
         const nodes = [...(r.approval_nodes ?? [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
         if (nodes.length === 0) return <span className="text-slate-300 text-xs">—</span>
-        // status: 0=待審 1=通過 2=拒絕 3=退回
-        const dotStyle: Record<number, { bg: string; title: string }> = {
-          0: { bg: '#94a3b8', title: t('review.actionPending') },
-          1: { bg: '#16a34a', title: t('review.nodeApproved') },
-          2: { bg: '#dc2626', title: t('review.nodeRejected') },
-          3: { bg: '#d97706', title: t('review.nodeReturned') },
-        }
+        const statusColor: Record<number, string> = { 0: '#94a3b8', 1: '#16a34a', 2: '#dc2626', 3: '#d97706' }
         return (
-          <div className="flex items-center gap-1 flex-wrap">
+          <div className="flex items-center gap-1.5 flex-wrap">
             {nodes.map((n, i) => {
-              const cfg = dotStyle[n.status] ?? dotStyle[0]
+              const name = toName(n.approver_work_no || n.approver) || n.approver
+              const color = statusColor[n.status] ?? '#94a3b8'
               return (
                 <React.Fragment key={n.node_id}>
-                  <Tooltip title={`${n.approver}（${nodeStatusLabel(n.status)}）`}>
-                    <div
-                      className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-bold cursor-default flex-shrink-0"
-                      style={{ background: cfg.bg, outline: n.status === 0 ? '2px solid #cbd5e1' : 'none', outlineOffset: 1 }}
-                    >
-                      {n.approver?.[0]}
-                    </div>
+                  <Tooltip title={`${name}（${nodeStatusLabel(n.status)}）`}>
+                    <span className="inline-flex items-center gap-1 text-xs cursor-default">
+                      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }} />
+                      <span style={{ color }} className="font-medium">{name}</span>
+                    </span>
                   </Tooltip>
-                  {i < nodes.length - 1 && (
-                    <div className="w-3 h-px bg-slate-200 flex-shrink-0" />
-                  )}
+                  {i < nodes.length - 1 && <span className="text-slate-300 text-[10px]">→</span>}
                 </React.Fragment>
               )
             })}

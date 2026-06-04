@@ -205,7 +205,7 @@ const ProjectDetailPage: React.FC = () => {
   const [searchResults,     setSearchResults]     = useState<UserProfile[]>([])
   const [searchLoading,     setSearchLoading]     = useState(false)
   const [isCompletionSubmit, setIsCompletionSubmit] = useState(false)  // distinguish completion from other reviews
-  const [defaultReviewerWnos, setDefaultReviewerWnos] = useState<Set<string>>(new Set()) // 默认主管，不可删除
+  const [defaultReviewerWnos, setDefaultReviewerWnos] = useState<Set<string>>(new Set()) // 默认主管，至少保留一个
 
   // ── 執行階段草稿任務審核 ────────────────────────────────────────────────────
   const [selectedDraftFuncIds,    setSelectedDraftFuncIds]    = useState<string[]>([])
@@ -849,7 +849,8 @@ const ProjectDetailPage: React.FC = () => {
       }
       if (reviewers.length > 0) {
         setSubmitReviewers(reviewers)
-        setDefaultReviewerWnos(new Set(reviewers.map((u) => u.work_no)))
+        // 只有主管是不可全删的默认审核人，产品PM可以删除
+        setDefaultReviewerWnos(new Set(supList.map((u) => u.work_no)))
       }
     } catch { /* ignore */ }
     finally { setSupervisorsLoading(false) }

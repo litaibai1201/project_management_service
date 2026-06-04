@@ -34,8 +34,8 @@ class RequirementController:
 
     # ── 列表 ────────────────────────────────────────────────────────────────────
 
-    def list_all(self, payload: dict):
-        """全局需求列表（分页）"""
+    def list_all(self, payload: dict, work_no: str = ""):
+        """全局需求列表（分页）— 普通用户只看自己参与的专案需求，主管看组内所有"""
         keyword  = payload.get("keyword", "")
         status   = payload.get("status")
         priority = payload.get("priority")
@@ -43,6 +43,48 @@ class RequirementController:
         size     = int(payload.get("size", 20))
 
         q = db.session.query(RequirementModel).filter(RequirementModel.req_status != 9)
+
+        # 权限过滤：只显示用户有权查看的专案的需求
+        if work_no:
+            from controllers.user_controller import UserController
+            from dbs.mysql_db.model_tables import HierarchyModel, FunctionDataModel
+            user_ctrl = UserController()
+            is_supervisor = db.session.query(HierarchyModel).filter_by(
+                supervisor_work_no=work_no
+            ).first() is not None
+
+            if is_supervisor:
+                # 主管：自己参与的 + 组内成员参与的专案需求
+                subordinates = user_ctrl.get_subordinates(work_no, all_levels=True)
+                all_wnos = [work_no] + [s["work_no"] for s in subordinates]
+            else:
+                all_wnos = [work_no]
+
+            # 查找这些用户参与的专案ID（作为PM或任务负责人）
+            pm_proj_ids = set(
+                p.id for p in db.session.query(ProjectDataModel.id).filter(
+                    db.or_(
+                        db.func.lower(ProjectDataModel.project_pm).in_([w.lower() for w in all_wnos]),
+                        db.func.lower(ProjectDataModel.product_pm).in_([w.lower() for w in all_wnos]),
+                    ),
+                    ProjectDataModel.project_status != 9,
+                ).all()
+            )
+            # 也包含作为任务负责人的专案
+            func_conds = [FunctionDataModel.responsible.like(f'%"{wn}"%') for wn in all_wnos]
+            func_proj_ids = set(
+                f.project_id for f in db.session.query(FunctionDataModel.project_id).filter(
+                    FunctionDataModel.status == 1,
+                    db.or_(*func_conds) if func_conds else db.false(),
+                ).distinct().all()
+            ) if func_conds else set()
+
+            allowed_proj_ids = pm_proj_ids | func_proj_ids
+            if allowed_proj_ids:
+                q = q.filter(RequirementModel.project_id.in_(allowed_proj_ids))
+            else:
+                q = q.filter(db.false())  # 无权查看任何需求
+
         if keyword:
             q = q.filter(RequirementModel.req_nm.like(f"%{keyword}%"))
         if status is not None:
@@ -66,14 +108,14 @@ class RequirementController:
         name_map = {}
         if creator_nos:
             users = db.session.query(UserProfileModel).filter(
-                UserProfileModel.work_no.in_(creator_nos)
+                db.func.lower(UserProfileModel.work_no).in_([w.lower() for w in creator_nos])
             ).all()
-            name_map = {u.work_no: u.name for u in users}
+            name_map = {u.work_no.lower(): u.name for u in users}
 
         data = []
         for r in items:
             d = r.to_dict()
-            d["creator_nm"] = name_map.get(r.creator, r.creator or "")
+            d["creator_nm"] = name_map.get((r.creator or "").lower(), r.creator or "")
             d["project_nm"] = proj_map.get(r.project_id, "")
             data.append(d)
 
@@ -93,14 +135,14 @@ class RequirementController:
         name_map = {}
         if creator_nos:
             users = db.session.query(UserProfileModel).filter(
-                UserProfileModel.work_no.in_(creator_nos)
+                db.func.lower(UserProfileModel.work_no).in_([w.lower() for w in creator_nos])
             ).all()
-            name_map = {u.work_no: u.name for u in users}
+            name_map = {u.work_no.lower(): u.name for u in users}
 
         result = []
         for r in reqs:
             d = r.to_dict()
-            d["creator_nm"] = name_map.get(r.creator, r.creator or "")
+            d["creator_nm"] = name_map.get((r.creator or "").lower(), r.creator or "")
             result.append(d)
         return result
 
@@ -110,7 +152,7 @@ class RequirementController:
         r = db.session.query(RequirementModel).filter_by(id=req_id).first()
         if not r or r.req_status == 9:
             raise ResourceNotFoundException(resource_type="需求")
-        u = db.session.query(UserProfileModel).filter_by(work_no=r.creator).first()
+        u = db.session.query(UserProfileModel).filter(db.func.lower(UserProfileModel.work_no) == (r.creator or "").lower()).first()
         d = r.to_dict()
         d["creator_nm"] = u.name if u else (r.creator or "")
         return d
@@ -159,7 +201,7 @@ class RequirementController:
         notif_targets = [w for w in resp if w != creator]
         if notif_targets:
             from controllers.notification_controller import push_notification
-            creator_user = db.session.query(UserProfileModel).filter_by(work_no=creator).first()
+            creator_user = db.session.query(UserProfileModel).filter(db.func.lower(UserProfileModel.work_no) == (creator or "").lower()).first()
             creator_nm = creator_user.name if creator_user else creator
             push_notification(
                 notif_targets,
@@ -241,14 +283,14 @@ class RequirementController:
         # 批量查询审核人与提交人姓名
         all_wks = list({operator} | set(reviewer))
         wk_user_map = {
-            u.work_no: u
+            u.work_no.lower(): u
             for u in db.session.query(UserProfileModel).filter(
-                UserProfileModel.work_no.in_(all_wks)
+                db.func.lower(UserProfileModel.work_no).in_([w.lower() for w in all_wks])
             ).all()
         }
         nodes = []
         for i, wk in enumerate(reviewer):
-            u = wk_user_map.get(wk)
+            u = wk_user_map.get(wk.lower())
             nodes.append({
                 "node_id": f"{CommonTools.get_now().replace(' ', '')}_{i}",
                 "order": i + 1,
@@ -260,7 +302,7 @@ class RequirementController:
                 "comment": None,
             })
 
-        submitter_profile = wk_user_map.get(operator)
+        submitter_profile = wk_user_map.get(operator.lower())
         submitter_name = submitter_profile.name if submitter_profile else operator
 
         apply = ReviewApplyModel(
@@ -319,14 +361,14 @@ class RequirementController:
 
         reviewer = [(w or "").strip().lower() for w in reviewer if w]
         reviewer_user_map = {
-            u.work_no: u
+            u.work_no.lower(): u
             for u in db.session.query(UserProfileModel).filter(
-                UserProfileModel.work_no.in_(reviewer)
+                db.func.lower(UserProfileModel.work_no).in_([w.lower() for w in reviewer])
             ).all()
         } if reviewer else {}
         nodes = []
         for i, wk in enumerate(reviewer):
-            u = reviewer_user_map.get(wk)
+            u = reviewer_user_map.get(wk.lower())
             nodes.append({
                 "node_id": f"{CommonTools.get_now().replace(' ', '')}_{i}",
                 "order": i + 1,
@@ -338,7 +380,7 @@ class RequirementController:
                 "comment": None,
             })
 
-        submitter_profile = db.session.query(UserProfileModel).filter_by(work_no=operator).first()
+        submitter_profile = db.session.query(UserProfileModel).filter(db.func.lower(UserProfileModel.work_no) == (operator or "").lower()).first()
         submitter_name = submitter_profile.name if submitter_profile else operator
         desc = "、".join(r.req_nm for r in reqs)
 
@@ -397,14 +439,14 @@ class RequirementController:
 
         all_wks = list({operator} | set(reviewer))
         wk_user_map = {
-            u.work_no: u
+            u.work_no.lower(): u
             for u in db.session.query(UserProfileModel).filter(
-                UserProfileModel.work_no.in_(all_wks)
+                db.func.lower(UserProfileModel.work_no).in_([w.lower() for w in all_wks])
             ).all()
         }
         nodes = []
         for i, wk in enumerate(reviewer):
-            u = wk_user_map.get(wk)
+            u = wk_user_map.get(wk.lower())
             nodes.append({
                 "node_id": f"{CommonTools.get_now().replace(' ', '')}_{i}",
                 "order": i + 1,
@@ -416,7 +458,7 @@ class RequirementController:
                 "comment": None,
             })
 
-        submitter_profile = wk_user_map.get(operator)
+        submitter_profile = wk_user_map.get(operator.lower())
         submitter_name = submitter_profile.name if submitter_profile else operator
 
         apply = ReviewApplyModel(

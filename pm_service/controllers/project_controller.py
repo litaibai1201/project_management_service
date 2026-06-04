@@ -361,21 +361,22 @@ class ProjectController:
         }
         apply_type, apply_type_code = type_map.get(status, ("状态变更", "other"))
 
-        # 批量查询提交人与审核人姓名
+        # 批量查询提交人与审核人姓名（大小写不敏感）
         all_wks = list({submitter} | set(reviewer))
+        all_wks_lower = [w.lower() for w in all_wks]
         wk_user_map = {
-            u.work_no: u
+            u.work_no.lower(): u
             for u in db.session.query(UserProfileModel).filter(
-                UserProfileModel.work_no.in_(all_wks)
+                db.func.lower(UserProfileModel.work_no).in_(all_wks_lower)
             ).all()
         }
-        submitter_profile = wk_user_map.get(submitter)
+        submitter_profile = wk_user_map.get(submitter.lower())
         submitter_name = submitter_profile.name if submitter_profile else submitter
 
         # 构建初始审批节点（按传入顺序排列）
         nodes = []
         for i, reviewer_wk in enumerate(reviewer):
-            u = wk_user_map.get(reviewer_wk)
+            u = wk_user_map.get(reviewer_wk.lower())
             nodes.append({
                 "node_id": f"{CommonTools.get_now().replace(' ', '')}_{i}",
                 "order": i + 1,
@@ -501,16 +502,16 @@ class ProjectController:
         func_map = {f.id: f.function_nm for f in funcs}
         # Build user name map（批量一次查询）
         submitters = list({r.submitter for r in records if r.submitter})
-        user_map = {wn: wn for wn in submitters}
+        user_map = {wn.lower(): wn for wn in submitters}
         if submitters:
             for u in db.session.query(UserProfileModel).filter(
-                UserProfileModel.work_no.in_(submitters)
+                db.func.lower(UserProfileModel.work_no).in_([w.lower() for w in submitters])
             ).all():
-                user_map[u.work_no] = u.name
+                user_map[u.work_no.lower()] = u.name
         def _enrich(r):
             d = r.to_dict()
             d["operator"] = d["submitter"]
-            d["operator_name"] = user_map.get(d["submitter"], d["submitter"])
+            d["operator_name"] = user_map.get((d["submitter"] or "").lower(), d["submitter"])
             d["function_nm"] = func_map.get(r.function_id, "")
             d["action"] = f"更新進度至 {d['progress']}%"
             return d
@@ -643,10 +644,12 @@ class ProjectController:
             s = db.session.query(SystemModel).filter_by(id=r.system_id).first()
             system_nm = s.sys_nm if s else None
         result = r.to_dict(project_nm=project_nm, function_nm=function_nm, duty_nm=duty_nm, system_nm=system_nm)
-        # 补充提交人姓名（老记录 submitter_name 为空时从用户表查询）
-        if not result.get("submitter_name"):
-            u = db.session.query(UserProfileModel).filter_by(work_no=r.submitter).first()
-            result["submitter_name"] = u.name if u else r.submitter
+        # 补充提交人姓名（始终从用户表查询最新姓名，避免存的是工号）
+        u = db.session.query(UserProfileModel).filter(
+            db.func.lower(UserProfileModel.work_no) == (r.submitter or "").lower()
+        ).first()
+        if u:
+            result["submitter_name"] = u.name
         # 老记录没有 approval_nodes 时，从 reviewer 列表构造基础节点
         if not result.get("approval_nodes"):
             reviewers = result.get("reviewer") or []
@@ -656,15 +659,15 @@ class ProjectController:
                     reviewers = _json.loads(reviewers)
                 except Exception:
                     reviewers = [reviewers]
-            legacy_user_map = {
-                u.work_no: u
+            legacy_user_map = {}
+            if reviewers:
                 for u in db.session.query(UserProfileModel).filter(
-                    UserProfileModel.work_no.in_(reviewers)
-                ).all()
-            } if reviewers else {}
+                    db.func.lower(UserProfileModel.work_no).in_([w.lower() for w in reviewers])
+                ).all():
+                    legacy_user_map[u.work_no.lower()] = u
             nodes = []
             for i, wk in enumerate(reviewers):
-                u = legacy_user_map.get(wk)
+                u = legacy_user_map.get(wk.lower())
                 nodes.append({
                     "node_id": f"legacy_{i}",
                     "order": i + 1,
@@ -676,6 +679,22 @@ class ProjectController:
                     "comment": None,
                 })
             result["approval_nodes"] = nodes
+        # 补充审批节点中的姓名（approver 可能是工号）
+        if result.get("approval_nodes"):
+            node_wnos = [n.get("approver_work_no") or n.get("approver", "") for n in result["approval_nodes"]]
+            node_wnos_lower = [w.lower() for w in node_wnos if w]
+            if node_wnos_lower:
+                node_user_map = {
+                    u.work_no.lower(): u.name
+                    for u in db.session.query(UserProfileModel).filter(
+                        db.func.lower(UserProfileModel.work_no).in_(node_wnos_lower)
+                    ).all()
+                }
+                for n in result["approval_nodes"]:
+                    wn = (n.get("approver_work_no") or n.get("approver", "")).lower()
+                    if wn in node_user_map:
+                        n["approver"] = node_user_map[wn]
+
         # 标记当前查看者是否「轮到审核」
         # 规则：（1）明确列在节点中且是当前待审节点；
         #       （2）主管查看专案完结申请时，若申请仍待审（apply_status=1），主管也可审批
@@ -901,7 +920,10 @@ class ProjectController:
                 None,
             )
             if next_node:
-                submitter_display = r.submitter_name or r.submitter or ""
+                _sub_u = db.session.query(UserProfileModel).filter(
+                    db.func.lower(UserProfileModel.work_no) == (r.submitter or "").lower()
+                ).first()
+                submitter_display = (_sub_u.name if _sub_u else None) or r.submitter_name or r.submitter or ""
                 push_notification(
                     [next_node["approver_work_no"]],
                     title="您有新的審核申請待處理",
@@ -1564,10 +1586,10 @@ class ProjectController:
 
         users = (
             db.session.query(UserProfileModel.work_no, UserProfileModel.name)
-            .filter(UserProfileModel.work_no.in_(list(all_work_nos)))
+            .filter(db.func.lower(UserProfileModel.work_no).in_([w.lower() for w in all_work_nos]))
             .all()
         ) if all_work_nos else []
-        name_map: dict = {u.work_no: u.name for u in users}
+        name_map: dict = {u.work_no.lower(): u.name for u in users}
 
         # ── 查询每个 function 的最新进度记录 ─────────────────────────────
         func_ids = [f.id for f in funcs_all]
@@ -1667,7 +1689,7 @@ class ProjectController:
                     records = prog_map.get(f.id, [])
                     latest = records[0] if records else None
                     resp = json.loads(f.responsible) if f.responsible else []
-                    assignee_names = [name_map.get(w, w) for w in resp]
+                    assignee_names = [name_map.get(w.lower(), w) for w in resp]
 
                     end_str = f.latest_expected_end_date or f.expected_end_date or ""  # 延期後用新日期
                     original_end_str = f.expected_end_date or ""
@@ -1690,7 +1712,7 @@ class ProjectController:
 
                     history = []
                     for pr in records[:10]:  # 最近10条
-                        submitter_name = name_map.get(pr.submitter, pr.submitter)
+                        submitter_name = name_map.get((pr.submitter or "").lower(), pr.submitter)
                         raw_files = []
                         if pr.files_json:
                             try:
@@ -1751,8 +1773,8 @@ class ProjectController:
                     "tasks":    tasks,
                 })
 
-            pm_name = name_map.get(p.project_pm, p.project_pm)
-            product_pm_name = name_map.get(p.product_pm, p.product_pm) if p.product_pm else ""
+            pm_name = name_map.get((p.project_pm or "").lower(), p.project_pm)
+            product_pm_name = name_map.get((p.product_pm or "").lower(), p.product_pm) if p.product_pm else ""
             result.append({
                 "id":           p.id,
                 "name":         p.project_nm,
@@ -1973,9 +1995,9 @@ class ProjectController:
         name_map: dict = {}
         if all_work_nos:
             profiles = db.session.query(UserProfileModel.work_no, UserProfileModel.name).filter(
-                UserProfileModel.work_no.in_(all_work_nos)
+                db.func.lower(UserProfileModel.work_no).in_([w.lower() for w in all_work_nos])
             ).all()
-            name_map = {p.work_no: p.name for p in profiles}
+            name_map = {p.work_no.lower(): p.name for p in profiles}
 
         result = []
         for wn, st in stats_map.items():
@@ -1985,7 +2007,7 @@ class ProjectController:
             overdue_total = st["overdue_incomplete"] + st["overdue_complete"]
             result.append({
                 "work_no":           wn,
-                "name":              name_map.get(wn, wn),
+                "name":              name_map.get(wn.lower(), wn),
                 "total":             total,
                 "pending":           pending,
                 "not_started":       st["not_started"],

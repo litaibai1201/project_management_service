@@ -704,7 +704,7 @@ const DutyListPage: React.FC = () => {
       <Tabs activeKey={activeTab} onChange={(k) => setActiveTab(k as 'project' | 'system' | 'duty')} items={[
         {
           key: 'project',
-          label: `${t('duty.systemTask')} (${myFuncTotal})`,
+          label: `${t('duty.projectTask')} (${myFuncTotal})`,
           children: (
             <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: 0 } }}>
               <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-slate-100">

@@ -35,15 +35,15 @@ class SystemController:
         name_map: dict[str, str] = {}
         if all_nos:
             users = db.session.query(UserProfileModel.work_no, UserProfileModel.name).filter(
-                UserProfileModel.work_no.in_(all_nos)
+                db.func.lower(UserProfileModel.work_no).in_([w.lower() for w in all_nos])
             ).all()
-            name_map = {u.work_no: u.name for u in users}
+            name_map = {u.work_no.lower(): u.name for u in users}
 
         data = []
         for item in items:
             d = item.to_dict()
             d["maintainer_names"] = [
-                {"work_no": wn, "name": name_map.get(wn, wn)}
+                {"work_no": wn, "name": name_map.get(wn.lower(), wn)}
                 for wn in d["maintainers"]
             ]
             data.append(d)
@@ -59,11 +59,11 @@ class SystemController:
         name_map: dict[str, str] = {}
         if d["maintainers"]:
             users = db.session.query(UserProfileModel.work_no, UserProfileModel.name).filter(
-                UserProfileModel.work_no.in_(d["maintainers"])
+                db.func.lower(UserProfileModel.work_no).in_([w.lower() for w in d["maintainers"]])
             ).all()
-            name_map = {u.work_no: u.name for u in users}
+            name_map = {u.work_no.lower(): u.name for u in users}
         d["maintainer_names"] = [
-            {"work_no": wn, "name": name_map.get(wn, wn)}
+            {"work_no": wn, "name": name_map.get(wn.lower(), wn)}
             for wn in d["maintainers"]
         ]
         return d

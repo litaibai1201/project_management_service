@@ -40,9 +40,9 @@ class StandaloneReqController:
         name_map = {}
         if work_nos:
             users = db.session.query(UserProfileModel.work_no, UserProfileModel.name).filter(
-                UserProfileModel.work_no.in_(work_nos)
+                db.func.lower(UserProfileModel.work_no).in_([w.lower() for w in work_nos])
             ).all()
-            name_map = {u.work_no: u.name for u in users}
+            name_map = {u.work_no.lower(): u.name for u in users}
 
         sys_ids = {r.system_id for r in items if r.system_id}
         sys_map = {}
@@ -55,8 +55,8 @@ class StandaloneReqController:
         data = []
         for r in items:
             d = r.to_dict()
-            d["creator_nm"]  = name_map.get(r.creator, r.creator or "")
-            d["reviewer_nm"] = name_map.get(r.reviewer, r.reviewer or "") if r.reviewer else ""
+            d["creator_nm"]  = name_map.get((r.creator or "").lower(), r.creator or "")
+            d["reviewer_nm"] = name_map.get((r.reviewer or "").lower(), r.reviewer or "") if r.reviewer else ""
             d["system_nm"]   = sys_map.get(r.system_id, "")
             data.append(d)
 
@@ -90,7 +90,7 @@ class StandaloneReqController:
             from controllers.notification_controller import push_notification
             sys_obj = db.session.query(SystemModel).filter_by(id=r.system_id).first() if r.system_id else None
             sys_nm = sys_obj.sys_nm if sys_obj else ""
-            creator_u = db.session.query(UserProfileModel).filter_by(work_no=creator).first()
+            creator_u = db.session.query(UserProfileModel).filter(db.func.lower(UserProfileModel.work_no) == (creator or "").lower()).first()
             creator_nm = creator_u.name if creator_u else creator
             push_notification(
                 notif_targets,
@@ -152,7 +152,7 @@ class StandaloneReqController:
                 from controllers.notification_controller import push_notification
                 sys_obj = db.session.query(SystemModel).filter_by(id=r.system_id).first() if r.system_id else None
                 sys_nm = sys_obj.sys_nm if sys_obj else ""
-                operator_u = db.session.query(UserProfileModel).filter_by(work_no=work_no).first()
+                operator_u = db.session.query(UserProfileModel).filter(db.func.lower(UserProfileModel.work_no) == (work_no or "").lower()).first()
                 operator_nm = operator_u.name if operator_u else work_no
                 status_label = "進行中" if new_status == 2 else "已完結"
                 push_notification(
@@ -181,7 +181,7 @@ class StandaloneReqController:
         """構建審批節點列表"""
         nodes = []
         for i, wk in enumerate(reviewer):
-            u = user_map.get(wk)
+            u = user_map.get(wk.lower())
             nodes.append({
                 "node_id": f"{CommonTools.get_now().replace(' ', '')}_{i}",
                 "order": i + 1,
@@ -209,13 +209,13 @@ class StandaloneReqController:
 
         all_wks = list({work_no} | set(reviewer))
         user_map = {
-            u.work_no: u
+            u.work_no.lower(): u
             for u in db.session.query(UserProfileModel).filter(
-                UserProfileModel.work_no.in_(all_wks)
+                db.func.lower(UserProfileModel.work_no).in_([w.lower() for w in all_wks])
             ).all()
         }
         nodes = self._build_approval_nodes(reviewer, user_map)
-        submitter_profile = user_map.get(work_no)
+        submitter_profile = user_map.get(work_no.lower())
         submitter_name = submitter_profile.name if submitter_profile else work_no
 
         # 取得系統名稱作為申請描述
@@ -275,13 +275,13 @@ class StandaloneReqController:
 
         all_wks = list({work_no} | set(reviewer))
         user_map = {
-            u.work_no: u
+            u.work_no.lower(): u
             for u in db.session.query(UserProfileModel).filter(
-                UserProfileModel.work_no.in_(all_wks)
+                db.func.lower(UserProfileModel.work_no).in_([w.lower() for w in all_wks])
             ).all()
         }
         nodes = self._build_approval_nodes(reviewer, user_map)
-        submitter_profile = user_map.get(work_no)
+        submitter_profile = user_map.get(work_no.lower())
         submitter_name = submitter_profile.name if submitter_profile else work_no
         desc = "、".join(r.req_nm for r in reqs)
         reviewer_chain_json = json.dumps(reviewer, ensure_ascii=False)

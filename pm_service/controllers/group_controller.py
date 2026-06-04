@@ -114,7 +114,7 @@ class GroupController:
 
         # ── 工时（MongoDB）— 排除休假 ────────────────────────────────
         col = mongo_client.db["daily_logs"]
-        log_query: dict = {"work_no": work_no}
+        log_query: dict = {"work_no": work_no.lower()}
         if start_date or end_date:
             log_query["log_date"] = {}
             if start_date:

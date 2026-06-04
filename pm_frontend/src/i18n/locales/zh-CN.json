@@ -497,7 +497,8 @@
       "completionWaitingReview": "已提交完结审核，等待需求责任人审核",
       "reviewSubmitted": "已提交审核",
       "progressUpdated": "进度更新成功"
-    }
+    },
+    "projectTask": "专案任务"
   },
   "requirement": {
     "title": "需求列表",
@@ -715,7 +716,8 @@
     "personsCountSaveHint": "（共 {{count}} 人，储存后生效）",
     "noPersonYet": "尚未加入任何人员",
     "relatedReqRequired": "请选择关联需求",
-    "selectRelatedReq": "选择关联的需求"
+    "selectRelatedReq": "选择关联的需求",
+    "defaultReviewer": "默认主管审核人，不可移除"
   },
   "dailyLog": {
     "title": "工作日志",
@@ -1774,7 +1776,8 @@
     "urgentItem": "临期 {{count}}",
     "normalStatus": "正常",
     "approvalTag": "审批",
-    "applicationLabel": "申请"
+    "applicationLabel": "申请",
+    "draftLabel": "草稿"
   },
   "search": {
     "placeholder": "搜索专案、任务...",

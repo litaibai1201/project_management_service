@@ -574,9 +574,10 @@ class GlobalRequirementListApi(MethodView):
     @jwt_required()
     @blp.response(200, RspMsgDictSchema)
     def post(self):
-        """全局专案需求列表（分页）"""
+        """全局专案需求列表（分页）— 按权限过滤"""
+        work_no = get_identity()
         payload = request.get_json() or {}
-        return response_result(content=req_ctrl.list_all(payload))
+        return response_result(content=req_ctrl.list_all(payload, work_no=work_no))
 
 
 @blp.route("/<string:project_id>/requirements")

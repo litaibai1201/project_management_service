@@ -30,7 +30,7 @@ class StatisticsController:
         if sub_work_nos:
             users = (
                 db.session.query(UserProfileModel)
-                .filter(UserProfileModel.work_no.in_(sub_work_nos), UserProfileModel.status == 1)
+                .filter(db.func.lower(UserProfileModel.work_no).in_([w.lower() for w in sub_work_nos]), UserProfileModel.status == 1)
                 .all()
             )
         else:
@@ -82,14 +82,15 @@ class StatisticsController:
         col = mongo_client.db["daily_logs"]
         today_str = datetime.today().strftime("%Y-%m-%d")
 
+        all_wns_lower = [w.lower() for w in all_wns]
         today_logs_by_user: dict = {}
         for lg in col.find(
-            {"work_no": {"$in": all_wns}, "log_date": today_str},
+            {"work_no": {"$in": all_wns_lower}, "log_date": today_str},
             {"work_no": 1, "log_date": 1, "log_status": 1, "_id": 0},
         ):
-            today_logs_by_user[lg["work_no"]] = lg
+            today_logs_by_user[lg["work_no"].lower()] = lg
 
-        log_q: dict = {"work_no": {"$in": all_wns}}
+        log_q: dict = {"work_no": {"$in": all_wns_lower}}
         if start_date or end_date:
             log_q["log_date"] = {}
             if start_date:
@@ -98,16 +99,17 @@ class StatisticsController:
                 log_q["log_date"]["$lte"] = end_date
         logs_by_user: dict = defaultdict(list)
         for lg in col.find(log_q, {"work_no": 1, "log_date": 1, "total_hours": 1, "task_items": 1, "free_items": 1, "_id": 0}):
-            logs_by_user[lg["work_no"]].append(lg)
+            logs_by_user[lg["work_no"].lower()].append(lg)
 
         members = []
         for user in users:
+            wn_lower = user.work_no.lower()
             stat = self._build_member_stat(
                 user, start_date, end_date,
                 funcs=funcs_by_user[user.work_no],
                 duties=duties_by_user[user.work_no],
-                today_log=today_logs_by_user.get(user.work_no),
-                logs=logs_by_user[user.work_no],
+                today_log=today_logs_by_user.get(wn_lower),
+                logs=logs_by_user[wn_lower],
             )
             members.append(stat)
 
@@ -171,7 +173,7 @@ class StatisticsController:
         total_hours = 0.0
         leave_hours = 0.0
         for lg in col.find(
-            {"work_no": {"$in": list(member_work_nos)}},
+            {"work_no": {"$in": [w.lower() for w in member_work_nos]}},
             {"task_items": 1, "free_items": 1, "_id": 0},
         ):
             for item in (lg.get("task_items") or []):
@@ -271,14 +273,14 @@ class StatisticsController:
             from dbs.mongo_db.client import mongo_client
             col = mongo_client.db["daily_logs"]
             today_str = today.strftime("%Y-%m-%d")
-            today_log = col.find_one({"work_no": work_no, "log_date": today_str})
+            today_log = col.find_one({"work_no": work_no.lower(), "log_date": today_str})
         log_submitted = today_log is not None and int(today_log.get("log_status") or 0) >= 2
 
         # ── 工时统计（MongoDB） ────────────────────────────────────────
         if logs is None:
             from dbs.mongo_db.client import mongo_client
             col = mongo_client.db["daily_logs"]
-            log_query: dict = {"work_no": work_no}
+            log_query: dict = {"work_no": work_no.lower()}
             if start_date or end_date:
                 log_query["log_date"] = {}
                 if start_date:
@@ -352,7 +354,7 @@ class StatisticsController:
         """
         from dbs.mongo_db.client import mongo_client
         col = mongo_client.db["daily_logs"]
-        log_query: dict = {"work_no": work_no}
+        log_query: dict = {"work_no": work_no.lower()}
         if start_date or end_date:
             log_query["log_date"] = {}
             if start_date:
@@ -459,7 +461,7 @@ class StatisticsController:
 
         if sub_work_nos:
             users = db.session.query(UserProfileModel.work_no, UserProfileModel.name).filter(
-                UserProfileModel.work_no.in_(sub_work_nos), UserProfileModel.status == 1
+                db.func.lower(UserProfileModel.work_no).in_([w.lower() for w in sub_work_nos]), UserProfileModel.status == 1
             ).all()
         else:
             users = db.session.query(UserProfileModel.work_no, UserProfileModel.name).filter(
@@ -516,7 +518,8 @@ class StatisticsController:
                 pass
 
         # ── 批量预加载：日报（MongoDB）────────────────────────────
-        log_q: dict = {"work_no": {"$in": all_wns}, "status": 1}
+        all_wns_lower = [w.lower() for w in all_wns]
+        log_q: dict = {"work_no": {"$in": all_wns_lower}, "status": 1}
         if start_date or end_date:
             log_q["log_date"] = {}
             if start_date:
@@ -529,7 +532,7 @@ class StatisticsController:
             "log_status": 1, "task_items": 1, "free_items": 1, "remark": 1, "_id": 0,
         }
         for lg in col.find(log_q, _prog_report_proj).sort("log_date", -1):
-            logs_by_user[lg["work_no"]].append(lg)
+            logs_by_user[lg["work_no"].lower()].append(lg)
 
         # ── 批量预加载：功能任务（MySQL）──────────────────────────
         func_conds = [FunctionDataModel.responsible.like(f'%"{wn}"%') for wn in all_wns]
@@ -586,7 +589,7 @@ class StatisticsController:
 
             prog_recs      = prog_by_user[wn]
             duty_prog_recs = duty_prog_by_user[wn]
-            logs           = logs_by_user[wn]
+            logs           = logs_by_user[wn.lower()]
 
             period_hours = round(sum(float(lg.get("total_hours") or 0) for lg in logs), 1)
 
@@ -806,7 +809,7 @@ class StatisticsController:
 
         if sub_work_nos:
             users = db.session.query(UserProfileModel.work_no, UserProfileModel.name).filter(
-                UserProfileModel.work_no.in_(sub_work_nos), UserProfileModel.status == 1
+                db.func.lower(UserProfileModel.work_no).in_([w.lower() for w in sub_work_nos]), UserProfileModel.status == 1
             ).all()
         else:
             users = db.session.query(UserProfileModel.work_no, UserProfileModel.name).filter(
@@ -863,25 +866,26 @@ class StatisticsController:
         col = mongo_client.db["daily_logs"]
 
         # 今日已提交日报的 work_no 集合（1 次查询）
+        user_work_nos_lower = [w.lower() for w in user_work_nos]
         submitted_today: set = set()
         if user_work_nos:
             for lg in col.find(
-                {"work_no": {"$in": user_work_nos}, "log_date": today_str, "status": 1},
+                {"work_no": {"$in": user_work_nos_lower}, "log_date": today_str, "status": 1},
                 {"work_no": 1},
             ):
-                submitted_today.add(lg["work_no"])
+                submitted_today.add(lg["work_no"].lower())
 
         # 本周工时（1 次查询，按 work_no 汇总）
         week_hours_by_user: dict = defaultdict(float)
         if today.weekday() >= 2 and user_work_nos:
             for lg in col.find(
                 {
-                    "work_no": {"$in": user_work_nos},
+                    "work_no": {"$in": user_work_nos_lower},
                     "log_date": {"$gte": week_start_str, "$lte": today_str},
                 },
                 {"work_no": 1, "total_hours": 1, "_id": 0},
             ):
-                week_hours_by_user[lg["work_no"]] += float(lg.get("total_hours") or 0)
+                week_hours_by_user[lg["work_no"].lower()] += float(lg.get("total_hours") or 0)
 
         anomalies = []
         idx = 0
@@ -948,7 +952,7 @@ class StatisticsController:
 
         # ── 2. 日报异常（今日未填，使用预加载集合）──────────────────────
         for wn in user_work_nos:
-            if wn not in submitted_today:
+            if wn.lower() not in submitted_today:
                 _add("no_daily_log", "info",
                      f"{name_map.get(wn, wn)} 今日尚未填寫日報",
                      f"截至目前未提交 {today_str} 的工作日誌",
@@ -958,7 +962,7 @@ class StatisticsController:
         if today.weekday() >= 2:
             standard_hours = (today.weekday() + 1) * 8
             for wn in user_work_nos:
-                week_hours = round(week_hours_by_user[wn], 1)
+                week_hours = round(week_hours_by_user[wn.lower()], 1)
                 if week_hours < standard_hours * 0.6:
                     _add("insufficient_hours", "warning",
                          f"{name_map.get(wn, wn)} 本週工時不足",

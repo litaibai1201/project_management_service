@@ -497,7 +497,8 @@
       "completionWaitingReview": "ส่งแล้ว รออนุมัติ",
       "reviewSubmitted": "ส่งตรวจสอบแล้ว",
       "progressUpdated": "อัปเดตความคืบหน้าสำเร็จ"
-    }
+    },
+    "projectTask": "งานโครงการ"
   },
   "requirement": {
     "title": "ข้อกำหนด",
@@ -715,7 +716,8 @@
     "personsCountSaveHint": "(เลือก {{count}} คน มีผลหลังบันทึก)",
     "noPersonYet": "ยังไม่ได้เพิ่มบุคคล",
     "relatedReqRequired": "กรุณาเลือกความต้องการ",
-    "selectRelatedReq": "เลือกความต้องการ"
+    "selectRelatedReq": "เลือกความต้องการ",
+    "defaultReviewer": "หัวหน้าเริ่มต้น ไม่สามารถลบได้"
   },
   "dailyLog": {
     "title": "บันทึกการทำงาน",
@@ -1750,7 +1752,8 @@
     "urgentItem": "เร่งด่วน: {{count}}",
     "normalStatus": "ปกติ",
     "approvalTag": "อนุมัติ",
-    "applicationLabel": "คำขอ"
+    "applicationLabel": "คำขอ",
+    "draftLabel": "ฉบับร่าง"
   },
   "search": {
     "placeholder": "ค้นหาโครงการ งาน...",

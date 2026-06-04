@@ -289,14 +289,15 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
   }
 
   const priorityColor = funcData ? ['', '#22c55e', '#f59e0b', '#ef4444', '#7c3aed'][funcData.priority] ?? '#94a3b8' : '#94a3b8'
+  const isDraft           = funcData?.status === 0
   const isCompleted       = funcData?.status === 4
   const isReviewing       = funcData?.status === 3
   const isResponsible     = (funcData?.responsible ?? []).map((r) => r.toLowerCase()).includes(workNo.toLowerCase())
   const isStageTask       = funcData?.group1 === '__stage__'
-  // 阶段任务在任何非完结阶段都可更新进度；普通任务仅执行中阶段
-  const canUpdateProgress = !isCompleted && !isReviewing && isResponsible && (isStageTask || projectStatus === 5)
-  // 阶段任务不允许编辑全部字段，仅允许设定预计完成时间
-  const canEdit           = isProjectPm && !isCompleted && !isStageTask
+  // 草稿任务不可更新进度；阶段任务在任何非完结阶段都可；普通任务仅执行中阶段
+  const canUpdateProgress = !isDraft && !isCompleted && !isReviewing && isResponsible && (isStageTask || projectStatus === 5)
+  // 草稿和阶段任务不允许编辑全部字段
+  const canEdit           = isProjectPm && !isDraft && !isCompleted && !isStageTask
   // 阶段任务：PM或负责人可以设定预计完成时间
   const canSetEndDate     = isStageTask && !isCompleted && (isProjectPm || isResponsible)
   const canHold           = !!projectPm && workNo.toLowerCase() === projectPm.toLowerCase() && projectStatus === 5
@@ -368,7 +369,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
             </Popover>
           )}
           {!canEdit && !canSetEndDate && !!projectPm && workNo.toLowerCase() === projectPm.toLowerCase() &&
-            funcData && funcData.status !== 4 && funcData.status !== 8 && funcData.status !== 9 &&
+            funcData && funcData.status !== 0 && funcData.status !== 4 && funcData.status !== 8 && funcData.status !== 9 &&
             funcData.expected_end_date && funcData.expected_end_date < new Date().toISOString().slice(0, 10) && (
             <RescheduleButton projectId={projectId} functionId={functionId}
               currentEnd={funcData.expected_end_date} onSuccess={loadData} />

@@ -37,7 +37,7 @@ class UserController:
 
     def get_user(self, work_no: str):
         work_no = (work_no or "").strip().lower()
-        user = db.session.query(UserProfileModel).filter_by(work_no=work_no, status=1).first()
+        user = db.session.query(UserProfileModel).filter(db.func.lower(UserProfileModel.work_no) == (work_no or "").lower(), UserProfileModel.status == 1).first()
         if not user:
             raise ResourceNotFoundException(resource_type="用户")
         return user.to_dict()
@@ -47,7 +47,7 @@ class UserController:
         work_no = (payload["work_no"] or "").strip().lower()
         if not work_no:
             raise ValidationException(msg="工号不能为空")
-        if db.session.query(UserProfileModel).filter_by(work_no=work_no).first():
+        if db.session.query(UserProfileModel).filter(db.func.lower(UserProfileModel.work_no) == (work_no or "").lower()).first():
             raise ResourceExistsException(resource_type="工号")
         user = UserProfileModel(
             work_no=work_no,
@@ -139,19 +139,19 @@ class UserController:
             work_nos.add(r.subordinate_work_no)
         if work_nos:
             users = db.session.query(UserProfileModel).filter(
-                UserProfileModel.work_no.in_(work_nos),
+                db.func.lower(UserProfileModel.work_no).in_([w.lower() for w in work_nos]),
                 UserProfileModel.status == 1,
             ).all()
-            name_map = {u.work_no: u.name for u in users}
+            name_map = {u.work_no.lower(): u.name for u in users}
         else:
             name_map = {}
         return [
             {
                 "id": r.id,
                 "supervisor_work_no": r.supervisor_work_no,
-                "supervisor_name": name_map.get(r.supervisor_work_no, r.supervisor_work_no),
+                "supervisor_name": name_map.get((r.supervisor_work_no or "").lower(), r.supervisor_work_no),
                 "subordinate_work_no": r.subordinate_work_no,
-                "subordinate_name": name_map.get(r.subordinate_work_no, r.subordinate_work_no),
+                "subordinate_name": name_map.get((r.subordinate_work_no or "").lower(), r.subordinate_work_no),
             }
             for r in rels
         ]
@@ -170,13 +170,19 @@ class UserController:
         visited = set()
         while queue:
             cur = queue.pop(0)
-            if cur in visited:
+            cur_lower = (cur or "").lower()
+            if cur_lower in visited:
                 continue
-            visited.add(cur)
-            rels = db.session.query(HierarchyModel).filter_by(supervisor_work_no=cur).all()
+            visited.add(cur_lower)
+            rels = db.session.query(HierarchyModel).filter(
+                db.func.lower(HierarchyModel.supervisor_work_no) == cur_lower
+            ).all()
             for r in rels:
                 sub_wn = r.subordinate_work_no
-                user = db.session.query(UserProfileModel).filter_by(work_no=sub_wn, status=1).first()
+                user = db.session.query(UserProfileModel).filter(
+                    db.func.lower(UserProfileModel.work_no) == (sub_wn or "").lower(),
+                    UserProfileModel.status == 1,
+                ).first()
                 info = user.to_dict() if user else {"work_no": sub_wn, "name": sub_wn}
                 result.append(info)
                 if all_levels:
@@ -184,10 +190,15 @@ class UserController:
         return result
 
     def get_supervisors(self, work_no: str):
-        rels = db.session.query(HierarchyModel).filter_by(subordinate_work_no=work_no).all()
+        rels = db.session.query(HierarchyModel).filter(
+            db.func.lower(HierarchyModel.subordinate_work_no) == (work_no or "").lower()
+        ).all()
         result = []
         for r in rels:
-            user = db.session.query(UserProfileModel).filter_by(work_no=r.supervisor_work_no, status=1).first()
+            user = db.session.query(UserProfileModel).filter(
+                db.func.lower(UserProfileModel.work_no) == (r.supervisor_work_no or "").lower(),
+                UserProfileModel.status == 1,
+            ).first()
             info = user.to_dict() if user else {"work_no": r.supervisor_work_no, "name": r.supervisor_work_no}
             result.append(info)
         return result
@@ -197,9 +208,9 @@ class UserController:
         def build_node(wn, depth=0):
             if depth > 5:
                 return None
-            user = db.session.query(UserProfileModel).filter_by(work_no=wn, status=1).first()
+            user = db.session.query(UserProfileModel).filter(db.func.lower(UserProfileModel.work_no) == (wn or "").lower(), UserProfileModel.status == 1).first()
             node = user.to_dict() if user else {"work_no": wn, "name": wn}
-            rels = db.session.query(HierarchyModel).filter_by(supervisor_work_no=wn).all()
+            rels = db.session.query(HierarchyModel).filter(db.func.lower(HierarchyModel.supervisor_work_no) == (wn or "").lower()).all()
             node["children"] = [
                 build_node(r.subordinate_work_no, depth + 1)
                 for r in rels
@@ -219,7 +230,7 @@ class UserController:
         db.session.commit()
 
     def remove_role(self, work_no: str):
-        db.session.query(UserRoleModel).filter_by(work_no=work_no).delete()
+        db.session.query(UserRoleModel).filter(db.func.lower(UserRoleModel.work_no) == (work_no or "").lower()).delete()
         db.session.commit()
 
     def get_user_role(self, work_no: str):
@@ -301,8 +312,8 @@ class UserController:
                 raise BusinessException(msg="密码错误", code="F20003")
 
         role_info = self.get_user_role(work_no) or {"role_code": None, "role_name": None}
-        is_supervisor = db.session.query(HierarchyModel).filter_by(
-            supervisor_work_no=work_no
+        is_supervisor = db.session.query(HierarchyModel).filter(
+            db.func.lower(HierarchyModel.supervisor_work_no) == (work_no or "").lower()
         ).first() is not None
 
         identity = {
@@ -543,35 +554,37 @@ class UserController:
 
         func_total       = f.filter(func_filter, FunctionDataModel.function_status.notin_([9])).count()
         duty_total       = d.filter(duty_filter, TemporaryDutyModel.duty_status.notin_([9])).count()
+        func_draft       = f.filter(func_filter, FunctionDataModel.function_status == 0).count()
         func_in_prog     = f.filter(func_filter, FunctionDataModel.function_status == 2).count()
         duty_in_prog     = d.filter(duty_filter, TemporaryDutyModel.duty_status   == 1).count()
         func_not_start   = f.filter(func_filter, FunctionDataModel.function_status == 1).count()
-        duty_not_start   = d.filter(duty_filter, TemporaryDutyModel.duty_status   == 0).count()
+        duty_not_start   = d.filter(duty_filter, TemporaryDutyModel.duty_status.in_([0, 6])).count()
         func_completed   = f.filter(func_filter, FunctionDataModel.function_status == 4).count()
         duty_completed   = d.filter(duty_filter, TemporaryDutyModel.duty_status   == 3).count()
 
+        # 超时/临期排除草稿（function_status=0）和已完结/删除
         func_overdue = f.filter(
-            func_filter, FunctionDataModel.function_status.notin_([4, 9]),
+            func_filter, FunctionDataModel.function_status.notin_([0, 4, 9]),
             FunctionDataModel.expected_end_date.isnot(None),
             FunctionDataModel.expected_end_date != '',
             FunctionDataModel.expected_end_date <  today,
         ).count()
         duty_overdue = d.filter(
-            duty_filter, TemporaryDutyModel.duty_status.notin_([3, 9]),
+            duty_filter, TemporaryDutyModel.duty_status.notin_([0, 3, 9]),
             TemporaryDutyModel.expected_end_date.isnot(None),
             TemporaryDutyModel.expected_end_date != '',
             TemporaryDutyModel.expected_end_date <  today,
         ).count()
 
         func_urgent = f.filter(
-            func_filter, FunctionDataModel.function_status.notin_([4, 9]),
+            func_filter, FunctionDataModel.function_status.notin_([0, 4, 9]),
             FunctionDataModel.expected_end_date.isnot(None),
             FunctionDataModel.expected_end_date != '',
             FunctionDataModel.expected_end_date >= today,
             FunctionDataModel.expected_end_date <= today_plus7,
         ).count()
         duty_urgent = d.filter(
-            duty_filter, TemporaryDutyModel.duty_status.notin_([3, 9]),
+            duty_filter, TemporaryDutyModel.duty_status.notin_([0, 3, 9]),
             TemporaryDutyModel.expected_end_date.isnot(None),
             TemporaryDutyModel.expected_end_date != '',
             TemporaryDutyModel.expected_end_date >= today,
@@ -720,6 +733,7 @@ class UserController:
             },
             "team_task": {
                 "total":       func_total       + duty_total,
+                "draft":       func_draft,
                 "in_progress": func_in_prog     + duty_in_prog,
                 "not_started": func_not_start   + duty_not_start,
                 "completed":   func_completed   + duty_completed,
@@ -1010,7 +1024,7 @@ class UserController:
         from dbs.mysql_db.model_tables import ReviewApplyModel
         q = (
             db.session.query(ReviewApplyModel)
-            .filter_by(submitter=work_no)
+            .filter(db.func.lower(ReviewApplyModel.submitter) == (work_no or "").lower())
             .filter(ReviewApplyModel.duty_id.is_(None))
             .order_by(ReviewApplyModel.created_at.desc())
         )
@@ -1056,7 +1070,7 @@ class UserController:
     def cancel_apply(self, apply_id: str, work_no: str):
         """撤回申请"""
         from dbs.mysql_db.model_tables import ReviewApplyModel
-        apply = db.session.query(ReviewApplyModel).filter_by(id=apply_id, submitter=work_no).first()
+        apply = db.session.query(ReviewApplyModel).filter(ReviewApplyModel.id == apply_id, db.func.lower(ReviewApplyModel.submitter) == (work_no or "").lower()).first()
         if not apply:
             from utils.exceptions import ResourceNotFoundException
             raise ResourceNotFoundException(msg="申请记录不存在")

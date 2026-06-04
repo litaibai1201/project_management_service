@@ -86,19 +86,19 @@ class SystemAdminController:
             .filter(UserRoleModel.work_no.in_(work_nos))
             .all()
         ) if work_nos else []
-        role_map = {ur.work_no: role for ur, role in role_rows}
+        role_map = {ur.work_no.lower(): role for ur, role in role_rows}
 
         # supervisors with at least one subordinate
         sup_rows = db.session.query(HierarchyModel.supervisor_work_no).distinct().all()
-        supervisor_set = {r.supervisor_work_no for r in sup_rows}
+        supervisor_set = {r.supervisor_work_no.lower() for r in sup_rows}
 
         data_list = []
         for u in users:
             d = u.to_dict()
-            role = role_map.get(u.work_no)
+            role = role_map.get(u.work_no.lower())
             d["role_code"]     = role.code if role else None
             d["role_name"]     = role.name if role else None
-            d["is_supervisor"] = u.work_no in supervisor_set
+            d["is_supervisor"] = u.work_no.lower() in supervisor_set
             data_list.append(d)
 
         return {

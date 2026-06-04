@@ -497,7 +497,8 @@
       "completionWaitingReview": "已提交完結審核，等待需求責任人審核",
       "reviewSubmitted": "已提交審核",
       "progressUpdated": "進度更新成功"
-    }
+    },
+    "projectTask": "專案任務"
   },
   "requirement": {
     "title": "需求列表",
@@ -715,7 +716,8 @@
     "personsCountSaveHint": "（共 {{count}} 人，儲存後生效）",
     "noPersonYet": "尚未加入任何人員",
     "relatedReqRequired": "請選擇關聯需求",
-    "selectRelatedReq": "選擇關聯的需求"
+    "selectRelatedReq": "選擇關聯的需求",
+    "defaultReviewer": "默認主管審核人，不可移除"
   },
   "dailyLog": {
     "title": "工作日誌",
@@ -1774,7 +1776,8 @@
     "urgentItem": "臨期 {{count}}",
     "normalStatus": "正常",
     "approvalTag": "審批",
-    "applicationLabel": "申請"
+    "applicationLabel": "申請",
+    "draftLabel": "草稿"
   },
   "search": {
     "placeholder": "搜索專案、任務...",

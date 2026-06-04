@@ -162,7 +162,7 @@ class DutyController:
         # 通知非建立人的負責人
         from controllers.notification_controller import push_notification
         from dbs.mysql_db.model_tables import UserProfileModel
-        creator_user = db.session.query(UserProfileModel).filter_by(work_no=creator).first()
+        creator_user = db.session.query(UserProfileModel).filter(db.func.lower(UserProfileModel.work_no) == (creator or "").lower()).first()
         creator_display = f"{creator_user.name}({creator})" if creator_user else creator
         notif_targets = [w for w in resp if w != creator]
         if notif_targets:
@@ -195,14 +195,14 @@ class DutyController:
 
         all_wks = list({work_no} | set(reviewer))
         user_map = {
-            u.work_no: u
+            u.work_no.lower(): u
             for u in db.session.query(UserProfileModel).filter(
-                UserProfileModel.work_no.in_(all_wks)
+                db.func.lower(UserProfileModel.work_no).in_([w.lower() for w in all_wks])
             ).all()
         }
         nodes = []
         for i, wk in enumerate(reviewer):
-            u = user_map.get(wk)
+            u = user_map.get(wk.lower())
             nodes.append({
                 "node_id": f"{CommonTools.get_now().replace(' ', '')}_{i}",
                 "order": i + 1,
@@ -214,7 +214,7 @@ class DutyController:
                 "comment": None,
             })
 
-        submitter_profile = user_map.get(work_no)
+        submitter_profile = user_map.get(work_no.lower())
         submitter_name = submitter_profile.name if submitter_profile else work_no
 
         sys = db.session.query(SystemModel).filter_by(id=d.system_id).first() if d.system_id else None
@@ -280,14 +280,14 @@ class DutyController:
 
         all_wks = list({work_no} | set(reviewer))
         user_map = {
-            u.work_no: u
+            u.work_no.lower(): u
             for u in db.session.query(UserProfileModel).filter(
-                UserProfileModel.work_no.in_(all_wks)
+                db.func.lower(UserProfileModel.work_no).in_([w.lower() for w in all_wks])
             ).all()
         }
         nodes = []
         for i, wk in enumerate(reviewer):
-            u = user_map.get(wk)
+            u = user_map.get(wk.lower())
             nodes.append({
                 "node_id": f"{CommonTools.get_now().replace(' ', '')}_{i}",
                 "order": i + 1,
@@ -299,7 +299,7 @@ class DutyController:
                 "comment": None,
             })
 
-        submitter_profile = user_map.get(work_no)
+        submitter_profile = user_map.get(work_no.lower())
         submitter_name = submitter_profile.name if submitter_profile else work_no
 
         sys = db.session.query(SystemModel).filter_by(id=system_id).first() if system_id else None
@@ -368,7 +368,7 @@ class DutyController:
             from controllers.notification_controller import push_notification
             from dbs.mysql_db.model_tables import UserProfileModel
             creator = d.creator
-            op_u = db.session.query(UserProfileModel).filter_by(work_no=work_no).first()
+            op_u = db.session.query(UserProfileModel).filter(db.func.lower(UserProfileModel.work_no) == (work_no or "").lower()).first()
             op_nm = op_u.name if op_u else work_no
             # 通知新增负责人
             if new_resp:
@@ -453,7 +453,7 @@ class DutyController:
         # 延期通知：责任人操作 → 通知建立人 + 其他责任人；建立人操作 → 通知所有责任人
         from controllers.notification_controller import push_notification
         from dbs.mysql_db.model_tables import UserProfileModel as _UPM
-        op_u = db.session.query(_UPM).filter_by(work_no=operator).first()
+        op_u = db.session.query(_UPM).filter(db.func.lower(UserProfileModel.work_no) == (operator or "").lower()).first()
         op_nm = op_u.name if op_u else operator
         notif_msg = f"「{d.duty_nm}」已延期至 {new_end_date}，原因：{reason}，操作人：{op_nm}"
         if is_responsible and not is_creator:
@@ -645,16 +645,16 @@ class DutyController:
 
         # 取得審核人姓名
         user_map = {
-            u.work_no: u
+            u.work_no.lower(): u
             for u in db.session.query(UserProfileModel).filter(
-                UserProfileModel.work_no.in_(reviewer + [work_no])
+                db.func.lower(UserProfileModel.work_no).in_([w.lower() for w in reviewer + [work_no]])
             ).all()
         }
         nodes = [
             {
                 "node_id": f"node_{i+1}",
                 "order": i + 1,
-                "approver": user_map[r].name if r in user_map else r,
+                "approver": user_map[r.lower()].name if r.lower() in user_map else r,
                 "approver_work_no": r,
                 "is_countersign": False,
                 "status": 0,
@@ -664,7 +664,7 @@ class DutyController:
             for i, r in enumerate(reviewer)
         ]
         if not submitter_name:
-            u = user_map.get(work_no)
+            u = user_map.get(work_no.lower())
             submitter_name = u.name if u else work_no
 
         review = ReviewApplyModel(

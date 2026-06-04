@@ -54,7 +54,7 @@ class DashboardConfigController:
 
         rows = (
             db.session.query(UserDashboardConfigModel)
-            .filter_by(work_no=work_no, view_type=view_type)
+            .filter(db.func.lower(UserDashboardConfigModel.work_no) == (work_no or "").lower(), UserDashboardConfigModel.view_type == view_type)
             .all()
         )
         saved_map = {r.widget_id: r for r in rows}
@@ -93,7 +93,7 @@ class DashboardConfigController:
 
             existing = (
                 db.session.query(UserDashboardConfigModel)
-                .filter_by(work_no=work_no, view_type=view_type, widget_id=widget_id)
+                .filter(db.func.lower(UserDashboardConfigModel.work_no) == (work_no or "").lower(), UserDashboardConfigModel.view_type == view_type, UserDashboardConfigModel.widget_id == widget_id)
                 .first()
             )
             if existing:

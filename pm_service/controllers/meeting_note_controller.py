@@ -11,9 +11,9 @@ class MeetingNoteController:
         if not work_nos:
             return {}
         users = db.session.query(UserProfileModel).filter(
-            UserProfileModel.work_no.in_(work_nos)
+            db.func.lower(UserProfileModel.work_no).in_([w.lower() for w in work_nos])
         ).all()
-        return {u.work_no: u.name for u in users}
+        return {u.work_no.lower(): u.name for u in users}
 
     def list_by_project(self, project_id: str) -> list:
         """获取专案下所有会议备注（按创建时间倒序）"""
@@ -25,7 +25,7 @@ class MeetingNoteController:
         )
         author_nos = list({n.author for n in notes})
         name_map = self._name_map(author_nos)
-        return [n.to_dict(author_name=name_map.get(n.author, n.author)) for n in notes]
+        return [n.to_dict(author_name=name_map.get((n.author or "").lower(), n.author)) for n in notes]
 
     def create(self, project_id: str, payload: dict, author: str) -> dict:
         """新增一条备注"""
@@ -40,7 +40,7 @@ class MeetingNoteController:
         db.session.add(note)
         db.session.commit()
         name_map = self._name_map([author])
-        return note.to_dict(author_name=name_map.get(author, author))
+        return note.to_dict(author_name=name_map.get((author or "").lower(), author))
 
     def update_status(self, note_id: str, status: str, operator: str) -> dict:
         """切换备注状态 pending ↔ resolved"""
@@ -52,7 +52,7 @@ class MeetingNoteController:
         note.updated_at = CommonTools.get_now()
         db.session.commit()
         name_map = self._name_map([note.author])
-        return note.to_dict(author_name=name_map.get(note.author, note.author))
+        return note.to_dict(author_name=name_map.get((note.author or "").lower(), note.author))
 
     def delete(self, note_id: str, operator: str) -> None:
         """删除备注（仅作者可删）"""
