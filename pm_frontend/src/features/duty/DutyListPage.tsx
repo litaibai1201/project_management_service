@@ -121,7 +121,7 @@ const DutyListPage: React.FC = () => {
   const groupedMyFunctions = useMemo(() => {
     const map = new Map<string, MyFunction[]>()
     filteredMyFunctions.forEach((f) => {
-      const key = f.group1 || t('common.ungrouped')
+      const key = f.group1 === '__stage__' ? t('common.stageTask') : (f.group1 || t('common.ungrouped'))
       if (!map.has(key)) map.set(key, [])
       map.get(key)!.push(f)
     })
@@ -430,7 +430,7 @@ const DutyListPage: React.FC = () => {
       title: t('function.group'), key: 'group', width: 140, ellipsis: true,
       render: (_: unknown, r: MyFunction) => (
         <span className="text-slate-600 text-xs">
-          {r.group1}{r.group2 ? ` / ${r.group2}` : ''}
+          {r.group1 === '__stage__' ? t('common.stageTask') : r.group1}{r.group2 ? ` / ${r.group2}` : ''}
         </span>
       ),
     },

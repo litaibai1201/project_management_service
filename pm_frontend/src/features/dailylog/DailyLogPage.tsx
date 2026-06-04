@@ -150,7 +150,8 @@ function buildRequirements(
     for (const tk of rg.taskKeys) {
       const { g1, g2 } = taskMeta.get(tk)!
       const gk = (g1 || g2) ? `${g1}\x00${g2}` : '__no_group__'
-      const nm = g1 ? (g2 ? `${g1} / ${g2}` : g1) : (g2 || '')
+      const g1Label = g1 === '__stage__' ? i18n.t('common.stageTask') : g1
+      const nm = g1Label ? (g2 ? `${g1Label} / ${g2}` : g1Label) : (g2 || '')
       if (!grpMap.has(gk)) grpMap.set(gk, { nm, taskKeys: [] })
       grpMap.get(gk)!.taskKeys.push(tk)
     }
@@ -1999,7 +2000,7 @@ const DailyLogPage: React.FC = () => {
                             <span className="text-[10px] bg-blue-50 text-blue-600 border border-blue-200 rounded px-1.5 py-px leading-none flex-shrink-0">{f.requirement_nm}</span>
                           )}
                           {f.group1 && (
-                            <span className="text-[10px] bg-slate-100 text-slate-500 rounded px-1.5 py-px leading-none flex-shrink-0">{f.group1}</span>
+                            <span className="text-[10px] bg-slate-100 text-slate-500 rounded px-1.5 py-px leading-none flex-shrink-0">{f.group1 === '__stage__' ? t('common.stageTask') : f.group1}</span>
                           )}
                           {f.group2 && (
                             <span className="text-[10px] bg-slate-100 text-slate-400 rounded px-1.5 py-px leading-none flex-shrink-0">{f.group2}</span>

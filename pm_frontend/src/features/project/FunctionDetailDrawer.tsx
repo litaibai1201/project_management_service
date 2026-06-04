@@ -292,8 +292,13 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
   const isCompleted       = funcData?.status === 4
   const isReviewing       = funcData?.status === 3
   const isResponsible     = (funcData?.responsible ?? []).map((r) => r.toLowerCase()).includes(workNo.toLowerCase())
-  const canUpdateProgress = projectStatus === 5 && !isCompleted && !isReviewing && isResponsible
-  const canEdit           = isProjectPm && !isCompleted
+  const isStageTask       = funcData?.group1 === '__stage__'
+  // 阶段任务在任何非完结阶段都可更新进度；普通任务仅执行中阶段
+  const canUpdateProgress = !isCompleted && !isReviewing && isResponsible && (isStageTask || projectStatus === 5)
+  // 阶段任务不允许编辑全部字段，仅允许设定预计完成时间
+  const canEdit           = isProjectPm && !isCompleted && !isStageTask
+  // 阶段任务：PM或负责人可以设定预计完成时间
+  const canSetEndDate     = isStageTask && !isCompleted && (isProjectPm || isResponsible)
   const canHold           = !!projectPm && workNo.toLowerCase() === projectPm.toLowerCase() && projectStatus === 5
 
   const token = tokenStorage.get()
@@ -336,7 +341,33 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
               {t('function.editBtn')}
             </Button>
           )}
-          {!canEdit && !!projectPm && workNo.toLowerCase() === projectPm.toLowerCase() &&
+          {canSetEndDate && (
+            <Popover
+              trigger="click"
+              title={t('function.setEndDate')}
+              content={
+                <div className="flex items-center gap-2">
+                  <DateInput
+                    value={funcData?.expected_end_date}
+                    onChange={async (v) => {
+                      if (!v) return
+                      try {
+                        await projectApi.updateFunction(projectId, functionId, { expected_end_date: v })
+                        showToast.success(t('function.endDateSet'))
+                        loadData()
+                        onRefresh?.()
+                      } catch { /* interceptor */ }
+                    }}
+                  />
+                </div>
+              }
+            >
+              <Button icon={<CalendarDaysIcon className="w-4 h-4" />} size="small">
+                {t('function.setEndDate')}
+              </Button>
+            </Popover>
+          )}
+          {!canEdit && !canSetEndDate && !!projectPm && workNo.toLowerCase() === projectPm.toLowerCase() &&
             funcData && funcData.status !== 4 && funcData.status !== 8 && funcData.status !== 9 &&
             funcData.expected_end_date && funcData.expected_end_date < new Date().toISOString().slice(0, 10) && (
             <RescheduleButton projectId={projectId} functionId={functionId}
@@ -408,7 +439,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
                   ))
                 : '—'}
             </Descriptions.Item>
-            <Descriptions.Item label={t('function.groupLabel')}>{funcData.group1 ?? '—'}</Descriptions.Item>
+            <Descriptions.Item label={t('function.groupLabel')}>{funcData.group1 === '__stage__' ? t('projectDetail.stageTaskGroup') : (funcData.group1 ?? '—')}</Descriptions.Item>
             <Descriptions.Item label={t('function.expectedStart')}>{funcData.expected_start_date ?? '—'}</Descriptions.Item>
             <Descriptions.Item label={t('function.expectedEnd')}>
               <div className="flex items-center gap-2 flex-wrap">

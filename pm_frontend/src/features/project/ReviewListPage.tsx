@@ -632,7 +632,7 @@ const ReviewDetailDrawer: React.FC<{
                 <span className="text-slate-500 text-xs">{t('review.assigneesLabel')}
                   {(funcDetail.responsible ?? []).length > 0
                     ? funcDetail.responsible!.map((r) => (
-                        <Tag key={r} color="purple" style={{ fontSize: 11, margin: '0 2px' }}>{r}</Tag>
+                        <Tag key={r} color="purple" style={{ fontSize: 11, margin: '0 2px' }}>{toName(r) || r}</Tag>
                       ))
                     : '—'}
                 </span>
@@ -653,7 +653,7 @@ const ReviewDetailDrawer: React.FC<{
                 </div>
               </div>
               {funcDetail.describe && (
-                <p className="text-xs text-slate-500 mb-3 px-1">{funcDetail.describe}</p>
+                <div className="text-xs text-slate-500 mb-3 px-1"><RichTextContent html={funcDetail.describe} /></div>
               )}
 
               {/* Progress records with load-more */}
@@ -681,7 +681,9 @@ const ReviewDetailDrawer: React.FC<{
                           <span className="ml-auto text-[11px] text-slate-400 tabular-nums flex-shrink-0">{rec.created_at}</span>
                         </div>
                         {rec.progress_record && (
-                          <p className="text-xs text-slate-600 mt-0.5 leading-relaxed">{rec.progress_record}</p>
+                          <div className="text-xs text-slate-600 mt-0.5 leading-relaxed">
+                            <RichTextContent html={rec.progress_record} />
+                          </div>
                         )}
                         {(rec.files ?? []).length > 0 && (
                           <div className="mt-1 flex flex-wrap gap-1">

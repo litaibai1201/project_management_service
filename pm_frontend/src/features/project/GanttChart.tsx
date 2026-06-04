@@ -115,7 +115,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [], req
   // Build unique group & developer options from functions
   const groupOptions = useMemo(() => {
     const groups = Array.from(new Set(functions.map((f) => f.group1).filter(Boolean)))
-    return groups.map((g) => ({ label: g, value: g }))
+    return groups.map((g) => ({ label: g === '__stage__' ? t('common.stageTask') : g, value: g }))
   }, [functions])
 
   const devOptions = useMemo(() => {
@@ -558,7 +558,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [], req
     const containerW = Math.max(20, toX(barEnd.add(1, 'day')) - containerX)
 
     return (
-      <Tooltip title={t('gantt.groupTooltip', { name: g.name === '__nogroup__' ? t('gantt.ungrouped') : g.name, count: g.items.length, progress: g.avgProgress })}>
+      <Tooltip title={t('gantt.groupTooltip', { name: g.name === '__nogroup__' ? t('gantt.ungrouped') : g.name === '__stage__' ? t('common.stageTask') : g.name, count: g.items.length, progress: g.avgProgress })}>
         <div
           style={{
             position: 'absolute',
@@ -790,7 +790,7 @@ const GanttChart: React.FC<GanttChartProps> = ({ functions, milestones = [], req
                       ? <ChevronDownIcon className="w-3 h-3 text-slate-400 flex-shrink-0" />
                       : <ChevronRightIcon className="w-3 h-3 text-slate-400 flex-shrink-0" />}
                     <FolderIcon className="w-3.5 h-3.5 flex-shrink-0" style={{ color }} />
-                    <span className="text-xs font-bold text-slate-600 truncate">{row.group.name === '__nogroup__' ? t('gantt.ungrouped') : row.group.name}</span>
+                    <span className="text-xs font-bold text-slate-600 truncate">{row.group.name === '__nogroup__' ? t('gantt.ungrouped') : row.group.name === '__stage__' ? t('common.stageTask') : row.group.name}</span>
                     <span className="text-[10px] text-slate-400 flex-shrink-0 ml-auto">{t('gantt.itemCount', { count: row.group.items.length })}</span>
                   </div>
                 )

@@ -45,7 +45,7 @@ const DaysLeftBadge: React.FC<{ date?: string; status?: number }> = ({ date, sta
 const StatusDot: React.FC<{ status: number }> = ({ status }) => {
   const s = PROJECT_STATUS_MAP[status]
   const colorMap: Record<string, string> = {
-    default: '#94a3b8', processing: '#2563eb', blue: '#3b82f6',
+    default: '#94a3b8', processing: '#2563eb', blue: '#3b82f6', purple: '#8b5cf6',
     green: '#16a34a', orange: '#d97706', success: '#16a34a', error: '#dc2626', warning: '#f59e0b',
   }
   return (
@@ -59,13 +59,15 @@ const StatusDot: React.FC<{ status: number }> = ({ status }) => {
 // ─── Kanban Column ────────────────────────────────────────────────────────────
 
 const KANBAN_STATUSES = [
-  { status: 1, color: '#94a3b8' },
-  { status: 2, color: '#2563eb' },
-  { status: 3, color: '#8b5cf6' },
-  { status: 4, color: '#f59e0b' },
-  { status: 5, color: '#16a34a' },
-  { status: 6, color: '#d97706' },
-  { status: 7, color: '#64748b' },
+  { status: 1,  color: '#94a3b8' },
+  { status: 2,  color: '#2563eb' },
+  { status: 3,  color: '#8b5cf6' },
+  { status: 4,  color: '#f59e0b' },
+  { status: 10, color: '#7c3aed' },
+  { status: 11, color: '#2563eb' },
+  { status: 5,  color: '#16a34a' },
+  { status: 6,  color: '#d97706' },
+  { status: 7,  color: '#64748b' },
 ]
 
 const KanbanView: React.FC<{

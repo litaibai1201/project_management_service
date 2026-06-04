@@ -15,15 +15,17 @@ const mkPriority = (labelKey: string, color: string): PriorityEntry =>
 // ─── Project Status ───────────────────────────────────────────────────────────
 
 export const PROJECT_STATUS_MAP: Record<number, StatusEntry> = {
-  1: mkStatus('status.project.1', 'default',    '#94a3b8'),
-  2: mkStatus('status.project.2', 'processing', '#2563eb'),
-  3: mkStatus('status.project.3', 'blue',       '#3b82f6'),
-  4: mkStatus('status.project.4', 'processing', '#2563eb'),
-  5: mkStatus('status.project.5', 'green',      '#16a34a'),
-  6: mkStatus('status.project.6', 'orange',     '#d97706'),
-  7: mkStatus('status.project.7', 'success',    '#15803d'),
-  8: mkStatus('status.project.8', 'warning',    '#f59e0b'),
-  9: mkStatus('status.project.9', 'error',      '#dc2626'),
+  1:  mkStatus('status.project.1',  'default',    '#94a3b8'),
+  2:  mkStatus('status.project.2',  'processing', '#2563eb'),
+  3:  mkStatus('status.project.3',  'blue',       '#3b82f6'),
+  4:  mkStatus('status.project.4',  'processing', '#2563eb'),
+  5:  mkStatus('status.project.5',  'green',      '#16a34a'),
+  6:  mkStatus('status.project.6',  'orange',     '#d97706'),
+  7:  mkStatus('status.project.7',  'success',    '#15803d'),
+  8:  mkStatus('status.project.8',  'warning',    '#f59e0b'),
+  9:  mkStatus('status.project.9',  'error',      '#dc2626'),
+  10: mkStatus('status.project.10', 'purple',     '#8b5cf6'),
+  11: mkStatus('status.project.11', 'processing', '#2563eb'),
 }
 
 export const FUNCTION_STATUS_MAP: Record<number, StatusEntry> = {

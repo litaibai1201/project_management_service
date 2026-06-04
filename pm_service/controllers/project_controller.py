@@ -234,7 +234,13 @@ class ProjectController:
             benefit_unit=payload.get("benefit_unit", "元/年"),
         )
         db.session.add(p)
+        db.session.flush()  # get p.id before commit
+
+        # 专案创建后自动生成「需求评估与立案」阶段任务
+        self._create_stage_task(p.id, "initiate")
+
         db.session.commit()
+        self._flush_stage_notification()
         return {"project_id": p.id}
 
     def update_project(self, project_id: str, payload: dict, operator: str = ""):
@@ -541,6 +547,81 @@ class ProjectController:
             raise ResourceNotFoundException(msg="分组不存在")
         g.status = 0
         db.session.commit()
+
+    # ─── 阶段性任务自动生成 ─────────────────────────────────────────────────
+    STAGE_TASK_GROUP = "__stage__"
+
+    STAGE_TASK_CONFIG = {
+        # apply_type_code → (任务名称, 描述)
+        "initiate": ("需求评估与立案", "专案立案阶段：需求收集、可行性评估、效益分析、立案报告撰写"),
+        "plan":     ("方案设计与规划", "专案规划阶段：方案设计、架构规划、资源评估、风险识别"),
+        "schedule": ("排程规划与评估", "排程阶段：任务拆解、时程安排、资源分配、里程碑设定"),
+    }
+
+    def _create_stage_task(self, project_id: str, apply_type_code: str):
+        """审核通过后自动创建对应阶段的任务"""
+        config = self.STAGE_TASK_CONFIG.get(apply_type_code)
+        if not config:
+            return
+        task_name, task_desc = config
+
+        p = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
+        if not p:
+            return
+
+        # 检查是否已存在同名阶段任务（避免重复）
+        existing = db.session.query(FunctionDataModel).filter_by(
+            project_id=project_id,
+            function_nm=task_name,
+            group1=self.STAGE_TASK_GROUP,
+            status=1,
+        ).first()
+        if existing:
+            return
+
+        # 负责人：initiate阶段=产品PM+专案PM，其他阶段=仅专案PM
+        responsible = []
+        if apply_type_code == "initiate":
+            if p.product_pm:
+                responsible.append(p.product_pm.strip().lower())
+            if p.project_pm and p.project_pm.strip().lower() not in responsible:
+                responsible.append(p.project_pm.strip().lower())
+        else:
+            if p.project_pm:
+                responsible.append(p.project_pm.strip().lower())
+
+        f = FunctionDataModel(
+            function_nm=task_name,
+            describe=task_desc,
+            project_id=project_id,
+            responsible=json.dumps(responsible, ensure_ascii=False),
+            priority=2,
+            function_status=2,  # 直接设为进行中
+            group1=self.STAGE_TASK_GROUP,
+            expected_start_date=CommonTools.get_now()[:10],
+        )
+        db.session.add(f)
+        # 返回通知信息，由调用方在 commit 后发送
+        self._pending_stage_notification = {
+            "recipients": responsible,
+            "task_name": task_name,
+            "project_nm": p.project_nm,
+            "project_id": project_id,
+        }
+
+    def _flush_stage_notification(self):
+        """在 commit 后调用，发送阶段任务创建通知"""
+        info = getattr(self, '_pending_stage_notification', None)
+        if info and info["recipients"]:
+            from controllers.notification_controller import push_notification
+            push_notification(
+                info["recipients"],
+                title=f"您有新的阶段任务：{info['task_name']}",
+                desc=f"专案「{info['project_nm']}」已自动创建阶段任务「{info['task_name']}」，您是负责人，请及时跟进。",
+                link_type="project",
+                link_id=info["project_id"],
+            )
+        self._pending_stage_notification = None
 
     def _enrich_review(self, r: 'ReviewApplyModel', viewer_work_no: str = "",
                        viewer_is_supervisor: bool = False) -> dict:
@@ -1198,10 +1279,29 @@ class ProjectController:
                         for req in draft_reqs:
                             req.req_status = 2
                             req.update_at = now
+                    # 审核通过 → 自动创建下一阶段的阶段性任务
+                    # initiate通过 → 创建"方案设计与规划"任务
+                    # plan通过 → 创建"排程规划与评估"任务
+                    next_stage_map = {"initiate": "plan", "plan": "schedule"}
+                    next_stage = next_stage_map.get(r.apply_type_code)
+                    if next_stage:
+                        self._create_stage_task(r.project_id, next_stage)
+                    # 同时将上一阶段任务标记为已完结
+                    prev_task = db.session.query(FunctionDataModel).filter_by(
+                        project_id=r.project_id,
+                        group1=self.STAGE_TASK_GROUP,
+                        status=1,
+                    ).filter(FunctionDataModel.function_status != 4).all()
+                    for pt in prev_task:
+                        if pt.function_nm != self.STAGE_TASK_CONFIG.get(next_stage, ("",))[0]:
+                            pt.function_status = 4
+                            pt.progress = 100
+                            pt.end_time = now[:10]
                 elif final_status in (3, 4) and next_fail:
                     p.project_status = next_fail
                 p.update_at = now
         db.session.commit()
+        self._flush_stage_notification()
         # 通知提交人審核結果
         from controllers.notification_controller import push_notification
         result_text = "已通過" if final_status == 2 else ("已被退回" if final_status == 4 else "已被拒絕")
@@ -1418,8 +1518,8 @@ class ProjectController:
         next_week_start = this_week_end   + timedelta(days=1)
         next_week_end   = next_week_start + timedelta(days=6)
 
-        # ── 拉取活跃专案（执行中、规划中、规划审核） ──────────────────────
-        active_statuses = (3, 4, 5, 10, 11)
+        # ── 拉取所有活跃专案（草稿~完结审核，包含阶段任务的早期专案） ────
+        active_statuses = (1, 2, 3, 4, 5, 6, 10, 11)
         active_projects = (
             db.session.query(ProjectDataModel)
             .filter(
@@ -1674,17 +1774,17 @@ class ProjectController:
     def get_report_stats(self) -> list:
         """
         項目進度報表統計
-        返回所有活躍專案及其任務狀態統計（不含草稿/刪除）
+        返回所有活躍專案及其任務狀態統計（包含阶段任务的早期专案，不含刪除）
         """
         from datetime import date as date_type
 
         today = date_type.today().isoformat()
 
-        # 排除草稿(1)、刪除(9) 的專案
+        # 排除刪除(9) 的專案，包含所有阶段
         projects = (
             db.session.query(ProjectDataModel)
             .filter(
-                ProjectDataModel.project_status.notin_([1, 9]),
+                ProjectDataModel.project_status != 9,
                 ProjectDataModel.status == 1,
             )
             .order_by(ProjectDataModel.priority.desc(), ProjectDataModel.created_at.desc())
@@ -1779,7 +1879,7 @@ class ProjectController:
         active_project_ids = [
             p.id for p in db.session.query(ProjectDataModel.id)
             .filter(
-                ProjectDataModel.project_status.notin_([1, 9]),
+                ProjectDataModel.project_status != 9,
                 ProjectDataModel.status == 1,
             ).all()
         ]

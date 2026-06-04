@@ -967,7 +967,7 @@ class StatisticsController:
 
         # ── 4. 专案Delay ──────────────────────────────────────────────
         active_projects = db.session.query(ProjectDataModel).filter(
-            ProjectDataModel.project_status.in_([3, 4, 5, 10, 11]),
+            ProjectDataModel.project_status.in_([1, 2, 3, 4, 5, 6, 10, 11]),
             ProjectDataModel.status == 1,
         ).all()
         for p in active_projects:

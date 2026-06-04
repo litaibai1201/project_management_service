@@ -75,7 +75,9 @@
     "expectedStartDate": "Expected Start",
     "dateFormatYearMonth": "MMM YYYY",
     "dateFormatFull": "MMM D, YYYY",
-    "day": "d"
+    "day": "d",
+    "stageTask": "📋 Stage Tasks",
+    "stageTaskPlain": "Stage Tasks"
   },
   "nav": {
     "home": "Home",
@@ -129,7 +131,9 @@
       "6": "Completion Review",
       "7": "Completed",
       "8": "On Hold",
-      "9": "Deleted"
+      "9": "Deleted",
+      "10": "Scheduling",
+      "11": "Schedule Review"
     },
     "function": {
       "0": "Draft",
@@ -334,7 +338,9 @@
     "funcDescModalTitle": "Function Description",
     "progressNoteModalTitle": "Progress Note",
     "richTextApplied": "Rich text formatting applied. Click 'Expand Editor' to continue editing.",
-    "notFound": "Function data not found"
+    "notFound": "Function data not found",
+    "setEndDate": "Set Expected End",
+    "endDateSet": "Expected end date set"
   },
   "duty": {
     "title": "Task List",
@@ -2025,7 +2031,8 @@
       "design": "Design",
       "progress": "Progress",
       "other": "Other"
-    }
+    },
+    "stageTaskGroup": "📋 Stage Tasks"
   },
   "projectReport": {
     "subtotal": "Subtotal",

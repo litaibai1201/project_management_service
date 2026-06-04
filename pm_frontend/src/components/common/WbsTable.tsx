@@ -36,7 +36,7 @@ const WbsTable: React.FC<{
         if (!map.has(g)) map.set(g, [])
         map.get(g)!.push(t)
       })
-      return [...map.entries()].map(([g, items]) => ({ name: g === '__nogroup__' ? t('common.ungrouped') : g, key: g, items }))
+      return [...map.entries()].map(([g, items]) => ({ name: g === '__nogroup__' ? t('common.ungrouped') : g === '__stage__' ? t('common.stageTask') : g, key: g, items }))
     }
 
     return [...byReq.entries()]

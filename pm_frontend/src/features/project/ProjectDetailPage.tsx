@@ -916,7 +916,7 @@ const ProjectDetailPage: React.FC = () => {
   const groupedFunctions = useMemo(() => {
     const map = new Map<string, ProjectFunction[]>()
     displayedFunctions.forEach((f) => {
-      const g = f.group1 || t('common.ungrouped')
+      const g = f.group1 === '__stage__' ? t('projectDetail.stageTaskGroup') : (f.group1 || t('common.ungrouped'))
       if (!map.has(g)) map.set(g, [])
       map.get(g)!.push(f)
     })
@@ -953,7 +953,7 @@ const ProjectDetailPage: React.FC = () => {
       .map(([key, { reqNm, expectedEndDate, items }]) => {
         const groupMap = new Map<string, ProjectFunction[]>()
         items.forEach((f) => {
-          const g = f.group1 || t('common.ungrouped')
+          const g = f.group1 === '__stage__' ? t('projectDetail.stageTaskGroup') : (f.group1 || t('common.ungrouped'))
           if (!groupMap.has(g)) groupMap.set(g, [])
           groupMap.get(g)!.push(f)
         })
@@ -1015,7 +1015,9 @@ const ProjectDetailPage: React.FC = () => {
     {
       title: t('projectDetail.colResponsible'), dataIndex: 'responsible', width: 150,
       render: (v: string[], record) => {
-        const ispm = isPm && [3, 5, 10].includes(current?.status ?? 0) && record.status !== 4 && record.status !== 3 && !isProjectLocked
+        const isStage = record.group1 === '__stage__'
+        // 阶段任务：PM 在任何非完结阶段都可设定负责人；普通任务：PM 在规划/执行/排程阶段
+        const ispm = isPm && record.status !== 4 && record.status !== 3 && !isProjectLocked && (isStage || [3, 5, 10].includes(current?.status ?? 0))
         const openPicker = async () => {
           setRespSearchKw(''); setRespSearchResult(null)
           setQuickResponsible({ fid: record.id, persons: [] })
@@ -1117,7 +1119,7 @@ const ProjectDetailPage: React.FC = () => {
 
   const rawFuncColumnsFlat: ColumnsType<ProjectFunction> = [
     rawFuncColumnsGrouped[0], // 功能名稱
-    { title: t('projectDetail.colGroup'), dataIndex: 'group1', width: 100, render: (v: string) => <Tag style={{ fontSize: 10 }}>{v || t('common.ungrouped')}</Tag> },
+    { title: t('projectDetail.colGroup'), dataIndex: 'group1', width: 100, render: (v: string) => <Tag style={{ fontSize: 10 }}>{v === '__stage__' ? t('projectDetail.stageTaskGroup') : (v || t('common.ungrouped'))}</Tag> },
     ...rawFuncColumnsGrouped.slice(1), // 狀態, 優先級, 進度, 負責人, 預計完成, 實際完成, 操作
   ]
 

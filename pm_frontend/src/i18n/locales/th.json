@@ -75,7 +75,9 @@
     "expectedStartDate": "เริ่มต้นที่คาด",
     "dateFormatYearMonth": "MMM YYYY",
     "dateFormatFull": "D MMM YYYY",
-    "day": "วัน"
+    "day": "วัน",
+    "stageTask": "📋 งานระยะ",
+    "stageTaskPlain": "งานระยะ"
   },
   "nav": {
     "home": "หน้าหลัก",
@@ -129,7 +131,9 @@
       "6": "รอการอนุมัติปิดโครงการ",
       "7": "เสร็จสิ้น",
       "8": "ระงับ",
-      "9": "ลบแล้ว"
+      "9": "ลบแล้ว",
+      "10": "จัดตาราง",
+      "11": "ตรวจสอบตาราง"
     },
     "function": {
       "0": "ร่าง",
@@ -334,7 +338,9 @@
     "funcDescModalTitle": "คำอธิบายฟังก์ชัน",
     "progressNoteModalTitle": "บันทึกความคืบหน้า",
     "richTextApplied": "ใช้การจัดรูปแบบ Rich Text แล้ว คลิก 'ขยายตัวแก้ไข' เพื่อแก้ไขต่อ",
-    "notFound": "ไม่พบข้อมูลฟังก์ชัน"
+    "notFound": "ไม่พบข้อมูลฟังก์ชัน",
+    "setEndDate": "ตั้งวันสิ้นสุด",
+    "endDateSet": "ตั้งวันสิ้นสุดแล้ว"
   },
   "duty": {
     "title": "รายการงาน",
@@ -2001,7 +2007,8 @@
       "design": "เอกสารออกแบบ",
       "progress": "เอกสารความคืบหน้า",
       "other": "อื่นๆ"
-    }
+    },
+    "stageTaskGroup": "📋 งานระยะ"
   },
   "projectReport": {
     "subtotal": "ยอมรวม",

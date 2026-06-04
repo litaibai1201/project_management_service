@@ -159,7 +159,7 @@ function exportWbsCSV(projects: WbsProject[], t: (key: string) => string) {
   const rows = projects.flatMap((p) =>
     p.functions.flatMap((f) =>
       f.tasks.map((tk) => [
-        p.name, f.name, tk.name, tk.assignee, statusLabel(tk.status),
+        p.name, f.name === '__stage__' ? t('common.stageTaskPlain') : f.name, tk.name, tk.assignee, statusLabel(tk.status),
         String(tk.progress), tk.expected_end, tk.actual_end ?? '',
         String(tk.days_overdue ?? ''), tk.week_tag.map((wt) => weekTagLabel(wt)).join('+'),
         (tk.latest_update ?? '').replace(/<[^>]*>/g, ''),
@@ -226,50 +226,130 @@ const WEEK_TAG_PPT: Record<WeekTag, { labelKey: string; color: string }> = {
 
 function buildProgressTextRuns(project: WbsProject): PptTextRun[] {
   const runs: PptTextRun[] = []
-  let taskIdx = 0
+
+  // Build same sections structure as preview: req → func → task
+  const allItems: { task: WbsTask; funcName: string }[] = []
   project.functions.forEach((func) => {
-    func.tasks.forEach((task) => {
-      taskIdx++
-      if (taskIdx > 1) runs.push({ text: '\n' })
-      const lineColor = task.status === 'completed' ? '00B050' : '000000'
-      runs.push(_run(`${taskIdx}. `, { color: lineColor }))
-      runs.push(..._statusRuns(task))
-      if (task.is_suspended) runs.push(_run(`[${i18n.t('wbs.rpt.suspended')}] `, { color: '6B7280', bold: true }))
-      runs.push(_run(task.name, { color: lineColor }))
-      const hasReschedule = (task.reschedule_count ?? 0) > 0 && !!task.original_end
-      if (hasReschedule) {
-        runs.push(_run(`(`, { color: lineColor }))
-        runs.push(_run(task.original_end ?? '', { color: 'AAAAAA', strike: true }))
-        runs.push(_run(` ${task.expected_end}`, { color: 'D97706', bold: true }))
-        runs.push(_run(` ${i18n.t('wbs.rpt.rescheduledTimes', { count: task.reschedule_count })}`, { color: 'D97706', fontSize: PPT_FONT_SIZE - 1 }))
-        if (task.assignee && task.assignee !== i18n.t('common.notAssigned')) runs.push(_run(`, ${task.assignee}`, { color: lineColor }))
-        runs.push(_run(`)`, { color: lineColor }))
-      } else {
-        const meta: string[] = []
-        if (task.expected_end) meta.push(task.expected_end)
-        if (task.assignee && task.assignee !== i18n.t('common.notAssigned')) meta.push(task.assignee)
-        if (meta.length > 0) runs.push(_run(`(${meta.join(', ')})`, { color: lineColor }))
-      }
-      if (task.week_tag.length > 0) {
-        task.week_tag.forEach((wt) => {
-          const cfg = WEEK_TAG_PPT[wt]
-          runs.push(_run(` [${i18n.t(cfg.labelKey)}]`, { bold: true, color: cfg.color }))
-        })
-      }
-      if (task.is_overdue && task.days_overdue && task.expected_end) {
-        runs.push(_run(` [${i18n.t('wbs.rpt.overdue')}${task.days_overdue}${i18n.t('common.day')}]`, { color: 'FF0000' }))
-      }
-      if (hasReschedule && task.reschedule_reason) {
-        runs.push({ text: '\n' })
-        runs.push(_run(`       ↳ 延期原因：${task.reschedule_reason}`, { color: 'D97706', fontSize: PPT_FONT_SIZE - 1 }))
-      }
-      if (task.latest_update && task.status !== 'completed' && !task.is_suspended) {
-        runs.push({ text: '\n' })
-        runs.push(_run(`       - ${task.latest_update.replace(/<[^>]*>/g, '')}`, { color: '000000' }))
-      }
-    })
+    func.tasks.forEach((task) => allItems.push({ task, funcName: func.name }))
   })
+
+  const hasRequirements = allItems.some((item) => !!item.task.requirement_nm)
+
+  type Section =
+    | { kind: 'req'; name: string; funcs: { name: string; tasks: WbsTask[] }[] }
+    | { kind: 'grp'; name: string; tasks: WbsTask[] }
+
+  const sections: Section[] = []
+
+  if (hasRequirements) {
+    const reqMap = new Map<string, { name: string; funcs: Map<string, { name: string; tasks: WbsTask[] }> }>()
+    for (const { task, funcName } of allItems) {
+      const rKey = task.requirement_id ?? '__none__'
+      const rName = (task.requirement_nm ?? '').trim()
+      if (!reqMap.has(rKey)) reqMap.set(rKey, { name: rName, funcs: new Map() })
+      const req = reqMap.get(rKey)!
+      const fKey = funcName
+      if (!req.funcs.has(fKey)) req.funcs.set(fKey, { name: funcName, tasks: [] })
+      req.funcs.get(fKey)!.tasks.push(task)
+    }
+    for (const [, req] of reqMap.entries()) {
+      if (req.name) {
+        sections.push({
+          kind: 'req', name: req.name,
+          funcs: Array.from(req.funcs.values()),
+        })
+      } else {
+        for (const func of req.funcs.values()) {
+          sections.push({ kind: 'grp', name: func.name, tasks: func.tasks })
+        }
+      }
+    }
+  } else {
+    for (const func of project.functions) {
+      if (func.tasks.length > 0) sections.push({ kind: 'grp', name: func.name, tasks: func.tasks })
+    }
+  }
+
+  // Render sections → runs
+  const nameLabel = (n: string) => n === '__stage__' ? i18n.t('common.stageTaskPlain') : n
+
+  if (sections.length === 0) {
+    allItems.forEach(({ task }, i) => {
+      if (i > 0) runs.push({ text: '\n' })
+      const lineColor = task.status === 'completed' ? '00B050' : '000000'
+      runs.push(_run(`${i + 1}. `, { color: lineColor }))
+      runs.push(..._statusRuns(task))
+      _appendTaskDetail(runs, task)
+    })
+    return runs
+  }
+
+  let first = true
+  sections.forEach((section, si) => {
+    if (!first) runs.push({ text: '\n' })
+    first = false
+    const num = si + 1
+    runs.push(_run(`${num}. ${nameLabel(section.name)}`, { bold: true, color: '002FA7', fontSize: PPT_FONT_SIZE }))
+
+    if (section.kind === 'req') {
+      section.funcs.forEach((func) => {
+        runs.push({ text: '\n' })
+        runs.push(_run(`   ▸ ${nameLabel(func.name)}`, { bold: true, color: '374151', fontSize: PPT_FONT_SIZE }))
+        func.tasks.forEach((task) => {
+          runs.push({ text: '\n' })
+          runs.push(_run('      - ', {}))
+          runs.push(..._statusRuns(task))
+          _appendTaskDetail(runs, task, '         ')
+        })
+      })
+    } else {
+      section.tasks.forEach((task) => {
+        runs.push({ text: '\n' })
+        runs.push(_run('   - ', {}))
+        runs.push(..._statusRuns(task))
+        _appendTaskDetail(runs, task, '      ')
+      })
+    }
+  })
+
   return runs
+}
+
+function _appendTaskDetail(runs: PptTextRun[], task: WbsTask, indent = '') {
+  const lineColor = task.status === 'completed' ? '00B050' : '000000'
+  if (task.is_suspended) runs.push(_run(`[${i18n.t('wbs.rpt.suspended')}] `, { color: '6B7280', bold: true }))
+  runs.push(_run(task.name, { color: lineColor }))
+  const hasReschedule = (task.reschedule_count ?? 0) > 0 && !!task.original_end
+  if (hasReschedule) {
+    runs.push(_run(`(`, { color: lineColor }))
+    runs.push(_run(task.original_end ?? '', { color: 'AAAAAA', strike: true }))
+    runs.push(_run(` ${task.expected_end}`, { color: 'D97706', bold: true }))
+    runs.push(_run(` ${i18n.t('wbs.rpt.rescheduledTimes', { count: task.reschedule_count })}`, { color: 'D97706', fontSize: PPT_FONT_SIZE - 1 }))
+    if (task.assignee && task.assignee !== i18n.t('common.notAssigned')) runs.push(_run(`, ${task.assignee}`, { color: lineColor }))
+    runs.push(_run(`)`, { color: lineColor }))
+  } else {
+    const meta: string[] = []
+    if (task.expected_end) meta.push(task.expected_end)
+    if (task.assignee && task.assignee !== i18n.t('common.notAssigned')) meta.push(task.assignee)
+    if (meta.length > 0) runs.push(_run(`(${meta.join(', ')})`, { color: lineColor }))
+  }
+  if (task.week_tag.length > 0) {
+    task.week_tag.forEach((wt) => {
+      const cfg = WEEK_TAG_PPT[wt]
+      runs.push(_run(` [${i18n.t(cfg.labelKey)}]`, { bold: true, color: cfg.color }))
+    })
+  }
+  if (task.is_overdue && task.days_overdue && task.expected_end) {
+    runs.push(_run(` [${i18n.t('wbs.rpt.overdue')}${task.days_overdue}${i18n.t('common.day')}]`, { color: 'FF0000' }))
+  }
+  if (hasReschedule && task.reschedule_reason) {
+    runs.push({ text: '\n' })
+    runs.push(_run(`${indent}  ↳ ${i18n.t('wbs.rpt.rescheduleReason')}${task.reschedule_reason}`, { color: 'D97706', fontSize: PPT_FONT_SIZE - 1 }))
+  }
+  if (task.latest_update && task.status !== 'completed' && !task.is_suspended) {
+    runs.push({ text: '\n' })
+    runs.push(_run(`${indent}  ${task.latest_update.replace(/<[^>]*>/g, '')}`, { color: '555555', fontSize: PPT_FONT_SIZE - 1 }))
+  }
 }
 
 function _dutyStatusLabel(d: TemporaryDuty, t: (key: string) => string): { label: string; color: string } {
@@ -295,18 +375,7 @@ function _projectDotColor(project: WbsProject): string {
   return '0070C0'
 }
 
-// 估算一個專案在進度欄需要幾行文字（用於分頁判斷）
-function _estimateProjectLines(project: WbsProject): number {
-  let lines = 0
-  project.functions.forEach((func) => {
-    func.tasks.forEach((task) => {
-      lines++ // 主任務行
-      if ((task.reschedule_count ?? 0) > 0 && task.reschedule_reason) lines++ // 延期原因行
-      if (task.latest_update && task.status !== 'completed' && !task.is_suspended) lines++ // 進度說明行
-    })
-  })
-  return Math.max(lines, 1)
-}
+// (行数通过 splitRunsToLines 实际计算，不再需要估算函数)
 
 async function exportWbsPptx(projects: WbsProject[], department = '資訊部') {
   const PptxGenJS = (await import('pptxgenjs')).default
@@ -337,43 +406,123 @@ async function exportWbsPptx(projects: WbsProject[], department = '資訊部') {
     mkHdr('進\n度'), mkHdr('序\n號'), mkHdr('重點項目\nTOP3'), mkHdr('-需求使用者\n-專案PM'), mkHdr('DRI'), mkHdr('專案啟動日'), mkHdr('預計結案日'), mkHdr('進度'),
   ]
 
-  // ── 按行數估算分頁（每頁最多 ~35 行，約 10-12 個專案）──
-  const MAX_LINES = 20
-  const chunks: WbsProject[][] = []
-  let chunk: WbsProject[] = []
-  let chunkLines = 0
-  for (const p of projects) {
-    const lines = _estimateProjectLines(p)
-    if (chunk.length > 0 && chunkLines + lines > MAX_LINES) {
-      chunks.push(chunk)
-      chunk = [p]
-      chunkLines = lines
-    } else {
-      chunk.push(p)
-      chunkLines += lines
+  // ── 将进度 runs 按 \n 拆分为行组 ──
+  const splitRunsToLines = (runs: PptTextRun[]): PptTextRun[][] => {
+    const lines: PptTextRun[][] = [[]]
+    for (const r of runs) {
+      if (r.text === '\n') {
+        lines.push([])
+      } else if (typeof r.text === 'string' && r.text.includes('\n')) {
+        const parts = r.text.split('\n')
+        parts.forEach((part, i) => {
+          if (i > 0) lines.push([])
+          if (part) lines[lines.length - 1].push({ ...r, text: part })
+        })
+      } else {
+        lines[lines.length - 1].push(r)
+      }
     }
+    return lines.filter((l) => l.length > 0)
   }
-  if (chunk.length > 0) chunks.push(chunk)
-  if (chunks.length === 0) chunks.push([])
+
+  const joinLines = (lineGroups: PptTextRun[][]): PptTextRun[] => {
+    const result: PptTextRun[] = []
+    lineGroups.forEach((line, i) => {
+      if (i > 0) result.push({ text: '\n' })
+      result.push(...line)
+    })
+    return result
+  }
+
+  const MAX_LINES = 21
+  const cellMid = (extra: object = {}) => ({ valign: 'middle' as const, align: 'center' as const, fontSize: PPT_FONT_SIZE, fontFace: F, color: '000000', ...extra })
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const makeProjectCells = (project: WbsProject, idx: number, progressRuns: PptTextRun[]) => {
+    const dotColor = _projectDotColor(project)
+    return [
+      { text: '●', options: cellMid({ color: dotColor, fill: { color: 'FFFFFF' } }) },
+      { text: String(idx + 1), options: cellMid() },
+      { text: project.name, options: cellMid({ align: 'left' as const }) },
+      { text: project.product_pm || project.pm, options: cellMid({ align: 'left' as const }) },
+      { text: project.pm, options: cellMid({ align: 'left' as const }) },
+      { text: project.start_date ?? '-', options: cellMid() },
+      { text: project.is_completed ? (project.end_time || project.expected_end || '-') : (project.expected_end || '-'), options: cellMid({ color: project.is_completed ? '16a34a' : '000000' }) },
+      { text: progressRuns, options: { valign: 'top' as const, fontSize: PPT_FONT_SIZE, fontFace: F, color: '000000' } },
+    ]
+  }
+
+  // 构建分页行：大专案按行拆分，续页重复专案信息
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const pages: any[][] = []
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let currentPage: any[] = []
+  let currentLines = 0
+
+  projects.forEach((project, idx) => {
+    const progressRuns = buildProgressTextRuns(project)
+    const allLineGroups = splitRunsToLines(progressRuns)
+    const totalLines = allLineGroups.length
+    const remaining = MAX_LINES - currentLines
+
+    if (totalLines <= remaining) {
+      // 整个专案放得下
+      currentPage.push(makeProjectCells(project, idx, progressRuns))
+      currentLines += totalLines
+    } else {
+      // 需要拆分：先放能放下的行数
+      if (remaining > 0 && currentPage.length > 0) {
+        // 当前页放前 remaining 行
+        const firstPart = joinLines(allLineGroups.slice(0, remaining))
+        currentPage.push(makeProjectCells(project, idx, firstPart))
+        pages.push(currentPage)
+
+        // 剩余行按 MAX_LINES 继续拆
+        let offset = remaining
+        while (offset < totalLines) {
+          const chunk = allLineGroups.slice(offset, offset + MAX_LINES)
+          const chunkRuns = joinLines(chunk)
+          pages.push([makeProjectCells(project, idx, chunkRuns)])
+          offset += MAX_LINES
+        }
+        currentPage = []
+        currentLines = 0
+      } else {
+        // 当前页为空或剩余空间为0，直接按 MAX_LINES 拆
+        if (currentPage.length > 0) pages.push(currentPage)
+        let offset = 0
+        while (offset < totalLines) {
+          const chunk = allLineGroups.slice(offset, offset + MAX_LINES)
+          const chunkRuns = joinLines(chunk)
+          if (offset + MAX_LINES < totalLines) {
+            pages.push([makeProjectCells(project, idx, chunkRuns)])
+          } else {
+            // 最后一块放到新的 currentPage，后续专案可以接着放
+            currentPage = [makeProjectCells(project, idx, chunkRuns)]
+            currentLines = chunk.length
+          }
+          offset += MAX_LINES
+        }
+      }
+    }
+  })
+  if (currentPage.length > 0) pages.push(currentPage)
+  if (pages.length === 0) pages.push([])
 
   // ── 為每頁建立獨立 slide ──
-  let globalIdx = 0
-  for (let pageIdx = 0; pageIdx < chunks.length; pageIdx++) {
-    const pageProjects = chunks[pageIdx]
+  for (let pageIdx = 0; pageIdx < pages.length; pageIdx++) {
+    const pageRows = pages[pageIdx]
     const slide = pptx.addSlide()
 
-    // Logo（左上，高度與 header 行齊）
     if (logoBase64) {
       slide.addImage({ data: logoBase64, x: 0.12, y: 0.06, w: 2.3, h: 0.58 })
     }
 
-    // Title（居中，與 logo 同行垂直對齊）
     slide.addText(
       [{ text: `${department} (系統) – Overview`, options: { color: '0070C0', fontSize: 36, bold: true, fontFace: F } }],
       { x: 0, y: 0.0, w: 13.33, h: 0.72, align: 'center', valign: 'middle' },
     )
 
-    // Legend（右上，與 logo/title 同行）
     slide.addText(
       [
         { text: '●已完成', options: { color: '00B050', fontSize: 12, fontFace: F } },
@@ -387,28 +536,7 @@ async function exportWbsPptx(projects: WbsProject[], department = '資訊部') {
       { x: 9.8, y: 0.0, w: 3.5, h: 0.72, align: 'right', valign: 'middle' },
     )
 
-    // Table rows for this page
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const tableRows: any[] = [
-      headerRow,
-      ...pageProjects.map((project) => {
-        const idx = globalIdx++
-        const dotColor = _projectDotColor(project)
-        const cellMid = (extra: object = {}) => ({ valign: 'middle' as const, align: 'center' as const, fontSize: PPT_FONT_SIZE, fontFace: F, color: '000000', ...extra })
-        return [
-          { text: '●', options: cellMid({ color: dotColor, fill: { color: 'FFFFFF' } }) },
-          { text: String(idx + 1), options: cellMid() },
-          { text: project.name, options: cellMid({ align: 'left' as const }) },
-          { text: project.product_pm || project.pm, options: cellMid({ align: 'left' as const }) },
-          { text: project.pm, options: cellMid({ align: 'left' as const }) },
-          { text: project.start_date ?? '-', options: cellMid() },
-          { text: project.is_completed ? (project.end_time || project.expected_end || '-') : (project.expected_end || '-'), options: cellMid({ color: project.is_completed ? '16a34a' : '000000' }) },
-          { text: buildProgressTextRuns(project), options: { valign: 'top' as const, fontSize: PPT_FONT_SIZE, fontFace: F, color: '000000' } },
-        ]
-      }),
-    ]
-
-    slide.addTable(tableRows, {
+    slide.addTable([headerRow, ...pageRows], {
       x: 0.12, y: 0.78, w: 13.1,
       colW: [0.3, 0.3, 1.0, 1.6, 0.6, 0.85, 0.85, 7.25],
       border: { type: 'solid', color: 'B4C6E7', pt: 0.5 },
@@ -943,7 +1071,7 @@ const FunctionModule: React.FC<{
           ? <ChevronDownIcon className="w-3 h-3 text-slate-400 transition-transform" />
           : <ChevronRightIcon className="w-3 h-3 text-slate-400 transition-transform" />
         }
-        <span className="text-xs font-semibold text-slate-600">{func.name}</span>
+        <span className="text-xs font-semibold text-slate-600">{func.name === '__stage__' ? t('common.stageTask') : func.name}</span>
         <Progress
           percent={func.progress}
           size="small"
@@ -1458,7 +1586,7 @@ const ReportPreviewModal: React.FC<{
             sortedGroups.map(([grp, grpDuties]) => (
               <div key={grp}>
                 {grp !== '__nogroup__' && (
-                  <div style={{ fontWeight: 600, color: '#374151', paddingLeft: reqNm ? 12 : 0 }}>▸ {grp}</div>
+                  <div style={{ fontWeight: 600, color: '#374151', paddingLeft: reqNm ? 12 : 0 }}>▸ {grp === '__stage__' ? t('common.stageTask') : grp}</div>
                 )}
                 {grpDuties
                   .sort((a, b) => (a.expected_end_date ?? '').localeCompare(b.expected_end_date ?? ''))
@@ -1770,10 +1898,10 @@ const ReportPreviewModal: React.FC<{
                           if (section.kind === 'req') {
                             return (
                               <div key={section.key} style={{ marginBottom: 4 }}>
-                                <div style={{ fontWeight: 700, color: '#002FA7' }}>{num}. {section.name}</div>
+                                <div style={{ fontWeight: 700, color: '#002FA7' }}>{num}. {section.name === '__stage__' ? t('common.stageTaskPlain') : section.name}</div>
                                 {section.funcs.map((func) => (
                                   <div key={func.key} style={{ paddingLeft: 12 }}>
-                                    <div style={{ fontWeight: 600, color: '#374151' }}>▸ {func.name}</div>
+                                    <div style={{ fontWeight: 600, color: '#374151' }}>▸ {func.name === '__stage__' ? t('common.stageTaskPlain') : func.name}</div>
                                     {func.tasks.map((task) => renderTaskRow(task, 24))}
                                   </div>
                                 ))}
@@ -1782,7 +1910,7 @@ const ReportPreviewModal: React.FC<{
                           } else {
                             return (
                               <div key={section.key} style={{ marginBottom: 4 }}>
-                                <div style={{ fontWeight: 700, color: '#002FA7' }}>{num}. {section.name}</div>
+                                <div style={{ fontWeight: 700, color: '#002FA7' }}>{num}. {section.name === '__stage__' ? t('common.stageTaskPlain') : section.name}</div>
                                 {section.tasks.map((task) => renderTaskRow(task, 16))}
                               </div>
                             )
@@ -2068,7 +2196,7 @@ const DutyFunctionBlock: React.FC<{
         onClick={() => setOpen(!open)}
       >
         {open ? <ChevronDownIcon className="w-3 h-3 text-slate-400" /> : <ChevronRightIcon className="w-3 h-3 text-slate-400" />}
-        <span className="text-xs font-semibold text-slate-600">{groupNm}</span>
+        <span className="text-xs font-semibold text-slate-600">{groupNm === '__stage__' ? t('common.stageTask') : groupNm}</span>
         <Progress percent={progress} size="small"
           strokeColor={progress >= 100 ? '#16a34a' : progress >= 60 ? '#2563eb' : '#d97706'}
           trailColor="#e2e8f0" style={{ width: 60, marginBottom: 0 }} format={() => ''} />

@@ -75,7 +75,9 @@
     "expectedStartDate": "預計開始",
     "dateFormatYearMonth": "YYYY 年 M 月",
     "dateFormatFull": "YYYY 年 M 月 D 日",
-    "day": "天"
+    "day": "天",
+    "stageTask": "📋 阶段任务",
+    "stageTaskPlain": "阶段任务"
   },
   "nav": {
     "home": "首頁",
@@ -129,7 +131,9 @@
       "6": "完結審核",
       "7": "已完結",
       "8": "擱置",
-      "9": "刪除"
+      "9": "刪除",
+      "10": "排程安排",
+      "11": "排程審核"
     },
     "function": {
       "0": "草稿",
@@ -334,7 +338,9 @@
     "funcDescModalTitle": "功能描述",
     "progressNoteModalTitle": "進度說明",
     "richTextApplied": "已套用富文本格式，點擊「展開富文本編輯」可繼續修改",
-    "notFound": "功能資料不存在"
+    "notFound": "功能資料不存在",
+    "setEndDate": "設定預計完成時間",
+    "endDateSet": "預計完成時間已設定"
   },
   "duty": {
     "title": "任務列表",
@@ -2025,7 +2031,8 @@
       "design": "設計文件",
       "progress": "進度文件",
       "other": "其他文件"
-    }
+    },
+    "stageTaskGroup": "📋 阶段任务"
   },
   "projectReport": {
     "subtotal": "小計",
