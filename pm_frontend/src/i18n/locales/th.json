@@ -77,7 +77,8 @@
     "dateFormatFull": "D MMM YYYY",
     "day": "วัน",
     "stageTask": "📋 งานระยะ",
-    "stageTaskPlain": "งานระยะ"
+    "stageTaskPlain": "งานระยะ",
+    "creator": "ผู้สร้าง"
   },
   "nav": {
     "home": "หน้าหลัก",

@@ -77,7 +77,8 @@
     "dateFormatFull": "MMM D, YYYY",
     "day": "d",
     "stageTask": "📋 Stage Tasks",
-    "stageTaskPlain": "Stage Tasks"
+    "stageTaskPlain": "Stage Tasks",
+    "creator": "Creator"
   },
   "nav": {
     "home": "Home",

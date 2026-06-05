@@ -77,7 +77,8 @@
     "dateFormatFull": "YYYY 年 M 月 D 日",
     "day": "天",
     "stageTask": "📋 阶段任务",
-    "stageTaskPlain": "阶段任务"
+    "stageTaskPlain": "阶段任务",
+    "creator": "建立者"
   },
   "nav": {
     "home": "首頁",

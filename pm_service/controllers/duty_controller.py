@@ -453,7 +453,7 @@ class DutyController:
         # 延期通知：责任人操作 → 通知建立人 + 其他责任人；建立人操作 → 通知所有责任人
         from controllers.notification_controller import push_notification
         from dbs.mysql_db.model_tables import UserProfileModel as _UPM
-        op_u = db.session.query(_UPM).filter(db.func.lower(UserProfileModel.work_no) == (operator or "").lower()).first()
+        op_u = db.session.query(_UPM).filter(db.func.lower(_UPM.work_no) == (operator or "").lower()).first()
         op_nm = op_u.name if op_u else operator
         notif_msg = f"「{d.duty_nm}」已延期至 {new_end_date}，原因：{reason}，操作人：{op_nm}"
         if is_responsible and not is_creator:

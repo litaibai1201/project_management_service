@@ -370,7 +370,7 @@ const RequirementListPage: React.FC = () => {
       render: (v: string) => <DaysLeftBadge date={v} />,
     },
     {
-      title: t('user.name'), dataIndex: 'creator_nm', width: 90,
+      title: t('common.creator'), dataIndex: 'creator_nm', width: 90,
       render: (v: string, r: StandaloneReq) => (
         <span className="text-slate-500 text-sm">{v || toName(r.creator) || r.creator}</span>
       ),
