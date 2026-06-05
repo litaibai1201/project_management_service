@@ -203,6 +203,7 @@ const MemberProgressTab: React.FC<{ data: MemberReportStat[] }> = ({ data }) => 
   const summary = useMemo(() => ({
     members:     data.length,
     total:       data.reduce((s, r) => s + r.total, 0),
+    draft:       data.reduce((s, r) => s + (r.draft || 0), 0),
     not_started: data.reduce((s, r) => s + r.not_started, 0),
     in_progress: data.reduce((s, r) => s + r.in_progress, 0),
     completed:   data.reduce((s, r) => s + r.completed, 0),
@@ -212,10 +213,10 @@ const MemberProgressTab: React.FC<{ data: MemberReportStat[] }> = ({ data }) => 
   const rate = summary.total > 0 ? Math.round(summary.completed / summary.total * 1000) / 10 : 0
 
   const onExport = () => {
-    const rows = data.map((r) => [r.name, r.total, r.not_started, r.in_progress, r.completed, r.shelved, r.completion_rate])
-    rows.push([t('projectReport.subtotal'), summary.total, summary.not_started, summary.in_progress, summary.completed, summary.shelved, rate])
-    downloadXlsx(t('projectReport.memberProgressReport'), [t('projectReport.member'), t('projectReport.totalTasks'), t('projectReport.notStarted'), t('projectReport.inProgress'), t('projectReport.completed'), t('projectReport.shelved'), t('projectReport.completionRatePct')],
-      rows, t('projectReport.memberProgressReport'), [16, 10, 10, 10, 10, 8, 12])
+    const rows = data.map((r) => [r.name, r.total, r.draft || 0, r.not_started, r.in_progress, r.completed, r.shelved, r.completion_rate])
+    rows.push([t('projectReport.subtotal'), summary.total, summary.draft, summary.not_started, summary.in_progress, summary.completed, summary.shelved, rate])
+    downloadXlsx(t('projectReport.memberProgressReport'), [t('projectReport.member'), t('projectReport.totalTasks'), t('projectReport.draft'), t('projectReport.notStarted'), t('projectReport.inProgress'), t('projectReport.completed'), t('projectReport.shelved'), t('projectReport.completionRatePct')],
+      rows, t('projectReport.memberProgressReport'), [16, 10, 8, 10, 10, 10, 8, 12])
   }
 
   const rawColumns: ColumnsType<MemberReportStat> = [
@@ -228,6 +229,8 @@ const MemberProgressTab: React.FC<{ data: MemberReportStat[] }> = ({ data }) => 
       ) },
     { title: t('projectReport.totalTasks'), dataIndex: 'total', width: 100, align: 'center',
       render: (v: number) => <span className="text-blue-500 font-medium">{v}</span> },
+    { title: t('projectReport.draft'), dataIndex: 'draft', width: 80, align: 'center',
+      render: (v: number) => <span className={v > 0 ? 'text-slate-500' : 'text-slate-400'}>{v || 0}</span> },
     { title: t('projectReport.notStarted'), dataIndex: 'not_started', width: 80, align: 'center',
       render: (v: number) => <span className="text-blue-400">{v}</span> },
     { title: t('projectReport.inProgress'), dataIndex: 'in_progress', width: 80, align: 'center',
@@ -251,6 +254,7 @@ const MemberProgressTab: React.FC<{ data: MemberReportStat[] }> = ({ data }) => 
       <div className="bg-white border border-slate-100 rounded-xl mb-4 flex items-center">
         <StatCard label={t('projectReport.member')} value={summary.members} />
         <StatCard label={t('projectReport.totalTasks')} value={summary.total} />
+        <StatCard label={t('projectReport.draft')} value={summary.draft} />
         <StatCard label={t('projectReport.notStarted')} value={summary.not_started} />
         <StatCard label={t('projectReport.inProgress')} value={summary.in_progress} color="#f59e0b" />
         <StatCard label={t('projectReport.completed')} value={summary.completed} color="#16a34a" />

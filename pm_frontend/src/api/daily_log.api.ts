@@ -264,6 +264,9 @@ export const dailyLogApi = {
   /** POST /api/daily_log/sync_task_progress  — 將日誌中的進度值同步到任務表 */
   syncTaskProgress: (taskType: 'project' | 'duty', taskId: string, progress: number): Promise<ApiResponse<null>> =>
     post('/daily_log/sync_task_progress', { task_type: taskType, task_id: taskId, progress }),
+
+  revertTaskProgress: (taskType: 'project' | 'duty', taskId: string): Promise<ApiResponse<null>> =>
+    post('/daily_log/revert_task_progress', { task_type: taskType, task_id: taskId }),
 }
 
 /** 任務進度頁面使用：日誌中手動新增或更新的任務條目 */
@@ -305,6 +308,8 @@ export interface SuggestItem {
   expected_end_date?:   string
   /** 原始提交人工號（合作人視角時與當前用戶不同） */
   submitter?: string
+  is_overtime?:     boolean
+  overtime_hours?:  number
   system_id?: string
   system_nm?: string
   requirement_nm?: string

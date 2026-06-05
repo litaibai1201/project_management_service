@@ -224,6 +224,8 @@ class DailyLogController:
                 "work_hours":          float(r.time_consum or 0),
                 "description":         r.progress_record or "",
                 "progress":            int(r.progress or 0),
+                "is_overtime":         bool(r.is_overtime) if hasattr(r, 'is_overtime') else False,
+                "overtime_hours":      float(r.overtime_hours or 0) if hasattr(r, 'overtime_hours') else 0,
                 "files":               files,
                 "suggest_id":          r.progress_id,
                 "record_time":         str(r.created_at)[11:16] if r.created_at else None,
@@ -275,6 +277,8 @@ class DailyLogController:
                 "work_hours":  float(r.time_consum or 0),
                 "description": r.progress_record or "",
                 "progress":    int(current_progress) if current_progress is not None else None,
+                "is_overtime":     bool(r.is_overtime) if hasattr(r, 'is_overtime') else False,
+                "overtime_hours":  float(r.overtime_hours or 0) if hasattr(r, 'overtime_hours') else 0,
                 "files":       files,
                 "suggest_id":  r.id,
                 "record_time": str(r.created_at)[11:16] if r.created_at else None,
@@ -318,6 +322,69 @@ class DailyLogController:
                         "work_no":    doc["work_no"],
                     })
         return result
+
+    # ─── 回滚任务进度（删除日志条目后调用）──────────────────────────────────
+    def revert_task_progress(self, task_type: str, task_id: str):
+        """
+        日志条目被删除后，从进度记录表 + 剩余日志条目中取最新进度写回任务表。
+        若找不到任何记录则回滚为 0。
+        """
+        from dbs.mysql_db.model_tables import ProgressRecordDataModel, DutyProgressRecordModel
+        latest_progress = None
+
+        if task_type == "project":
+            # 从进度记录表取最新
+            rec = (db.session.query(ProgressRecordDataModel.progress)
+                   .filter_by(function_id=task_id)
+                   .order_by(ProgressRecordDataModel.created_at.desc())
+                   .first())
+            if rec:
+                latest_progress = int(rec.progress)
+            # 从 MongoDB 日志条目取最新
+            col = _col()
+            pipeline = [
+                {"$match": {"status": 1, "task_items.task_id": task_id}},
+                {"$unwind": "$task_items"},
+                {"$match": {"task_items.task_id": task_id}},
+                {"$sort": {"log_date": -1, "updated_at": -1}},
+                {"$limit": 1},
+                {"$project": {"progress": "$task_items.progress"}},
+            ]
+            for doc in col.aggregate(pipeline):
+                p = doc.get("progress")
+                if p is not None and (latest_progress is None or int(p) > latest_progress):
+                    latest_progress = int(p)
+
+            func = db.session.query(FunctionDataModel).filter_by(id=task_id).first()
+            if func:
+                func.progress = latest_progress if latest_progress is not None else 0
+                db.session.commit()
+
+        elif task_type == "duty":
+            rec = (db.session.query(DutyProgressRecordModel.progress)
+                   .filter_by(duty_id=task_id)
+                   .order_by(DutyProgressRecordModel.created_at.desc())
+                   .first())
+            if rec:
+                latest_progress = int(rec.progress)
+            col = _col()
+            pipeline = [
+                {"$match": {"status": 1, "task_items.task_id": task_id}},
+                {"$unwind": "$task_items"},
+                {"$match": {"task_items.task_id": task_id}},
+                {"$sort": {"log_date": -1, "updated_at": -1}},
+                {"$limit": 1},
+                {"$project": {"progress": "$task_items.progress"}},
+            ]
+            for doc in col.aggregate(pipeline):
+                p = doc.get("progress")
+                if p is not None and (latest_progress is None or int(p) > latest_progress):
+                    latest_progress = int(p)
+
+            duty = db.session.query(TemporaryDutyModel).filter_by(id=task_id).first()
+            if duty:
+                duty.progress = latest_progress if latest_progress is not None else 0
+                db.session.commit()
 
     # ─── 同步任务进度字段 ─────────────────────────────────────────────────
     def sync_task_progress(self, task_type: str, task_id: str, progress: int):

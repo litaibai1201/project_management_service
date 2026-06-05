@@ -563,7 +563,7 @@
     "name": "ชื่อระบบ",
     "code": "รหัสระบบ",
     "description": "คำอธิบาย",
-    "requirements": "ข้อกำหนด",
+    "requirements": "รายการข้อกำหนด",
     "arTasks": "งาน AR",
     "flat": "แบบแบน",
     "grouped": "จัดกลุ่ม",

@@ -26,6 +26,7 @@ export interface LoginContent {
   access_token: string
   work_no: string
   name: string
+  department: string
   role_code: string | null
   role_name: string | null
   is_supervisor: boolean
@@ -255,6 +256,8 @@ export interface CreateProgressPayload {
   time_consum?: number
   cooperator?: string[]
   start_time?: string
+  is_overtime?: boolean
+  overtime_hours?: number
 }
 
 export interface FileInfo {

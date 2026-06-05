@@ -563,7 +563,7 @@
     "name": "System Name",
     "code": "System Code",
     "description": "Description",
-    "requirements": "Requirements",
+    "requirements": "Requirement List",
     "arTasks": "AR Tasks",
     "flat": "Flat",
     "grouped": "Grouped",

@@ -7,6 +7,7 @@ interface AuthState {
   token:          string | null
   workNo:         string | null
   name:           string | null
+  department:     string | null
   roleCode:       string | null
   roleName:       string | null
   isSupervisor:   boolean
@@ -23,6 +24,7 @@ const initialState: AuthState = {
   token:          tokenStorage.get(),
   workNo:         _savedUser?.workNo       ?? null,
   name:           _savedUser?.name         ?? null,
+  department:     _savedUser?.department   ?? null,
   roleCode:       _savedUser?.roleCode     ?? null,
   roleName:       _savedUser?.roleName     ?? null,
   isSupervisor:   _savedUser?.isSupervisor ?? false,
@@ -69,6 +71,7 @@ const authSlice = createSlice({
       state.token         = null
       state.workNo        = null
       state.name          = null
+      state.department    = null
       state.roleCode      = null
       state.roleName      = null
       state.isSupervisor  = false
@@ -96,6 +99,7 @@ const authSlice = createSlice({
         state.token         = action.payload.access_token
         state.workNo        = action.payload.work_no
         state.name          = action.payload.name
+        state.department    = action.payload.department ?? null
         state.roleCode      = action.payload.role_code
         state.roleName      = action.payload.role_name
         state.isSupervisor  = action.payload.is_supervisor ?? false
@@ -105,6 +109,7 @@ const authSlice = createSlice({
         userStorage.set({
           workNo:       action.payload.work_no,
           name:         action.payload.name,
+          department:   action.payload.department ?? '',
           roleCode:     action.payload.role_code,
           roleName:     action.payload.role_name,
           isSupervisor: action.payload.is_supervisor ?? false,

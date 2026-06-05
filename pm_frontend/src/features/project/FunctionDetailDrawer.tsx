@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react'
 import {
-  Drawer, Descriptions, Progress, Button, Form, Input, InputNumber,
+  Drawer, Descriptions, Progress, Button, Form, Input, InputNumber, Switch,
   Timeline, Avatar, Typography, Tag, Upload, Spin, Divider, Steps, Select, Modal, Popover, Tooltip, Popconfirm,
 } from 'antd'
 import { PlusIcon, PaperClipIcon, PencilSquareIcon, CalendarDaysIcon, ArrowsPointingOutIcon } from '@heroicons/react/24/outline'
@@ -226,6 +226,8 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
         progress_record: values.progress_record as string | undefined,
         time_consum:     values.time_consum as number | undefined,
         cooperator:      values.cooperator as string[] | undefined,
+        is_overtime:     (values.is_overtime as boolean) ?? false,
+        overtime_hours:  (values.is_overtime as boolean) ? (values.overtime_hours as number ?? values.time_consum as number ?? 0) : 0,
       }, Object.keys(files).length > 0 ? files : undefined)
       showToast.success(t('function.progressUpdateSuccess'))
       setShowForm(false); form.resetFields(); setFileList([])
@@ -296,8 +298,8 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
   const isStageTask       = funcData?.group1 === '__stage__'
   // 草稿任务不可更新进度；阶段任务在任何非完结阶段都可；普通任务仅执行中阶段
   const canUpdateProgress = !isDraft && !isCompleted && !isReviewing && isResponsible && (isStageTask || projectStatus === 5)
-  // 草稿和阶段任务不允许编辑全部字段
-  const canEdit           = isProjectPm && !isDraft && !isCompleted && !isStageTask
+  // 阶段任务不允许编辑全部字段；草稿任务允许编辑
+  const canEdit           = isProjectPm && !isCompleted && !isStageTask
   // 阶段任务：PM或负责人可以设定预计完成时间
   const canSetEndDate     = isStageTask && !isCompleted && (isProjectPm || isResponsible)
   const canHold           = !!projectPm && workNo.toLowerCase() === projectPm.toLowerCase() && projectStatus === 5
@@ -503,6 +505,18 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
                   </Form.Item>
                   <Form.Item name="time_consum" label={t('function.timeConsumed')}>
                     <InputNumber min={0} step={0.5} style={{ width: '100%' }} addonAfter="h" />
+                  </Form.Item>
+                </div>
+                <div className="grid grid-cols-2 gap-x-3">
+                  <Form.Item name="is_overtime" label={t('dailyLog.isOvertime')} valuePropName="checked">
+                    <Switch />
+                  </Form.Item>
+                  <Form.Item noStyle shouldUpdate={(prev, cur) => prev.is_overtime !== cur.is_overtime}>
+                    {({ getFieldValue }) => getFieldValue('is_overtime') ? (
+                      <Form.Item name="overtime_hours" label={t('dailyLog.overtimeHours')}>
+                        <InputNumber min={0} step={0.5} style={{ width: '100%' }} addonAfter="h" />
+                      </Form.Item>
+                    ) : null}
                   </Form.Item>
                 </div>
                 <Form.Item

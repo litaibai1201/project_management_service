@@ -1923,7 +1923,7 @@ class ProjectController:
         ).all()
 
         stats_map: dict = defaultdict(lambda: {
-            "total": 0, "not_started": 0, "in_progress": 0, "completed": 0,
+            "total": 0, "draft": 0, "not_started": 0, "in_progress": 0, "completed": 0,
             "shelved": 0, "overdue_incomplete": 0, "overdue_complete": 0,
         })
 
@@ -1949,7 +1949,9 @@ class ProjectController:
                 all_work_nos.add(wn)
                 s = stats_map[wn]
                 s["total"] += 1
-                if f.function_status == 4:
+                if f.function_status == 0:
+                    s["draft"] += 1
+                elif f.function_status == 4:
                     s["completed"] += 1
                     if orig_end and orig_end < today:
                         s["overdue_complete"] += 1
@@ -1976,7 +1978,9 @@ class ProjectController:
                 all_work_nos.add(wn)
                 s = stats_map[wn]
                 s["total"] += 1
-                if d.duty_status == 3:
+                if d.duty_status == 0:
+                    s["draft"] += 1
+                elif d.duty_status == 3:
                     s["completed"] += 1
                     if orig_end and orig_end < today:
                         s["overdue_complete"] += 1
@@ -1986,7 +1990,7 @@ class ProjectController:
                         s["overdue_incomplete"] += 1
                 elif d.duty_status == 8:
                     s["shelved"] += 1
-                else:  # 0=草稿
+                else:
                     s["not_started"] += 1
                     if is_past_due:
                         s["overdue_incomplete"] += 1
@@ -2009,6 +2013,7 @@ class ProjectController:
                 "work_no":           wn,
                 "name":              name_map.get(wn.lower(), wn),
                 "total":             total,
+                "draft":             st["draft"],
                 "pending":           pending,
                 "not_started":       st["not_started"],
                 "in_progress":       st["in_progress"],
@@ -2609,6 +2614,8 @@ class FunctionController:
             submitter=(submitter or "").strip().lower(),
             cooperator=json.dumps(devs, ensure_ascii=False),
             time_consum=payload.get("time_consum", 0),
+            is_overtime=str(payload.get("is_overtime", "")).lower() in ("true", "1", "yes"),
+            overtime_hours=float(payload.get("overtime_hours", 0) or 0),
         )
         # Save attachments
         if files:

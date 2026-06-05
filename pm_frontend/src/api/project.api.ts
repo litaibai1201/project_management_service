@@ -29,6 +29,7 @@ export interface MemberReportStat {
   work_no:            string
   name:               string
   total:              number
+  draft:              number
   pending:            number
   not_started:        number
   in_progress:        number

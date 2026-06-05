@@ -614,8 +614,9 @@ export { SelfReportView, WORK_CATEGORIES, CATEGORY_MAP, fmtH }
 
 const DailyLogPage: React.FC = () => {
   const { t } = useTranslation()
-  const workNo   = useAppSelector((s) => s.auth.workNo)
-  const userName = useAppSelector((s) => s.auth.name)
+  const workNo     = useAppSelector((s) => s.auth.workNo)
+  const userName   = useAppSelector((s) => s.auth.name)
+  const department = useAppSelector((s) => s.auth.department)
   const toName   = useWorkNoToName()
   // Mock: role-based daily log requirement
   // In production this comes from user profile / API
@@ -719,12 +720,13 @@ const DailyLogPage: React.FC = () => {
     if (functionsMap[selectedProject]) return  // already cached
     projectApi.functionList(selectedProject, { page: 1, size: 200 })
       .then((res) => {
-        type RawFunc = { id: string; function_nm: string; status?: number; requirement_nm?: string; group1?: string; group2?: string; expected_start_date?: string; expected_end_date?: string }
+        type RawFunc = { id: string; function_nm: string; status?: number; end_time?: string; requirement_nm?: string; group1?: string; group2?: string; expected_start_date?: string; expected_end_date?: string }
         const list = (res.content as { data_list?: RawFunc[] })?.data_list ?? []
+        const today = dayjs().format('YYYY-MM-DD')
         setFunctionsMap((prev) => ({
           ...prev,
           [selectedProject]: list
-            .filter((f) => f.status == null || ![4, 9].includes(f.status))
+            .filter((f) => f.status == null || ([0, 9].includes(f.status!) ? false : f.status !== 4 || (f.end_time ?? '').slice(0, 10) === today))
             .map((f) => ({
               id: f.id, name: f.function_nm,
               requirement_nm: f.requirement_nm || undefined,
@@ -743,11 +745,12 @@ const DailyLogPage: React.FC = () => {
     if (systemDutiesMap[selectedSystem]) return
     dutyApi.list({ page: 1, size: 200, system_id: selectedSystem })
       .then((res) => {
-        const list = (res.content as { data_list?: { id: string; duty_nm: string; status?: number; requirement_nm?: string; group?: string; expected_start_date?: string; expected_end_date?: string }[] })?.data_list ?? []
+        const list = (res.content as { data_list?: { id: string; duty_nm: string; status?: number; end_time?: string; requirement_nm?: string; group?: string; expected_start_date?: string; expected_end_date?: string }[] })?.data_list ?? []
+        const todayStr = dayjs().format('YYYY-MM-DD')
         setSystemDutiesMap((prev) => ({
           ...prev,
           [selectedSystem]: list
-            .filter((d) => d.status == null || [0, 1, 6].includes(d.status))
+            .filter((d) => d.status == null || ([0, 9].includes(d.status!) ? false : d.status !== 3 || (d.end_time ?? '').slice(0, 10) === todayStr))
             .map((d) => ({
               id: d.id, name: d.duty_nm,
               requirement_nm: d.requirement_nm || undefined,
@@ -821,8 +824,8 @@ const DailyLogPage: React.FC = () => {
                 description:          item.description,
                 hours:         item.work_hours || 0,
                 progress:      item.progress,
-                is_overtime:   false,
-                overtime_hours: 0,
+                is_overtime:   item.is_overtime ?? false,
+                overtime_hours: item.overtime_hours ?? 0,
                 source:           'progress' as const,
                 files:            item.files?.length ? item.files : undefined,
                 suggest_id:       item.suggest_id,
@@ -952,16 +955,35 @@ const DailyLogPage: React.FC = () => {
       setEditingEntry(entry)
       const projId = entry.project_id ?? null
       setSelectedProject(projId)
+      // Ensure the project option is present (e.g. from a progress-synced entry)
+      if (projId && entry.project_nm) {
+        setProjectOpts((prev) =>
+          prev.some((p) => p.id === projId)
+            ? prev
+            : [...prev, { id: projId, name: entry.project_nm! }]
+        )
+      }
       // Eagerly load function list if not yet cached (needed for suggest entries)
+      const ensureFuncOption = () => {
+        if (entry.function_id && entry.function_nm && projId) {
+          setFunctionsMap((prev) => {
+            const list = prev[projId] ?? []
+            return list.some((f) => f.id === entry.function_id)
+              ? prev
+              : { ...prev, [projId]: [...list, { id: entry.function_id!, name: entry.function_nm! }] }
+          })
+        }
+      }
       if (projId && !functionsMap[projId]) {
         projectApi.functionList(projId, { page: 1, size: 200 })
           .then((res) => {
-            type RawFunc = { id: string; function_nm: string; status?: number; group1?: string; group2?: string; expected_start_date?: string; expected_end_date?: string }
+            type RawFunc = { id: string; function_nm: string; status?: number; end_time?: string; group1?: string; group2?: string; expected_start_date?: string; expected_end_date?: string }
             const list = (res.content as { data_list?: RawFunc[] })?.data_list ?? []
+            const today = dayjs().format('YYYY-MM-DD')
             setFunctionsMap((prev) => ({
               ...prev,
               [projId]: list
-                .filter((f) => f.status == null || ![4, 9].includes(f.status))
+                .filter((f) => f.status == null || ([0, 9].includes(f.status!) ? false : f.status !== 4 || (f.end_time ?? '').slice(0, 10) === today))
                 .map((f) => ({
                   id: f.id, name: f.function_nm,
                   group1: f.group1, group2: f.group2,
@@ -969,8 +991,11 @@ const DailyLogPage: React.FC = () => {
                   expected_end_date: f.expected_end_date,
                 })),
             }))
+            ensureFuncOption()
           })
           .catch(() => {})
+      } else {
+        ensureFuncOption()
       }
       // Ensure the duty option is present even if it wasn't in the initial list
       // (e.g. duty with a non-active status, or duty from a suggest entry)
@@ -1017,6 +1042,7 @@ const DailyLogPage: React.FC = () => {
       setEditingEntry(null)
       setSelectedProject(null)
       form.resetFields()
+      if (department) form.setFieldsValue({ bu_unit: department })
     }
     setFileList([])
     setSyncProgress(true)
@@ -1278,6 +1304,13 @@ const DailyLogPage: React.FC = () => {
       dailyLogApi.update(log.log_id, {
         task_items: backendPayload.task_items,
         free_items: backendPayload.free_items,
+      }).then(() => {
+        // 删除条目后回滚关联任务的进度
+        if (target?.function_id) {
+          dailyLogApi.revertTaskProgress('project', target.function_id).catch(() => {})
+        } else if (target?.duty_id) {
+          dailyLogApi.revertTaskProgress('duty', target.duty_id).catch(() => {})
+        }
       }).catch(() => {})
     }
   }

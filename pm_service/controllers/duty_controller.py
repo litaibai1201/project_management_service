@@ -804,6 +804,8 @@ class DutyController:
             submitter=submitter,
             cooperator=json.dumps(payload.get("cooperator", []), ensure_ascii=False),
             time_consum=payload.get("time_consum", 0),
+            is_overtime=str(payload.get("is_overtime", "")).lower() in ("true", "1", "yes"),
+            overtime_hours=float(payload.get("overtime_hours", 0) or 0),
             start_time=payload.get("start_time", ""),
         )
         if files:

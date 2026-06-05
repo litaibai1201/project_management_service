@@ -70,8 +70,8 @@ const DutyListPage: React.FC = () => {
   const [myFunctions,    setMyFunctions]    = useState<MyFunction[]>([])
   const [myFuncLoading,  setMyFuncLoading]  = useState(false)
   const [myFuncPage,     setMyFuncPage]     = useState(1)
-  const [myFuncPageSize, setMyFuncPageSize] = useState(20)
-  const [myFuncTotal,    setMyFuncTotal]    = useState(0)
+  const [myFuncPageSize, setMyFuncPageSize] = useState(200)
+  const [, setMyFuncTotal] = useState(0)
   const myFuncScope: 'supervisor' | 'all' = isManagerView ? 'supervisor' : 'all'
   const [myFuncView,        setMyFuncView]        = useState<'flat' | 'grouped'>('flat')
   const [myFuncPersonal,    setMyFuncPersonal]    = useState<'all' | 'mine'>('all')
@@ -704,7 +704,7 @@ const DutyListPage: React.FC = () => {
       <Tabs activeKey={activeTab} onChange={(k) => setActiveTab(k as 'project' | 'system' | 'duty')} items={[
         {
           key: 'project',
-          label: `${t('duty.projectTask')} (${myFuncTotal})`,
+          label: `${t('duty.projectTask')} (${filteredMyFunctions.length})`,
           children: (
             <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: 0 } }}>
               <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-slate-100">
@@ -822,7 +822,7 @@ const DutyListPage: React.FC = () => {
         },
         {
           key: 'system',
-          label: `${t('duty.systemTask')} (${sysTaskList.length})`,
+          label: `${t('duty.systemTask')} (${displayedSysTasks.length})`,
           children: (
             <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: 0 } }}>
               <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-slate-100">

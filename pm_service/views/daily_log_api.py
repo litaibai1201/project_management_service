@@ -80,6 +80,22 @@ class DailyLogSyncTaskProgressApi(MethodView):
         return response_result()
 
 
+@blp.route("/revert_task_progress")
+class DailyLogRevertTaskProgressApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def post(self):
+        """删除日志条目后回滚任务进度"""
+        payload = request.get_json() or {}
+        task_type = payload.get("task_type")
+        task_id   = payload.get("task_id")
+        if not task_type or not task_id:
+            from utils.exceptions import ValidationException
+            raise ValidationException(msg="task_type / task_id 不能为空")
+        ctrl.revert_task_progress(task_type, task_id)
+        return response_result()
+
+
 @blp.route("/<string:log_id>")
 class DailyLogDetailApi(MethodView):
     @jwt_required()

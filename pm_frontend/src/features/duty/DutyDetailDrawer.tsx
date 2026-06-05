@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import {
-  Drawer, Descriptions, Button, Tag, Progress, Spin, Empty, Avatar,
+  Drawer, Descriptions, Button, Tag, Progress, Spin, Empty, Avatar, Switch,
   Typography, Space, Form, Input, InputNumber, Upload, Timeline,
   Card, Steps, Modal, Select, Popconfirm, AutoComplete, Tooltip, Divider,
 } from 'antd'
@@ -372,6 +372,8 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
         time_consum: values.time_consum,
         cooperator: values.cooperator,
         submitter: workNo,
+        is_overtime: (values.is_overtime as boolean) ?? false,
+        overtime_hours: (values.is_overtime as boolean) ? (values.overtime_hours as number ?? values.time_consum as number ?? 0) : 0,
       }, Object.keys(files).length > 0 ? files : undefined)
       showToast.success(t('duty.detail.progressUpdated'))
       setShowForm(false); form.resetFields(); setFileList([])
@@ -602,6 +604,18 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
                     </Form.Item>
                     <Form.Item name="time_consum" label={t('duty.detail.timeConsumed')}>
                       <InputNumber min={0} step={0.5} style={{ width: '100%' }} addonAfter="h" />
+                    </Form.Item>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-3">
+                    <Form.Item name="is_overtime" label={t('dailyLog.isOvertime')} valuePropName="checked">
+                      <Switch />
+                    </Form.Item>
+                    <Form.Item noStyle shouldUpdate={(prev, cur) => prev.is_overtime !== cur.is_overtime}>
+                      {({ getFieldValue }) => getFieldValue('is_overtime') ? (
+                        <Form.Item name="overtime_hours" label={t('dailyLog.overtimeHours')}>
+                          <InputNumber min={0} step={0.5} style={{ width: '100%' }} addonAfter="h" />
+                        </Form.Item>
+                      ) : null}
                     </Form.Item>
                   </div>
                   <Form.Item

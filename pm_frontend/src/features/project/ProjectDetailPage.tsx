@@ -1111,7 +1111,8 @@ const ProjectDetailPage: React.FC = () => {
     {
       title: t('common.operation'), key: 'action', width: isPm ? 110 : 80, fixed: 'right',
       render: (_: unknown, record) => {
-        const canModifyTask = [3, 10].includes(current?.status ?? 0)
+        const isDraft = record.status === 0
+        const canModifyTask = [3, 10].includes(current?.status ?? 0) || isDraft
         const isStage = record.group1 === '__stage__'
         return (
           <Space size={0}>
@@ -1588,7 +1589,7 @@ const ProjectDetailPage: React.FC = () => {
           },
           {
             key: 'functions',
-            label: `${t('project.functions')} (${functions.length})`,
+            label: `${t('project.functions')} (${funcView === 'mine' ? myFunctions.length : funcTotal})`,
             children: (
               <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: 0 } }}>
                 <div className="flex justify-between items-center px-4 py-3 border-b border-slate-100">
@@ -1598,7 +1599,7 @@ const ProjectDetailPage: React.FC = () => {
                       value={funcView}
                       onChange={(v) => setFuncView(v as 'all' | 'mine')}
                       options={[
-                        { label: `${t('common.all')} (${functions.length})`, value: 'all'  },
+                        { label: `${t('common.all')} (${funcTotal})`, value: 'all'  },
                         { label: `${t('common.mine')} (${myFunctions.length})`, value: 'mine' },
                       ]}
                     />
@@ -1647,7 +1648,13 @@ const ProjectDetailPage: React.FC = () => {
                       components={tableComponents}
                       loading={funcLoading} size="middle" scroll={{ x: 900 }}
                       rowSelection={makeDraftRowSelection(displayedFunctions)}
-                      pagination={{
+                      pagination={funcView === 'mine' ? {
+                        pageSize: funcPageSize,
+                        showSizeChanger: true,
+                        pageSizeOptions: ['20', '50', '100', '200'],
+                        showTotal: (total) => t('projectDetail.totalItems', { count: total }),
+                        onShowSizeChange: (_, size) => setFuncPageSize(size),
+                      } : {
                         current: funcPage,
                         pageSize: funcPageSize,
                         total: funcTotal,

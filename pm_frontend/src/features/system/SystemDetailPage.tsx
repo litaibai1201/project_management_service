@@ -1377,7 +1377,7 @@ const groupedByReq = useMemo(() => {
           </Form.Item>
           <div className="flex justify-end gap-3">
             <Button onClick={() => { setShowCreate(false); createForm.resetFields() }}>{t('common.cancel')}</Button>
-            <Button type="primary" htmlType="submit" loading={createSaving} style={{ background: '#2563eb' }}>{t('system.create')}</Button>
+            <Button type="primary" htmlType="submit" loading={createSaving} style={{ background: '#2563eb' }}>{t('system.createBtn')}</Button>
           </div>
         </Form>
       </Modal>

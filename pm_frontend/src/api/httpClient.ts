@@ -17,6 +17,7 @@ export const tokenStorage = {
 interface StoredUser {
   workNo:       string
   name:         string
+  department?:  string
   roleCode:     string | null
   roleName:     string | null
   isSupervisor: boolean

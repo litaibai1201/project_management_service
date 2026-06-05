@@ -442,7 +442,7 @@ export interface ExportDailyReportOptions {
 }
 
 const CATEGORY_LABEL: Record<string, string> = {
-  cr_ar: 'CR/AR', training: '教育訓練', meeting: '週會/月會',
+  cr_ar: 'CR/AR', training: '教育訓練', meeting: '工作會議',
   other: '其他', management: '管理', overtime: '加班',
 }
 

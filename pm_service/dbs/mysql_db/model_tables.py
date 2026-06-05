@@ -393,6 +393,8 @@ class ProgressRecordDataModel(BaseMixinModel):
     submitter = db.Column(db.String(32), nullable=False)
     cooperator = db.Column(db.Text, comment="协作人(JSON数组)")
     time_consum = db.Column(db.Float, default=0)
+    is_overtime = db.Column(db.Boolean, default=False, comment="是否加班")
+    overtime_hours = db.Column(db.Float, default=0, comment="加班工时")
     is_read = db.Column(db.Integer, default=0)
     files_json = db.Column(db.Text, comment="附件信息(JSON数组)")
 
@@ -422,6 +424,7 @@ class ProgressRecordDataModel(BaseMixinModel):
             "progress_id": self.progress_id, "progress": self.progress,
             "progress_record": self.progress_record or "", "submitter": self.submitter,
             "cooperator": coops, "time_consum": self.time_consum or 0,
+            "is_overtime": bool(self.is_overtime), "overtime_hours": float(self.overtime_hours or 0),
             "created_at": self.created_at,
             "files": files,
         }
@@ -589,6 +592,8 @@ class DutyProgressRecordModel(BaseMixinModel):
     submitter = db.Column(db.String(32), nullable=False)
     cooperator = db.Column(db.Text, comment="协作人(JSON数组)")
     time_consum = db.Column(db.Float, default=0)
+    is_overtime = db.Column(db.Boolean, default=False, comment="是否加班")
+    overtime_hours = db.Column(db.Float, default=0, comment="加班工时")
     start_time = db.Column(db.String(10))
     is_read = db.Column(db.Integer, default=0)
     files_json = db.Column(db.Text, comment="附件信息(JSON数组)")
@@ -619,6 +624,7 @@ class DutyProgressRecordModel(BaseMixinModel):
             "progress_id": self.id, "progress": self.progress,
             "progress_record": self.progress_record or "", "submitter": self.submitter,
             "cooperator": coops, "time_consum": self.time_consum or 0,
+            "is_overtime": bool(self.is_overtime), "overtime_hours": float(self.overtime_hours or 0),
             "start_time": self.start_time or "", "created_at": self.created_at,
             "files": files,
         }
