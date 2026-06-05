@@ -29,6 +29,7 @@ import RichTextEditor from '@/components/common/RichTextEditor'
 import { projectApi } from '@/api/project.api'
 import { dutyApi } from '@/api/duty.api'
 import { systemApi } from '@/api/system.api'
+import { userApi } from '@/api/user.api'
 import { useTranslation } from 'react-i18next'
 import i18n from '@/i18n'
 import dayjs, { Dayjs } from 'dayjs'
@@ -260,8 +261,6 @@ interface FunctionOpt {
   expected_start_date?: string; expected_end_date?: string
 }
 interface DutyOpt     { id: string; name: string; requirement_nm?: string; group?: string; system_nm?: string; expected_start_date?: string; expected_end_date?: string }
-const BU_OPTIONS_KEYS = ['dailyLog.buManufacturing', 'dailyLog.buQA', 'dailyLog.buIT', 'dailyLog.buSales', 'dailyLog.buHR', 'dailyLog.buFinance', 'dailyLog.buRD', 'dailyLog.buCS']
-
 // ─── CSV Export ──────────────────────────────────────────────────────────────
 function exportDailyLogCSV(logs: DailyLog[], rangeLabel: string) {
   const bom = '\uFEFF'
@@ -674,6 +673,7 @@ const DailyLogPage: React.FC = () => {
   const [functionsMap, setFunctionsMap] = useState<Record<string, FunctionOpt[]>>({})
   const [dutyOpts, setDutyOpts] = useState<DutyOpt[]>([])
   const [systemOpts, setSystemOpts] = useState<{ id: string; name: string }[]>([])
+  const [departmentOpts, setDepartmentOpts] = useState<string[]>([])
   const [selectedSystem, setSelectedSystem] = useState<string | null>(null)
   const [systemDutiesMap, setSystemDutiesMap] = useState<Record<string, DutyOpt[]>>({})
 
@@ -683,6 +683,16 @@ const DailyLogPage: React.FC = () => {
       .then((res) => {
         const list = (res.content as { project_list?: { id: string; project_nm: string }[] })?.project_list ?? []
         setProjectOpts(list.map((p) => ({ id: p.id, name: p.project_nm })))
+      })
+      .catch(() => {})
+  }, [])
+
+  // Load department list once on mount
+  useEffect(() => {
+    userApi.departments()
+      .then((res) => {
+        const list = (res.content as { id: string | null; name: string }[]) ?? []
+        setDepartmentOpts(list.map((d) => d.name).filter(Boolean))
       })
       .catch(() => {})
   }, [])
@@ -2210,7 +2220,7 @@ const DailyLogPage: React.FC = () => {
           <Form.Item name="bu_unit" label={t('dailyLog.buUnit')}>
             <AutoComplete
               placeholder={t('dailyLog.buPlaceholder')}
-              options={BU_OPTIONS_KEYS.map((k) => ({ value: t(k) }))}
+              options={departmentOpts.map((d) => ({ value: d }))}
               filterOption={(input, option) => (option?.value ?? '').includes(input)}
             />
           </Form.Item>

@@ -1562,7 +1562,7 @@ const groupedByReq = useMemo(() => {
           </Form.Item>
           <div className="flex justify-end gap-3">
             <Button onClick={() => { setShowCreateDuty(false); setDutyTargetReq(null); dutyForm.resetFields() }}>{t('common.cancel')}</Button>
-            <Button type="primary" htmlType="submit" loading={createDutySaving} style={{ background: '#2563eb' }}>{t('system.create')}</Button>
+            <Button type="primary" htmlType="submit" loading={createDutySaving} style={{ background: '#2563eb' }}>{t('system.createBtn')}</Button>
           </div>
         </Form>
       </Modal>
