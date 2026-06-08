@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { TemporaryDuty } from '@/types/api.types'
 import { DUTY_STATUS_MAP } from '@/utils/status'
 
@@ -15,6 +16,7 @@ const DutyWbsTable: React.FC<{
   reqNameMap?: Record<string, string>
   defaultExpanded?: boolean
 }> = ({ duties, toName, reqNameMap = {}, defaultExpanded = false }) => {
+  const { t } = useTranslation()
   const COLS = '24px 2fr 1fr 1fr 1fr 1fr 1fr'
 
   const isUuid = (s: string) => /^[0-9a-f]{32}$/i.test(s) || /^[0-9a-f-]{36}$/i.test(s)
@@ -34,7 +36,7 @@ const DutyWbsTable: React.FC<{
         subGroupMap.get(g)!.push(t)
       })
       const subGroups = [...subGroupMap.entries()].map(([g, items]) => ({
-        name: g === '__nogroup__' ? '未分組' : g,
+        name: g === '__nogroup__' ? t('system.ungrouped') : (g === '__stage__' ? t('common.stageTask') : g),
         key: g,
         items,
       }))

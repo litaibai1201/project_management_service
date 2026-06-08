@@ -64,7 +64,7 @@ const DutyListPage: React.FC = () => {
   const toName = useWorkNoToName()
 
   // ── Tab ───────────────────────────────────────────────────────────────────
-  const [activeTab, setActiveTab] = useState<'project' | 'system' | 'duty'>('project')
+  const [activeTab, setActiveTab] = useState<'project' | 'system' | 'duty'>('duty')
 
   // ── 專案任務 state ────────────────────────────────────────────────────────
   const [myFunctions,    setMyFunctions]    = useState<MyFunction[]>([])
@@ -113,7 +113,7 @@ const DutyListPage: React.FC = () => {
     if (!funcShowHeld)       result = result.filter((f) => f.status !== 8)
     if (myFuncProject)       result = result.filter((f) => f.project_id === myFuncProject)
     if (myFuncGroup)         result = result.filter((f) => f.group1 === myFuncGroup)
-    if (myFuncResponsible)   result = result.filter((f) => (f.responsible ?? []).includes(myFuncResponsible))
+    if (myFuncResponsible)   result = result.filter((f) => (f.responsible ?? []).some((wn) => wn.toLowerCase() === myFuncResponsible.toLowerCase()))
     return result
   }, [myFunctions, myFuncPersonal, hideCompleted, funcShowHeld, myFuncProject, myFuncGroup, myFuncResponsible, workNo])
 
@@ -237,7 +237,7 @@ const DutyListPage: React.FC = () => {
     if (sysTaskStatus != null) result = result.filter((d) => d.status === sysTaskStatus)
     if (sysTaskSystem)         result = result.filter((d) => d.system_nm === sysTaskSystem)
     if (sysTaskReq)            result = result.filter((d) => d.standalone_req_id === sysTaskReq)
-    if (sysTaskResponsible)    result = result.filter((d) => (d.responsible ?? []).includes(sysTaskResponsible))
+    if (sysTaskResponsible)    result = result.filter((d) => (d.responsible ?? []).some((wn) => wn.toLowerCase() === sysTaskResponsible.toLowerCase()))
     if (sysTaskGroup)          result = result.filter((d) => (d.group ?? t('common.ungrouped')) === sysTaskGroup)
     return result
   }, [sysTaskList, sysTaskView, workNo, sysHideCompleted, sysShowHeld, sysTaskStatus, sysTaskSystem, sysTaskReq, sysTaskResponsible, sysTaskGroup])
@@ -701,7 +701,7 @@ const DutyListPage: React.FC = () => {
         )}
       </div>
 
-      <Tabs activeKey={activeTab} onChange={(k) => setActiveTab(k as 'project' | 'system' | 'duty')} items={[
+      <Tabs activeKey={activeTab} onChange={(k) => setActiveTab(k as 'project' | 'system' | 'duty')} items={([
         {
           key: 'project',
           label: `${t('duty.projectTask')} (${filteredMyFunctions.length})`,
@@ -1189,7 +1189,10 @@ const DutyListPage: React.FC = () => {
     </>
           ),
         },
-      ]}
+      ] as { key: string; label: string; children: React.ReactNode }[]).sort((a, b) => {
+        const order = { duty: 0, project: 1, system: 2 }
+        return (order[a.key as keyof typeof order] ?? 9) - (order[b.key as keyof typeof order] ?? 9)
+      })}
     />
     {/* AR 快速設定負責人 Modal */}
     <Modal

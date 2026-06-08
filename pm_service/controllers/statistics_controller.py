@@ -42,11 +42,13 @@ class StatisticsController:
             )
 
         member_work_nos = {u.work_no for u in users}
+        member_work_nos_lower = {wn.lower() for wn in member_work_nos}
         all_wns = list(member_work_nos)
+        all_wns_lower = [wn.lower() for wn in all_wns]
 
         # ── 批量预加载：功能任务（MySQL）──────────────────────────
         from collections import defaultdict
-        func_conds = [FunctionDataModel.responsible.like(f'%"{wn}"%') for wn in all_wns]
+        func_conds = [db.func.lower(FunctionDataModel.responsible).like(f'%"{wn}"%') for wn in all_wns_lower]
         all_funcs_pre = db.session.query(FunctionDataModel).filter(
             FunctionDataModel.status == 1,
             db.or_(*func_conds),
@@ -58,11 +60,11 @@ class StatisticsController:
             except (ValueError, TypeError):
                 resp = []
             for wn in resp:
-                if wn in member_work_nos:
-                    funcs_by_user[wn].append(f)
+                if wn.lower() in member_work_nos_lower:
+                    funcs_by_user[wn.lower()].append(f)
 
         # ── 批量预加载：AR（MySQL）──────────────────────────
-        duty_conds = [TemporaryDutyModel.responsible.like(f'%"{wn}"%') for wn in all_wns]
+        duty_conds = [db.func.lower(TemporaryDutyModel.responsible).like(f'%"{wn}"%') for wn in all_wns_lower]
         all_duties_pre = db.session.query(TemporaryDutyModel).filter(
             TemporaryDutyModel.status == 1,
             db.or_(*duty_conds),
@@ -74,8 +76,8 @@ class StatisticsController:
             except (ValueError, TypeError):
                 resp = []
             for wn in resp:
-                if wn in member_work_nos:
-                    duties_by_user[wn].append(d)
+                if wn.lower() in member_work_nos_lower:
+                    duties_by_user[wn.lower()].append(d)
 
         # ── 批量预加载：日报（MongoDB）────────────────────────────
         from dbs.mongo_db.client import mongo_client
@@ -106,19 +108,19 @@ class StatisticsController:
             wn_lower = user.work_no.lower()
             stat = self._build_member_stat(
                 user, start_date, end_date,
-                funcs=funcs_by_user[user.work_no],
-                duties=duties_by_user[user.work_no],
+                funcs=funcs_by_user[wn_lower],
+                duties=duties_by_user[wn_lower],
                 today_log=today_logs_by_user.get(wn_lower),
                 logs=logs_by_user[wn_lower],
             )
             members.append(stat)
 
         # ── 团队汇总（按任务ID去重，不重复计数） ─────────────────────────
-        summary = self._build_team_summary(member_work_nos)
+        summary = self._build_team_summary(member_work_nos, start_date, end_date)
 
         return {"members": members, "summary": summary}
 
-    def _build_team_summary(self, member_work_nos: set) -> dict:
+    def _build_team_summary(self, member_work_nos: set, start_date=None, end_date=None) -> dict:
         """按任务 ID 去重统计团队整体的完成/进行中/超时任务数"""
         today = datetime.today().date()
         completed = set()
@@ -129,16 +131,23 @@ class StatisticsController:
         all_funcs = db.session.query(FunctionDataModel).filter(
             FunctionDataModel.status == 1,
         ).all()
+        member_lower = {w.lower() for w in member_work_nos}
         for f in all_funcs:
             resp = json.loads(f.responsible) if f.responsible else []
-            if not any(w in member_work_nos for w in resp):
+            if not any(w.lower() in member_lower for w in resp):
                 continue
             s = f.function_status or 0
             if s == 4:
+                if start_date or end_date:
+                    et = (f.end_time or f.created_at or "")[:10]
+                    if start_date and et < start_date:
+                        continue
+                    if end_date and et > end_date:
+                        continue
                 completed.add(('func', f.id))
             elif s in (1, 2, 3):
                 in_progress.add(('func', f.id))
-                end = f.expected_end_date
+                end = f.latest_expected_end_date or f.expected_end_date
                 if end:
                     try:
                         if datetime.strptime(end, "%Y-%m-%d").date() < today:
@@ -152,10 +161,16 @@ class StatisticsController:
         ).all()
         for d in all_duties:
             resp = json.loads(d.responsible) if d.responsible else []
-            if not any(w in member_work_nos for w in resp):
+            if not any(w.lower() in member_lower for w in resp):
                 continue
             s = d.duty_status or 0
             if s == 3:
+                if start_date or end_date:
+                    et = (d.end_time or d.update_at or "")[:10]
+                    if start_date and et < start_date:
+                        continue
+                    if end_date and et > end_date:
+                        continue
                 completed.add(('duty', d.id))
             elif s in (1, 2, 5, 6):
                 in_progress.add(('duty', d.id))
@@ -172,8 +187,15 @@ class StatisticsController:
         col = mongo_client.db["daily_logs"]
         total_hours = 0.0
         leave_hours = 0.0
+        log_q: dict = {"work_no": {"$in": [w.lower() for w in member_work_nos]}}
+        if start_date or end_date:
+            log_q["log_date"] = {}
+            if start_date:
+                log_q["log_date"]["$gte"] = start_date
+            if end_date:
+                log_q["log_date"]["$lte"] = end_date
         for lg in col.find(
-            {"work_no": {"$in": [w.lower() for w in member_work_nos]}},
+            log_q,
             {"task_items": 1, "free_items": 1, "_id": 0},
         ):
             for item in (lg.get("task_items") or []):
@@ -202,7 +224,7 @@ class StatisticsController:
         if funcs is None:
             all_funcs = db.session.query(FunctionDataModel).filter(
                 FunctionDataModel.status == 1,
-                FunctionDataModel.responsible.like(f'%"{work_no}"%'),
+                db.func.lower(FunctionDataModel.responsible).like(f'%"{work_no.lower()}"%'),
             ).all()
         else:
             all_funcs = funcs
@@ -216,15 +238,23 @@ class StatisticsController:
 
         for f in all_funcs:
             resp = json.loads(f.responsible) if f.responsible else []
-            if work_no not in resp:
+            if work_no.lower() not in [r.lower() for r in resp]:
                 continue
 
             s = f.function_status or 0
             if s == 4:           # 已完成
+                # 有时间范围时，只统计范围内完结的任务
+                if start_date or end_date:
+                    et = f.end_time or f.created_at or ""
+                    et_date = et[:10] if et else ""
+                    if start_date and et_date < start_date:
+                        continue
+                    if end_date and et_date > end_date:
+                        continue
                 completed_tasks += 1
             elif s in (1, 2, 3): # 未开始/进行中/待验收
                 in_progress_tasks += 1
-                end = f.expected_end_date
+                end = f.latest_expected_end_date or f.expected_end_date
                 if end:
                     try:
                         end_dt = datetime.strptime(end, "%Y-%m-%d").date()
@@ -240,19 +270,26 @@ class StatisticsController:
         if duties is None:
             all_duties = db.session.query(TemporaryDutyModel).filter(
                 TemporaryDutyModel.status == 1,
-                TemporaryDutyModel.responsible.like(f'%"{work_no}"%'),
+                db.func.lower(TemporaryDutyModel.responsible).like(f'%"{work_no.lower()}"%'),
             ).all()
         else:
             all_duties = duties
 
         for d in all_duties:
             resp = json.loads(d.responsible) if d.responsible else []
-            if work_no not in resp:
+            if work_no.lower() not in [r.lower() for r in resp]:
                 continue
 
             s = d.duty_status or 0
             # AR状态：0=草稿 1=进行中 2=完结审核 3=已完结 5=审核中 6=未开始 8=搁置
             if s == 3:
+                if start_date or end_date:
+                    et = d.end_time or d.update_at or ""
+                    et_date = et[:10] if et else ""
+                    if start_date and et_date < start_date:
+                        continue
+                    if end_date and et_date > end_date:
+                        continue
                 completed_tasks += 1
             elif s in (1, 2, 5, 6):
                 in_progress_tasks += 1
@@ -328,6 +365,10 @@ class StatisticsController:
             {"week": k, "hours": v}
             for k, v in sorted(weekly_map.items())
         ]
+        daily_hours = [
+            {"date": k, "hours": round(v, 1)}
+            for k, v in sorted(daily_work_hours.items())
+        ]
 
         return {
             "work_no": work_no,
@@ -343,6 +384,7 @@ class StatisticsController:
             "urgent_tasks": urgent_tasks,
             "log_submitted": log_submitted,
             "weekly_hours": weekly_hours,
+            "daily_hours": daily_hours,
         }
 
     def get_personal_stats(self, work_no: str, start_date: str = None, end_date: str = None):
@@ -473,7 +515,8 @@ class StatisticsController:
 
         today = datetime.today().date()
         all_wns = [u.work_no for u in users]
-        wns_set = set(all_wns)
+        all_wns_lower = [wn.lower() for wn in all_wns]
+        wns_set = {wn.lower() for wn in all_wns}
         end_dt_str = (end_date + " 23:59:59") if end_date else None
         col = mongo_client.db["daily_logs"]
 
@@ -487,33 +530,37 @@ class StatisticsController:
             _base_prog = _base_prog.filter(ProgressRecordDataModel.created_at <= end_dt_str)
             _base_duty = _base_duty.filter(DutyProgressRecordModel.created_at <= end_dt_str)
 
-        _coop_prog = [ProgressRecordDataModel.cooperator.like(f'%"{wn}"%') for wn in all_wns]
-        _coop_duty = [DutyProgressRecordModel.cooperator.like(f'%"{wn}"%') for wn in all_wns]
+        _coop_prog = [db.func.lower(ProgressRecordDataModel.cooperator).like(f'%"{wn}"%') for wn in all_wns_lower]
+        _coop_duty = [db.func.lower(DutyProgressRecordModel.cooperator).like(f'%"{wn}"%') for wn in all_wns_lower]
         all_prog_recs = _base_prog.filter(
-            db.or_(ProgressRecordDataModel.submitter.in_(all_wns), *_coop_prog)
+            db.or_(db.func.lower(ProgressRecordDataModel.submitter).in_(all_wns_lower), *_coop_prog)
         ).all()
         all_duty_prog_recs = _base_duty.filter(
-            db.or_(DutyProgressRecordModel.submitter.in_(all_wns), *_coop_duty)
+            db.or_(db.func.lower(DutyProgressRecordModel.submitter).in_(all_wns_lower), *_coop_duty)
         ).all()
 
         prog_by_user: dict = defaultdict(list)
         duty_prog_by_user: dict = defaultdict(list)
         for r in all_prog_recs:
-            if r.submitter in wns_set:
-                prog_by_user[r.submitter].append(r)
+            sub_l = (r.submitter or "").lower()
+            if sub_l in wns_set:
+                prog_by_user[sub_l].append(r)
             try:
                 for co in (json.loads(r.cooperator) if r.cooperator else []):
-                    if co in wns_set and co != r.submitter:
-                        prog_by_user[co].append(r)
+                    co_l = co.lower()
+                    if co_l in wns_set and co_l != sub_l:
+                        prog_by_user[co_l].append(r)
             except (ValueError, TypeError):
                 pass
         for r in all_duty_prog_recs:
-            if r.submitter in wns_set:
-                duty_prog_by_user[r.submitter].append(r)
+            sub_l = (r.submitter or "").lower()
+            if sub_l in wns_set:
+                duty_prog_by_user[sub_l].append(r)
             try:
                 for co in (json.loads(r.cooperator) if r.cooperator else []):
-                    if co in wns_set and co != r.submitter:
-                        duty_prog_by_user[co].append(r)
+                    co_l = co.lower()
+                    if co_l in wns_set and co_l != sub_l:
+                        duty_prog_by_user[co_l].append(r)
             except (ValueError, TypeError):
                 pass
 
@@ -535,7 +582,7 @@ class StatisticsController:
             logs_by_user[lg["work_no"].lower()].append(lg)
 
         # ── 批量预加载：功能任务（MySQL）──────────────────────────
-        func_conds = [FunctionDataModel.responsible.like(f'%"{wn}"%') for wn in all_wns]
+        func_conds = [db.func.lower(FunctionDataModel.responsible).like(f'%"{wn}"%') for wn in all_wns_lower]
         all_funcs_pre = db.session.query(FunctionDataModel).filter(
             FunctionDataModel.status == 1,
             db.or_(*func_conds),
@@ -548,11 +595,11 @@ class StatisticsController:
             except (ValueError, TypeError):
                 resp = []
             for wn in resp:
-                if wn in wns_set:
-                    funcs_by_user[wn].append(f)
+                if wn.lower() in wns_set:
+                    funcs_by_user[wn.lower()].append(f)
 
         # ── 批量预加载：AR（MySQL）──────────────────────────
-        duty_conds = [TemporaryDutyModel.responsible.like(f'%"{wn}"%') for wn in all_wns]
+        duty_conds = [db.func.lower(TemporaryDutyModel.responsible).like(f'%"{wn}"%') for wn in all_wns_lower]
         all_duties_pre = db.session.query(TemporaryDutyModel).filter(
             TemporaryDutyModel.status == 1,
             TemporaryDutyModel.duty_status != 9,
@@ -566,8 +613,8 @@ class StatisticsController:
             except (ValueError, TypeError):
                 resp = []
             for wn in resp:
-                if wn in wns_set:
-                    duties_by_user[wn].append(d)
+                if wn.lower() in wns_set:
+                    duties_by_user[wn.lower()].append(d)
 
         # ── 批量预加载：专案名称（MySQL）──────────────────────────
         all_proj_ids = {f.project_id for f in all_funcs_pre if f.project_id}
@@ -582,13 +629,27 @@ class StatisticsController:
         def _proj_name(pid: str) -> str:
             return proj_cache.get(pid, "未知專案")
 
+        # ── 批量预加载：需求名称（MySQL）──────────────────────────
+        from dbs.mysql_db.model_tables import RequirementModel
+        all_req_ids = {f.requirement_id for f in all_funcs_pre if f.requirement_id}
+        req_nm_cache: dict = {}
+        if all_req_ids:
+            reqs = db.session.query(RequirementModel.id, RequirementModel.req_nm).filter(
+                RequirementModel.id.in_(all_req_ids)
+            ).all()
+            req_nm_cache = {r.id: r.req_nm for r in reqs}
+
+        def _req_name(rid: str) -> str:
+            return req_nm_cache.get(rid, "")
+
         # ── 按用户处理（全部使用预加载数据，零额外 SQL）────────────
         result = []
         for user in users:
             wn = user.work_no
+            wn_l = wn.lower()
 
-            prog_recs      = prog_by_user[wn]
-            duty_prog_recs = duty_prog_by_user[wn]
+            prog_recs      = prog_by_user[wn_l]
+            duty_prog_recs = duty_prog_by_user[wn_l]
             logs           = logs_by_user[wn.lower()]
 
             period_hours = round(sum(float(lg.get("total_hours") or 0) for lg in logs), 1)
@@ -643,6 +704,8 @@ class StatisticsController:
                             "hours": task_hours,
                             "expected_start_date": f_start,
                             "expected_end_date": f_end,
+                            "requirement_nm": _req_name(f.requirement_id) if f.requirement_id else "",
+                            "group": f.group1 or "",
                         })
                 elif s in (2, 3):
                     # 进行中
@@ -657,6 +720,8 @@ class StatisticsController:
                                 overdue_list.append({
                                     "id": f.id, "name": f.function_nm,
                                     "project": proj_nm, "days_overdue": abs(days_left),
+                                    "requirement_nm": _req_name(f.requirement_id) if f.requirement_id else "",
+                                    "group": f.group1 or "",
                                 })
                             elif days_left <= 3:
                                 task_status = "urgent"
@@ -669,6 +734,8 @@ class StatisticsController:
                         "expected_start_date": f_start,
                         "expected_end_date": f_end,
                         "hours": task_hours,
+                        "requirement_nm": _req_name(f.requirement_id) if f.requirement_id else "",
+                        "group": f.group1 or "",
                     })
                 elif s == 1:
                     # 未开始：仅显示预计开始时间在本期范围内的
@@ -691,6 +758,8 @@ class StatisticsController:
                             "status": task_status,
                             "expected_start_date": f_start,
                             "expected_end_date": f_end,
+                            "requirement_nm": _req_name(f.requirement_id) if f.requirement_id else "",
+                            "group": f.group1 or "",
                         })
 
             # ── AR状态 ──────────────────────────────────────────
@@ -721,6 +790,8 @@ class StatisticsController:
                             "hours": task_hours,
                             "expected_start_date": d_start,
                             "expected_end_date": d_end,
+                            "requirement_nm": "",
+                            "group": d.group or "",
                         })
                 elif s in (1, 2, 5):
                     # 进行中(1) / 完结审核(2) / 审核中(5)
@@ -735,6 +806,8 @@ class StatisticsController:
                                 overdue_list.append({
                                     "id": d.id, "name": d.duty_nm,
                                     "project": proj_nm, "days_overdue": abs(days_left),
+                                    "requirement_nm": "",
+                                    "group": d.group or "",
                                 })
                             elif days_left <= 3:
                                 task_status = "urgent"
@@ -747,6 +820,8 @@ class StatisticsController:
                         "expected_start_date": d_start,
                         "expected_end_date": d_end,
                         "hours": task_hours,
+                        "requirement_nm": "",
+                        "group": d.group or "",
                     })
                 elif s in (0, 6):
                     # 草稿(0) / 未开始(6)：仅显示预计开始时间在本期范围内的
@@ -769,6 +844,8 @@ class StatisticsController:
                             "status": task_status,
                             "expected_start_date": d_start,
                             "expected_end_date": d_end,
+                            "requirement_nm": "",
+                            "group": d.group or "",
                         })
 
             result.append({

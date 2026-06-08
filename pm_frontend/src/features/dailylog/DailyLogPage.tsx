@@ -2,7 +2,7 @@
  * DailyLogPage — 個人工作日誌
  * 三個視圖模式：日視圖（填寫/查看）、週視圖（表格匯總）、月視圖（日曆熱力圖）
  */
-import React, { useState, useMemo, useCallback, useEffect } from 'react'
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import {
   Card, Button, Tag, Modal, Form, Select, InputNumber,
   Switch, Upload, Segmented, Empty, Badge, Popconfirm, Popover,
@@ -304,6 +304,7 @@ const SelfReportView: React.FC<{
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const toggleGroup = (key: string) =>
     setCollapsedGroups((prev) => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s })
+  const initRef = useRef(false)
 
   // Collect logs in range (chronological)
   const rangeLogs: DailyLog[] = []
@@ -327,6 +328,28 @@ const SelfReportView: React.FC<{
     ...cat,
     total: allEntries.filter((e) => e.work_category === cat.value).reduce((s, e) => s + e.hours, 0),
   })).filter((c) => c.total > 0)
+
+  // Default: collapse all levels (category / project / requirement) — user opens one by one
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const sectionsForInit = useMemo(() => groupDailyEntries(allEntries), [JSON.stringify(allEntries.map((e) => e.entry_id))])
+  useEffect(() => {
+    if (initRef.current || sectionsForInit.length === 0) return
+    initRef.current = true
+    const keys = new Set<string>()
+    for (const sec of sectionsForInit) {
+      // collapse category level
+      keys.add(sec.category)
+      for (const pg of sec.projectGroups) {
+        // collapse project level
+        keys.add(`${sec.category}::proj::${pg.projKey}`)
+        for (const req of pg.requirements) {
+          // collapse requirement level
+          keys.add(`${sec.category}::proj::${pg.projKey}::req::${req.reqKey}`)
+        }
+      }
+    }
+    if (keys.size > 0) setCollapsedGroups(keys)
+  }, [sectionsForInit])
 
   return (
     <div className="space-y-4">
@@ -517,7 +540,7 @@ const SelfReportView: React.FC<{
                                                                 return (
                                                                   <div key={`${re.log_date ?? ''}-${entry.entry_id}`}>
                                                                     {eIdx > 0 && <div style={{ height: '1px', background: '#e2e8f0', margin: '0 16px' }} />}
-                                                                    <div className="flex items-center gap-3 px-4 py-2.5">
+                                                                    <div className="flex items-center gap-3 px-4 py-2.5" style={re.log_date === dayjs().format('YYYY-MM-DD') ? { background: '#fffbeb', borderLeft: '3px solid #f59e0b' } : undefined}>
                                                                       <div className="flex-1 min-w-0">
                                                                         <div className="flex items-start gap-2">
                                                                           <div className="flex-1 min-w-0">

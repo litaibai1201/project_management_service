@@ -195,6 +195,14 @@ class RequirementController:
             expected_end_date=payload.get("expected_end_date", ""),
         )
         db.session.add(req)
+        db.session.flush()
+
+        # 立案前的需求：自动创建「需求评估与立案」阶段任务
+        if p.project_status == 1:  # 草稿阶段
+            from controllers.project_controller import ProjectController
+            proj_ctrl = ProjectController()
+            proj_ctrl._create_stage_task(project_id, "initiate", req.id, req.req_nm)
+
         db.session.commit()
 
         # 通知非建立人的負責人

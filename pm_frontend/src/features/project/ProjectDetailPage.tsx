@@ -314,6 +314,7 @@ const ProjectDetailPage: React.FC = () => {
       setEditReq(null)
       reqForm.resetFields()
       loadRequirements(id)
+      loadFunctions(id, funcPage, funcPageSize)
     } catch { /* global */ }
     finally { setReqSaving(false) }
   }
@@ -1848,6 +1849,7 @@ const ProjectDetailPage: React.FC = () => {
                 {id && <MilestoneTab
                   projectId={id}
                   functions={functions}
+                  requirements={requirements}
                   canManage={!isProjectLocked && (isPm || (current?.product_pm?.toLowerCase() === workNo.toLowerCase() && !!workNo) || isSupervisor || isAdmin)}
                 />}
               </Card>

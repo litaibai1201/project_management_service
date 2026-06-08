@@ -392,36 +392,37 @@ class UserController:
         from dbs.mysql_db.model_tables import (
             FunctionDataModel, TemporaryDutyModel, ReviewApplyModel
         )
-        resp_pat = f'%"{work_no}"%'
+        wn_lower = work_no.lower()
+        resp_pat = f'%"{wn_lower}"%'
         doing_task = (
             db.session.query(FunctionDataModel)
-            .filter(FunctionDataModel.responsible.like(resp_pat),
+            .filter(db.func.lower(FunctionDataModel.responsible).like(resp_pat),
                     FunctionDataModel.function_status == 2).count()
         )
         unstart_task = (
             db.session.query(FunctionDataModel)
-            .filter(FunctionDataModel.responsible.like(resp_pat),
+            .filter(db.func.lower(FunctionDataModel.responsible).like(resp_pat),
                     FunctionDataModel.function_status == 1).count()
         )
         doing_duty = (
             db.session.query(TemporaryDutyModel)
-            .filter(TemporaryDutyModel.responsible.like(resp_pat),
+            .filter(db.func.lower(TemporaryDutyModel.responsible).like(resp_pat),
                     TemporaryDutyModel.duty_status == 1).count()
         )
         unstart_duty = (
             db.session.query(TemporaryDutyModel)
-            .filter(TemporaryDutyModel.responsible.like(resp_pat),
+            .filter(db.func.lower(TemporaryDutyModel.responsible).like(resp_pat),
                     TemporaryDutyModel.duty_status == 0).count()
         )
         pending_project = (
             db.session.query(ReviewApplyModel)
-            .filter(ReviewApplyModel.reviewer.like(f"%{work_no}%"),
+            .filter(db.func.lower(ReviewApplyModel.reviewer).like(f"%{wn_lower}%"),
                     ReviewApplyModel.duty_id.is_(None),
                     ReviewApplyModel.apply_status == 1).count()
         )
         pending_duty = (
             db.session.query(ReviewApplyModel)
-            .filter(ReviewApplyModel.reviewer.like(f"%{work_no}%"),
+            .filter(db.func.lower(ReviewApplyModel.reviewer).like(f"%{wn_lower}%"),
                     ReviewApplyModel.duty_id.isnot(None),
                     ReviewApplyModel.apply_status == 1).count()
         )
@@ -438,40 +439,41 @@ class UserController:
 
     def get_statistical(self, work_no: str) -> dict:
         from dbs.mysql_db.model_tables import FunctionDataModel, TemporaryDutyModel, ProjectDataModel
-        resp_pat = f'%"{work_no}"%'
+        wn_lower = work_no.lower()
+        resp_pat = f'%"{wn_lower}"%'
         # ── 功能任务统计 ──────────────────────────────────────────────────────
         total_projects = (
             db.session.query(FunctionDataModel)
-            .filter(FunctionDataModel.responsible.like(resp_pat),
+            .filter(db.func.lower(FunctionDataModel.responsible).like(resp_pat),
                     FunctionDataModel.function_status.notin_([9])).count()
         )
         total_duties = (
             db.session.query(TemporaryDutyModel)
-            .filter(TemporaryDutyModel.responsible.like(resp_pat),
+            .filter(db.func.lower(TemporaryDutyModel.responsible).like(resp_pat),
                     TemporaryDutyModel.duty_status.notin_([9])).count()
         )
         completed = (
             db.session.query(FunctionDataModel)
-            .filter(FunctionDataModel.responsible.like(resp_pat),
+            .filter(db.func.lower(FunctionDataModel.responsible).like(resp_pat),
                     FunctionDataModel.function_status == 4).count()
         )
         in_progress = (
             db.session.query(FunctionDataModel)
-            .filter(FunctionDataModel.responsible.like(resp_pat),
+            .filter(db.func.lower(FunctionDataModel.responsible).like(resp_pat),
                     FunctionDataModel.function_status == 2).count()
         )
         # ── 专案统计 ──────────────────────────────────────────────────────────
         resp_proj_ids = (
             db.session.query(FunctionDataModel.project_id)
-            .filter(FunctionDataModel.responsible.like(resp_pat),
+            .filter(db.func.lower(FunctionDataModel.responsible).like(resp_pat),
                     FunctionDataModel.function_status.notin_([9]))
             .distinct()
             .subquery()
         )
         _proj_filter = db.or_(
-            ProjectDataModel.project_pm == work_no,
-            ProjectDataModel.product_pm == work_no,
-            ProjectDataModel.creator    == work_no,
+            db.func.lower(ProjectDataModel.project_pm) == wn_lower,
+            db.func.lower(ProjectDataModel.product_pm) == wn_lower,
+            db.func.lower(ProjectDataModel.creator)    == wn_lower,
             ProjectDataModel.id.in_(resp_proj_ids),
         )
         project_total = (
@@ -508,23 +510,24 @@ class UserController:
         today        = datetime.date.today().strftime("%Y-%m-%d")
         today_plus7  = (datetime.date.today() + datetime.timedelta(days=7)).strftime("%Y-%m-%d")
 
-        # 主管本人 + 所有层级下属
+        # 主管本人 + 所有层级下属（统一小写用于匹配）
         all_members = [work_no] + sub_work_nos
+        all_members_lower = [m.lower() for m in all_members]
 
         # ── 团队专案统计 ────────────────────────────────────────────────────────
         # 参与定义：专案PM / 产品PM / 创建者 / 功能任务负责人（任一满足即算参与）
         if all_members:
-            # 专案级角色
+            # 专案级角色（大小写不敏感）
             proj_role_conds = [
                 db.or_(
-                    ProjectDataModel.project_pm == m,
-                    ProjectDataModel.product_pm == m,
-                    ProjectDataModel.creator    == m,
+                    db.func.lower(ProjectDataModel.project_pm) == m,
+                    db.func.lower(ProjectDataModel.product_pm) == m,
+                    db.func.lower(ProjectDataModel.creator)    == m,
                 )
-                for m in all_members
+                for m in all_members_lower
             ]
-            # 通过功能任务参与的专案
-            resp_func_conds = [FunctionDataModel.responsible.like(f'%"{m}"%') for m in all_members]
+            # 通过功能任务参与的专案（大小写不敏感）
+            resp_func_conds = [db.func.lower(FunctionDataModel.responsible).like(f'%"{m}"%') for m in all_members_lower]
             dev_proj_ids = (
                 db.session.query(FunctionDataModel.project_id)
                 .filter(db.or_(*resp_func_conds),
@@ -545,8 +548,8 @@ class UserController:
 
         # ── 团队任务统计（主管本人 + 所有下属） ──────────────────────────────────
         if all_members:
-            func_filter = db.or_(*[FunctionDataModel.responsible.like(f'%"{m}"%') for m in all_members])
-            duty_filter = db.or_(*[TemporaryDutyModel.responsible.like(f'%"{m}"%') for m in all_members])
+            func_filter = db.or_(*[db.func.lower(FunctionDataModel.responsible).like(f'%"{m}"%') for m in all_members_lower])
+            duty_filter = db.or_(*[db.func.lower(TemporaryDutyModel.responsible).like(f'%"{m}"%') for m in all_members_lower])
         else:
             func_filter = db.false()
             duty_filter = db.false()
@@ -595,7 +598,7 @@ class UserController:
 
         # ── 待处理 ──────────────────────────────────────────────────────────────
         pending_review = db.session.query(ReviewApplyModel).filter(
-            ReviewApplyModel.reviewer.like(f"%{work_no}%"),
+            ReviewApplyModel.reviewer.like(f"%{work_no.lower()}%"),
             ReviewApplyModel.apply_status == 1,
         ).count()
 
@@ -758,12 +761,12 @@ class UserController:
         today_dt   = datetime.date.today()
         threshold  = (today_dt + datetime.timedelta(days=7)).strftime("%Y-%m-%d")
         today      = today_dt.strftime("%Y-%m-%d")
-        resp_pat   = f'%"{work_no}"%'
+        resp_pat   = f'%"{work_no.lower()}"%'
 
         funcs = (
             db.session.query(FunctionDataModel)
             .filter(
-                FunctionDataModel.responsible.like(resp_pat),
+                db.func.lower(FunctionDataModel.responsible).like(resp_pat),
                 FunctionDataModel.function_status.in_([1, 2]),
                 FunctionDataModel.expected_end_date.isnot(None),
                 FunctionDataModel.expected_end_date != "",
@@ -773,7 +776,7 @@ class UserController:
         duties = (
             db.session.query(TemporaryDutyModel)
             .filter(
-                TemporaryDutyModel.responsible.like(resp_pat),
+                db.func.lower(TemporaryDutyModel.responsible).like(resp_pat),
                 TemporaryDutyModel.duty_status.in_([1]),
                 TemporaryDutyModel.expected_end_date.isnot(None),
                 TemporaryDutyModel.expected_end_date != "",
@@ -983,11 +986,12 @@ class UserController:
     def my_projects(self, work_no: str, page=1, size=20, status=None):
         """我的项目列表"""
         from dbs.mysql_db.model_tables import ProjectDataModel
+        wn_lower = work_no.lower()
         q = db.session.query(ProjectDataModel).filter(
             db.or_(
-                ProjectDataModel.project_pm == work_no,
-                ProjectDataModel.product_pm == work_no,
-                ProjectDataModel.creator == work_no,
+                db.func.lower(ProjectDataModel.project_pm) == wn_lower,
+                db.func.lower(ProjectDataModel.product_pm) == wn_lower,
+                db.func.lower(ProjectDataModel.creator) == wn_lower,
             ),
             ProjectDataModel.status == 1,
         )
@@ -1004,10 +1008,11 @@ class UserController:
     def my_duties(self, work_no: str, page=1, size=20, status=None):
         """我的AR列表"""
         from dbs.mysql_db.model_tables import TemporaryDutyModel
+        wn_lower = work_no.lower()
         q = db.session.query(TemporaryDutyModel).filter(
             db.or_(
-                TemporaryDutyModel.creator == work_no,
-                TemporaryDutyModel.responsible.like(f"%{work_no}%"),
+                db.func.lower(TemporaryDutyModel.creator) == wn_lower,
+                db.func.lower(TemporaryDutyModel.responsible).like(f"%{wn_lower}%"),
             ),
             TemporaryDutyModel.status == 1,
         )
@@ -1084,7 +1089,7 @@ class UserController:
         from dbs.mysql_db.model_tables import ReviewApplyModel
         q = (
             db.session.query(ReviewApplyModel)
-            .filter(ReviewApplyModel.reviewer.like(f"%{work_no}%"))
+            .filter(db.func.lower(ReviewApplyModel.reviewer).like(f"%{work_no.lower()}%"))
             .filter(ReviewApplyModel.duty_id.is_(None))
             .order_by(ReviewApplyModel.created_at.desc())
         )
@@ -1109,7 +1114,7 @@ class UserController:
         from dbs.mysql_db.model_tables import ReviewApplyModel
         q = (
             db.session.query(ReviewApplyModel)
-            .filter(ReviewApplyModel.reviewer.like(f"%{work_no}%"))
+            .filter(db.func.lower(ReviewApplyModel.reviewer).like(f"%{work_no.lower()}%"))
             .filter(ReviewApplyModel.duty_id.isnot(None))
             .order_by(ReviewApplyModel.created_at.desc())
         )

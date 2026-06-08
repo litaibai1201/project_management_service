@@ -27,6 +27,8 @@ import RichTextContent from '@/components/common/RichTextContent'
 import WbsTable from '@/components/common/WbsTable'
 import DutyWbsTable from '@/components/common/DutyWbsTable'
 import { useTranslation } from 'react-i18next'
+import { useAppDispatch } from '@/hooks/redux'
+import { fetchIndexThunk } from '@/features/auth/authSlice'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -1283,6 +1285,7 @@ const ReviewDetailDrawer: React.FC<{
 
 const ReviewListPage: React.FC = () => {
   const { t } = useTranslation()
+  const dispatch = useAppDispatch()
   const toName = useWorkNoToName()
   const location = useLocation()
   const isSubmitterMode = location.pathname === '/review/submitted'
@@ -1430,6 +1433,7 @@ const ReviewListPage: React.FC = () => {
       setDetailRecord(null)
       actionForm.resetFields()
       loadData()
+      dispatch(fetchIndexThunk())
     } catch { /* global handler */ }
     finally { setIsSaving(false) }
   }

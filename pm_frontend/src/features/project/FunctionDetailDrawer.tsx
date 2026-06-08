@@ -240,7 +240,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
           title: t('function.taskCompletedTitle'),
           content: submitterIsPm
             ? t('function.progressAt100ContentPm')
-            : t('function.progressAt100Content', { pm: projectPm ?? '' }),
+            : t('function.progressAt100Content', { pm: toName(projectPm ?? '') || (projectPm ?? '') }),
           okText: t('function.confirmCompleteBtn'),
           cancelText: t('function.remindLater'),
           onOk: async () => {

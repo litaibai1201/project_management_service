@@ -76,9 +76,11 @@
     "dateFormatYearMonth": "MMM YYYY",
     "dateFormatFull": "D MMM YYYY",
     "day": "วัน",
-    "stageTask": "📋 งานระยะ",
-    "stageTaskPlain": "งานระยะ",
-    "creator": "ผู้สร้าง"
+    "stageTask": "📋 การประเมินและวางแผน",
+    "stageTaskPlain": "การประเมินและวางแผน",
+    "creator": "ผู้สร้าง",
+    "byWeek": "รายสัปดาห์",
+    "byDay": "รายวัน"
   },
   "nav": {
     "home": "หน้าหลัก",
@@ -1078,6 +1080,7 @@
     "exportWeeklyDetailCSV": "ส่งออกรายละเอียดชั่วโมงรายสัปดาห์ (CSV)",
     "reportPeriod": "ช่วงเวลารายงาน",
     "today": "วันนี้",
+    "lastWeek": "สัปดาห์ที่แล้ว",
     "thisWeek": "สัปดาห์นี้",
     "thisMonth": "เดือนนี้",
     "thisQuarter": "ไตรมาสนี้",
@@ -1125,7 +1128,7 @@
     "noArTasks": "ไม่มี AR",
     "myWorkHoursAnalysis": "การวิเคราะห์ชั่วโมงทำงานของฉัน",
     "recentFiveWeeks": "ข้อมูล 5 สัปดาห์ล่าสุด",
-    "workHoursTrend": "แนวโน้มชั่วโมงทำงาน (5 สัปดาห์ล่าสุด)",
+    "workHoursTrend": "แนวโน้มชั่วโมงทำงาน",
     "overdueAnalysis": "การวิเคราะห์งานเกินกำหนด (จำนวน + วัน)",
     "taskCompletionStatus": "สถานะการเสร็จสิ้นงาน (ต่อสมาชิก)",
     "memberWorkloadSummary": "สรุปภาระงานสมาชิก",
@@ -1149,7 +1152,7 @@
     "overtimeRatio": "สัดส่วนโอที",
     "projectHoursDist": "การกระจายชั่วโมงตามโครงการ",
     "categoryDist": "การกระจายตามหมวดหมู่งาน",
-    "normalVsOvertime": "ปกติ vs โอที (5 สัปดาห์ล่าสุด)",
+    "normalVsOvertime": "ปกติ vs โอที",
     "workHoursBarName": "ชั่วโมง",
     "updatesCountTooltip": "จำนวนการอัปเดตความคืบหน้า",
     "csvReportPeriod": "ช่วงรายงาน",
@@ -2012,7 +2015,7 @@
       "progress": "เอกสารความคืบหน้า",
       "other": "อื่นๆ"
     },
-    "stageTaskGroup": "📋 งานระยะ",
+    "stageTaskGroup": "📋 การประเมินและวางแผน",
     "defaultReviewer": "หัวหน้าเริ่มต้น ไม่สามารถลบได้"
   },
   "projectReport": {
@@ -2137,6 +2140,8 @@
     "addMilestone": "เพิ่มเหตุการณ์สำคัญ",
     "editMilestone": "แก้ไขเหตุการณ์สำคัญ",
     "namePlaceholder": "กรอกชื่อเหตุการณ์สำคัญ",
+    "linkedRequirements": "ข้อกำหนดที่เชื่อมโยง",
+    "linkedRequirementsPlaceholder": "เลือกข้อกำหนดเพื่อเชื่อมโยงงานทั้งหมดโดยอัตโนมัติ",
     "linkedFunctions": "งานที่เชื่อมโยง",
     "linkedFunctionsPlaceholder": "เลือกงานที่เชื่อมโยง (หลายรายการ)",
     "notePlaceholder": "หมายเหตุ (ไม่บังคับ)",

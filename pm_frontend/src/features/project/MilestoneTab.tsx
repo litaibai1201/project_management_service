@@ -14,7 +14,7 @@ import {
   ClockIcon, ExclamationCircleIcon,
 } from '@heroicons/react/24/outline'
 import { projectApi } from '@/api/project.api'
-import { Milestone, ProjectFunction } from '@/types/api.types'
+import { Milestone, ProjectFunction, Requirement } from '@/types/api.types'
 import { showToast } from '@/utils/toast'
 import dayjs from 'dayjs'
 import { useResizableColumns, tableComponents } from '@/hooks/useResizableColumns'
@@ -43,10 +43,11 @@ const DaysDisplay: React.FC<{ date: string; status: MsStatus }> = ({ date, statu
 interface Props {
   projectId: string
   functions: ProjectFunction[]  // for linking milestones to functions
+  requirements?: Requirement[]  // for linking milestones to requirements
   canManage?: boolean           // project_pm / product_pm / supervisor only
 }
 
-const MilestoneTab: React.FC<Props> = ({ projectId, functions, canManage = false }) => {
+const MilestoneTab: React.FC<Props> = ({ projectId, functions, requirements = [], canManage = false }) => {
   const { t } = useTranslation()
   const [milestones, setMilestones] = useState<Milestone[]>([])
   const [isLoading,  setIsLoading]  = useState(false)
@@ -243,6 +244,23 @@ const MilestoneTab: React.FC<Props> = ({ projectId, functions, canManage = false
           <Form.Item name="target_date" label={t('milestone.colTargetDate')} rules={[{ required: true }]}>
             <DateInput/>
           </Form.Item>
+          {requirements.length > 0 && (
+            <Form.Item name="linked_requirements" label={t('milestone.linkedRequirements')}>
+              <Select
+                mode="multiple"
+                placeholder={t('milestone.linkedRequirementsPlaceholder')}
+                optionFilterProp="label"
+                options={requirements.filter((r) => r.status !== 9).map((r) => ({ value: r.id, label: r.req_nm }))}
+                onChange={(reqIds: string[]) => {
+                  // Auto-select all functions under selected requirements
+                  const currentFuncs: string[] = form.getFieldValue('linked_functions') ?? []
+                  const reqFuncIds = functions.filter((f) => f.requirement_id && reqIds.includes(f.requirement_id)).map((f) => f.id)
+                  const merged = Array.from(new Set([...currentFuncs, ...reqFuncIds]))
+                  form.setFieldsValue({ linked_functions: merged })
+                }}
+              />
+            </Form.Item>
+          )}
           <Form.Item name="linked_functions" label={t('milestone.linkedFunctions')}>
             <Select
               mode="multiple"
@@ -250,7 +268,7 @@ const MilestoneTab: React.FC<Props> = ({ projectId, functions, canManage = false
               optionFilterProp="label"
               options={functions.map((f) => ({
                 value: f.id,
-                label: `${f.function_nm} (${f.group1})`,
+                label: `${f.function_nm} (${f.group1 === '__stage__' ? t('common.stageTask') : (f.group1 || '')})`,
               }))}
             />
           </Form.Item>

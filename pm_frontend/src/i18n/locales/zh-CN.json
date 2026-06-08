@@ -76,9 +76,11 @@
     "dateFormatYearMonth": "YYYY 年 M 月",
     "dateFormatFull": "YYYY 年 M 月 D 日",
     "day": "天",
-    "stageTask": "📋 阶段任务",
-    "stageTaskPlain": "阶段任务",
-    "creator": "建立者"
+    "stageTask": "📋 评估与规划",
+    "stageTaskPlain": "评估与规划",
+    "creator": "建立者",
+    "byWeek": "按周",
+    "byDay": "按天"
   },
   "nav": {
     "home": "首页",
@@ -1078,6 +1080,7 @@
     "exportWeeklyDetailCSV": "导出周工时明细（CSV）",
     "reportPeriod": "报告周期",
     "today": "本日",
+    "lastWeek": "上周",
     "thisWeek": "本周",
     "thisMonth": "本月",
     "thisQuarter": "本季",
@@ -1125,7 +1128,7 @@
     "noArTasks": "暂无AR",
     "myWorkHoursAnalysis": "我的工时分析",
     "recentFiveWeeks": "近 5 周数据",
-    "workHoursTrend": "工时趋势（近5周）",
+    "workHoursTrend": "工时趋势",
     "overdueAnalysis": "超时任务分析（任务数 + 超期天数）",
     "taskCompletionStatus": "任务完成状况（各成员）",
     "memberWorkloadSummary": "成员工作量汇整",
@@ -1149,7 +1152,7 @@
     "overtimeRatio": "加班占比",
     "projectHoursDist": "专案工时分布",
     "categoryDist": "工作分类分布",
-    "normalVsOvertime": "正常 vs 加班工时（近5周）",
+    "normalVsOvertime": "正常 vs 加班工时",
     "workHoursBarName": "工时",
     "updatesCountTooltip": "进度更新次数",
     "csvReportPeriod": "报告周期",
@@ -2036,7 +2039,7 @@
       "progress": "进度文件",
       "other": "其他文件"
     },
-    "stageTaskGroup": "📋 阶段任务",
+    "stageTaskGroup": "📋 评估与规划",
     "defaultReviewer": "默认主管审核人，不可移除"
   },
   "projectReport": {
@@ -2161,6 +2164,8 @@
     "addMilestone": "新增里程碑",
     "editMilestone": "编辑里程碑",
     "namePlaceholder": "输入里程碑名称",
+    "linkedRequirements": "关联需求",
+    "linkedRequirementsPlaceholder": "选择需求后自动关联其下所有任务",
     "linkedFunctions": "关联功能任务",
     "linkedFunctionsPlaceholder": "选择关联的功能任务（可多选）",
     "notePlaceholder": "备注说明（选填）",

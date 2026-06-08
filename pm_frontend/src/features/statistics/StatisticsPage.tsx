@@ -10,7 +10,7 @@ import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
 import { useAppSelector } from '@/hooks/redux'
 import {
-  Card, Row, Col, Table, Tag, Avatar, DatePicker,
+  Card, Row, Col, Table, Tag, Avatar, DatePicker, Segmented,
   Skeleton, Button, Dropdown, Tabs, Collapse, Badge, Tooltip,
   Empty, Drawer, Input, Progress,
 } from 'antd'
@@ -21,9 +21,9 @@ import {
   PieChart, Pie,
 } from 'recharts'
 import {
-  ChartBarIcon, ClockIcon, CheckCircleIcon,
+  ChartBarIcon, ClockIcon, CheckCircleIcon, ChevronDownIcon,
   ExclamationTriangleIcon, UserGroupIcon, ArrowDownTrayIcon,
-  DocumentTextIcon, CalendarDaysIcon, BoltIcon, SunIcon, MoonIcon,
+  DocumentTextIcon, CalendarDaysIcon, BoltIcon, SunIcon,
   UserIcon, MagnifyingGlassIcon, BriefcaseIcon,
   ClipboardDocumentListIcon,
 } from '@heroicons/react/24/outline'
@@ -59,9 +59,9 @@ const PIE_PALETTE = ['#2563eb','#7c3aed','#16a34a','#d97706','#0891b2','#db2777'
 
 // ─── Progress Report Mock Data ─────────────────────────────────────────────────
 
-interface CompletedTask  { id: string; name: string; project: string; type: 'function'|'duty'; completed_at: string; hours: number; expected_start_date?: string; expected_end_date?: string }
-interface InProgressTask { id: string; name: string; project: string; progress: number; days_left: number; status: 'normal'|'urgent'|'overdue'; expected_start_date?: string; expected_end_date?: string; hours?: number }
-interface OverdueTask    { id: string; name: string; project: string; days_overdue: number }
+interface CompletedTask  { id: string; name: string; project: string; type: 'function'|'duty'; completed_at: string; hours: number; expected_start_date?: string; expected_end_date?: string; requirement_nm?: string; group?: string }
+interface InProgressTask { id: string; name: string; project: string; progress: number; days_left: number; status: 'normal'|'urgent'|'overdue'; expected_start_date?: string; expected_end_date?: string; hours?: number; requirement_nm?: string; group?: string }
+interface OverdueTask    { id: string; name: string; project: string; days_overdue: number; requirement_nm?: string; group?: string }
 
 interface ReportDailyLog {
   log_id:      string
@@ -160,28 +160,211 @@ const ExportButton: React.FC<{ stats: MemberWorkStat[] }> = ({ stats }) => {
 }
 
 // ─── Progress Report Export ────────────────────────────────────────────────────
+// ── Shared: build hierarchy tree from all members' logs ────────────────────────
+interface FlatEntry { category: string; projectNm: string; reqNm: string; group: string; taskNm: string; date: string; description: string; hours: number; member: string; isToday: boolean }
+interface TaskLeaf { entries: FlatEntry[]; hours: number }
+type HierTree = Map<string, Map<string, Map<string, Map<string, Map<string, TaskLeaf>>>>>
+
+function buildReportTree(reports: ReportMember[], t: (k: string) => string): { tree: HierTree; catLabels: Record<string, string> } {
+  const today = dayjs().format('YYYY-MM-DD')
+  const catLabels: Record<string, string> = {
+    project: t('duty.projectTask'), system_req: t('duty.systemTask'), duty: 'AR',
+    cr_ar: 'CR/AR',
+    training: t('dailyLog.catTraining' as string) || '教育训练', meeting: t('dailyLog.catMeeting' as string) || '工作会议',
+    other: t('dailyLog.catOther' as string) || '其他', management: t('dailyLog.catManagement' as string) || '管理',
+    overtime: t('dailyLog.catOvertime' as string) || '加班', leave: t('dailyLog.catLeave' as string) || '休假',
+  }
+  const tree: HierTree = new Map()
+
+  for (const r of reports) {
+    for (const lg of (r.daily_logs ?? [])) {
+      const isToday = lg.log_date === today
+      for (const item of (lg.task_items ?? []).map((x) => ({ ...x as object, _src: 'task' })).concat(
+        (lg.free_items ?? []).map((x) => ({ ...x as object, _src: 'free' }))
+      )) {
+        const ti = item as Record<string, unknown>
+        // task_items: task_type='project'|'duty', system_nm → system_req
+        // free_items: category='meeting'|'training'|...
+        const rawCat = ti._src === 'task'
+          ? (ti.system_nm ? 'system_req' : String(ti.task_type ?? 'project'))
+          : String(ti.category ?? 'other')
+        const fi: FlatEntry = {
+          category:    rawCat,
+          projectNm:   String(ti.project_nm ?? ti.system_nm ?? ''),
+          reqNm:       String(ti.requirement_nm ?? ''),
+          group:       String(ti.group1 === '__stage__' ? (t('common.stageTaskPlain') || '评估与规划') : (ti.group1 ?? '')),
+          taskNm:      String(ti.task_nm ?? ti.duty_nm ?? ti.category ?? ''),
+          date:        lg.log_date ?? '',
+          description: String(ti.description ?? '').replace(/<[^>]*>/g, ''),
+          hours:       Number(ti.work_hours ?? 0),
+          member:      r.name,
+          isToday,
+        }
+        if (!tree.has(fi.category)) tree.set(fi.category, new Map())
+        const projMap = tree.get(fi.category)!
+        if (!projMap.has(fi.projectNm)) projMap.set(fi.projectNm, new Map())
+        const reqMap = projMap.get(fi.projectNm)!
+        const rk = fi.reqNm || '-'
+        if (!reqMap.has(rk)) reqMap.set(rk, new Map())
+        const grpMap = reqMap.get(rk)!
+        const gk = fi.group || '-'
+        if (!grpMap.has(gk)) grpMap.set(gk, new Map())
+        const taskNodes = grpMap.get(gk)!
+        if (!taskNodes.has(fi.taskNm)) taskNodes.set(fi.taskNm, { entries: [], hours: 0 })
+        const tn = taskNodes.get(fi.taskNm)!
+        tn.entries.push(fi)
+        tn.hours += fi.hours
+      }
+    }
+  }
+  return { tree, catLabels }
+}
+
+// ── CSV Export ─────────────────────────────────────────────────────────────────
 function exportReportCSV(reports: ReportMember[], periodLabel: string, t: (key: string) => string) {
+  const { tree, catLabels } = buildReportTree(reports, t)
+
+  // Part 1: Member summary table
   const rows: string[][] = [
-    [t('statistics.csvReportPeriod'), periodLabel, '', '', '', ''],
+    [t('statistics.csvReportPeriod'), periodLabel],
+    [],
     [t('statistics.csvName'), t('statistics.csvWorkNo'), t('statistics.csvPeriodHours'), t('statistics.csvUpdatesCount'), t('statistics.csvCompletedCount'), t('statistics.csvInProgressCount'), t('statistics.csvOverdueCount')],
     ...reports.map((r) => [
       r.name, r.work_no, String(r.period_hours), String(r.updates_count),
       String(r.completed.length), String(r.in_progress.length), String(r.overdue.length),
     ]),
-    [],
-    [`─── ${t('statistics.csvDailyLogDetail')} ───`],
-    [t('statistics.csvName'), t('statistics.csvDate'), t('statistics.csvTaskName'), t('statistics.csvWorkHours'), t('statistics.csvWorkContent')],
-    ...reports.flatMap((r) =>
-      (r.daily_logs ?? []).flatMap((lg) => {
-        const items = [...(lg.task_items ?? []), ...(lg.free_items ?? [])]
-        return items.map((item) => {
-          const ti = item as Record<string, unknown>
-          return [r.name, String(lg.log_date), String(ti.task_nm ?? ti.category ?? ''), String(ti.work_hours ?? 0), String(ti.description ?? '')]
-        })
-      })
-    ),
   ]
+
+  // Part 2: Detail flat table sorted by category → project → req → group → task → date
+  rows.push([], [`─── ${t('statistics.csvDailyLogDetail')} ───`])
+  const detailHeaders = [t('common.type'), t('projectReport.project') + '/' + t('projectReport.system'), t('nav.requirementList'), t('projectDetail.colGroup'), t('statistics.csvTaskName'), t('statistics.csvDate'), t('statistics.csvWorkContent'), t('statistics.csvWorkHours'), t('statistics.csvName')]
+  rows.push(detailHeaders)
+
+  // Flatten tree into sorted rows
+  for (const [cat, projMap] of tree) {
+    const catLabel = catLabels[cat] ?? cat
+    for (const [projNm, reqMap] of projMap) {
+      for (const [rk, grpMap] of reqMap) {
+        for (const [gk, taskNodes] of grpMap) {
+          for (const [taskNm, tn] of taskNodes) {
+            const sorted = [...tn.entries].sort((a, b) => a.date.localeCompare(b.date))
+            for (const e of sorted) {
+              rows.push([catLabel, projNm, rk === '-' ? '' : rk, gk === '-' ? '' : gk, taskNm, e.date, e.description, `${e.hours}`, e.member])
+            }
+          }
+        }
+      }
+    }
+  }
+
   exportCSV(`${t('statistics.csvProgressReport')}_${periodLabel}_${dayjs().format('YYYY-MM-DD')}.csv`, rows)
+}
+
+// ── Word Export ────────────────────────────────────────────────────────────────
+async function exportReportWord(reports: ReportMember[], periodLabel: string, t: (key: string) => string) {
+  const { Document, Packer, Paragraph, TextRun, Table: DocTable, TableRow, TableCell, WidthType, BorderStyle, AlignmentType, HeadingLevel } = await import('docx')
+  const { tree, catLabels } = buildReportTree(reports, t)
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const children: any[] = []
+
+  // ── Part 1: Title + Member summary table ──
+  children.push(new Paragraph({
+    heading: HeadingLevel.HEADING_1,
+    alignment: AlignmentType.CENTER,
+    children: [new TextRun({ text: t('statistics.csvProgressReport'), bold: true, size: 32 })],
+  }))
+  children.push(new Paragraph({
+    alignment: AlignmentType.CENTER,
+    spacing: { after: 300 },
+    children: [new TextRun({ text: periodLabel, size: 20, color: '666666' })],
+  }))
+
+  // Summary table
+  const thinBorder = { style: BorderStyle.SINGLE, size: 1, color: 'CCCCCC' }
+  const cellBorders = { top: thinBorder, bottom: thinBorder, left: thinBorder, right: thinBorder }
+
+  const summaryHeaders = [t('statistics.csvName'), t('statistics.csvPeriodHours'), t('statistics.csvCompletedCount'), t('statistics.csvInProgressCount'), t('statistics.csvOverdueCount')]
+  const summaryHeaderRow = new TableRow({
+    children: summaryHeaders.map((h) => new TableCell({
+      borders: cellBorders,
+      shading: { type: 'clear' as unknown as undefined, fill: 'EFF6FF' },
+      children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: h, bold: true, size: 18, color: '1E3A5F' })] })],
+    })),
+  })
+  const summaryDataRows = reports.map((r) => new TableRow({
+    children: [
+      new TableCell({ borders: cellBorders, children: [new Paragraph({ children: [new TextRun({ text: r.name, size: 18 })] })] }),
+      new TableCell({ borders: cellBorders, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${r.period_hours}h`, size: 18 })] })] }),
+      new TableCell({ borders: cellBorders, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(r.completed.length), size: 18, color: '16A34A' })] })] }),
+      new TableCell({ borders: cellBorders, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(r.in_progress.length), size: 18, color: '2563EB' })] })] }),
+      new TableCell({ borders: cellBorders, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(r.overdue.length), size: 18, color: r.overdue.length > 0 ? 'DC2626' : '333333' })] })] }),
+    ],
+  }))
+  children.push(new DocTable({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    rows: [summaryHeaderRow, ...summaryDataRows],
+  }))
+
+  // ── Part 2: Detail flat table (same as CSV) ──
+  children.push(new Paragraph({
+    heading: HeadingLevel.HEADING_2,
+    spacing: { before: 500 },
+    children: [new TextRun({ text: t('statistics.csvDailyLogDetail'), bold: true, size: 26 })],
+  }))
+
+  // Build flat rows from tree
+  const detailHeaders = [t('common.type'), t('projectReport.project') + '/' + t('projectReport.system'), t('nav.requirementList'), t('projectDetail.colGroup'), t('statistics.csvTaskName'), t('statistics.csvDate'), t('statistics.csvWorkContent'), t('statistics.csvWorkHours'), t('statistics.csvName')]
+  const detailWidths = [8, 10, 8, 7, 10, 7, 33, 6, 7]
+
+  const detailHeaderCells = detailHeaders.map((h, i) => new TableCell({
+    borders: cellBorders,
+    width: { size: detailWidths[i], type: WidthType.PERCENTAGE },
+    shading: { type: 'clear' as unknown as undefined, fill: 'EFF6FF' },
+    children: [new Paragraph({ children: [new TextRun({ text: h, bold: true, size: 15, color: '1E3A5F' })] })],
+  }))
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const detailDataRows: any[] = []
+  for (const [cat, projMap] of tree) {
+    const catLabel = catLabels[cat] ?? cat
+    for (const [projNm, reqMap] of projMap) {
+      for (const [rk, grpMap] of reqMap) {
+        for (const [gk, taskNodes] of grpMap) {
+          for (const [taskNm, tn] of taskNodes) {
+            const sorted = [...tn.entries].sort((a, b) => a.date.localeCompare(b.date))
+            for (const e of sorted) {
+              const tc = e.isToday ? 'B45309' : '333333'
+              const bg = e.isToday ? 'FFFBEB' : undefined
+              const vals = [catLabel, projNm, rk === '-' ? '' : rk, gk === '-' ? '' : gk, taskNm, e.date.slice(5), e.description || '-', `${e.hours}h`, e.member]
+              detailDataRows.push(new TableRow({
+                children: vals.map((v, i) => new TableCell({
+                  borders: cellBorders,
+                  width: { size: detailWidths[i], type: WidthType.PERCENTAGE },
+                  ...(bg ? { shading: { type: 'clear' as unknown as undefined, fill: bg } } : {}),
+                  children: [new Paragraph({ children: [new TextRun({ text: v, size: 15, color: tc, bold: e.isToday && (i === 5 || i === 7) })] })],
+                })),
+              }))
+            }
+          }
+        }
+      }
+    }
+  }
+
+  children.push(new DocTable({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    rows: [new TableRow({ children: detailHeaderCells }), ...detailDataRows],
+  }))
+
+  const doc = new Document({ sections: [{ children }] })
+  const blob = await Packer.toBlob(doc)
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${t('statistics.csvProgressReport')}_${periodLabel}_${dayjs().format('YYYY-MM-DD')}.docx`
+  a.click()
+  URL.revokeObjectURL(url)
 }
 
 // ─── Report Member Card ────────────────────────────────────────────────────────
@@ -282,121 +465,136 @@ const MemberReportCard: React.FC<{ report: ReportMember; initialExpanded?: boole
             )
           })()}
 
-          {/* ─── Task panels (3 columns) ─── */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mt-5">
-            {/* ── Completed ── */}
-            <div>
-              <div className="flex items-center gap-2 mb-3">
-                <div className="w-1 h-3.5 rounded bg-green-500" />
-                <span className="text-xs font-semibold text-slate-600">{t('statistics.periodCompletedTasks')}</span>
-                <Badge count={report.completed.length} color="#16a34a" />
-              </div>
-              {report.completed.length === 0 ? (
-                <p className="text-xs text-slate-300 pl-3">{t('statistics.noPeriodCompletedTasks')}</p>
-              ) : (
-                <div className="space-y-2">
-                  {report.completed.map((task) => (
-                    <div key={task.id} className="flex items-start gap-2 bg-green-50 rounded-lg px-3 py-2 border border-green-100">
-                      <CheckCircleIcon className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-xs font-medium text-slate-700">{task.name}</div>
-                        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                          <span className="text-[10px] text-slate-400">{task.project}</span>
-                          <span className="text-[10px] text-slate-300">·</span>
-                          <span className="text-[10px] text-slate-400">{t('statistics.completedAt', { date: task.completed_at })}</span>
-                          {task.hours > 0 && <>
-                            <span className="text-[10px] text-slate-300">·</span>
-                            <span className="text-[10px] text-green-600 font-medium">{task.hours}h</span>
-                          </>}
-                        </div>
-                        {(task.expected_start_date || task.expected_end_date) && (
-                          <div className="text-[10px] text-slate-300 mt-0.5">
-                            {t('statistics.expectedPeriod', { start: task.expected_start_date || '—', end: task.expected_end_date || '—' })}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+          {/* ─── Task panels (3 columns, grouped by project) ─── */}
+          {(() => {
+            // Group tasks by project for each category
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const groupByProject = <T extends { id: string; project: string }>(tasks: T[]): Map<string, T[]> => {
+              const m = new Map<string, T[]>()
+              tasks.forEach((t) => { const k = t.project || '—'; if (!m.has(k)) m.set(k, []); m.get(k)!.push(t) })
+              return m
+            }
+            const completedByProj = groupByProject(report.completed)
+            const inProgressByProj = groupByProject(report.in_progress)
+            const notStartedByProj = groupByProject(report.not_started ?? [])
 
-            {/* ── In-Progress ── */}
-            <div>
-              <div className="flex items-center gap-2 mb-3">
-                <div className="w-1 h-3.5 rounded bg-blue-500" />
-                <span className="text-xs font-semibold text-slate-600">{t('statistics.inProgressTasks')}</span>
-                <Badge count={report.in_progress.length} color="#2563eb" />
-              </div>
-              {report.in_progress.length === 0 ? (
-                <p className="text-xs text-slate-300 pl-3">{t('statistics.noInProgressTasks')}</p>
-              ) : (
-                <div className="space-y-2">
-                  {report.in_progress.map((task) => {
-                    const borderColor = task.status === 'overdue' ? '#fecaca' : task.status === 'urgent' ? '#fed7aa' : '#e2e8f0'
-                    const bgColor     = task.status === 'overdue' ? '#fef2f2' : task.status === 'urgent' ? '#fff7ed' : '#f8fafc'
-                    return (
-                      <div key={task.id} className="rounded-lg px-3 py-2 border" style={{ background: bgColor, borderColor }}>
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-xs font-medium text-slate-700 flex-1 truncate">{task.name}</span>
-                          {task.status === 'overdue' && <span className="text-[10px] text-red-500 font-semibold flex-shrink-0">{t('statistics.overdueBy', { days: Math.abs(task.days_left) })}</span>}
-                          {task.status === 'urgent' && <span className="text-[10px] text-orange-500 font-semibold flex-shrink-0">{t('statistics.daysLeftShort', { days: task.days_left })}</span>}
-                          {task.status === 'normal' && <span className="text-[10px] text-slate-400 flex-shrink-0">{t('statistics.daysLeftShort', { days: task.days_left })}</span>}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 bg-white rounded-full h-1.5 overflow-hidden border border-slate-100">
-                            <div className="h-full rounded-full" style={{ width: `${task.progress}%`, background: task.status === 'overdue' ? '#f87171' : task.status === 'urgent' ? '#fb923c' : '#60a5fa' }} />
-                          </div>
-                          <span className="text-[10px] font-semibold text-slate-500 flex-shrink-0 w-7 text-right">{task.progress}%</span>
-                        </div>
-                        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                          <span className="text-[10px] text-slate-400">{task.project}</span>
-                          {(task.expected_start_date || task.expected_end_date) && (
-                            <span className="text-[10px] text-slate-300">
-                              {task.expected_start_date || '—'} ~ {task.expected_end_date || '—'}
-                            </span>
-                          )}
-                          {(task.hours ?? 0) > 0 && <span className="text-[10px] text-blue-600 font-medium">{task.hours}h</span>}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
+            const renderProjectGroup = (projNm: string, children: React.ReactNode, count: number, color: string) => (
+              <details key={projNm} className="group mb-2">
+                <summary className="flex items-center gap-2 cursor-pointer list-none px-2 py-1.5 rounded-lg hover:bg-slate-50 transition-colors select-none">
+                  <ChevronDownIcon className="w-3 h-3 text-slate-400 transition-transform group-open:rotate-0 -rotate-90 flex-shrink-0" />
+                  <span className="text-[11px] font-semibold text-slate-700 flex-1 truncate">{projNm}</span>
+                  <Badge count={count} color={color} style={{ fontSize: 9 }} />
+                </summary>
+                <div className="pl-2 space-y-1.5 mt-1">{children}</div>
+              </details>
+            )
 
-            {/* ── Not Started (within period) ── */}
-            <div>
-              <div className="flex items-center gap-2 mb-3">
-                <div className="w-1 h-3.5 rounded bg-slate-400" />
-                <span className="text-xs font-semibold text-slate-600">{t('statistics.notStartedTasks')}</span>
-                <Badge count={(report.not_started ?? []).length} color="#94a3b8" />
-              </div>
-              {(report.not_started ?? []).length === 0 ? (
-                <p className="text-xs text-slate-300 pl-3">{t('statistics.noNotStartedTasks')}</p>
-              ) : (
-                <div className="space-y-2">
-                  {(report.not_started ?? []).map((task) => {
-                    const isOverdue = task.status === 'overdue'
-                    return (
-                      <div key={task.id} className={`rounded-lg px-3 py-2 border ${isOverdue ? 'bg-red-50/50 border-red-100' : 'bg-slate-50 border-slate-100'}`}>
-                        <div className="flex items-center gap-2 mb-0.5">
-                          <span className="text-xs font-medium text-slate-700 flex-1 truncate">{task.name}</span>
-                          {isOverdue && <span className="text-[10px] text-red-500 font-semibold flex-shrink-0">{t('statistics.alreadyOverdue')}</span>}
-                        </div>
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="text-[10px] text-slate-400">{task.project}</span>
-                          <span className="text-[10px] text-slate-300">
-                            {t('statistics.expectedPeriod', { start: task.expected_start_date || '—', end: task.expected_end_date || '—' })}
-                          </span>
-                        </div>
-                      </div>
-                    )
-                  })}
+            return (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mt-5">
+                {/* ── Completed ── */}
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-1 h-3.5 rounded bg-green-500" />
+                    <span className="text-xs font-semibold text-slate-600">{t('statistics.periodCompletedTasks')}</span>
+                    <Badge count={report.completed.length} color="#16a34a" />
+                  </div>
+                  {report.completed.length === 0
+                    ? <p className="text-xs text-slate-300 pl-3">{t('statistics.noPeriodCompletedTasks')}</p>
+                    : [...completedByProj.entries()].map(([proj, tasks]) =>
+                        renderProjectGroup(proj, tasks.map((task) => (
+                          <div key={task.id} className="flex items-start gap-2 bg-green-50 rounded-lg px-3 py-2 border border-green-100">
+                            <CheckCircleIcon className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
+                            <div className="flex-1 min-w-0">
+                              <div className="text-xs font-medium text-slate-700">{task.name}</div>
+                              <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                                {task.requirement_nm && <Tag style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '14px' }} color="purple">{task.requirement_nm}</Tag>}
+                                {task.group && task.group !== '__stage__' && <Tag style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '14px' }} color="cyan">{task.group}</Tag>}
+                                <span className="text-[10px] text-slate-400">{t('statistics.completedAt', { date: task.completed_at })}</span>
+                                {Number(task.hours) > 0 && <span className="text-[10px] text-green-600 font-medium">{task.hours}h</span>}
+                              </div>
+                            </div>
+                          </div>
+                        )), tasks.length, '#16a34a')
+                      )
+                  }
                 </div>
-              )}
-            </div>
-          </div>
+
+                {/* ── In-Progress ── */}
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-1 h-3.5 rounded bg-blue-500" />
+                    <span className="text-xs font-semibold text-slate-600">{t('statistics.inProgressTasks')}</span>
+                    <Badge count={report.in_progress.length} color="#2563eb" />
+                  </div>
+                  {report.in_progress.length === 0
+                    ? <p className="text-xs text-slate-300 pl-3">{t('statistics.noInProgressTasks')}</p>
+                    : [...inProgressByProj.entries()].map(([proj, tasks]) =>
+                        renderProjectGroup(proj, tasks.map((task) => {
+                          const borderColor = task.status === 'overdue' ? '#fecaca' : task.status === 'urgent' ? '#fed7aa' : '#e2e8f0'
+                          const bgColor     = task.status === 'overdue' ? '#fef2f2' : task.status === 'urgent' ? '#fff7ed' : '#f8fafc'
+                          return (
+                            <div key={task.id} className="rounded-lg px-3 py-2 border" style={{ background: bgColor, borderColor }}>
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="text-xs font-medium text-slate-700 flex-1 truncate">{task.name}</span>
+                                {task.status === 'overdue' && <span className="text-[10px] text-red-500 font-semibold flex-shrink-0">{t('statistics.overdueBy', { days: Math.abs(task.days_left) })}</span>}
+                                {task.status === 'urgent' && <span className="text-[10px] text-orange-500 font-semibold flex-shrink-0">{t('statistics.daysLeftShort', { days: task.days_left })}</span>}
+                                {task.status === 'normal' && <span className="text-[10px] text-slate-400 flex-shrink-0">{t('statistics.daysLeftShort', { days: task.days_left })}</span>}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <div className="flex-1 bg-white rounded-full h-1.5 overflow-hidden border border-slate-100">
+                                  <div className="h-full rounded-full" style={{ width: `${task.progress}%`, background: task.status === 'overdue' ? '#f87171' : task.status === 'urgent' ? '#fb923c' : '#60a5fa' }} />
+                                </div>
+                                <span className="text-[10px] font-semibold text-slate-500 flex-shrink-0 w-7 text-right">{task.progress}%</span>
+                              </div>
+                              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                {task.requirement_nm && <Tag style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '14px' }} color="purple">{task.requirement_nm}</Tag>}
+                                {task.group && task.group !== '__stage__' && <Tag style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '14px' }} color="cyan">{task.group}</Tag>}
+                                {(task.expected_start_date || task.expected_end_date) && (
+                                  <span className="text-[10px] text-slate-300">{task.expected_start_date || '—'} ~ {task.expected_end_date || '—'}</span>
+                                )}
+                                {(task.hours ?? 0) > 0 && <span className="text-[10px] text-blue-600 font-medium">{task.hours}h</span>}
+                              </div>
+                            </div>
+                          )
+                        }), tasks.length, '#2563eb')
+                      )
+                  }
+                </div>
+
+                {/* ── Not Started ── */}
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-1 h-3.5 rounded bg-slate-400" />
+                    <span className="text-xs font-semibold text-slate-600">{t('statistics.notStartedTasks')}</span>
+                    <Badge count={(report.not_started ?? []).length} color="#94a3b8" />
+                  </div>
+                  {(report.not_started ?? []).length === 0
+                    ? <p className="text-xs text-slate-300 pl-3">{t('statistics.noNotStartedTasks')}</p>
+                    : [...notStartedByProj.entries()].map(([proj, tasks]) =>
+                        renderProjectGroup(proj, tasks.map((task) => {
+                          const isOverdue = task.status === 'overdue'
+                          return (
+                            <div key={task.id} className={`rounded-lg px-3 py-2 border ${isOverdue ? 'bg-red-50/50 border-red-100' : 'bg-slate-50 border-slate-100'}`}>
+                              <div className="flex items-center gap-2 mb-0.5">
+                                <span className="text-xs font-medium text-slate-700 flex-1 truncate">{task.name}</span>
+                                {isOverdue && <span className="text-[10px] text-red-500 font-semibold flex-shrink-0">{t('statistics.alreadyOverdue')}</span>}
+                              </div>
+                              <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                                {task.requirement_nm && <Tag style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '14px' }} color="purple">{task.requirement_nm}</Tag>}
+                                {task.group && task.group !== '__stage__' && <Tag style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '14px' }} color="cyan">{task.group}</Tag>}
+                                <span className="text-[10px] text-slate-300">
+                                  {t('statistics.expectedPeriod', { start: task.expected_start_date || '—', end: task.expected_end_date || '—' })}
+                                </span>
+                              </div>
+                            </div>
+                          )
+                        }), tasks.length, '#94a3b8')
+                      )
+                  }
+                </div>
+              </div>
+            )
+          })()}
         </div>
       </Panel>
     </Collapse>
@@ -444,6 +642,14 @@ const ProgressReportTab: React.FC<{ initialPeriod?: PeriodKey; initialMember?: s
   const totalOverdue  = reports.reduce((s, r) => s + r.overdue.length, 0)
   const atRiskCount   = reports.filter((r) => r.overdue.length > 0 || r.in_progress.some((t) => t.status !== 'normal')).length
 
+  const REPORT_PRESETS = [
+    { labelKey: 'statistics.lastWeek',    range: () => [dayjs().subtract(1, 'week').startOf('week'), dayjs().subtract(1, 'week').endOf('week')] as [Dayjs, Dayjs] },
+    { labelKey: 'statistics.thisWeek',    range: () => [dayjs().startOf('week'), dayjs().endOf('week')] as [Dayjs, Dayjs] },
+    { labelKey: 'statistics.thisMonth',   range: () => [dayjs().startOf('month'), dayjs().endOf('month')] as [Dayjs, Dayjs] },
+    { labelKey: 'statistics.thisQuarter', range: () => { const m = dayjs().month(); const q = Math.floor(m / 3); return [dayjs().month(q * 3).startOf('month'), dayjs().month(q * 3 + 2).endOf('month')] as [Dayjs, Dayjs] } },
+    { labelKey: 'statistics.thisYear',    range: () => [dayjs().startOf('year'), dayjs().endOf('year')] as [Dayjs, Dayjs] },
+  ]
+
   return (
     <div>
       {/* Period selector */}
@@ -453,51 +659,43 @@ const ProgressReportTab: React.FC<{ initialPeriod?: PeriodKey; initialMember?: s
 
         {/* Quick preset buttons */}
         <div className="flex items-center gap-1.5 flex-wrap">
-          {PERIOD_PRESETS.map((p) => (
-            <button
-              key={p.key}
-              onClick={() => { setPeriod(p.key); setCustomRange(null) }}
-              className={`px-3 py-1 rounded-lg text-xs font-medium transition-all border-0 outline-none cursor-pointer ${
-                period === p.key && period !== 'custom'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              {t(p.labelKey)}
-            </button>
-          ))}
-          <button
-            onClick={() => setPeriod('custom')}
-            className={`px-3 py-1 rounded-lg text-xs font-medium transition-all border-0 outline-none cursor-pointer ${
-              period === 'custom'
-                ? 'bg-blue-600 text-white shadow-sm'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            {t('statistics.custom')}
-          </button>
+          {REPORT_PRESETS.map((p) => {
+            const [ps, pe] = p.range()
+            const active = range[0].isSame(ps, 'day') && range[1].isSame(pe, 'day')
+            return (
+              <button
+                key={p.labelKey}
+                onClick={() => { setPeriod('custom'); setCustomRange(p.range()) }}
+                className={`px-3 py-1 rounded-lg text-xs font-medium transition-all border-0 outline-none cursor-pointer ${
+                  active ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                {t(p.labelKey)}
+              </button>
+            )
+          })}
         </div>
 
-        {/* Custom range picker */}
-        {period === 'custom' && (
-          <RangePicker
-            size="small"
-            style={{ borderRadius: 8 }}
-            value={customRange}
-            onChange={(dates) => dates && setCustomRange([dates[0]!, dates[1]!])}
-          />
-        )}
+        <RangePicker
+          size="small"
+          style={{ borderRadius: 8 }}
+          value={[range[0], range[1]]}
+          onChange={(dates) => { if (dates) { setPeriod('custom'); setCustomRange([dates[0]!, dates[1]!]) } }}
+        />
 
         <div className="ml-auto flex items-center gap-2">
-          <span className="text-xs text-slate-400 border border-slate-100 rounded-lg px-2 py-1 bg-slate-50">{dateLabel}</span>
-          <Button
-            size="small"
-            icon={<ArrowDownTrayIcon className="w-3.5 h-3.5" />}
-            onClick={() => exportReportCSV(reports, periodLabel, t)}
-            className="text-slate-600"
-          >
-            {t('statistics.exportReport')}
-          </Button>
+          <Dropdown menu={{ items: [
+            { key: 'csv', label: 'CSV', icon: <ArrowDownTrayIcon className="w-4 h-4" />, onClick: () => exportReportCSV(reports, periodLabel, t) },
+            { key: 'word', label: 'Word', icon: <DocumentTextIcon className="w-4 h-4" />, onClick: () => exportReportWord(reports, periodLabel, t) },
+          ] }} placement="bottomRight" trigger={['click']}>
+            <Button
+              size="small"
+              icon={<ArrowDownTrayIcon className="w-3.5 h-3.5" />}
+              className="text-slate-600"
+            >
+              {t('statistics.exportReport')}
+            </Button>
+          </Dropdown>
         </div>
       </div>
 
@@ -884,6 +1082,17 @@ const StatisticsPage: React.FC = () => {
   const [teamSummary, setTeamSummary] = useState<{ total_hours: number; completed_tasks: number; in_progress_tasks: number; overdue_tasks: number } | null>(null)
   const [isLoading,  setIsLoading]  = useState(false)
   const [selected,   setSelected]   = useState<string | null>(null)
+  const [analysisRange, setAnalysisRange] = useState<[Dayjs, Dayjs]>([dayjs().subtract(4, 'week').startOf('week'), dayjs().endOf('week')])
+  const [trendMode, setTrendMode] = useState<'week' | 'day'>('week')
+
+  type AnalysisPreset = { labelKey: string; range: () => [Dayjs, Dayjs] }
+  const ANALYSIS_PRESETS: AnalysisPreset[] = [
+    { labelKey: 'statistics.lastWeek',    range: () => [dayjs().subtract(1, 'week').startOf('week'), dayjs().subtract(1, 'week').endOf('week')] },
+    { labelKey: 'statistics.thisWeek',    range: () => [dayjs().startOf('week'), dayjs().endOf('week')] },
+    { labelKey: 'statistics.thisMonth',   range: () => [dayjs().startOf('month'), dayjs().endOf('month')] },
+    { labelKey: 'statistics.thisQuarter', range: () => { const m = dayjs().month(); const q = Math.floor(m / 3); return [dayjs().month(q * 3).startOf('month'), dayjs().month(q * 3 + 2).endOf('month')] } },
+    { labelKey: 'statistics.thisYear',    range: () => [dayjs().startOf('year'), dayjs().endOf('year')] },
+  ]
 
   // Personal detail cache: workNo -> data
   type PersonalStat = {
@@ -895,19 +1104,28 @@ const StatisticsPage: React.FC = () => {
   const [personalLoading, setPersonalLoading] = useState<Record<string, boolean>>({})
 
   const loadPersonalStats = async (workNo: string) => {
-    if (personalCache[workNo] || personalLoading[workNo]) return
+    if (personalLoading[workNo]) return
     setPersonalLoading((prev) => ({ ...prev, [workNo]: true }))
     try {
-      const res = await projectApi.personalStats({ work_no: workNo })
+      const params: { work_no: string; start_date?: string; end_date?: string } = {
+        work_no: workNo,
+        start_date: analysisRange[0].format('YYYY-MM-DD'),
+        end_date: analysisRange[1].format('YYYY-MM-DD'),
+      }
+      const res = await projectApi.personalStats(params)
       setPersonalCache((prev) => ({ ...prev, [workNo]: res.content }))
     } catch { /* global */ }
     finally { setPersonalLoading((prev) => ({ ...prev, [workNo]: false })) }
   }
 
-  const loadStats = async () => {
+  const loadStats = async (range: [Dayjs, Dayjs]) => {
     setIsLoading(true)
     try {
-      const res = await projectApi.memberStats()
+      const params: { start_date?: string; end_date?: string } = {
+        start_date: range[0].format('YYYY-MM-DD'),
+        end_date: range[1].format('YYYY-MM-DD'),
+      }
+      const res = await projectApi.memberStats(params)
       const content = res.content as { members?: MemberWorkStat[]; summary?: typeof teamSummary } | MemberWorkStat[]
       if (content && !Array.isArray(content) && content.members) {
         setStats(content.members)
@@ -919,9 +1137,9 @@ const StatisticsPage: React.FC = () => {
     finally { setIsLoading(false) }
   }
 
-  useEffect(() => { loadStats() }, [])
+  useEffect(() => { loadStats(analysisRange); setPersonalCache({}); setSelected(null) }, [analysisRange]) // eslint-disable-line react-hooks/exhaustive-deps
   // 非管理员：进入页面即加载自己的个人工时详情
-  useEffect(() => { if (!isManager && myWorkNo) loadPersonalStats(myWorkNo) }, [isManager, myWorkNo])
+  useEffect(() => { if (!isManager && myWorkNo) loadPersonalStats(myWorkNo) }, [isManager, myWorkNo, analysisRange]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const totals = useMemo(() => {
     if (teamSummary) {
@@ -943,7 +1161,18 @@ const StatisticsPage: React.FC = () => {
 
   const lineData = useMemo(() => {
     if (stats.length === 0) return []
-    // Collect all unique week keys from ALL members (not just the first)
+    if (trendMode === 'day') {
+      // Daily mode: collect all dates
+      const dateSet = new Set<string>()
+      stats.forEach((m) => { m.daily_hours?.forEach((d) => dateSet.add(d.date)) })
+      const dates = [...dateSet].sort()
+      return dates.map((date) => {
+        const row: Record<string, unknown> = { week: date.slice(5) }  // MM-DD
+        stats.forEach((m) => { row[m.name] = m.daily_hours?.find((d) => d.date === date)?.hours ?? 0 })
+        return row
+      })
+    }
+    // Weekly mode
     const weekSet = new Set<string>()
     stats.forEach((m) => { m.weekly_hours?.forEach((w) => weekSet.add(w.week)) })
     const weeks = [...weekSet].sort()
@@ -952,7 +1181,7 @@ const StatisticsPage: React.FC = () => {
       stats.forEach((m) => { row[m.name] = m.weekly_hours?.find((w) => w.week === week)?.hours ?? 0 })
       return row
     })
-  }, [stats])
+  }, [stats, trendMode])
 
   const overdueTasksLabel = t('statistics.chartOverdueTasks')
   const overdueDaysLabel = t('statistics.chartOverdueDays')
@@ -1023,34 +1252,9 @@ const StatisticsPage: React.FC = () => {
     const projectData    = detail?.project_dist    ?? []
     const categoryData   = detail?.category_dist   ?? []
     const overtimeData   = detail?.weekly_overtime  ?? []
-    const leaveHrs       = (detail as any)?.leave_hours ?? 0
     const totalProjHours = projectData.reduce((s: number, d: { hours: number }) => s + d.hours, 0)
-    const totalOvertime  = overtimeData.reduce((s, d) => s + d.overtime, 0)
-    const totalNormal    = overtimeData.reduce((s, d) => s + d.normal, 0)
-    const totalHrs       = totalNormal + totalOvertime
     return (
       <div className="space-y-4">
-        {/* personal stat cards */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          {[
-            { label: t('statistics.totalHoursLabel'), value: totalHrs,     unit: 'h',  color: '#2563eb', bg: '#eff6ff', icon: <ClockIcon className="w-4 h-4 text-blue-500" /> },
-            { label: t('statistics.normalHours'),     value: totalNormal,  unit: 'h',  color: '#16a34a', bg: '#f0fdf4', icon: <SunIcon className="w-4 h-4 text-green-500" /> },
-            { label: t('statistics.overtimeHours'),   value: totalOvertime, unit: 'h', color: '#d97706', bg: '#fff7ed', icon: <MoonIcon className="w-4 h-4 text-orange-500" /> },
-            ...(leaveHrs > 0 ? [{ label: t('statistics.leaveHours'), value: leaveHrs, unit: 'h', color: '#10b981', bg: '#ecfdf5', icon: <SunIcon className="w-4 h-4 text-emerald-500" /> }] : []),
-            { label: t('statistics.overtimeRatio'),   value: totalHrs > 0 ? Math.round((totalOvertime / totalHrs) * 100) : 0, unit: '%', color: '#dc2626', bg: '#fef2f2', icon: <ExclamationTriangleIcon className="w-4 h-4 text-red-500" /> },
-          ].map((s) => (
-            <div key={s.label} className="bg-white rounded-xl border border-slate-100 shadow-sm px-4 py-3 flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: s.bg }}>{s.icon}</div>
-              <div>
-                <div className="text-[10px] text-slate-400 leading-none mb-0.5">{s.label}</div>
-                <div className="font-bold text-lg leading-none" style={{ color: s.color }}>
-                  {s.value}<span className="text-xs font-normal text-slate-400 ml-0.5">{s.unit}</span>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-
         {/* 3 pie charts */}
         <Row gutter={[16, 16]}>
           <Col xs={24} md={8}>
@@ -1127,17 +1331,46 @@ const StatisticsPage: React.FC = () => {
   // ─── Tab 1: 工時分析 ───────────────────────────────────────────────────────
   const analysisTab = (
     <>
+      {/* Time range filter (shared by both views) */}
+      <div className="flex flex-wrap items-center gap-3 mb-5 bg-white rounded-xl border border-slate-100 shadow-sm px-4 py-3">
+        <CalendarDaysIcon className="w-4 h-4 text-slate-400 flex-shrink-0" />
+        <span className="text-xs font-semibold text-slate-500 flex-shrink-0">{t('statistics.reportPeriod')}</span>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {ANALYSIS_PRESETS.map((p) => {
+            const [ps, pe] = p.range()
+            const active = analysisRange[0].isSame(ps, 'day') && analysisRange[1].isSame(pe, 'day')
+            return (
+              <button
+                key={p.labelKey}
+                onClick={() => setAnalysisRange(p.range())}
+                className={`px-3 py-1 rounded-lg text-xs font-medium transition-all border-0 outline-none cursor-pointer ${
+                  active ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                {t(p.labelKey)}
+              </button>
+            )
+          })}
+        </div>
+        <RangePicker
+          size="small"
+          style={{ borderRadius: 8 }}
+          value={analysisRange}
+          onChange={(dates) => { if (dates) setAnalysisRange([dates[0]!, dates[1]!]) }}
+        />
+      </div>
+
       {!isManager && (
         <div className="mb-2">
           <div className="flex items-center gap-2 px-1 mb-4">
             <UserIcon className="w-4 h-4 text-slate-400" />
             <span className="text-sm font-semibold text-slate-700">{t('statistics.myWorkHoursAnalysis')}</span>
-            <span className="text-xs text-slate-400 font-normal">{t('statistics.recentFiveWeeks')}</span>
           </div>
           {renderPersonalDetail(myWorkNo, '')}
         </div>
       )}
       {isManager && <>
+
       {/* Summary cards */}
       <Row gutter={[16, 16]} className="mb-6">
         {[
@@ -1156,7 +1389,20 @@ const StatisticsPage: React.FC = () => {
         <Col xs={24} xl={15}>
           <Card
             bordered={false} className="shadow-sm"
-            title={<span className="text-sm font-semibold text-slate-700">{t('statistics.workHoursTrend')}</span>}
+            title={
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-semibold text-slate-700">{t('statistics.workHoursTrend')}</span>
+                <Segmented
+                  size="small"
+                  value={trendMode}
+                  onChange={(v) => setTrendMode(v as 'week' | 'day')}
+                  options={[
+                    { label: t('common.byWeek'), value: 'week' },
+                    { label: t('common.byDay'), value: 'day' },
+                  ]}
+                />
+              </div>
+            }
             bodyStyle={{ paddingTop: 8 }}
           >
             {isLoading ? <Skeleton active paragraph={{ rows: 4 }} /> : (

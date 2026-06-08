@@ -76,9 +76,11 @@
     "dateFormatYearMonth": "MMM YYYY",
     "dateFormatFull": "MMM D, YYYY",
     "day": "d",
-    "stageTask": "📋 Stage Tasks",
-    "stageTaskPlain": "Stage Tasks",
-    "creator": "Creator"
+    "stageTask": "📋 Evaluation & Planning",
+    "stageTaskPlain": "Evaluation & Planning",
+    "creator": "Creator",
+    "byWeek": "Weekly",
+    "byDay": "Daily"
   },
   "nav": {
     "home": "Home",
@@ -1078,6 +1080,7 @@
     "exportWeeklyDetailCSV": "Export Weekly Hours Detail (CSV)",
     "reportPeriod": "Report Period",
     "today": "Today",
+    "lastWeek": "Last Week",
     "thisWeek": "This Week",
     "thisMonth": "This Month",
     "thisQuarter": "This Quarter",
@@ -1125,7 +1128,7 @@
     "noArTasks": "No AR tasks",
     "myWorkHoursAnalysis": "My Work Hours Analysis",
     "recentFiveWeeks": "Last 5 weeks data",
-    "workHoursTrend": "Work Hours Trend (Last 5 Weeks)",
+    "workHoursTrend": "Work Hours Trend",
     "overdueAnalysis": "Overdue Task Analysis (Count + Days)",
     "taskCompletionStatus": "Task Completion Status (Per Member)",
     "memberWorkloadSummary": "Member Workload Summary",
@@ -1149,7 +1152,7 @@
     "overtimeRatio": "Overtime Ratio",
     "projectHoursDist": "Project Hours Distribution",
     "categoryDist": "Work Category Distribution",
-    "normalVsOvertime": "Normal vs Overtime (Last 5 Weeks)",
+    "normalVsOvertime": "Normal vs Overtime",
     "workHoursBarName": "Hours",
     "updatesCountTooltip": "Progress Updates",
     "csvReportPeriod": "Report Period",
@@ -2036,7 +2039,7 @@
       "progress": "Progress",
       "other": "Other"
     },
-    "stageTaskGroup": "📋 Stage Tasks",
+    "stageTaskGroup": "📋 Evaluation & Planning",
     "defaultReviewer": "Default supervisor, cannot be removed"
   },
   "projectReport": {
@@ -2161,6 +2164,8 @@
     "addMilestone": "Add Milestone",
     "editMilestone": "Edit Milestone",
     "namePlaceholder": "Enter milestone name",
+    "linkedRequirements": "Linked Requirements",
+    "linkedRequirementsPlaceholder": "Select requirements to auto-link all their tasks",
     "linkedFunctions": "Linked Tasks",
     "linkedFunctionsPlaceholder": "Select linked tasks (multiple)",
     "notePlaceholder": "Notes (optional)",

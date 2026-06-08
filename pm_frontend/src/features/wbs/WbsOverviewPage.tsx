@@ -1054,7 +1054,7 @@ const FunctionModule: React.FC<{
   onAddNote: (taskId: string, taskName: string, type: NoteType, content: string) => void
   onResolveNote: (noteId: string) => void
   onDeleteNote: (noteId: string) => void
-}> = ({ func, defaultOpen = true, onWeekTagClick, expandedTaskId, onToggleTaskExpand, notesByTaskId, onAddNote, onResolveNote, onDeleteNote }) => {
+}> = ({ func, defaultOpen = false, onWeekTagClick, expandedTaskId, onToggleTaskExpand, notesByTaskId, onAddNote, onResolveNote, onDeleteNote }) => {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(defaultOpen)
   const overdueCount = func.tasks.filter((t) => !!t.is_overdue).length
@@ -1126,7 +1126,7 @@ const ReqGroupWrapper: React.FC<{
   children: React.ReactNode
 }> = ({ name, progress, taskCount, overdueCount, children }) => {
   const { t } = useTranslation()
-  const [expanded, setExpanded] = useState(true)
+  const [expanded, setExpanded] = useState(false)
   return (
     <div className="border border-purple-200 rounded-lg overflow-hidden mb-2 last:mb-0">
       <div
@@ -1217,7 +1217,7 @@ const ProjectCard: React.FC<{
 
   return (
     <Collapse
-      defaultActiveKey={overdueTasks > 0 || isFiltered ? ['main'] : []}
+      defaultActiveKey={[]}
       className="mb-4 bg-white border border-slate-100 rounded-xl overflow-hidden shadow-sm"
       expandIconPosition="end"
     >
@@ -1334,7 +1334,7 @@ const ProjectCard: React.FC<{
           const renderFuncModules = (fns: typeof project.functions) =>
             fns.map((f) => (
               <FunctionModule key={f.id} func={f}
-                defaultOpen={f.tasks.some((t) => !!t.is_overdue) || f.tasks.length <= 6}
+                defaultOpen={false}
                 onWeekTagClick={onWeekTagClick} expandedTaskId={expandedTaskId}
                 onToggleTaskExpand={onToggleTaskExpand} notesByTaskId={notesByTaskId}
                 onAddNote={(tid, tnm, type, content) => onAddNote(tid, tnm, type, content)}
@@ -1372,7 +1372,7 @@ const ProjectCard: React.FC<{
           <FunctionModule
             key={f.id}
             func={f}
-            defaultOpen={f.tasks.some((t) => !!t.is_overdue) || f.tasks.length <= 6}
+            defaultOpen={false}
             onWeekTagClick={onWeekTagClick}
             expandedTaskId={expandedTaskId}
             onToggleTaskExpand={onToggleTaskExpand}
@@ -2181,7 +2181,7 @@ const DutyFunctionBlock: React.FC<{
   onAddNote: (dutyId: string, dutyNm: string, type: NoteType, content: string) => void
   onResolveNote: (noteId: string) => void
   onDeleteNote: (noteId: string) => void
-}> = ({ groupNm, duties, onSelect, onWeekTagClick, defaultOpen = true, notesByDutyId, onAddNote, onResolveNote, onDeleteNote }) => {
+}> = ({ groupNm, duties, onSelect, onWeekTagClick, defaultOpen = false, notesByDutyId, onAddNote, onResolveNote, onDeleteNote }) => {
   const { t } = useTranslation()
   const [open, setOpen] = useState(defaultOpen)
   const completed  = duties.filter((d) => d.status === 3).length
@@ -2281,7 +2281,7 @@ const DutyCard: React.FC<{
 
   return (
     <Collapse
-      defaultActiveKey={overdueCount > 0 ? ['main'] : []}
+      defaultActiveKey={[]}
       className="mb-4 bg-white border border-slate-100 rounded-xl overflow-hidden shadow-sm"
       expandIconPosition="end"
     >
@@ -2366,7 +2366,7 @@ const DutyCard: React.FC<{
             duties={groupDuties}
             onSelect={onSelect}
             onWeekTagClick={onWeekTagClick}
-            defaultOpen={groupDuties.some((d) => d.status !== 3 && !!d.expected_end_date && dayjs(d.expected_end_date).isBefore(dayjs(), 'day')) || groupDuties.length <= 6}
+            defaultOpen={false}
             notesByDutyId={notesByDutyId}
             onAddNote={(dutyId, dutyNm, type, content) => onAddNote(dutyId, dutyNm, type, content)}
             onResolveNote={onResolveNote}

@@ -496,7 +496,7 @@ const SystemDetailPage: React.FC = () => {
   // ── Duty 分類計算 ─────────────────────────────────────────────────────────
   // eslint-disable-next-line react-hooks/rules-of-hooks
   const existingDutyGroups = useMemo(
-    () => Array.from(new Set(duties.map((d) => d.group).filter(Boolean))).map((g) => ({ value: g as string, label: g as string })),
+    () => Array.from(new Set(duties.map((d) => d.group).filter(Boolean))).map((g) => ({ value: g as string, label: g === '__stage__' ? t('common.stageTask') : g as string })),
     [duties],
   )
 const reqDuties   = useMemo(() => duties.filter((d) => !!d.standalone_req_id), [duties])
@@ -508,7 +508,7 @@ const displayedArDuties  = useMemo(() => arDutyView  === 'mine' ? myArDuties  : 
 const groupedArDuties = useMemo(() => {
     const map = new Map<string, TemporaryDuty[]>()
     displayedArDuties.forEach((d) => {
-      const g = d.group || t('system.ungrouped')
+      const g = d.group === '__stage__' ? t('common.stageTask') : (d.group || t('system.ungrouped'))
       if (!map.has(g)) map.set(g, [])
       map.get(g)!.push(d)
     })
@@ -527,7 +527,7 @@ const groupedByReq = useMemo(() => {
       const items = displayedReqDuties.filter((d) => d.standalone_req_id === req.id)
       const groupMap = new Map<string, TemporaryDuty[]>()
       items.forEach((d) => {
-        const g = d.group || t('system.ungrouped')
+        const g = d.group === '__stage__' ? t('common.stageTask') : (d.group || t('system.ungrouped'))
         if (!groupMap.has(g)) groupMap.set(g, [])
         groupMap.get(g)!.push(d)
       })

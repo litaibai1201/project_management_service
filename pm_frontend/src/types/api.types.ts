@@ -437,6 +437,7 @@ export interface MemberWorkStat {
   in_progress_tasks: number
   log_submitted:     boolean
   weekly_hours?:     { week: string; hours: number }[]
+  daily_hours?:      { date: string; hours: number }[]
 }
 
 // ─── Review ───────────────────────────────────────────────────────────────────

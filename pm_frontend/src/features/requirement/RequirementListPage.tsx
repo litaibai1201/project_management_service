@@ -61,7 +61,7 @@ const RequirementListPage: React.FC = () => {
   const { t } = useTranslation()
   const toName   = useWorkNoToName()
   const navigate = useNavigate()
-  const [activeTab, setActiveTab] = useState<'project' | 'system'>('project')
+  const [activeTab, setActiveTab] = useState<'project' | 'system'>('system')
 
   // ── 專案需求 state ────────────────────────────────────────────────────────
   const [projList,     setProjList]     = useState<ProjectReqItem[]>([])
@@ -476,48 +476,6 @@ const RequirementListPage: React.FC = () => {
         onChange={(k) => setActiveTab(k as 'project' | 'system')}
         items={[
           {
-            key: 'project',
-            label: `${t('requirement.project')} (${projTotal})`,
-            children: (
-              <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: 0 } }}>
-                <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-slate-100">
-                  <Input.Search
-                    placeholder={t('requirement.searchPlaceholder')}
-                    allowClear
-                    style={{ width: 220 }}
-                    onSearch={(v) => { setProjKeyword(v); loadProjReqs(1, projPageSize, v, projStatus, projPriority) }}
-                  />
-                  <Select
-                    placeholder={t('common.status')} allowClear style={{ width: 110 }}
-                    value={projStatus}
-                    onChange={(v) => { setProjStatus(v); loadProjReqs(1, projPageSize, projKeyword, v, projPriority) }}
-                    options={Object.entries(REQ_STATUS_KEYS).map(([k, key]) => ({ value: Number(k), label: t(key) }))}
-                  />
-                  <Select
-                    placeholder={t('common.priority')} allowClear style={{ width: 110 }}
-                    value={projPriority}
-                    onChange={(v) => { setProjPriority(v); loadProjReqs(1, projPageSize, projKeyword, projStatus, v) }}
-                    options={[{ value: 1, label: t('requirement.priorityLow') }, { value: 2, label: t('requirement.priorityMedium') }, { value: 3, label: t('requirement.priorityHigh') }, { value: 4, label: t('requirement.priorityUrgent') }]}
-                  />
-                </div>
-                <Table<ProjectReqItem>
-                  rowKey="id"
-                  loading={projLoading}
-                  dataSource={projList}
-                  columns={projColumns}
-                  size="small"
-                  pagination={{
-                    current: projPage, pageSize: projPageSize, total: projTotal,
-                    showSizeChanger: true, showTotal: (total) => t('common.total', { count: total }),
-                    onChange: (page, size) => { setProjPageSize(size); loadProjReqs(page, size) },
-                  }}
-                  scroll={{ x: 800 }}
-                  locale={{ emptyText: <div className="py-8 text-center text-slate-400">{t('requirement.noProjReqs')}</div> }}
-                />
-              </Card>
-            ),
-          },
-          {
             key: 'system',
             label: `${t('requirement.system')} (${reqTotal})`,
             children: (
@@ -565,6 +523,48 @@ const RequirementListPage: React.FC = () => {
                   }}
                   scroll={{ x: 860 }}
                   locale={{ emptyText: <div className="py-8 text-center text-slate-400">{t('requirement.noSysReqs')}</div> }}
+                />
+              </Card>
+            ),
+          },
+          {
+            key: 'project',
+            label: `${t('requirement.project')} (${projTotal})`,
+            children: (
+              <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: 0 } }}>
+                <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-slate-100">
+                  <Input.Search
+                    placeholder={t('requirement.searchPlaceholder')}
+                    allowClear
+                    style={{ width: 220 }}
+                    onSearch={(v) => { setProjKeyword(v); loadProjReqs(1, projPageSize, v, projStatus, projPriority) }}
+                  />
+                  <Select
+                    placeholder={t('common.status')} allowClear style={{ width: 110 }}
+                    value={projStatus}
+                    onChange={(v) => { setProjStatus(v); loadProjReqs(1, projPageSize, projKeyword, v, projPriority) }}
+                    options={Object.entries(REQ_STATUS_KEYS).map(([k, key]) => ({ value: Number(k), label: t(key) }))}
+                  />
+                  <Select
+                    placeholder={t('common.priority')} allowClear style={{ width: 110 }}
+                    value={projPriority}
+                    onChange={(v) => { setProjPriority(v); loadProjReqs(1, projPageSize, projKeyword, projStatus, v) }}
+                    options={[{ value: 1, label: t('requirement.priorityLow') }, { value: 2, label: t('requirement.priorityMedium') }, { value: 3, label: t('requirement.priorityHigh') }, { value: 4, label: t('requirement.priorityUrgent') }]}
+                  />
+                </div>
+                <Table<ProjectReqItem>
+                  rowKey="id"
+                  loading={projLoading}
+                  dataSource={projList}
+                  columns={projColumns}
+                  size="small"
+                  pagination={{
+                    current: projPage, pageSize: projPageSize, total: projTotal,
+                    showSizeChanger: true, showTotal: (total) => t('common.total', { count: total }),
+                    onChange: (page, size) => { setProjPageSize(size); loadProjReqs(page, size) },
+                  }}
+                  scroll={{ x: 800 }}
+                  locale={{ emptyText: <div className="py-8 text-center text-slate-400">{t('requirement.noProjReqs')}</div> }}
                 />
               </Card>
             ),

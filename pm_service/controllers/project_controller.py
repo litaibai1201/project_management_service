@@ -236,11 +236,7 @@ class ProjectController:
         db.session.add(p)
         db.session.flush()  # get p.id before commit
 
-        # 专案创建后自动生成「需求评估与立案」阶段任务
-        self._create_stage_task(p.id, "initiate")
-
         db.session.commit()
-        self._flush_stage_notification()
         return {"project_id": p.id}
 
     def update_project(self, project_id: str, payload: dict, operator: str = ""):
@@ -554,30 +550,33 @@ class ProjectController:
 
     STAGE_TASK_CONFIG = {
         # apply_type_code → (任务名称, 描述)
-        "initiate": ("需求评估与立案", "专案立案阶段：需求收集、可行性评估、效益分析、立案报告撰写"),
+        "initiate": ("需求评估", "专案立案阶段：需求收集、可行性评估、效益分析"),
         "plan":     ("方案设计与规划", "专案规划阶段：方案设计、架构规划、资源评估、风险识别"),
         "schedule": ("排程规划与评估", "排程阶段：任务拆解、时程安排、资源分配、里程碑设定"),
     }
 
-    def _create_stage_task(self, project_id: str, apply_type_code: str):
-        """审核通过后自动创建对应阶段的任务"""
+    def _create_stage_task(self, project_id: str, apply_type_code: str, requirement_id: str = None, req_nm: str = ""):
+        """为指定需求创建阶段任务（需求级别）。requirement_id 为空时仍以专案级创建（兼容）。"""
         config = self.STAGE_TASK_CONFIG.get(apply_type_code)
         if not config:
             return
-        task_name, task_desc = config
+        base_name, task_desc = config
+        task_name = base_name
 
         p = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
         if not p:
             return
 
         # 检查是否已存在同名阶段任务（避免重复）
-        existing = db.session.query(FunctionDataModel).filter_by(
+        q = db.session.query(FunctionDataModel).filter_by(
             project_id=project_id,
-            function_nm=task_name,
             group1=self.STAGE_TASK_GROUP,
             status=1,
-        ).first()
-        if existing:
+        )
+        if requirement_id:
+            q = q.filter_by(requirement_id=requirement_id)
+        q = q.filter(FunctionDataModel.function_nm.like(f"{base_name}%"))
+        if q.first():
             return
 
         # 负责人：initiate阶段=产品PM+专案PM，其他阶段=仅专案PM
@@ -595,6 +594,7 @@ class ProjectController:
             function_nm=task_name,
             describe=task_desc,
             project_id=project_id,
+            requirement_id=requirement_id,
             responsible=json.dumps(responsible, ensure_ascii=False),
             priority=2,
             function_status=2,  # 直接设为进行中
@@ -602,13 +602,47 @@ class ProjectController:
             expected_start_date=CommonTools.get_now()[:10],
         )
         db.session.add(f)
-        # 返回通知信息，由调用方在 commit 后发送
         self._pending_stage_notification = {
             "recipients": responsible,
             "task_name": task_name,
             "project_nm": p.project_nm,
             "project_id": project_id,
         }
+
+    def _create_all_stage_tasks(self, project_id: str, requirement_id: str, req_nm: str):
+        """为追加需求一次性创建所有3个阶段任务"""
+        for code in ("initiate", "plan", "schedule"):
+            self._create_stage_task(project_id, code, requirement_id, req_nm)
+
+    def _create_standalone_req_stage_duties(self, req_id: str, system_id: str, req_nm: str, responsible: list):
+        """为系统需求审核通过后创建3个评估与规划任务（TemporaryDutyModel）"""
+        from dbs.mysql_db.model_tables import TemporaryDutyModel
+        for code in ("initiate", "plan", "schedule"):
+            config = self.STAGE_TASK_CONFIG.get(code)
+            if not config:
+                continue
+            task_name, task_desc = config
+            # 检查重复
+            existing = db.session.query(TemporaryDutyModel).filter_by(
+                standalone_req_id=req_id,
+                duty_nm=task_name,
+                status=1,
+            ).filter(TemporaryDutyModel.duty_status != 9).first()
+            if existing:
+                continue
+            d = TemporaryDutyModel(
+                duty_nm=task_name,
+                describe=task_desc,
+                creator=responsible[0] if responsible else "system",
+                system_id=system_id,
+                standalone_req_id=req_id,
+                responsible=json.dumps(responsible, ensure_ascii=False) if responsible else "[]",
+                priority=2,
+                duty_status=1,  # 进行中
+                group=self.STAGE_TASK_GROUP,
+                expected_start_date=CommonTools.get_now()[:10],
+            )
+            db.session.add(d)
 
     def _flush_stage_notification(self):
         """在 commit 后调用，发送阶段任务创建通知"""
@@ -617,8 +651,8 @@ class ProjectController:
             from controllers.notification_controller import push_notification
             push_notification(
                 info["recipients"],
-                title=f"您有新的阶段任务：{info['task_name']}",
-                desc=f"专案「{info['project_nm']}」已自动创建阶段任务「{info['task_name']}」，您是负责人，请及时跟进。",
+                title=f"您有新的评估与规划任务：{info['task_name']}",
+                desc=f"专案「{info['project_nm']}」已自动创建评估与规划任务「{info['task_name']}」，您是负责人，请及时跟进。",
                 link_type="project",
                 link_id=info["project_id"],
             )
@@ -949,6 +983,8 @@ class ProjectController:
                 if r.apply_type_code == 'requirement_review':
                     if final_status == 2:         # 通過 → 已通過
                         req.req_status = 2
+                        # 追加需求审核通过 → 一次性创建3个阶段任务
+                        self._create_all_stage_tasks(r.project_id, req.id, req.req_nm)
                     elif final_status in (3, 4):  # 拒絕/退回 → 草稿
                         req.req_status = 0
                 else:  # requirement_shelve
@@ -957,6 +993,7 @@ class ProjectController:
                     # 拒絕/退回 → 需求狀態不變（仍是已通過）
                 req.update_at = now
             db.session.commit()
+            self._flush_stage_notification()
 
             # 取得上下文資訊
             proj = db.session.query(ProjectDataModel).filter_by(id=r.project_id).first() if r.project_id else None
@@ -1052,9 +1089,19 @@ class ProjectController:
         if r.apply_type_code == 'standalone_req_review' and r.requirement_id:
             from dbs.mysql_db.model_tables import StandaloneReqModel, SystemModel, UserProfileModel
             req = db.session.query(StandaloneReqModel).filter_by(id=r.requirement_id).first()
+            responsible = []
             if req:
                 if final_status == 2:
                     req.req_status = 2
+                    # 系统需求审核通过 → 创建3个评估与规划任务
+                    if req.responsible:
+                        try:
+                            responsible = json.loads(req.responsible)
+                        except Exception:
+                            pass
+                    self._create_standalone_req_stage_duties(
+                        req.id, r.system_id or "", req.req_nm, responsible
+                    )
                 elif final_status in (3, 4):
                     req.req_status = 0
                 req.updated_at = now
@@ -1064,12 +1111,6 @@ class ProjectController:
             sys_nm = sys_obj.sys_nm if sys_obj else ""
             approver_u = db.session.query(UserProfileModel).filter_by(work_no=approver_work_no).first() if approver_work_no else None
             approver_nm = approver_u.name if approver_u else approver_work_no
-            responsible = []
-            if req and req.responsible:
-                try:
-                    responsible = json.loads(req.responsible)
-                except Exception:
-                    pass
 
             from controllers.notification_controller import push_notification
             result_text = "已通過" if final_status == 2 else ("已被退回" if final_status == 4 else "已被拒絕")
@@ -1081,6 +1122,11 @@ class ProjectController:
                 link_type="review",
                 link_id=review_id,
             )
+            if not responsible and req and req.responsible:
+                try:
+                    responsible = json.loads(req.responsible)
+                except Exception:
+                    pass
             extra = [w for w in responsible if w != r.submitter]
             if extra:
                 push_notification(
@@ -1108,6 +1154,16 @@ class ProjectController:
                 for req in reqs:
                     if final_status == 2:
                         req.req_status = 2
+                        # 系统需求审核通过 → 创建3个评估与规划任务
+                        resp_list = []
+                        if req.responsible:
+                            try:
+                                resp_list = json.loads(req.responsible)
+                            except Exception:
+                                pass
+                        self._create_standalone_req_stage_duties(
+                            req.id, r.system_id or "", req.req_nm, resp_list
+                        )
                     elif final_status in (3, 4):
                         req.req_status = 0
                     req.updated_at = now
@@ -1301,24 +1357,36 @@ class ProjectController:
                         for req in draft_reqs:
                             req.req_status = 2
                             req.update_at = now
-                    # 审核通过 → 自动创建下一阶段的阶段性任务
-                    # initiate通过 → 创建"方案设计与规划"任务
-                    # plan通过 → 创建"排程规划与评估"任务
+                    # 审核通过 → 需求级阶段任务处理
+                    # 当前阶段的阶段任务标记完成 + 为每个需求创建下一阶段任务
                     next_stage_map = {"initiate": "plan", "plan": "schedule"}
-                    next_stage = next_stage_map.get(r.apply_type_code)
-                    if next_stage:
-                        self._create_stage_task(r.project_id, next_stage)
-                    # 同时将上一阶段任务标记为已完结
-                    prev_task = db.session.query(FunctionDataModel).filter_by(
+                    current_stage = r.apply_type_code  # initiate / plan / schedule
+                    next_stage = next_stage_map.get(current_stage)
+                    current_base_name = self.STAGE_TASK_CONFIG.get(current_stage, ("",))[0]
+
+                    # 完成当前阶段的所有需求级阶段任务
+                    current_tasks = db.session.query(FunctionDataModel).filter_by(
                         project_id=r.project_id,
                         group1=self.STAGE_TASK_GROUP,
                         status=1,
-                    ).filter(FunctionDataModel.function_status != 4).all()
-                    for pt in prev_task:
-                        if pt.function_nm != self.STAGE_TASK_CONFIG.get(next_stage, ("",))[0]:
-                            pt.function_status = 4
-                            pt.progress = 100
-                            pt.end_time = now[:10]
+                    ).filter(
+                        FunctionDataModel.function_status != 4,
+                        FunctionDataModel.function_nm.like(f"{current_base_name}%"),
+                    ).all()
+                    for pt in current_tasks:
+                        pt.function_status = 4
+                        pt.progress = 100
+                        pt.end_time = now[:10]
+
+                    # 为每个需求创建下一阶段的任务
+                    if next_stage:
+                        from dbs.mysql_db.model_tables import RequirementModel as _RM
+                        reqs = db.session.query(_RM).filter(
+                            _RM.project_id == r.project_id,
+                            _RM.req_status.in_([0, 2]),  # 草稿或已通过
+                        ).all()
+                        for req in reqs:
+                            self._create_stage_task(r.project_id, next_stage, req.id, req.req_nm)
                 elif final_status in (3, 4) and next_fail:
                     p.project_status = next_fail
                 p.update_at = now
@@ -2438,25 +2506,27 @@ class FunctionController:
 
     def my_functions(self, work_no: str, page: int = 1, size: int = 20, status: int = None, scope: str = 'all') -> dict:
         """查询功能任务。scope='mine' 仅负责任务；scope='all' 所属专案全部；scope='supervisor' 下属专案全部"""
+        wn_lower = work_no.lower()
         if scope == 'mine':
             q = db.session.query(FunctionDataModel).filter(
                 FunctionDataModel.function_status != 9,
-                FunctionDataModel.responsible.like(f'%"{work_no}"%'),
+                db.func.lower(FunctionDataModel.responsible).like(f'%"{wn_lower}"%'),
             )
         elif scope == 'supervisor':
             # 找出所有下属工号
             subordinates = [r[0] for r in db.session.query(HierarchyModel.subordinate_work_no).filter(
-                HierarchyModel.supervisor_work_no == work_no,
+                db.func.lower(HierarchyModel.supervisor_work_no) == wn_lower,
             ).all()]
-            all_nos = [work_no] + subordinates  # 包含自己
+            all_nos = [work_no] + subordinates
+            all_nos_lower = [n.lower() for n in all_nos]
             # 下属担任 PM 的专案
             pm_ids = [r[0] for r in db.session.query(ProjectDataModel.id).filter(
-                ProjectDataModel.project_pm.in_(all_nos),
+                db.func.lower(ProjectDataModel.project_pm).in_(all_nos_lower),
                 ProjectDataModel.project_status != 9,
             ).all()]
             # 下属作为负责人出现的专案
             from sqlalchemy import or_
-            resp_filters = [FunctionDataModel.responsible.like(f'%"{n}"%') for n in all_nos]
+            resp_filters = [db.func.lower(FunctionDataModel.responsible).like(f'%"{n}"%') for n in all_nos_lower]
             resp_proj_ids = [r[0] for r in db.session.query(FunctionDataModel.project_id).filter(
                 FunctionDataModel.function_status != 9,
                 or_(*resp_filters) if resp_filters else db.false(),
@@ -2469,11 +2539,11 @@ class FunctionController:
         else:
             # scope='all'：收集用户所属专案 ID（作为 PM 或在任意任务中为负责人）
             pm_ids = [r[0] for r in db.session.query(ProjectDataModel.id).filter(
-                ProjectDataModel.project_pm == work_no,
+                db.func.lower(ProjectDataModel.project_pm) == wn_lower,
                 ProjectDataModel.project_status != 9,
             ).all()]
             func_proj_ids = [r[0] for r in db.session.query(FunctionDataModel.project_id).filter(
-                FunctionDataModel.responsible.like(f'%"{work_no}"%'),
+                db.func.lower(FunctionDataModel.responsible).like(f'%"{wn_lower}"%'),
                 FunctionDataModel.function_status != 9,
             ).distinct().all()]
             all_proj_ids = list(set(pm_ids + func_proj_ids))
