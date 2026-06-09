@@ -122,7 +122,7 @@ const ProjectProgressTab: React.FC<{ data: ProjectReportStat[] }> = ({ data }) =
         </div>
       </div>
       <div className="bg-white border border-slate-100 rounded-xl overflow-hidden">
-        <Table rowKey="project_id" columns={columns} components={tableComponents} dataSource={data} pagination={false} size="middle" />
+        <Table rowKey="project_id" columns={columns} components={tableComponents} dataSource={data} pagination={false} size="middle" scroll={{ x: 'max-content' }} />
       </div>
     </>
   )
@@ -190,7 +190,7 @@ const ProjectOverdueTab: React.FC<{ data: ProjectReportStat[] }> = ({ data }) =>
         </div>
       </div>
       <div className="bg-white border border-slate-100 rounded-xl overflow-hidden">
-        <Table rowKey="project_id" columns={columns} components={tableComponents} dataSource={data} pagination={false} size="middle" />
+        <Table rowKey="project_id" columns={columns} components={tableComponents} dataSource={data} pagination={false} size="middle" scroll={{ x: 'max-content' }} />
       </div>
     </>
   )
@@ -265,7 +265,7 @@ const MemberProgressTab: React.FC<{ data: MemberReportStat[] }> = ({ data }) => 
         </div>
       </div>
       <div className="bg-white border border-slate-100 rounded-xl overflow-hidden">
-        <Table rowKey="work_no" columns={columns} components={tableComponents} dataSource={data} pagination={false} size="middle" />
+        <Table rowKey="work_no" columns={columns} components={tableComponents} dataSource={data} pagination={false} size="middle" scroll={{ x: 'max-content' }} />
       </div>
     </>
   )
@@ -337,7 +337,7 @@ const MemberOverdueTab: React.FC<{ data: MemberReportStat[] }> = ({ data }) => {
         </div>
       </div>
       <div className="bg-white border border-slate-100 rounded-xl overflow-hidden">
-        <Table rowKey="work_no" columns={columns} components={tableComponents} dataSource={data} pagination={false} size="middle" />
+        <Table rowKey="work_no" columns={columns} components={tableComponents} dataSource={data} pagination={false} size="middle" scroll={{ x: 'max-content' }} />
       </div>
     </>
   )
@@ -407,7 +407,7 @@ const SystemProgressTab: React.FC<{ data: SystemReportStat[] }> = ({ data }) => 
         </div>
       </div>
       <div className="bg-white border border-slate-100 rounded-xl overflow-hidden">
-        <Table rowKey="system_id" columns={columns} components={tableComponents} dataSource={data} pagination={false} size="middle" />
+        <Table rowKey="system_id" columns={columns} components={tableComponents} dataSource={data} pagination={false} size="middle" scroll={{ x: 'max-content' }} />
       </div>
     </>
   )
@@ -478,7 +478,7 @@ const SystemOverdueTab: React.FC<{ data: SystemReportStat[] }> = ({ data }) => {
         </div>
       </div>
       <div className="bg-white border border-slate-100 rounded-xl overflow-hidden">
-        <Table rowKey="system_id" columns={columns} components={tableComponents} dataSource={data} pagination={false} size="middle" />
+        <Table rowKey="system_id" columns={columns} components={tableComponents} dataSource={data} pagination={false} size="middle" scroll={{ x: 'max-content' }} />
       </div>
     </>
   )

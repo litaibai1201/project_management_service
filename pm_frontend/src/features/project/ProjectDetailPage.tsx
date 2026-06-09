@@ -1436,6 +1436,7 @@ const ProjectDetailPage: React.FC = () => {
                   loading={reqLoading}
                   dataSource={requirements}
                   size="small"
+                  scroll={{ x: 'max-content' }}
                   pagination={false}
                   rowSelection={current?.status === 5 && workNo.toLowerCase() === (current?.product_pm ?? '').toLowerCase() ? {
                     selectedRowKeys: selectedReqIds,
@@ -1948,6 +1949,7 @@ const ProjectDetailPage: React.FC = () => {
                     rowKey="id"
                     dataSource={files.filter(f => fileCategoryFilter === 'all' || f.file_category === fileCategoryFilter)}
                     size="small"
+                    scroll={{ x: 'max-content' }}
                     pagination={false}
                     components={tableComponents}
                     columns={fileColumns}

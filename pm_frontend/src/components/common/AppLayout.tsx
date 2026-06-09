@@ -108,6 +108,13 @@ const AppLayout: React.FC = () => {
     return () => clearInterval(pollRef.current)
   }, [loadNotifications])
 
+  // Load index data (pending review count etc.) on mount
+  useEffect(() => {
+    import('@/features/auth/authSlice').then(({ fetchIndexThunk }) => {
+      dispatch(fetchIndexThunk())
+    })
+  }, [dispatch])
+
   const pendingReview = (indexData?.total_awaiting_review_num?.project ?? 0) + (indexData?.total_awaiting_review_num?.duty ?? 0)
 
   const navItems = useMemo(() => {
@@ -406,7 +413,7 @@ const AppLayout: React.FC = () => {
           </div>
         </Header>
 
-        <Content style={{ background: '#f1f5f9', minHeight: 'calc(100vh - 56px)' }}>
+        <Content style={{ background: '#f1f5f9', minHeight: 'calc(100vh - 56px)', overflow: 'auto' }}>
           <Outlet />
         </Content>
       </Layout>

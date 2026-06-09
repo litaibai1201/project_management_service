@@ -98,6 +98,7 @@ const AdminDashboardPage: React.FC = () => {
           columns={logColumns}
           components={tableComponents}
           pagination={false}
+          scroll={{ x: 'max-content' }}
           size="small"
         />
       </Card>

@@ -1483,7 +1483,7 @@ const StatisticsPage: React.FC = () => {
       >
         <Table
           rowKey="work_no" columns={memberColumns} components={tableComponents} dataSource={stats} loading={isLoading}
-          pagination={false} size="middle"
+          pagination={false} size="middle" scroll={{ x: 'max-content' }}
           expandable={{
             expandedRowKeys: selected ? [selected] : [],
             showExpandColumn: false,

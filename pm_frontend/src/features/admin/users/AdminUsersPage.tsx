@@ -201,6 +201,7 @@ const AdminUsersPage: React.FC = () => {
           columns={columns}
           components={tableComponents}
           loading={loading}
+          scroll={{ x: 'max-content' }}
           pagination={{
             current: page,
             pageSize: 20,

@@ -105,6 +105,12 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
   const [expandOpen,  setExpandOpen]  = useState(false)
   const [expandDraft, setExpandDraft] = useState('')
 
+  // 編輯任務描述展開
+  const [editDescExpandOpen,  setEditDescExpandOpen]  = useState(false)
+  const [editDescExpandDraft, setEditDescExpandDraft] = useState('')
+  const isHtml    = (v: string) => /<[a-z][\s\S]*>/i.test(v)
+  const stripHtml = (html: string) => html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+
   // 進度達100%提示
   const [show100Prompt, setShow100Prompt] = useState(false)
 
@@ -969,8 +975,37 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
               }}
             />
           </Form.Item>
-          <Form.Item name="describe" label={t('duty.taskDescription')}>
-            <Input.TextArea rows={3} placeholder={t('duty.descriptionPlaceholder')} />
+          <Form.Item shouldUpdate={(prev, curr) => prev.describe !== curr.describe} noStyle>
+            {({ getFieldValue }) => {
+              const v: string = getFieldValue('describe') ?? ''
+              const displayValue = isHtml(v) ? stripHtml(v) : v
+              return (
+                <div className="mb-4">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-sm text-slate-700">{t('duty.taskDescription')}</span>
+                    <button type="button"
+                      onClick={() => {
+                        const html = isHtml(v) ? v : v.trim() ? `<p>${v.replace(/\n/g, '</p><p>')}</p>` : ''
+                        setEditDescExpandDraft(html)
+                        setEditDescExpandOpen(true)
+                      }}
+                      className="flex items-center gap-1 text-xs text-slate-500 hover:text-blue-600 border border-slate-200 rounded-md px-2 py-1 hover:border-blue-300 bg-white transition-colors"
+                    >
+                      <ArrowsPointingOutIcon className="w-3.5 h-3.5" />
+                      {t('duty.detail.expandEdit')}
+                    </button>
+                  </div>
+                  <Input.TextArea value={displayValue}
+                    onChange={(e) => editForm.setFieldValue('describe', e.target.value)}
+                    rows={3} placeholder={t('duty.descriptionPlaceholder')}
+                    style={{ resize: 'vertical', minHeight: 80 }} />
+                  <Form.Item name="describe" noStyle><input type="hidden" /></Form.Item>
+                  {isHtml(v) && (
+                    <p className="text-xs text-blue-500 mt-1">{t('duty.detail.richTextApplied') || '已套用富文本格式'}</p>
+                  )}
+                </div>
+              )
+            }}
           </Form.Item>
         </Form>
       </Modal>
@@ -1217,6 +1252,33 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
           placeholder={t('duty.detail.progressPlaceholder')}
           minHeight={480}
           onImageUpload={handleImageUpload}
+        />
+      </Modal>
+
+      {/* 編輯任務描述展開 Modal */}
+      <Modal
+        open={editDescExpandOpen}
+        title={t('duty.taskDescription')}
+        onCancel={() => setEditDescExpandOpen(false)}
+        width="80vw"
+        style={{ top: 40, maxWidth: 1100 }}
+        styles={{ body: { padding: '16px 24px 24px' } }}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button onClick={() => setEditDescExpandOpen(false)}>{t('common.cancel')}</Button>
+            <Button type="primary" style={{ background: '#2563eb' }} onClick={() => {
+              editForm.setFieldValue('describe', editDescExpandDraft)
+              setEditDescExpandOpen(false)
+            }}>{t('common.confirm')}</Button>
+          </div>
+        }
+        destroyOnClose
+      >
+        <RichTextEditor
+          value={editDescExpandDraft}
+          onChange={setEditDescExpandDraft}
+          placeholder={t('duty.descriptionPlaceholder')}
+          minHeight={480}
         />
       </Modal>
     </Drawer>

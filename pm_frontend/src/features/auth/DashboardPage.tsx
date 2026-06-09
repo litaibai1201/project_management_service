@@ -702,6 +702,7 @@ const TeamLogCard: React.FC<TeamLogCardProps> = ({
         components={tableComponents}
         rowKey="work_no"
         size="small"
+        scroll={{ x: 'max-content' }}
         loading={logLoading}
         pagination={false}
         locale={{ emptyText: <Empty description={t('dashboard.noTableData')} image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
