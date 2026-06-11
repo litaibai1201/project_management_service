@@ -110,7 +110,7 @@ const MiniStatCard: React.FC<{
   title: string; value: number; unit?: string
   icon: React.ReactNode; color: string; bg: string
 }> = ({ title, value, unit = '', icon, color, bg }) => (
-  <Card bordered={false} className="shadow-sm" bodyStyle={{ padding: '16px 20px' }}>
+  <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: '16px 20px' } }}>
     <div className="flex items-center gap-3">
       <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: bg }}>
         {icon}
@@ -882,9 +882,9 @@ const MemberOverviewTab: React.FC = () => {
               {list.map((m) => (
                 <Col key={m.work_no} xs={24} sm={12} lg={8}>
                   <Card
-                    bordered={false}
+                    variant="borderless"
                     className="shadow-sm hover:shadow-md cursor-pointer transition-all border border-slate-100 hover:border-blue-200"
-                    bodyStyle={{ padding: '16px 20px' }}
+                    styles={{ body: { padding: '16px 20px' } }}
                     onClick={() => openDrawer(m)}
                   >
                     <div className="flex items-center gap-3">
@@ -926,7 +926,7 @@ const MemberOverviewTab: React.FC = () => {
         open={!!selectedMember}
         onClose={closeDrawer}
         width={600}
-        bodyStyle={{ padding: '16px 20px' }}
+        styles={{ body: { padding: '16px 20px' } }}
       >
         {drawerLoading ? (
           <div className="flex flex-col gap-4">
@@ -1258,7 +1258,7 @@ const StatisticsPage: React.FC = () => {
         {/* 3 pie charts */}
         <Row gutter={[16, 16]}>
           <Col xs={24} md={8}>
-            <Card bordered={false} className="shadow-sm h-full" title={<span className="text-sm font-semibold text-slate-700">{t('statistics.projectHoursDist')}</span>} bodyStyle={{ paddingTop: 4 }}>
+            <Card variant="borderless" className="shadow-sm h-full" title={<span className="text-sm font-semibold text-slate-700">{t('statistics.projectHoursDist')}</span>} styles={{ body: { paddingTop: 4 } }}>
               <ResponsiveContainer width="100%" height={180}>
                 <PieChart>
                   <Pie data={projectData} dataKey="hours" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={68} paddingAngle={2}>
@@ -1281,7 +1281,7 @@ const StatisticsPage: React.FC = () => {
             </Card>
           </Col>
           <Col xs={24} md={8}>
-            <Card bordered={false} className="shadow-sm h-full" title={<span className="text-sm font-semibold text-slate-700">{t('statistics.categoryDist')}</span>} bodyStyle={{ paddingTop: 4 }}>
+            <Card variant="borderless" className="shadow-sm h-full" title={<span className="text-sm font-semibold text-slate-700">{t('statistics.categoryDist')}</span>} styles={{ body: { paddingTop: 4 } }}>
               <ResponsiveContainer width="100%" height={180}>
                 <PieChart>
                   <Pie data={categoryData} dataKey="hours" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={68} paddingAngle={2}>
@@ -1303,10 +1303,10 @@ const StatisticsPage: React.FC = () => {
             </Card>
           </Col>
           <Col xs={24} md={8}>
-            <Card bordered={false} className="shadow-sm h-full"
+            <Card variant="borderless" className="shadow-sm h-full"
               style={{ display: 'flex', flexDirection: 'column' }}
               title={<span className="text-sm font-semibold text-slate-700">{t('statistics.normalVsOvertime')}</span>}
-              bodyStyle={{ paddingTop: 8, flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+              styles={{ body: { paddingTop: 8, flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 } }}>
               <div style={{ flex: 1, minHeight: 0 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={overtimeData} maxBarSize={48} barCategoryGap="30%">
@@ -1380,7 +1380,7 @@ const StatisticsPage: React.FC = () => {
           { title: t('statistics.overdueTasksColumn'),     value: totals.overdue, unit: '',  icon: <ExclamationTriangleIcon className="w-5 h-5 text-red-500" />,   color: '#dc2626', bg: '#fef2f2' },
         ].map((card) => (
           <Col xs={24} sm={12} xl={6} key={card.title}>
-            {isLoading ? <Card bordered={false} className="shadow-sm"><Skeleton active paragraph={{ rows: 1 }} /></Card> : <MiniStatCard {...card} />}
+            {isLoading ? <Card variant="borderless" className="shadow-sm"><Skeleton active paragraph={{ rows: 1 }} /></Card> : <MiniStatCard {...card} />}
           </Col>
         ))}
       </Row>
@@ -1388,7 +1388,7 @@ const StatisticsPage: React.FC = () => {
       <Row gutter={[16, 16]} className="mb-5">
         <Col xs={24} xl={15}>
           <Card
-            bordered={false} className="shadow-sm"
+            variant="borderless" className="shadow-sm"
             title={
               <div className="flex items-center gap-3">
                 <span className="text-sm font-semibold text-slate-700">{t('statistics.workHoursTrend')}</span>
@@ -1403,7 +1403,7 @@ const StatisticsPage: React.FC = () => {
                 />
               </div>
             }
-            bodyStyle={{ paddingTop: 8 }}
+            styles={{ body: { paddingTop: 8 } }}
           >
             {isLoading ? <Skeleton active paragraph={{ rows: 4 }} /> : (
               <ResponsiveContainer width="100%" height={220}>
@@ -1424,9 +1424,9 @@ const StatisticsPage: React.FC = () => {
 
         <Col xs={24} xl={9}>
           <Card
-            bordered={false} className="shadow-sm h-full"
+            variant="borderless" className="shadow-sm h-full"
             title={<span className="text-sm font-semibold text-slate-700">{t('statistics.overdueAnalysis')}</span>}
-            bodyStyle={{ paddingTop: 8 }}
+            styles={{ body: { paddingTop: 8 } }}
           >
             {isLoading ? <Skeleton active paragraph={{ rows: 5 }} /> : (
               <ResponsiveContainer width="100%" height={220}>
@@ -1449,9 +1449,9 @@ const StatisticsPage: React.FC = () => {
       </Row>
 
       <Card
-        bordered={false} className="shadow-sm mb-5"
+        variant="borderless" className="shadow-sm mb-5"
         title={<span className="text-sm font-semibold text-slate-700">{t('statistics.taskCompletionStatus')}</span>}
-        bodyStyle={{ paddingTop: 8 }}
+        styles={{ body: { paddingTop: 8 } }}
       >
         {isLoading ? <Skeleton active paragraph={{ rows: 4 }} /> : (
           <ResponsiveContainer width="100%" height={200}>
@@ -1470,7 +1470,7 @@ const StatisticsPage: React.FC = () => {
       </Card>
 
       <Card
-        bordered={false} className="shadow-sm"
+        variant="borderless" className="shadow-sm"
         title={
           <div className="flex items-center gap-2 flex-wrap">
             <UserGroupIcon className="w-4 h-4 text-slate-500" />
@@ -1479,7 +1479,7 @@ const StatisticsPage: React.FC = () => {
             <div className="ml-auto"><ExportButton stats={stats} /></div>
           </div>
         }
-        bodyStyle={{ padding: 0 }}
+        styles={{ body: { padding: 0 } }}
       >
         <Table
           rowKey="work_no" columns={memberColumns} components={tableComponents} dataSource={stats} loading={isLoading}

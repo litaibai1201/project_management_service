@@ -7,6 +7,11 @@ from utils.auth import jwt_required, get_identity
 from utils.response import response_result
 from controllers.standalone_req_controller import StandaloneReqController
 from serializes.response_serialize import RspMsgDictSchema, RspMsgRawSchema
+from serializes.standalone_req_serialize import (
+    ReqListQuerySchema, CreateReqSchema, UpdateReqSchema,
+    SubmitReviewSchema, BatchSubmitReviewSchema, ReviewResultSchema,
+    DeleteFileSchema,
+)
 
 blp = Blueprint("standalone_req_api", __name__, description="独立需求管理接口")
 ctrl = StandaloneReqController()
@@ -15,22 +20,22 @@ ctrl = StandaloneReqController()
 @blp.route("/list")
 class ReqListApi(MethodView):
     @jwt_required()
+    @blp.arguments(ReqListQuerySchema)
     @blp.response(200, RspMsgDictSchema)
-    def post(self):
+    def post(self, payload):
         """需求列表"""
         work_no = get_identity()
-        payload = request.get_json() or {}
         return response_result(content=ctrl.list_reqs(payload, work_no=work_no))
 
 
 @blp.route("/create")
 class ReqCreateApi(MethodView):
     @jwt_required()
+    @blp.arguments(CreateReqSchema)
     @blp.response(200, RspMsgDictSchema)
-    def post(self):
+    def post(self, payload):
         """创建需求"""
         work_no = get_identity()
-        payload = request.get_json() or {}
         return response_result(content=ctrl.create_req(payload, creator=work_no))
 
 
@@ -49,11 +54,11 @@ class ReqDetailApi(MethodView):
         return response_result(content=r.to_dict())
 
     @jwt_required()
+    @blp.arguments(UpdateReqSchema)
     @blp.response(200, RspMsgDictSchema)
-    def put(self, req_id):
+    def put(self, payload, req_id):
         """更新需求"""
         work_no = get_identity()
-        payload = request.get_json() or {}
         return response_result(content=ctrl.update_req(req_id, payload, work_no))
 
     @jwt_required()
@@ -94,44 +99,44 @@ class ReqFilesApi(MethodView):
         return response_result(content=ctrl.upload_file(req_id, file, uploader=work_no))
 
     @jwt_required()
+    @blp.arguments(DeleteFileSchema)
     @blp.response(200, RspMsgDictSchema)
-    def delete(self, req_id):
+    def delete(self, payload, req_id):
         """删除需求附件"""
         work_no = get_identity()
-        file_id = (request.get_json() or {}).get("file_id", "")
-        return response_result(content=ctrl.remove_file(req_id, file_id))
+        return response_result(content=ctrl.remove_file(req_id, payload.get("file_id", "")))
 
 
 @blp.route("/batch_submit_review")
 class ReqBatchSubmitReviewApi(MethodView):
     @jwt_required()
+    @blp.arguments(BatchSubmitReviewSchema)
     @blp.response(200, RspMsgDictSchema)
-    def post(self):
+    def post(self, payload):
         """批量提交审核"""
         work_no = get_identity()
-        payload = request.get_json() or {}
         return response_result(content=ctrl.batch_submit_review(payload, work_no))
 
 
 @blp.route("/<string:req_id>/submit_review")
 class ReqSubmitReviewApi(MethodView):
     @jwt_required()
+    @blp.arguments(SubmitReviewSchema)
     @blp.response(200, RspMsgDictSchema)
-    def post(self, req_id):
+    def post(self, payload, req_id):
         """提交审核"""
         work_no = get_identity()
-        payload = request.get_json() or {}
         return response_result(content=ctrl.submit_review(req_id, payload, work_no))
 
 
 @blp.route("/<string:req_id>/review_result")
 class ReqReviewResultApi(MethodView):
     @jwt_required()
+    @blp.arguments(ReviewResultSchema)
     @blp.response(200, RspMsgDictSchema)
-    def post(self, req_id):
+    def post(self, payload, req_id):
         """审核结果（通过/拒绝）"""
         work_no = get_identity()
-        payload = request.get_json() or {}
         return response_result(content=ctrl.review_result(req_id, payload, work_no))
 
 

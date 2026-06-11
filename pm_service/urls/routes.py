@@ -22,9 +22,7 @@
   3. 完成！无需修改其他地方
 """
 
-from views.test_api import blp as test_blp
 from views.health_api import blp as health_blp
-from views.async_api import blp as async_blp
 
 # ─── 业务蓝图 ───────────────────────────────────────────────────────────────
 from views.user_api import blp as user_blp
@@ -58,8 +56,6 @@ from views.system_api import blp as system_blp
 BLUEPRINTS = [
     # 系统蓝图
     (health_blp,     {"url_prefix": ""}),
-    (test_blp,       {"url_prefix": "/api/test"}),
-    (async_blp,      {"url_prefix": "/api/async"}),
 
     # 业务蓝图
     (user_blp,       {"url_prefix": "/api/user"}),

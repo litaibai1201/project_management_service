@@ -430,7 +430,7 @@ const RequirementListPage: React.FC = () => {
             {wbsReq && <span className="text-slate-400 font-normal ml-2 text-sm">— {wbsReq.req_nm}</span>}
           </span>
         }
-        destroyOnClose
+        destroyOnHidden
       >
         {wbsLoading ? (
           <div className="flex justify-center py-12"><Spin /></div>
@@ -454,7 +454,7 @@ const RequirementListPage: React.FC = () => {
             {sysWbsReq && <span className="text-slate-400 font-normal ml-2 text-sm">— {sysWbsReq.req_nm}</span>}
           </span>
         }
-        destroyOnClose
+        destroyOnHidden
       >
         {sysWbsLoading ? (
           <div className="flex justify-center py-12"><Spin /></div>
@@ -579,7 +579,7 @@ const RequirementListPage: React.FC = () => {
         onCancel={() => { setShowForm(false); form.resetFields() }}
         footer={null}
         width="min(600px, 88vw)"
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical" onFinish={handleSave} className="mt-4">
           <Form.Item name="req_nm" label={t('requirement.name')} rules={[{ required: true, message: t('requirement.nameRequired') }]}>
@@ -591,7 +591,7 @@ const RequirementListPage: React.FC = () => {
               options={systemOptions}
               showSearch
               filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
-              onDropdownVisibleChange={(open) => { if (open) loadSystems() }}
+              onOpenChange={(open) => { if (open) loadSystems() }}
             />
           </Form.Item>
           <div className="grid grid-cols-2 gap-x-4">
@@ -618,7 +618,7 @@ const RequirementListPage: React.FC = () => {
               mode="multiple" placeholder={t('requirement.responsiblePlaceholder')}
               options={userOptions} showSearch allowClear
               filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
-              onDropdownVisibleChange={(open) => { if (open) loadUsers() }}
+              onOpenChange={(open) => { if (open) loadUsers() }}
             />
           </Form.Item>
           <Form.Item label={t('requirement.description')}>
@@ -672,7 +672,7 @@ const RequirementListPage: React.FC = () => {
               style={{ background: '#2563eb' }}>{t('requirement.done')}</Button>
           </div>
         }
-        destroyOnClose
+        destroyOnHidden
       >
         <RichTextEditor
           value={expandDraft}

@@ -179,9 +179,9 @@ const GroupMembersPage: React.FC = () => {
               {list.map((m) => (
                 <Col key={m.work_no} xs={24} sm={12} lg={8}>
                   <Card
-                    bordered={false}
+                    variant="borderless"
                     className="shadow-sm hover:shadow-md cursor-pointer transition-all border border-slate-100 hover:border-blue-200"
-                    bodyStyle={{ padding: '16px 20px' }}
+                    styles={{ body: { padding: '16px 20px' } }}
                     onClick={() => openDrawer(m)}
                   >
                     <div className="flex items-center gap-3">
@@ -229,7 +229,7 @@ const GroupMembersPage: React.FC = () => {
         open={!!selected}
         onClose={closeDrawer}
         width={600}
-        bodyStyle={{ padding: '16px 20px' }}
+        styles={{ body: { padding: '16px 20px' } }}
       >
         {drawerLoading ? (
           <div className="flex flex-col gap-4">

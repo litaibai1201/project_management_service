@@ -1653,7 +1653,7 @@ const ReportPreviewModal: React.FC<{
           <Button onClick={onClose}>{t('common.close')}</Button>
         </div>
       }
-      destroyOnClose
+      destroyOnHidden
     >
       <div className="overflow-auto max-h-[75vh]">
         <div id="wbs-weekly-report">

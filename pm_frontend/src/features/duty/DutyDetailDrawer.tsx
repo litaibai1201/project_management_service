@@ -131,7 +131,6 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
     if (!open || !dutyId) { setDuty(null); setRecords([]); return }
     setLoading(true)
     setShowForm(false)
-    form.resetFields()
     setFileList([])
     Promise.all([
       dutyApi.get(dutyId),
@@ -508,7 +507,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
 
           {/* Status steps */}
           {(duty.status === 6 || (duty.status >= 1 && duty.status <= 3)) && (
-            <Card bordered={false} className="shadow-sm" styles={{ body: { padding: '14px 20px' } }}>
+            <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: '14px 20px' } }}>
               <Steps size="small" current={statusToStep(duty.status)}
                 items={DUTY_STEP_KEYS.map((k) => ({ title: <span style={{ fontSize: 12 }}>{t(k)}</span> }))} />
               <div className="flex items-center gap-3 mt-3">
@@ -520,10 +519,9 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
           )}
 
           {/* Info */}
-          <Card bordered={false} className="shadow-sm" styles={{ body: { padding: 20 } }}>
+          <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: 20 } }}>
             <Descriptions column={2} size="small"
-              labelStyle={{ color: '#94a3b8', fontSize: 12, fontWeight: 500 }}
-              contentStyle={{ fontSize: 13, color: '#334155' }}>
+              styles={{ label: { color: '#94a3b8', fontSize: 12, fontWeight: 500 }, content: { fontSize: 13, color: '#334155' } }}>
               <Descriptions.Item label={t('duty.detail.creator')}>{toName(duty.creator)}</Descriptions.Item>
               <Descriptions.Item label={t('duty.assignee')}>
                 {duty.responsible?.length
@@ -549,16 +547,12 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
                   )}
                 </div>
               </Descriptions.Item>
-              {duty.group && (
-                <Descriptions.Item label={t('duty.taskGroup')}>
-                  <Tag color="processing" style={{ fontSize: 11 }}>{duty.group}</Tag>
-                </Descriptions.Item>
-              )}
-              {duty.system_nm && (
-                <Descriptions.Item label={t('duty.linkedSystem')}>
-                  <span className="text-blue-600 text-xs">{duty.system_nm}</span>
-                </Descriptions.Item>
-              )}
+              <Descriptions.Item label={t('duty.taskGroup')}>
+                {duty.group ? <Tag color="processing" style={{ fontSize: 11 }}>{duty.group === '__stage__' ? t('common.stageTask') : duty.group}</Tag> : '—'}
+              </Descriptions.Item>
+              <Descriptions.Item label={t('duty.linkedSystem')}>
+                {duty.system_nm ? <span className="text-blue-600 text-xs">{duty.system_nm}</span> : '—'}
+              </Descriptions.Item>
               {duty.describe && (
                 <Descriptions.Item label={t('common.description')} span={2}><RichTextContent html={duty.describe} /></Descriptions.Item>
               )}
@@ -589,7 +583,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
 
           {/* Progress section */}
           <Card
-            bordered={false} className="shadow-sm"
+            variant="borderless" className="shadow-sm"
             title={
               <span className="font-semibold text-slate-700 text-sm">
                 {t('duty.detail.progressRecords', { count: records.length })}
@@ -606,10 +600,10 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
                 <Form form={form} layout="vertical" onFinish={handleSubmit}>
                   <div className="grid grid-cols-2 gap-x-3">
                     <Form.Item name="progress" label={t('duty.detail.completionPercent')} rules={[{ required: true }]}>
-                      <InputNumber min={1} max={100} style={{ width: '100%' }} addonAfter="%" />
+                      <InputNumber min={1} max={100} style={{ width: '100%' }} suffix="%" />
                     </Form.Item>
                     <Form.Item name="time_consum" label={t('duty.detail.timeConsumed')}>
-                      <InputNumber min={0} step={0.5} style={{ width: '100%' }} addonAfter="h" />
+                      <InputNumber min={0} step={0.5} style={{ width: '100%' }} suffix="h" />
                     </Form.Item>
                   </div>
                   <div className="grid grid-cols-2 gap-x-3">
@@ -619,7 +613,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
                     <Form.Item noStyle shouldUpdate={(prev, cur) => prev.is_overtime !== cur.is_overtime}>
                       {({ getFieldValue }) => getFieldValue('is_overtime') ? (
                         <Form.Item name="overtime_hours" label={t('dailyLog.overtimeHours')}>
-                          <InputNumber min={0} step={0.5} style={{ width: '100%' }} addonAfter="h" />
+                          <InputNumber min={0} step={0.5} style={{ width: '100%' }} suffix="h" />
                         </Form.Item>
                       ) : null}
                     </Form.Item>
@@ -965,7 +959,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
               showSearch
               filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
               allowClear
-              onDropdownVisibleChange={(open) => {
+              onOpenChange={(open) => {
                 if (open && systemOptions.length === 0) {
                   systemApi.list({ page: 1, size: 200 }).then((res) => {
                     const c = res.content as { data_list: SystemItem[] }
@@ -1092,7 +1086,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
         title={t('duty.detail.submitReqReviewTitle')}
         open={showReqReviewModal}
         onCancel={() => setShowReqReviewModal(false)}
-        footer={null} width={520} destroyOnClose
+        footer={null} width={520} destroyOnHidden
       >
         <div className="mt-4 space-y-4">
           <div className="text-xs text-slate-400">{t('duty.detail.reqReviewHint')}</div>
@@ -1244,7 +1238,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
             }}>{t('duty.detail.done')}</Button>
           </div>
         }
-        destroyOnClose
+        destroyOnHidden
       >
         <RichTextEditor
           value={expandDraft}
@@ -1272,7 +1266,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
             }}>{t('common.confirm')}</Button>
           </div>
         }
-        destroyOnClose
+        destroyOnHidden
       >
         <RichTextEditor
           value={editDescExpandDraft}

@@ -217,7 +217,7 @@ const AnomalyPage: React.FC = () => {
 
       {/* Grouped anomaly view */}
       {filtered.length === 0 ? (
-        <Card bordered={false} className="shadow-sm">
+        <Card variant="borderless" className="shadow-sm">
           <Empty description={t('anomaly.noAnomalies')} className="py-10" />
         </Card>
       ) : (() => {

@@ -144,7 +144,7 @@ const DutyDetailPage: React.FC = () => {
 
       {/* Status Steps */}
       {current.status >= 1 && current.status <= 3 && (
-        <Card bordered={false} className="shadow-sm mb-5" bodyStyle={{ padding: '16px 24px' }}>
+        <Card variant="borderless" className="shadow-sm mb-5" styles={{ body: { padding: '16px 24px' } }}>
           <Steps size="small" current={statusToStep(current.status)}
             items={DUTY_STEPS.map((t) => ({ title: <span style={{ fontSize: 12 }}>{t}</span> }))} />
           <div className="flex items-center gap-3 mt-4">
@@ -155,10 +155,9 @@ const DutyDetailPage: React.FC = () => {
       )}
 
       {/* Info card */}
-      <Card bordered={false} className="shadow-sm mb-5" bodyStyle={{ padding: 24 }}>
+      <Card variant="borderless" className="shadow-sm mb-5" styles={{ body: { padding: 24 } }}>
         <Descriptions column={2} size="small"
-          labelStyle={{ color: '#94a3b8', fontSize: 12, fontWeight: 500 }}
-          contentStyle={{ fontSize: 13, color: '#334155' }}>
+          styles={{ label: { color: '#94a3b8', fontSize: 12, fontWeight: 500 }, content: { fontSize: 13, color: '#334155' } }}>
           <Descriptions.Item label={t('duty.creator')}>{toName(current.creator)}</Descriptions.Item>
           <Descriptions.Item label={t('duty.responsible')}>
             {current.responsible?.length
@@ -171,7 +170,7 @@ const DutyDetailPage: React.FC = () => {
           <Descriptions.Item label={t('duty.expectedStart')}>{current.expected_start_date ?? '—'}</Descriptions.Item>
           <Descriptions.Item label={t('duty.expectedEnd')}>{current.expected_end_date ?? '—'}</Descriptions.Item>
           {(current.reschedule_count ?? 0) > 0 && (
-            <Descriptions.Item label={t('duty.rescheduleCount')}>
+            <Descriptions.Item label={t('duty.rescheduleCount')} span={2}>
               <Tag color="orange">{t('duty.times', { count: current.reschedule_count })}</Tag>
               <span className="text-[10px] text-slate-400 ml-1">{t('duty.original')}: {current.original_end_date || '—'}</span>
             </Descriptions.Item>
@@ -184,7 +183,7 @@ const DutyDetailPage: React.FC = () => {
 
       {/* Progress section */}
       <Card
-        bordered={false} className="shadow-sm"
+        variant="borderless" className="shadow-sm"
         title={
           <span className="font-semibold text-slate-700 text-sm">
             {t('duty.progressRecords', { count: records.length })}
@@ -209,10 +208,10 @@ const DutyDetailPage: React.FC = () => {
             <Form form={form} layout="vertical" onFinish={handleSubmit}>
               <div className="grid grid-cols-2 gap-x-3">
                 <Form.Item name="progress" label={t('duty.completionPercent')} rules={[{ required: true }]}>
-                  <InputNumber min={1} max={100} style={{ width: '100%' }} addonAfter="%" />
+                  <InputNumber min={1} max={100} style={{ width: '100%' }} suffix="%" />
                 </Form.Item>
                 <Form.Item name="time_consum" label={t('duty.timeConsumed')}>
-                  <InputNumber min={0} step={0.5} style={{ width: '100%' }} addonAfter="h" />
+                  <InputNumber min={0} step={0.5} style={{ width: '100%' }} suffix="h" />
                 </Form.Item>
               </div>
               <Form.Item name="progress_record" label={t('duty.progressDescription')}>

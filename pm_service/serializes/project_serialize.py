@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """项目模块序列化"""
-from marshmallow import Schema, fields, validate
+from marshmallow import fields, validate
+from serializes.base_schema import BaseSchema
 
 
-class ProjectListQuerySchema(Schema):
+class ProjectListQuerySchema(BaseSchema):
     page = fields.Int(load_default=1)
     size = fields.Int(load_default=20)
     keyword = fields.Str(load_default="")
@@ -11,9 +12,11 @@ class ProjectListQuerySchema(Schema):
     orderby = fields.Str(load_default="")
     project_pm = fields.Str(load_default="")
     group_id = fields.Str(load_default="")
+    work_no = fields.Str(load_default="")
+    manager_view = fields.Bool(load_default=False)
 
 
-class CreateProjectSchema(Schema):
+class CreateProjectSchema(BaseSchema):
     project_nm = fields.Str(required=True)
     describe = fields.Str(load_default="")
     department = fields.Str(load_default="")
@@ -27,7 +30,7 @@ class CreateProjectSchema(Schema):
     reviewer = fields.List(fields.Str(), load_default=[])
 
 
-class UpdateProjectSchema(Schema):
+class UpdateProjectSchema(BaseSchema):
     project_nm = fields.Str()
     describe = fields.Str()
     department = fields.Str()
@@ -40,16 +43,16 @@ class UpdateProjectSchema(Schema):
     expected_benefit = fields.Str()
 
 
-class SetStatusSchema(Schema):
+class SetStatusSchema(BaseSchema):
     status = fields.Int(required=True)
 
 
-class SubmitReviewSchema(Schema):
+class SubmitReviewSchema(BaseSchema):
     reviewer = fields.List(fields.Str(), required=True)
     status = fields.Int(required=True)
 
 
-class AddFunctionSchema(Schema):
+class AddFunctionSchema(BaseSchema):
     function_nm = fields.Str(required=True)
     describe = fields.Str(load_default="")
     expected_start_date = fields.Str(load_default="")
@@ -60,7 +63,7 @@ class AddFunctionSchema(Schema):
     reviewer = fields.List(fields.Str(), load_default=[])
 
 
-class UpdateFunctionSchema(Schema):
+class UpdateFunctionSchema(BaseSchema):
     function_nm = fields.Str()
     describe = fields.Str()
     expected_start_date = fields.Str()
@@ -70,20 +73,20 @@ class UpdateFunctionSchema(Schema):
     group2 = fields.Str()
 
 
-class FunctionListQuerySchema(Schema):
+class FunctionListQuerySchema(BaseSchema):
     page = fields.Int(load_default=1)
     size = fields.Int(load_default=20)
     keyword = fields.Str(load_default="")
     status = fields.Int(load_default=None, allow_none=True)
 
 
-class FunctionAllocationSchema(Schema):
+class FunctionAllocationSchema(BaseSchema):
     expected_start_date = fields.Str(load_default="")
     expected_end_date = fields.Str(load_default="")
     responsible = fields.List(fields.Str(), required=True)
 
 
-class CreateProgressSchema(Schema):
+class CreateProgressSchema(BaseSchema):
     progress = fields.Int(required=True, validate=validate.Range(min=0, max=100))
     progress_record = fields.Str(load_default="")
     time_consum = fields.Float(load_default=0)
@@ -91,35 +94,36 @@ class CreateProgressSchema(Schema):
     start_time = fields.Str(load_default="")
 
 
-class ProgressQuerySchema(Schema):
+class ProgressQuerySchema(BaseSchema):
     page = fields.Int(load_default=1)
     size = fields.Int(load_default=20)
     unread = fields.Int(load_default=0)
 
 
-class ReviewQuerySchema(Schema):
+class ReviewQuerySchema(BaseSchema):
     page = fields.Int(load_default=1)
     size = fields.Int(load_default=20)
 
 
-class ReviewActionSchema(Schema):
+class ReviewActionSchema(BaseSchema):
     status = fields.Int(required=True, validate=validate.OneOf([2, 3, 4]))
     reject_reason = fields.Str(load_default="")
+    countersigns = fields.List(fields.Dict(), load_default=[])
 
 
-class CountersignSchema(Schema):
+class CountersignSchema(BaseSchema):
     approver_work_no = fields.Str(required=True)
     approver_name = fields.Str(required=True)
 
 
-class CreateMilestoneSchema(Schema):
+class CreateMilestoneSchema(BaseSchema):
     name = fields.Str(required=True)
     target_date = fields.Str(required=True)
     note = fields.Str(load_default="")
     linked_functions = fields.List(fields.Str(), load_default=[])
 
 
-class UpdateMilestoneSchema(Schema):
+class UpdateMilestoneSchema(BaseSchema):
     name = fields.Str()
     target_date = fields.Str()
     status = fields.Str()
@@ -128,6 +132,41 @@ class UpdateMilestoneSchema(Schema):
     achieved_at = fields.Str()
 
 
-class MemberDynamicsQuerySchema(Schema):
+class MemberDynamicsQuerySchema(BaseSchema):
     page = fields.Int(load_default=1)
     size = fields.Int(load_default=20)
+
+
+class SetProjectPmSchema(BaseSchema):
+    project_pm = fields.Str(load_default="")
+
+
+class MyFunctionsQuerySchema(BaseSchema):
+    page = fields.Int(load_default=1)
+    size = fields.Int(load_default=20)
+    status = fields.Int(load_default=None, allow_none=True)
+    scope = fields.Str(load_default="all")
+
+
+class FunctionRescheduleSchema(BaseSchema):
+    new_end_date = fields.Str(load_default="")
+    reason = fields.Str(load_default="")
+
+
+class ChangeRequestSchema(BaseSchema):
+    reviewer = fields.List(fields.Str(), load_default=[])
+    description = fields.Str(load_default="")
+
+
+class RequirementReviewSchema(BaseSchema):
+    reviewer = fields.List(fields.Str(), load_default=[])
+
+
+class BatchRequirementReviewSchema(BaseSchema):
+    requirement_ids = fields.List(fields.Str(), load_default=[])
+    reviewer = fields.List(fields.Str(), load_default=[])
+
+
+class TaskAdditionReviewSchema(BaseSchema):
+    function_ids = fields.List(fields.Str(), load_default=[])
+    reviewer = fields.List(fields.Str(), load_default=[])

@@ -13,14 +13,14 @@ from dbs.mysql_db.model_tables import (
     ProgressRecordDataModel, ReviewApplyModel, MilestoneModel, ProjectFileModel,
     HierarchyModel, RequirementModel,
 )
+from daos.project_dao import ProjectDAO
+
+_dao = ProjectDAO()
 
 
 def _assert_project_not_in_review(project_id: str):
     """完結審核中（status=6）任何人不得修改專案內容"""
-    from utils.exceptions import PermissionException
-    p = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
-    if p and p.project_status == 6:
-        raise PermissionException(msg="专案正处于完结审核中，暂不允许任何修改操作")
+    _dao.assert_project_not_in_review(project_id)
 
 
 class ProjectController:
@@ -49,10 +49,7 @@ class ProjectController:
 
     def _assert_project_not_in_review(self, project_id: str):
         """完結審核中（status=6）任何人不得修改專案內容"""
-        from utils.exceptions import PermissionException
-        p = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
-        if p and p.project_status == 6:
-            raise PermissionException(msg="专案正处于完结审核中，暂不允许任何修改操作")
+        _dao.assert_project_not_in_review(project_id)
 
     def _has_approved_change_request(self, project_id: str) -> bool:
         """检查项目是否存在已通过的需求变更申请"""
@@ -152,8 +149,8 @@ class ProjectController:
 
     def get_project(self, project_id: str, operator: str = ""):
         from dbs.mysql_db.model_tables import HierarchyModel
-        p = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
-        if not p or p.project_status == 9:
+        p = _dao.find_active_project(project_id)
+        if not p:
             raise ResourceNotFoundException(resource_type="项目")
         result = p.to_dict()
         operator    = (operator or "").strip().lower()
@@ -241,8 +238,8 @@ class ProjectController:
 
     def update_project(self, project_id: str, payload: dict, operator: str = ""):
         from utils.exceptions import PermissionException
-        p = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
-        if not p or p.project_status == 9:
+        p = _dao.find_active_project(project_id)
+        if not p:
             raise ResourceNotFoundException(resource_type="项目")
         # 只有草稿阶段允许编辑
         if p.project_status != 1:
@@ -272,8 +269,8 @@ class ProjectController:
     def set_project_pm(self, project_id: str, project_pm: str, operator: str):
         """规划中阶段由创建人/产品PM设定专案PM（仅在专案PM为空时允许）"""
         from utils.exceptions import PermissionException
-        p = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
-        if not p or p.project_status == 9:
+        p = _dao.find_active_project(project_id)
+        if not p:
             raise ResourceNotFoundException(resource_type="项目")
         if p.project_status != 3:
             raise PermissionException(msg="只有规划中阶段可以设定专案PM")
@@ -296,7 +293,7 @@ class ProjectController:
         )
 
     def delete_project(self, project_id: str):
-        p = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
+        p = _dao.find_project_by_id(project_id)
         if not p:
             raise ResourceNotFoundException(resource_type="项目")
         p.project_status = 9
@@ -304,7 +301,7 @@ class ProjectController:
         db.session.commit()
 
     def set_status(self, project_id: str, status: int):
-        p = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
+        p = _dao.find_project_by_id(project_id)
         if not p:
             raise ResourceNotFoundException(resource_type="项目")
         p.project_status = status
@@ -316,7 +313,7 @@ class ProjectController:
         from dbs.mysql_db.model_tables import UserProfileModel
         submitter = (submitter or "").strip().lower()
         reviewer = [(w or "").strip().lower() for w in reviewer if w]
-        p = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
+        p = _dao.find_project_by_id(project_id)
         if not p:
             raise ResourceNotFoundException(resource_type="项目")
         project_pm  = (p.project_pm  or "").strip().lower()
@@ -414,8 +411,8 @@ class ProjectController:
         from utils.exceptions import PermissionException
         submitter = (submitter or "").strip().lower()
         reviewer = [(w or "").strip().lower() for w in reviewer if w]
-        p = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
-        if not p or p.project_status == 9:
+        p = _dao.find_active_project(project_id)
+        if not p:
             raise ResourceNotFoundException(resource_type="项目")
         if submitter not in (p.product_pm or "", p.project_pm or ""):
             raise PermissionException(msg="只有专案PM可以提交需求变更申请")
@@ -563,7 +560,7 @@ class ProjectController:
         base_name, task_desc = config
         task_name = base_name
 
-        p = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
+        p = _dao.find_project_by_id(project_id)
         if not p:
             return
 
@@ -837,7 +834,7 @@ class ProjectController:
     def approve_review(self, review_id: str, status: int, reject_reason: str = "",
                        countersigns: list = None, approver_work_no: str = ""):
         from dbs.mysql_db.model_tables import UserProfileModel
-        r = db.session.query(ReviewApplyModel).filter_by(id=review_id).first()
+        r = _dao.find_review_by_id(review_id)
         if not r:
             raise ResourceNotFoundException(resource_type="审核记录")
 
@@ -1412,7 +1409,7 @@ class ProjectController:
 
     def countersign_review(self, review_id: str, approver_work_no: str, approver_name: str):
         approver_work_no = (approver_work_no or "").strip().lower()
-        r = db.session.query(ReviewApplyModel).filter_by(id=review_id).first()
+        r = _dao.find_review_by_id(review_id)
         if not r:
             raise ResourceNotFoundException(resource_type="审核记录")
         nodes = json.loads(r.approval_nodes_json) if r.approval_nodes_json else []
@@ -1508,8 +1505,8 @@ class ProjectController:
     def upload_project_file(self, project_id: str, file, uploader: str, file_category: str = "other"):
         from utils.exceptions import PermissionException
         self._assert_project_not_in_review(project_id)
-        p = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
-        if not p or p.project_status == 9:
+        p = _dao.find_active_project(project_id)
+        if not p:
             raise ResourceNotFoundException(resource_type="项目")
         if uploader != (p.product_pm or "") and uploader != (p.project_pm or ""):
             raise PermissionException(msg="只有专案PM可以上传附件")
@@ -1554,8 +1551,8 @@ class ProjectController:
     def delete_project_file(self, project_id: str, file_id: str, operator: str):
         from utils.exceptions import PermissionException
         self._assert_project_not_in_review(project_id)
-        p = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
-        if not p or p.project_status == 9:
+        p = _dao.find_active_project(project_id)
+        if not p:
             raise ResourceNotFoundException(resource_type="项目")
         if operator != (p.product_pm or "") and operator != (p.project_pm or ""):
             raise PermissionException(msg="只有专案PM可以删除附件")
@@ -1652,12 +1649,7 @@ class ProjectController:
             resp = json.loads(f.responsible) if f.responsible else []
             all_work_nos.update(resp)
 
-        users = (
-            db.session.query(UserProfileModel.work_no, UserProfileModel.name)
-            .filter(db.func.lower(UserProfileModel.work_no).in_([w.lower() for w in all_work_nos]))
-            .all()
-        ) if all_work_nos else []
-        name_map: dict = {u.work_no.lower(): u.name for u in users}
+        name_map: dict = _dao.name_map(all_work_nos)
 
         # ── 查询每个 function 的最新进度记录 ─────────────────────────────
         func_ids = [f.id for f in funcs_all]
@@ -2064,12 +2056,7 @@ class ProjectController:
                         s["overdue_incomplete"] += 1
 
         # 查詢姓名
-        name_map: dict = {}
-        if all_work_nos:
-            profiles = db.session.query(UserProfileModel.work_no, UserProfileModel.name).filter(
-                db.func.lower(UserProfileModel.work_no).in_([w.lower() for w in all_work_nos])
-            ).all()
-            name_map = {p.work_no.lower(): p.name for p in profiles}
+        name_map: dict = _dao.name_map(all_work_nos)
 
         result = []
         for wn, st in stats_map.items():
@@ -2099,15 +2086,15 @@ class ProjectController:
 class FunctionController:
 
     def get_function(self, function_id: str):
-        f = db.session.query(FunctionDataModel).filter_by(id=function_id).first()
-        if not f or f.function_status == 9:
+        f = _dao.find_active_function(function_id)
+        if not f:
             raise ResourceNotFoundException(resource_type="功能任务")
         return f.to_dict()
 
     def add_function(self, project_id: str, payload: dict, creator: str):
         from utils.exceptions import PermissionException
-        project = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
-        if not project or project.project_status == 9:
+        project = _dao.find_active_project(project_id)
+        if not project:
             raise ResourceNotFoundException(resource_type="项目")
         requirement_id = payload.get("requirement_id", "")
         if requirement_id:
@@ -2165,7 +2152,7 @@ class FunctionController:
     def submit_task_review(self, project_id: str, function_ids: list, reviewer: list, operator: str):
         """批量提交草稿任務審核（執行階段新增任務）"""
         from utils.exceptions import PermissionException
-        project = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
+        project = _dao.find_project_by_id(project_id)
         if not project or project.project_status != 5:
             raise PermissionException(msg="只有執行中的專案才能提交任務審核")
         operator = (operator or "").strip().lower()
@@ -2225,8 +2212,8 @@ class FunctionController:
         return {"apply_id": apply.id}
 
     def update_function(self, function_id: str, payload: dict):
-        f = db.session.query(FunctionDataModel).filter_by(id=function_id).first()
-        if not f or f.function_status == 9:
+        f = _dao.find_active_function(function_id)
+        if not f:
             raise ResourceNotFoundException(resource_type="功能任务")
         _assert_project_not_in_review(f.project_id)
         for field in ("function_nm", "describe", "expected_start_date",
@@ -2304,12 +2291,12 @@ class FunctionController:
         延期任务：仅专案PM可操作，更新最新预计完成时间，记录延期历史。
         """
         from utils.exceptions import PermissionException
-        f = db.session.query(FunctionDataModel).filter_by(id=function_id).first()
-        if not f or f.function_status == 9:
+        f = _dao.find_active_function(function_id)
+        if not f:
             raise ResourceNotFoundException(resource_type="功能任务")
 
         # 仅专案PM可延期
-        project = db.session.query(ProjectDataModel).filter_by(id=f.project_id).first()
+        project = _dao.find_project_by_id(f.project_id)
         if not project or operator.lower() != (project.project_pm or "").lower():
             raise PermissionException(msg="僅專案PM可進行任務延期操作")
 
@@ -2351,7 +2338,7 @@ class FunctionController:
         return f.to_dict()
 
     def delete_function(self, function_id: str):
-        f = db.session.query(FunctionDataModel).filter_by(id=function_id).first()
+        f = _dao.find_function_by_id(function_id)
         if not f:
             raise ResourceNotFoundException(resource_type="功能任务")
         f.function_status = 9
@@ -2359,7 +2346,7 @@ class FunctionController:
         db.session.commit()
 
     def set_status(self, function_id: str, status: int):
-        f = db.session.query(FunctionDataModel).filter_by(id=function_id).first()
+        f = _dao.find_function_by_id(function_id)
         if not f:
             raise ResourceNotFoundException(resource_type="功能任务")
         f.function_status = status
@@ -2372,7 +2359,7 @@ class FunctionController:
         - 否则 → 创建审核记录发给专案 PM，设为完结审核（status=3）
         """
         _assert_project_not_in_review(project_id)
-        f = db.session.query(FunctionDataModel).filter_by(id=function_id).first()
+        f = _dao.find_function_by_id(function_id)
         if not f:
             raise ResourceNotFoundException(resource_type="功能任务")
         if f.function_status == 4:
@@ -2380,7 +2367,7 @@ class FunctionController:
         if f.function_status == 3:
             raise BusinessException(msg="任务已提交完结审核，等待审核中")
 
-        project = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
+        project = _dao.find_project_by_id(project_id)
         if not project:
             raise ResourceNotFoundException(resource_type="项目")
 
@@ -2456,7 +2443,7 @@ class FunctionController:
             return {"direct_complete": False}
 
     def allocate(self, function_id: str, payload: dict):
-        f = db.session.query(FunctionDataModel).filter_by(id=function_id).first()
+        f = _dao.find_function_by_id(function_id)
         if not f:
             raise ResourceNotFoundException(resource_type="功能任务")
         old_resp = json.loads(f.responsible) if f.responsible else []
@@ -2664,7 +2651,7 @@ class FunctionController:
     def create_progress(self, project_id: str, function_id: str, payload: dict, submitter: str, files=None):
         _assert_project_not_in_review(project_id)
         from utils.exceptions import PermissionException
-        func_check = db.session.query(FunctionDataModel).filter_by(id=function_id).first()
+        func_check = _dao.find_function_by_id(function_id)
         if func_check:
             try:
                 responsible_list = json.loads(func_check.responsible or "[]")
@@ -2824,7 +2811,7 @@ class MilestoneController:
         return {"milestone_id": m.id}
 
     def update_milestone(self, milestone_id: str, payload: dict):
-        m = db.session.query(MilestoneModel).filter_by(id=milestone_id).first()
+        m = _dao.find_milestone_by_id(milestone_id)
         if not m:
             raise ResourceNotFoundException(resource_type="里程碑")
         _assert_project_not_in_review(m.project_id)
@@ -2839,7 +2826,7 @@ class MilestoneController:
         db.session.commit()
 
     def delete_milestone(self, milestone_id: str):
-        m = db.session.query(MilestoneModel).filter_by(id=milestone_id).first()
+        m = _dao.find_milestone_by_id(milestone_id)
         if not m:
             raise ResourceNotFoundException(resource_type="里程碑")
         _assert_project_not_in_review(m.project_id)

@@ -8,6 +8,9 @@ from dbs.mysql_db.model_tables import (
     ProgressRecordDataModel, DutyProgressRecordModel,
 )
 from utils.cache_decorator import cache_result, method_key_builder
+from daos.statistics_dao import StatisticsDAO
+
+_dao = StatisticsDAO()
 
 
 class StatisticsController:
@@ -22,24 +25,7 @@ class StatisticsController:
           completed_tasks, overdue_tasks, overdue_days,
           in_progress_tasks, weekly_hours
         """
-        from controllers.user_controller import UserController
-        user_ctrl = UserController()
-        subordinates = user_ctrl.get_subordinates(work_no, all_levels=True)
-        sub_work_nos = [s["work_no"] for s in subordinates]
-
-        if sub_work_nos:
-            users = (
-                db.session.query(UserProfileModel)
-                .filter(db.func.lower(UserProfileModel.work_no).in_([w.lower() for w in sub_work_nos]), UserProfileModel.status == 1)
-                .all()
-            )
-        else:
-            # 没有配置层级关系时，回退查询所有活跃成员（排除自身）
-            users = (
-                db.session.query(UserProfileModel)
-                .filter(UserProfileModel.status == 1, UserProfileModel.work_no != work_no)
-                .all()
-            )
+        users, sub_work_nos = _dao.get_subordinate_users(work_no, all_levels=True)
 
         member_work_nos = {u.work_no for u in users}
         member_work_nos_lower = {wn.lower() for wn in member_work_nos}
@@ -48,11 +34,7 @@ class StatisticsController:
 
         # ── 批量预加载：功能任务（MySQL）──────────────────────────
         from collections import defaultdict
-        func_conds = [db.func.lower(FunctionDataModel.responsible).like(f'%"{wn}"%') for wn in all_wns_lower]
-        all_funcs_pre = db.session.query(FunctionDataModel).filter(
-            FunctionDataModel.status == 1,
-            db.or_(*func_conds),
-        ).all() if func_conds else []
+        all_funcs_pre = _dao.batch_query_functions_by_responsible(all_wns_lower)
         funcs_by_user: dict = defaultdict(list)
         for f in all_funcs_pre:
             try:
@@ -64,11 +46,7 @@ class StatisticsController:
                     funcs_by_user[wn.lower()].append(f)
 
         # ── 批量预加载：AR（MySQL）──────────────────────────
-        duty_conds = [db.func.lower(TemporaryDutyModel.responsible).like(f'%"{wn}"%') for wn in all_wns_lower]
-        all_duties_pre = db.session.query(TemporaryDutyModel).filter(
-            TemporaryDutyModel.status == 1,
-            db.or_(*duty_conds),
-        ).all() if duty_conds else []
+        all_duties_pre = _dao.batch_query_duties_by_responsible(all_wns_lower)
         duties_by_user: dict = defaultdict(list)
         for d in all_duties_pre:
             try:
@@ -493,22 +471,12 @@ class StatisticsController:
         数据来源：MongoDB daily_logs（日报）+ MySQL 任务状态。
         """
         from collections import defaultdict
-        from controllers.user_controller import UserController
         from dbs.mysql_db.model_tables import ProjectDataModel
         from dbs.mongo_db.client import mongo_client
 
-        user_ctrl = UserController()
-        subordinates = user_ctrl.get_subordinates(work_no, all_levels=True)
-        sub_work_nos = [s["work_no"] for s in subordinates]
-
-        if sub_work_nos:
-            users = db.session.query(UserProfileModel.work_no, UserProfileModel.name).filter(
-                db.func.lower(UserProfileModel.work_no).in_([w.lower() for w in sub_work_nos]), UserProfileModel.status == 1
-            ).all()
-        else:
-            users = db.session.query(UserProfileModel.work_no, UserProfileModel.name).filter(
-                UserProfileModel.status == 1, UserProfileModel.work_no != work_no
-            ).all()
+        users, sub_work_nos = _dao.get_subordinate_user_columns(
+            work_no, columns=(UserProfileModel.work_no, UserProfileModel.name)
+        )
 
         if not users:
             return []
@@ -582,11 +550,7 @@ class StatisticsController:
             logs_by_user[lg["work_no"].lower()].append(lg)
 
         # ── 批量预加载：功能任务（MySQL）──────────────────────────
-        func_conds = [db.func.lower(FunctionDataModel.responsible).like(f'%"{wn}"%') for wn in all_wns_lower]
-        all_funcs_pre = db.session.query(FunctionDataModel).filter(
-            FunctionDataModel.status == 1,
-            db.or_(*func_conds),
-        ).all() if func_conds else []
+        all_funcs_pre = _dao.batch_query_functions_by_responsible(all_wns_lower)
 
         funcs_by_user: dict = defaultdict(list)
         for f in all_funcs_pre:
@@ -599,12 +563,7 @@ class StatisticsController:
                     funcs_by_user[wn.lower()].append(f)
 
         # ── 批量预加载：AR（MySQL）──────────────────────────
-        duty_conds = [db.func.lower(TemporaryDutyModel.responsible).like(f'%"{wn}"%') for wn in all_wns_lower]
-        all_duties_pre = db.session.query(TemporaryDutyModel).filter(
-            TemporaryDutyModel.status == 1,
-            TemporaryDutyModel.duty_status != 9,
-            db.or_(*duty_conds),
-        ).all() if duty_conds else []
+        all_duties_pre = _dao.batch_query_duties_by_responsible(all_wns_lower, exclude_deleted=True)
 
         duties_by_user: dict = defaultdict(list)
         for d in all_duties_pre:
@@ -876,22 +835,12 @@ class StatisticsController:
         - delay_no_report:    超期任务近7天无进度记录
         """
         from collections import defaultdict
-        from controllers.user_controller import UserController
         from dbs.mysql_db.model_tables import ProjectDataModel, ProgressRecordDataModel
         from dbs.mongo_db.client import mongo_client
 
-        user_ctrl = UserController()
-        subordinates = user_ctrl.get_subordinates(work_no, all_levels=True)
-        sub_work_nos = [s["work_no"] for s in subordinates]
-
-        if sub_work_nos:
-            users = db.session.query(UserProfileModel.work_no, UserProfileModel.name).filter(
-                db.func.lower(UserProfileModel.work_no).in_([w.lower() for w in sub_work_nos]), UserProfileModel.status == 1
-            ).all()
-        else:
-            users = db.session.query(UserProfileModel.work_no, UserProfileModel.name).filter(
-                UserProfileModel.status == 1, UserProfileModel.work_no != work_no
-            ).all()
+        users, sub_work_nos = _dao.get_subordinate_user_columns(
+            work_no, columns=(UserProfileModel.work_no, UserProfileModel.name)
+        )
 
         name_map = {u.work_no: u.name for u in users}
         user_work_nos = [u.work_no for u in users]

@@ -5,9 +5,12 @@ import json
 from utils.tools import CommonTools
 from utils.exceptions import ResourceNotFoundException, PermissionException, BusinessException, ValidationException
 from dbs.mysql_db import db
+from daos.duty_dao import DutyDAO
 from dbs.mysql_db.model_tables import (
     TemporaryDutyModel, DutyProgressRecordModel, ReviewApplyModel, SystemModel, StandaloneReqModel, HierarchyModel
 )
+
+dao = DutyDAO()
 
 
 class DutyController:
@@ -15,13 +18,10 @@ class DutyController:
     @staticmethod
     def _sync_req_progress(standalone_req_id: str):
         """根据绑定任务重算需求进度，并自动切换 進行中/已完結 状态"""
-        req = db.session.query(StandaloneReqModel).filter_by(id=standalone_req_id).first()
+        req = dao.get_req_by_id(standalone_req_id)
         if not req or req.req_status not in (2, 4):
             return
-        duties = db.session.query(TemporaryDutyModel).filter(
-            TemporaryDutyModel.standalone_req_id == standalone_req_id,
-            TemporaryDutyModel.duty_status != 9,
-        ).all()
+        duties = dao.query_duties_by_req(standalone_req_id)
         if not duties:
             req.progress = 0
             req.req_status = 2
@@ -32,87 +32,25 @@ class DutyController:
         req.updated_at = CommonTools.get_now()
 
     def list_duties(self, payload: dict, work_no: str = None):
-        from sqlalchemy import or_
         page = payload.get("page", 1)
         size = payload.get("size", 20)
-        keyword = payload.get("keyword", "")
-        status = payload.get("status")
-        priority = payload.get("priority")
-        responsible = payload.get("responsible", "")
-        scope = payload.get("scope", "")  # 'mine' | 'supervisor' | '' (all)
 
-        q = db.session.query(TemporaryDutyModel).filter(TemporaryDutyModel.duty_status != 9)
-
-        # ── 範圍篩選（僅對純 AR 任務生效；需求任務 standalone_req_id IS NOT NULL 始終保留）──
-        if scope and work_no:
-            if scope == 'mine':
-                # 非主管：需求任務全部保留；AR 任務只看自己建立或自己是責任人的
-                q = q.filter(or_(
-                    TemporaryDutyModel.standalone_req_id.isnot(None),
-                    TemporaryDutyModel.creator == work_no,
-                    TemporaryDutyModel.responsible.like(f'%"{work_no}"%'),
-                ))
-            elif scope == 'supervisor':
-                # 主管：需求任務全部保留；AR 任務看自己和下屬的
-                subordinates = [r[0] for r in db.session.query(HierarchyModel.subordinate_work_no).filter(
-                    HierarchyModel.supervisor_work_no == work_no,
-                ).all()]
-                all_nos = [work_no] + subordinates
-                creator_filters = [TemporaryDutyModel.creator == no for no in all_nos]
-                resp_filters    = [TemporaryDutyModel.responsible.like(f'%"{no}"%') for no in all_nos]
-                q = q.filter(or_(
-                    TemporaryDutyModel.standalone_req_id.isnot(None),
-                    *creator_filters,
-                    *resp_filters,
-                ))
-
-        if keyword:
-            q = q.filter(TemporaryDutyModel.duty_nm.like(f"%{keyword}%"))
-        if status is not None:
-            q = q.filter(TemporaryDutyModel.duty_status == status)
-        if priority is not None:
-            q = q.filter(TemporaryDutyModel.priority == priority)
-        if responsible:
-            q = q.filter(TemporaryDutyModel.responsible.like(f"%{responsible}%"))
-        standalone_req_id = payload.get("standalone_req_id")
-        if standalone_req_id:
-            q = q.filter(TemporaryDutyModel.standalone_req_id == standalone_req_id)
-        system_id = payload.get("system_id")
-        if system_id:
-            q = q.filter(TemporaryDutyModel.system_id == system_id)
+        q = dao.build_list_query(payload, work_no)
         total = q.count()
         duties = q.order_by(TemporaryDutyModel.created_at.desc()).offset((page-1)*size).limit(size).all()
-        sys_ids = [d.system_id for d in duties if d.system_id]
-        sys_map = {}
-        if sys_ids:
-            syss = db.session.query(SystemModel.id, SystemModel.sys_nm).filter(SystemModel.id.in_(sys_ids)).all()
-            sys_map = {s.id: s.sys_nm for s in syss}
-        req_ids = list({d.standalone_req_id for d in duties if d.standalone_req_id})
-        req_nm_map = {}
-        if req_ids:
-            reqs = db.session.query(StandaloneReqModel.id, StandaloneReqModel.req_nm).filter(StandaloneReqModel.id.in_(req_ids)).all()
-            req_nm_map = {r.id: r.req_nm for r in reqs}
-        def _enrich(d):
-            r = d.to_dict()
-            r['system_nm'] = sys_map.get(d.system_id, '') if d.system_id else ''
-            r['requirement_nm'] = req_nm_map.get(d.standalone_req_id, '') if d.standalone_req_id else ''
-            return r
+        enriched = dao.enrich_duty_list(duties)
         return {
             "total_count": total,
             "total_page": (total + size - 1) // size,
-            "data_list": [_enrich(d) for d in duties],
+            "data_list": enriched,
         }
 
     def get_duty(self, duty_id: str):
-        d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
-        if not d or d.duty_status == 9:
+        d = dao.find_active_by_id(duty_id)
+        if not d:
             raise ResourceNotFoundException(resource_type="AR")
         result = d.to_dict()
-        if d.system_id:
-            s = db.session.query(SystemModel.sys_nm).filter_by(id=d.system_id).first()
-            result['system_nm'] = s.sys_nm if s else ''
-        else:
-            result['system_nm'] = ''
+        result['system_nm'] = dao.get_system_name(d.system_id)
         return result
 
     def create_duty(self, payload: dict, creator: str):
@@ -126,7 +64,7 @@ class DutyController:
 
         if standalone_req_id:
             # 系统需求任务：只有需求的负责人才能创建
-            req = db.session.query(StandaloneReqModel).filter_by(id=standalone_req_id).first()
+            req = dao.get_req_by_id(standalone_req_id)
             if req:
                 req_resp = json.loads(req.responsible) if req.responsible else []
                 creator_lower = creator.lower()
@@ -153,17 +91,14 @@ class DutyController:
             expected_start_date=payload.get("expected_start_date", ""),
             expected_end_date=payload.get("expected_end_date", ""),
         )
-        db.session.add(d)
-        db.session.commit()
+        dao.add_and_commit(d)
         # 新增任務后重算需求进度（可能从已完結回到進行中）
         if d.standalone_req_id:
             self._sync_req_progress(d.standalone_req_id)
-            db.session.commit()
+            dao.commit()
         # 通知非建立人的負責人
         from controllers.notification_controller import push_notification
-        from dbs.mysql_db.model_tables import UserProfileModel
-        creator_user = db.session.query(UserProfileModel).filter(db.func.lower(UserProfileModel.work_no) == (creator or "").lower()).first()
-        creator_display = f"{creator_user.name}({creator})" if creator_user else creator
+        creator_display = f"{dao.get_user_display_name(creator)}({creator})"
         notif_targets = [w for w in resp if w != creator]
         if notif_targets:
             push_notification(
@@ -177,10 +112,9 @@ class DutyController:
 
     def submit_req_task_review(self, duty_id: str, payload: dict, work_no: str):
         """提交需求任務新增審核（草稿→待審，需主管審批後方可進行）"""
-        from dbs.mysql_db.model_tables import UserProfileModel, StandaloneReqModel
         from utils.exceptions import BusinessException
-        d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
-        if not d or d.duty_status == 9:
+        d = dao.find_active_by_id(duty_id)
+        if not d:
             raise ResourceNotFoundException(resource_type="任務")
         if not d.standalone_req_id:
             raise BusinessException(msg="只有需求任務才需要提交審核")
@@ -194,12 +128,7 @@ class DutyController:
             raise BusinessException(msg="請選擇審核人")
 
         all_wks = list({work_no} | set(reviewer))
-        user_map = {
-            u.work_no.lower(): u
-            for u in db.session.query(UserProfileModel).filter(
-                db.func.lower(UserProfileModel.work_no).in_([w.lower() for w in all_wks])
-            ).all()
-        }
+        user_map = dao.batch_get_user_map(all_wks)
         nodes = []
         for i, wk in enumerate(reviewer):
             u = user_map.get(wk.lower())
@@ -217,9 +146,8 @@ class DutyController:
         submitter_profile = user_map.get(work_no.lower())
         submitter_name = submitter_profile.name if submitter_profile else work_no
 
-        sys = db.session.query(SystemModel).filter_by(id=d.system_id).first() if d.system_id else None
-        sys_nm = sys.sys_nm if sys else ""
-        req = db.session.query(StandaloneReqModel).filter_by(id=d.standalone_req_id).first()
+        sys_nm = dao.get_system_name(d.system_id)
+        req = dao.get_req_by_id(d.standalone_req_id)
         req_nm = req.req_nm if req else ""
         desc = f"[{req_nm}] {d.duty_nm}" if req_nm else d.duty_nm
 
@@ -237,8 +165,8 @@ class DutyController:
             approval_nodes_json=json.dumps(nodes, ensure_ascii=False),
         )
         d.duty_status = 5  # 審核中
-        db.session.add(apply)
-        db.session.commit()
+        dao.add(apply)
+        dao.commit()
 
         from controllers.notification_controller import push_notification
         first_reviewers = [n["approver_work_no"] for n in nodes if n.get("order") == 1]
@@ -255,14 +183,10 @@ class DutyController:
 
     def batch_submit_req_task_review(self, duty_ids: list, payload: dict, work_no: str):
         """批量提交需求任務新增審核（多個草稿任務合併為一張審核單）"""
-        from dbs.mysql_db.model_tables import UserProfileModel
         if not duty_ids:
             raise BusinessException(msg="請選擇要提交審核的任務")
 
-        duties = db.session.query(TemporaryDutyModel).filter(
-            TemporaryDutyModel.id.in_(duty_ids),
-            TemporaryDutyModel.duty_status == 0,
-        ).all()
+        duties = dao.find_draft_duties_by_ids(duty_ids)
         if not duties:
             raise BusinessException(msg="未找到可提交審核的草稿任務")
 
@@ -279,12 +203,7 @@ class DutyController:
             raise BusinessException(msg="請選擇審核人")
 
         all_wks = list({work_no} | set(reviewer))
-        user_map = {
-            u.work_no.lower(): u
-            for u in db.session.query(UserProfileModel).filter(
-                db.func.lower(UserProfileModel.work_no).in_([w.lower() for w in all_wks])
-            ).all()
-        }
+        user_map = dao.batch_get_user_map(all_wks)
         nodes = []
         for i, wk in enumerate(reviewer):
             u = user_map.get(wk.lower())
@@ -302,8 +221,7 @@ class DutyController:
         submitter_profile = user_map.get(work_no.lower())
         submitter_name = submitter_profile.name if submitter_profile else work_no
 
-        sys = db.session.query(SystemModel).filter_by(id=system_id).first() if system_id else None
-        sys_nm = sys.sys_nm if sys else ""
+        sys_nm = dao.get_system_name(system_id)
         desc = f"系統「{sys_nm}」新增 {len(duties)} 個需求任務" if sys_nm else f"新增 {len(duties)} 個需求任務"
 
         for d in duties:
@@ -319,8 +237,8 @@ class DutyController:
             description=desc,
             approval_nodes_json=json.dumps(nodes, ensure_ascii=False),
         )
-        db.session.add(apply)
-        db.session.commit()
+        dao.add(apply)
+        dao.commit()
 
         from controllers.notification_controller import push_notification
         first_reviewers = [n["approver_work_no"] for n in nodes if n.get("order") == 1]
@@ -334,8 +252,8 @@ class DutyController:
         return {"apply_id": apply.id, "count": len(duties)}
 
     def update_duty(self, duty_id: str, payload: dict, work_no: str = None):
-        d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
-        if not d or d.duty_status == 9:
+        d = dao.find_active_by_id(duty_id)
+        if not d:
             raise ResourceNotFoundException(resource_type="AR")
         if work_no and d.creator != work_no:
             raise PermissionException("只有建立人可以修改任務基本資訊")
@@ -363,13 +281,11 @@ class DutyController:
             resp_changed = True
             d.responsible = json.dumps(resp, ensure_ascii=False)
         d.update_at = CommonTools.get_now()
-        db.session.commit()
+        dao.commit()
         if resp_changed and (new_resp or removed_resp):
             from controllers.notification_controller import push_notification
-            from dbs.mysql_db.model_tables import UserProfileModel
             creator = d.creator
-            op_u = db.session.query(UserProfileModel).filter(db.func.lower(UserProfileModel.work_no) == (work_no or "").lower()).first()
-            op_nm = op_u.name if op_u else work_no
+            op_nm = dao.get_user_display_name(work_no)
             # 通知新增负责人
             if new_resp:
                 push_notification(
@@ -413,8 +329,8 @@ class DutyController:
         """延期AR：建立人或责任人可操作，记录延期历史"""
         if not new_end_date or not new_end_date.strip():
             raise ValidationException(msg="new_end_date 不能为空")  # noqa
-        d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
-        if not d or d.duty_status == 9:
+        d = dao.find_active_by_id(duty_id)
+        if not d:
             raise ResourceNotFoundException(resource_type="AR")
 
         responsible = []
@@ -449,12 +365,10 @@ class DutyController:
         d.revision_count = (d.revision_count or 0) + 1
         d.reschedule_log = json.dumps(history, ensure_ascii=False)
         d.update_at = CommonTools.get_now()
-        db.session.commit()
+        dao.commit()
         # 延期通知：责任人操作 → 通知建立人 + 其他责任人；建立人操作 → 通知所有责任人
         from controllers.notification_controller import push_notification
-        from dbs.mysql_db.model_tables import UserProfileModel as _UPM
-        op_u = db.session.query(_UPM).filter(db.func.lower(_UPM.work_no) == (operator or "").lower()).first()
-        op_nm = op_u.name if op_u else operator
+        op_nm = dao.get_user_display_name(operator)
         notif_msg = f"「{d.duty_nm}」已延期至 {new_end_date}，原因：{reason}，操作人：{op_nm}"
         if is_responsible and not is_creator:
             # 责任人操作：通知建立人 + 其他责任人
@@ -474,7 +388,7 @@ class DutyController:
         return d.to_dict()
 
     def delete_duty(self, duty_id: str, work_no: str = None):
-        d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
+        d = dao.find_by_id(duty_id)
         if not d:
             raise ResourceNotFoundException(resource_type="AR")
         if work_no and d.creator != work_no:
@@ -483,12 +397,12 @@ class DutyController:
             raise BusinessException("當前狀態不允許刪除")
         d.duty_status = 9
         d.update_at = CommonTools.get_now()
-        db.session.commit()
+        dao.commit()
 
     def activate_duty(self, duty_id: str, work_no: str, payload: dict = None):
         """草稿 → 進行中（建立人）。可附帶 responsible/expected_start_date/expected_end_date 一起更新"""
-        d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
-        if not d or d.duty_status == 9:
+        d = dao.find_active_by_id(duty_id)
+        if not d:
             raise ResourceNotFoundException(resource_type="AR")
         if d.standalone_req_id:
             raise BusinessException("需求任務需提交主管審核後才可啟動，請點擊「提交審核」")
@@ -516,12 +430,10 @@ class DutyController:
             raise BusinessException("激活前請先設定預計開始和預計完成時間")
         d.duty_status = 1
         d.update_at = CommonTools.get_now()
-        db.session.commit()
+        dao.commit()
         # 通知负责人（排除激活人本身）
         from controllers.notification_controller import push_notification
-        from dbs.mysql_db.model_tables import UserProfileModel
-        op_u = db.session.query(UserProfileModel).filter_by(work_no=work_no).first()
-        op_nm = op_u.name if op_u else work_no
+        op_nm = dao.get_user_display_name(work_no)
         notif_targets = [w for w in responsible if w != work_no]
         if notif_targets:
             push_notification(
@@ -534,11 +446,11 @@ class DutyController:
 
     def hold_duty(self, duty_id: str, work_no: str):
         """進行中/未開始 → 擱置（需求任務：需求責任人；普通AR：建立人或負責人）"""
-        d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
-        if not d or d.duty_status == 9:
+        d = dao.find_active_by_id(duty_id)
+        if not d:
             raise ResourceNotFoundException(resource_type="AR")
         if d.standalone_req_id:
-            req = db.session.query(StandaloneReqModel).filter_by(id=d.standalone_req_id).first()
+            req = dao.get_req_by_id(d.standalone_req_id)
             req_responsible = json.loads(req.responsible) if req and req.responsible else []
             if work_no not in req_responsible:
                 raise PermissionException("只有需求責任人可以擱置需求任務")
@@ -550,14 +462,12 @@ class DutyController:
             raise BusinessException("僅進行中或未開始狀態可擱置")
         d.duty_status = 8
         d.update_at = CommonTools.get_now()
-        db.session.commit()
+        dao.commit()
 
         # 通知建立人（排除操作人本身）
         if d.creator and d.creator != work_no:
             from controllers.notification_controller import push_notification
-            from dbs.mysql_db.model_tables import UserProfileModel
-            op_u = db.session.query(UserProfileModel).filter_by(work_no=work_no).first()
-            op_nm = op_u.name if op_u else work_no
+            op_nm = dao.get_user_display_name(work_no)
             push_notification(
                 [d.creator],
                 title="您建立的AR已被擱置",
@@ -568,11 +478,11 @@ class DutyController:
 
     def resume_duty(self, duty_id: str, work_no: str):
         """擱置 → 進行中（需求任務：需求責任人；普通AR：建立人或負責人）"""
-        d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
-        if not d or d.duty_status == 9:
+        d = dao.find_active_by_id(duty_id)
+        if not d:
             raise ResourceNotFoundException(resource_type="AR")
         if d.standalone_req_id:
-            req = db.session.query(StandaloneReqModel).filter_by(id=d.standalone_req_id).first()
+            req = dao.get_req_by_id(d.standalone_req_id)
             req_responsible = json.loads(req.responsible) if req and req.responsible else []
             if work_no not in req_responsible:
                 raise PermissionException("只有需求責任人可以恢復需求任務")
@@ -584,14 +494,12 @@ class DutyController:
             raise BusinessException("僅擱置狀態可恢復")
         d.duty_status = 1
         d.update_at = CommonTools.get_now()
-        db.session.commit()
+        dao.commit()
 
         # 通知建立人（排除操作人本身）
         if d.creator and d.creator != work_no:
             from controllers.notification_controller import push_notification
-            from dbs.mysql_db.model_tables import UserProfileModel
-            op_u = db.session.query(UserProfileModel).filter_by(work_no=work_no).first()
-            op_nm = op_u.name if op_u else work_no
+            op_nm = dao.get_user_display_name(work_no)
             push_notification(
                 [d.creator],
                 title="您建立的AR已恢復進行中",
@@ -605,9 +513,8 @@ class DutyController:
         - 需求任務（有 standalone_req_id）：審核人自動設為需求責任人；若提交人即為需求責任人則直接完結。
         - AR任務：使用傳入的 reviewer 列表。
         """
-        from dbs.mysql_db.model_tables import UserProfileModel, StandaloneReqModel
-        d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
-        if not d or d.duty_status == 9:
+        d = dao.find_active_by_id(duty_id)
+        if not d:
             raise ResourceNotFoundException(resource_type="AR")
         responsible = json.loads(d.responsible) if d.responsible else []
         if work_no not in responsible:
@@ -619,7 +526,7 @@ class DutyController:
 
         if d.standalone_req_id:
             # 需求任務：審核人為需求責任人
-            req = db.session.query(StandaloneReqModel).filter_by(id=d.standalone_req_id).first()
+            req = dao.get_req_by_id(d.standalone_req_id)
             req_responsible = json.loads(req.responsible) if req and req.responsible else []
 
             if work_no in req_responsible:
@@ -627,7 +534,7 @@ class DutyController:
                 d.duty_status = 3
                 d.end_time = now
                 d.update_at = now
-                db.session.commit()
+                dao.commit()
                 return {"review_id": "", "direct": True}
 
             # 以需求責任人為審核人
@@ -644,12 +551,7 @@ class DutyController:
             apply_type_code = "duty_complete"
 
         # 取得審核人姓名
-        user_map = {
-            u.work_no.lower(): u
-            for u in db.session.query(UserProfileModel).filter(
-                db.func.lower(UserProfileModel.work_no).in_([w.lower() for w in reviewer + [work_no]])
-            ).all()
-        }
+        user_map = dao.batch_get_user_map(reviewer + [work_no])
         nodes = [
             {
                 "node_id": f"node_{i+1}",
@@ -680,8 +582,8 @@ class DutyController:
         )
         d.duty_status = 2
         d.update_at = now
-        db.session.add(review)
-        db.session.commit()
+        dao.add(review)
+        dao.commit()
 
         from controllers.notification_controller import push_notification
         first_reviewers = [n["approver_work_no"] for n in nodes if n.get("order") == 1]
@@ -695,7 +597,7 @@ class DutyController:
         return {"review_id": review.id, "direct": False}
 
     def allocate(self, duty_id: str, payload: dict):
-        d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
+        d = dao.find_by_id(duty_id)
         if not d:
             raise ResourceNotFoundException(resource_type="AR")
         new_resp = []
@@ -713,7 +615,7 @@ class DutyController:
             d.expected_end_date = payload["expected_end_date"]
             d.latest_expected_end_date = payload["expected_end_date"]
         d.update_at = CommonTools.get_now()
-        db.session.commit()
+        dao.commit()
         if new_resp or removed_resp:
             from controllers.notification_controller import push_notification
             # 通知新增负责人
@@ -746,26 +648,19 @@ class DutyController:
                 )
 
     def set_status(self, duty_id: str, status: int):
-        d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
+        d = dao.find_by_id(duty_id)
         if not d:
             raise ResourceNotFoundException(resource_type="AR")
         d.duty_status = status
         d.update_at = CommonTools.get_now()
-        db.session.commit()
+        dao.commit()
 
     def get_unread_progress_count(self, work_no: str):
-        count = (
-            db.session.query(DutyProgressRecordModel)
-            .join(TemporaryDutyModel, DutyProgressRecordModel.duty_id == TemporaryDutyModel.id)
-            .filter(
-                TemporaryDutyModel.creator == work_no,
-                DutyProgressRecordModel.is_read == 0,
-            ).count()
-        )
+        count = dao.count_unread_progress(work_no)
         return {"unread_count": count}
 
     def get_progress(self, duty_id: str, page=1, size=20):
-        q = db.session.query(DutyProgressRecordModel).filter_by(duty_id=duty_id)
+        q = dao.query_progress(duty_id)
         total = q.count()
         records = q.order_by(DutyProgressRecordModel.created_at.desc()).offset((page-1)*size).limit(size).all()
         return {
@@ -784,8 +679,8 @@ class DutyController:
 
     def create_progress(self, duty_id: str, payload: dict, submitter: str, files=None):
         import os, uuid as _uuid
-        d = db.session.query(TemporaryDutyModel).filter_by(id=duty_id).first()
-        if not d or d.duty_status == 9:
+        d = dao.find_active_by_id(duty_id)
+        if not d:
             raise ResourceNotFoundException(resource_type="AR")
         if d.duty_status not in (1, 6):
             raise BusinessException("只有進行中或未開始的任務才能更新進度")
@@ -826,25 +721,19 @@ class DutyController:
                 saved.append({"id": fid, "name": f_obj.filename, "ext": ext, "size": os.path.getsize(dest)})
             if saved:
                 rec.files_json = json.dumps(saved, ensure_ascii=False)
-        db.session.add(rec)
+        dao.add(rec)
         d.progress = payload["progress"]
         d.update_at = CommonTools.get_now()
-        db.session.commit()
+        dao.commit()
         # 同步需求进度（如属于需求任务）
         if d.standalone_req_id:
             self._sync_req_progress(d.standalone_req_id)
-            db.session.commit()
+            dao.commit()
 
     def get_review_list(self, page=1, size=20, work_no=None):
         from controllers.project_controller import ProjectController
-        from sqlalchemy import or_
         proj_ctrl = ProjectController()
-        q = db.session.query(ReviewApplyModel).filter(ReviewApplyModel.duty_id.isnot(None))
-        if work_no:
-            q = q.filter(or_(
-                ReviewApplyModel.reviewer.like(f"%{work_no}%"),
-                ReviewApplyModel.approval_nodes_json.like(f"%{work_no}%"),
-            ))
+        q = dao.query_duty_reviews(work_no)
         total = q.count()
         records = q.order_by(ReviewApplyModel.created_at.desc()).offset((page-1)*size).limit(size).all()
         return {
@@ -855,7 +744,7 @@ class DutyController:
 
     def approve_review(self, review_id: str, status: int, reject_reason: str = "",
                        countersigns: list = None):
-        r = db.session.query(ReviewApplyModel).filter_by(id=review_id).first()
+        r = dao.find_review_by_id(review_id)
         if not r:
             raise ResourceNotFoundException(resource_type="审核记录")
 
@@ -922,7 +811,7 @@ class DutyController:
         else:
             # 还有待审节点，保持待审状态
             r.update_at = now
-            db.session.commit()
+            dao.commit()
             return
 
         r.apply_status = final_status
@@ -930,7 +819,7 @@ class DutyController:
 
         d = None
         if r.duty_id:
-            d = db.session.query(TemporaryDutyModel).filter_by(id=r.duty_id).first()
+            d = dao.find_by_id(r.duty_id)
             if d:
                 if final_status == 2:
                     d.duty_status = 3  # 已完結
@@ -939,12 +828,11 @@ class DutyController:
                 elif final_status in (3, 4):
                     d.duty_status = 1  # 退回進行中
                     d.update_at = now
-        db.session.commit()
+        dao.commit()
 
         # 通知提交人（負責人）審批結果
         if r.duty_id and d and r.submitter:
             from controllers.notification_controller import push_notification
-            from dbs.mysql_db.model_tables import UserProfileModel
             approver_node = next(
                 (n for n in sorted(
                     json.loads(r.approval_nodes_json) if r.approval_nodes_json else [],
@@ -964,7 +852,7 @@ class DutyController:
                 )
 
     def countersign_review(self, review_id: str, approver_work_no: str, approver_name: str):
-        r = db.session.query(ReviewApplyModel).filter_by(id=review_id).first()
+        r = dao.find_review_by_id(review_id)
         if not r:
             raise ResourceNotFoundException(resource_type="审核记录")
         nodes = json.loads(r.approval_nodes_json) if r.approval_nodes_json else []
@@ -995,36 +883,15 @@ class DutyController:
         })
         r.approval_nodes_json = json.dumps(nodes, ensure_ascii=False)
         r.update_at = CommonTools.get_now()
-        db.session.commit()
+        dao.commit()
 
     def get_task_list(self, work_no: str, page=1, size=20):
-        q = (
-            db.session.query(TemporaryDutyModel)
-            .filter(
-                TemporaryDutyModel.responsible.like(f"%{work_no}%"),
-                TemporaryDutyModel.duty_status.in_([0, 1, 6]),
-            )
-        )
+        q = dao.query_task_list(work_no)
         total = q.count()
         duties = q.offset((page-1)*size).limit(size).all()
-        sys_ids = list({d.system_id for d in duties if d.system_id})
-        sys_map = {}
-        if sys_ids:
-            syss = db.session.query(SystemModel.id, SystemModel.sys_nm).filter(SystemModel.id.in_(sys_ids)).all()
-            sys_map = {s.id: s.sys_nm for s in syss}
-        req_ids = list({d.standalone_req_id for d in duties if d.standalone_req_id})
-        req_nm_map = {}
-        if req_ids:
-            reqs = db.session.query(StandaloneReqModel.id, StandaloneReqModel.req_nm).filter(StandaloneReqModel.id.in_(req_ids)).all()
-            req_nm_map = {r.id: r.req_nm for r in reqs}
-        result = []
-        for d in duties:
-            r = d.to_dict()
-            r['system_nm'] = sys_map.get(d.system_id, '') if d.system_id else ''
-            r['requirement_nm'] = req_nm_map.get(d.standalone_req_id, '') if d.standalone_req_id else ''
-            result.append(r)
+        enriched = dao.enrich_duty_list(duties)
         return {
             "total_count": total,
             "total_page": (total + size - 1) // size,
-            "data_list": result,
+            "data_list": enriched,
         }

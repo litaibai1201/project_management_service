@@ -235,7 +235,7 @@ const MilestoneTab: React.FC<Props> = ({ projectId, functions, requirements = []
         title={editTarget ? t('milestone.editMilestone') : t('milestone.addMilestone')}
         open={showModal}
         onCancel={() => { setShowModal(false); form.resetFields(); setEditTarget(null) }}
-        footer={null} width={520} destroyOnClose
+        footer={null} width={520} destroyOnHidden
       >
         <Form form={form} layout="vertical" onFinish={handleSubmit} className="mt-4">
           <Form.Item name="name" label={t('milestone.colName')} rules={[{ required: true }]}>

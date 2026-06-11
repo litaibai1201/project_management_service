@@ -7,9 +7,12 @@ from utils.exceptions import (
     ResourceNotFoundException, ResourceExistsException, BusinessException
 )
 from dbs.mysql_db import db
-from dbs.mysql_db.model_tables import (
-    UserProfileModel, RoleModel, UserRoleModel, HierarchyModel, DepartmentModel
+from tables.user_table import (
+    UserProfileModel, UserRoleModel, HierarchyModel, DepartmentModel,
 )
+from daos.user_dao import UserDAO
+
+_dao = UserDAO()
 
 
 class UserController:
@@ -17,16 +20,7 @@ class UserController:
     # ── 用户 CRUD ──────────────────────────────────────────────────────────────
 
     def list_users(self, page=1, size=20, keyword="", department=""):
-        query = db.session.query(UserProfileModel).filter(UserProfileModel.status == 1)
-        if keyword:
-            query = query.filter(
-                db.or_(
-                    UserProfileModel.work_no.like(f"%{keyword}%"),
-                    UserProfileModel.name.like(f"%{keyword}%"),
-                )
-            )
-        if department:
-            query = query.filter(UserProfileModel.department == department)
+        query = _dao.list_users_query(keyword=keyword, department=department)
         total = query.count()
         users = query.offset((page - 1) * size).limit(size).all()
         return {
@@ -37,7 +31,7 @@ class UserController:
 
     def get_user(self, work_no: str):
         work_no = (work_no or "").strip().lower()
-        user = db.session.query(UserProfileModel).filter(db.func.lower(UserProfileModel.work_no) == (work_no or "").lower(), UserProfileModel.status == 1).first()
+        user = _dao.find_by_work_no(work_no)
         if not user:
             raise ResourceNotFoundException(resource_type="用户")
         return user.to_dict()
@@ -47,7 +41,7 @@ class UserController:
         work_no = (payload["work_no"] or "").strip().lower()
         if not work_no:
             raise ValidationException(msg="工号不能为空")
-        if db.session.query(UserProfileModel).filter(db.func.lower(UserProfileModel.work_no) == (work_no or "").lower()).first():
+        if _dao.find_by_work_no(work_no, active_only=False):
             raise ResourceExistsException(resource_type="工号")
         user = UserProfileModel(
             work_no=work_no,
@@ -59,42 +53,33 @@ class UserController:
             password=payload.get("password", ""),
             location=payload.get("location", ""),
         )
-        db.session.add(user)
-        db.session.commit()
+        _dao.add(user)
+        _dao.commit()
         return {"work_no": work_no}
 
     def update_user(self, work_no: str, payload: dict):
-        user = db.session.query(UserProfileModel).filter_by(work_no=work_no, status=1).first()
+        user = _dao.find_by_work_no_exact(work_no)
         if not user:
             raise ResourceNotFoundException(resource_type="用户")
         for field in ("name", "department", "position", "email", "phone", "password", "location"):
             if field in payload and payload[field] is not None:
                 setattr(user, field, payload[field])
         user.update_at = CommonTools.get_now()
-        db.session.commit()
+        _dao.commit()
 
     def delete_user(self, work_no: str):
-        user = db.session.query(UserProfileModel).filter_by(work_no=work_no, status=1).first()
+        user = _dao.find_by_work_no_exact(work_no)
         if not user:
             raise ResourceNotFoundException(resource_type="用户")
         user.status = 0
         user.status_update_at = CommonTools.get_now()
-        db.session.commit()
+        _dao.commit()
 
     def get_departments(self):
         """返回部门表 + 用户记录里的部门 合并去重后的列表"""
-        # 从部门表读取
-        dept_rows = db.session.query(DepartmentModel).order_by(DepartmentModel.name).all()
+        dept_rows = _dao.list_departments()
         dept_list = [{"id": d.id, "name": d.name} for d in dept_rows]
-        # 从用户记录里提取（兼容历史数据）
-        user_rows = (
-            db.session.query(UserProfileModel.department)
-            .filter(UserProfileModel.status == 1, UserProfileModel.department.isnot(None))
-            .distinct()
-            .all()
-        )
-        user_depts = {r[0] for r in user_rows if r[0]}
-        # 合并：部门表中已有的不重复添加
+        user_depts = _dao.distinct_user_departments()
         existing_names = {d["name"] for d in dept_list}
         for name in sorted(user_depts - existing_names):
             dept_list.append({"id": None, "name": name})
@@ -104,20 +89,18 @@ class UserController:
         name = name.strip()
         if not name:
             raise BusinessException("部门名称不能为空")
-        exists = db.session.query(DepartmentModel).filter_by(name=name).first()
+        exists = _dao.find_department_by_name(name)
         if exists:
             raise ResourceExistsException(f"部门「{name}」已存在")
         dept = DepartmentModel(name=name)
-        db.session.add(dept)
-        db.session.commit()
+        _dao.add_department(dept)
         return dept.to_dict()
 
     def delete_department(self, dept_id: str):
-        dept = db.session.query(DepartmentModel).filter_by(id=dept_id).first()
+        dept = _dao.find_department_by_id(dept_id)
         if not dept:
             raise ResourceNotFoundException("部门不存在")
-        db.session.delete(dept)
-        db.session.commit()
+        _dao.delete_department(dept)
 
     # ── 上下级关系 ─────────────────────────────────────────────────────────────
 
@@ -126,25 +109,18 @@ class UserController:
             supervisor_work_no=supervisor_work_no,
             subordinate_work_no=subordinate_work_no,
         )
-        db.session.add(rel)
-        db.session.commit()
+        _dao.add(rel)
+        _dao.commit()
         return rel.to_dict()
 
     def get_all_relations(self):
         """获取所有上下级关系（批量，供前端层级页面初始化）"""
-        rels = db.session.query(HierarchyModel).all()
+        rels = _dao.list_all_hierarchy()
         work_nos = set()
         for r in rels:
             work_nos.add(r.supervisor_work_no)
             work_nos.add(r.subordinate_work_no)
-        if work_nos:
-            users = db.session.query(UserProfileModel).filter(
-                db.func.lower(UserProfileModel.work_no).in_([w.lower() for w in work_nos]),
-                UserProfileModel.status == 1,
-            ).all()
-            name_map = {u.work_no.lower(): u.name for u in users}
-        else:
-            name_map = {}
+        name_map = _dao.name_map(work_nos)
         return [
             {
                 "id": r.id,
@@ -157,11 +133,11 @@ class UserController:
         ]
 
     def remove_relation(self, relation_id: str):
-        rel = db.session.query(HierarchyModel).filter_by(id=relation_id).first()
+        rel = _dao.find_hierarchy_by_id(relation_id)
         if not rel:
             raise ResourceNotFoundException(resource_type="关系记录")
-        db.session.delete(rel)
-        db.session.commit()
+        _dao.delete(rel)
+        _dao.commit()
 
     def get_subordinates(self, work_no: str, all_levels: bool = False):
         """获取直接下级（all_levels=True 时递归获取所有层级）"""
@@ -174,15 +150,10 @@ class UserController:
             if cur_lower in visited:
                 continue
             visited.add(cur_lower)
-            rels = db.session.query(HierarchyModel).filter(
-                db.func.lower(HierarchyModel.supervisor_work_no) == cur_lower
-            ).all()
+            rels = _dao.find_subordinate_rels(cur)
             for r in rels:
                 sub_wn = r.subordinate_work_no
-                user = db.session.query(UserProfileModel).filter(
-                    db.func.lower(UserProfileModel.work_no) == (sub_wn or "").lower(),
-                    UserProfileModel.status == 1,
-                ).first()
+                user = _dao.find_by_work_no(sub_wn)
                 info = user.to_dict() if user else {"work_no": sub_wn, "name": sub_wn}
                 result.append(info)
                 if all_levels:
@@ -190,15 +161,10 @@ class UserController:
         return result
 
     def get_supervisors(self, work_no: str):
-        rels = db.session.query(HierarchyModel).filter(
-            db.func.lower(HierarchyModel.subordinate_work_no) == (work_no or "").lower()
-        ).all()
+        rels = _dao.find_supervisor_rels(work_no)
         result = []
         for r in rels:
-            user = db.session.query(UserProfileModel).filter(
-                db.func.lower(UserProfileModel.work_no) == (r.supervisor_work_no or "").lower(),
-                UserProfileModel.status == 1,
-            ).first()
+            user = _dao.find_by_work_no(r.supervisor_work_no)
             info = user.to_dict() if user else {"work_no": r.supervisor_work_no, "name": r.supervisor_work_no}
             result.append(info)
         return result
@@ -208,9 +174,9 @@ class UserController:
         def build_node(wn, depth=0):
             if depth > 5:
                 return None
-            user = db.session.query(UserProfileModel).filter(db.func.lower(UserProfileModel.work_no) == (wn or "").lower(), UserProfileModel.status == 1).first()
+            user = _dao.find_by_work_no(wn)
             node = user.to_dict() if user else {"work_no": wn, "name": wn}
-            rels = db.session.query(HierarchyModel).filter(db.func.lower(HierarchyModel.supervisor_work_no) == (wn or "").lower()).all()
+            rels = _dao.find_subordinate_rels(wn)
             node["children"] = [
                 build_node(r.subordinate_work_no, depth + 1)
                 for r in rels
@@ -222,24 +188,18 @@ class UserController:
     # ── 角色管理 ───────────────────────────────────────────────────────────────
 
     def assign_role(self, work_no: str, role_code: str):
-        existing = db.session.query(UserRoleModel).filter_by(work_no=work_no).first()
+        existing = _dao.find_user_role_record(work_no)
         if existing:
             existing.role_code = role_code
         else:
-            db.session.add(UserRoleModel(work_no=work_no, role_code=role_code))
-        db.session.commit()
+            _dao.add(UserRoleModel(work_no=work_no, role_code=role_code))
+        _dao.commit()
 
     def remove_role(self, work_no: str):
-        db.session.query(UserRoleModel).filter(db.func.lower(UserRoleModel.work_no) == (work_no or "").lower()).delete()
-        db.session.commit()
+        _dao.delete_role_by_work_no(work_no)
 
     def get_user_role(self, work_no: str):
-        row = (
-            db.session.query(UserRoleModel, RoleModel)
-            .join(RoleModel, UserRoleModel.role_code == RoleModel.code)
-            .filter(UserRoleModel.work_no == work_no)
-            .first()
-        )
+        row = _dao.find_user_role(work_no)
         if not row:
             return None
         ur, role = row
@@ -251,16 +211,14 @@ class UserController:
         """登录验证：优先检查管理员表，再检查普通用户表"""
         work_no = (work_no or "").strip().lower()
         from utils.auth import create_token
-        from controllers.system_admin_controller import SystemAdminController
-        from dbs.mysql_db.model_tables import AdminUserModel
 
         # 1. 优先检查管理员表
-        admin = db.session.query(AdminUserModel).filter_by(username=work_no, status=1).first()
+        admin = _dao.find_admin_by_username(work_no)
         if admin:
             if admin.password != password:
                 raise BusinessException(msg="密码错误", code="F20003")
             admin.last_login = CommonTools.get_now()
-            db.session.commit()
+            _dao.commit()
             identity = {
                 "empid":    work_no,
                 "username": admin.name,
@@ -284,7 +242,7 @@ class UserController:
         import os
         use_ldap = os.environ.get("AUTH_USE_LDAP", "false").lower() in ("1", "true", "yes")
 
-        user = db.session.query(UserProfileModel).filter_by(work_no=work_no, status=1).first()
+        user = _dao.find_by_work_no_exact(work_no)
 
         if use_ldap:
             # LDAP 模式：先验证身份，首次登录时自动创建用户
@@ -298,14 +256,14 @@ class UserController:
                     location=location,
                     password=password,  # 保存密码，目的是不使用ldap时也能登录，只需校验密码
                 )
-                db.session.add(user)
-                db.session.commit()
+                _dao.add(user)
+                _dao.commit()
             elif user.name == work_no:
                 # 姓名仍为工号（上次获取失败），再次尝试修正
                 real_name = self._fetch_ldap_name(work_no)
                 if real_name and real_name != work_no:
                     user.name = real_name
-                    db.session.commit()
+                    _dao.commit()
         else:
             if not user:
                 raise BusinessException(msg="用户不存在或已禁用", code="F20003")
@@ -313,9 +271,7 @@ class UserController:
                 raise BusinessException(msg="密码错误", code="F20003")
 
         role_info = self.get_user_role(work_no) or {"role_code": None, "role_name": None}
-        is_supervisor = db.session.query(HierarchyModel).filter(
-            db.func.lower(HierarchyModel.supervisor_work_no) == (work_no or "").lower()
-        ).first() is not None
+        is_supervisor = _dao.is_supervisor(work_no)
 
         identity = {
             "empid":    work_no,
@@ -389,9 +345,9 @@ class UserController:
 
     def get_index_data(self, work_no: str) -> dict:
         """首页汇总统计"""
-        from dbs.mysql_db.model_tables import (
-            FunctionDataModel, TemporaryDutyModel, ReviewApplyModel
-        )
+        from tables.function_table import FunctionDataModel
+        from tables.duty_table import TemporaryDutyModel
+        from tables.review_table import ReviewApplyModel
         wn_lower = work_no.lower()
         resp_pat = f'%"{wn_lower}"%'
         doing_task = (
@@ -438,7 +394,9 @@ class UserController:
         }
 
     def get_statistical(self, work_no: str) -> dict:
-        from dbs.mysql_db.model_tables import FunctionDataModel, TemporaryDutyModel, ProjectDataModel
+        from tables.function_table import FunctionDataModel
+        from tables.duty_table import TemporaryDutyModel
+        from tables.project_table import ProjectDataModel
         wn_lower = work_no.lower()
         resp_pat = f'%"{wn_lower}"%'
         # ── 功能任务统计 ──────────────────────────────────────────────────────
@@ -499,10 +457,12 @@ class UserController:
     def get_team_statistical(self, work_no: str) -> dict:
         """团队统计（主管视角）：聚合所有下属的专案 / 任务 / 待处理数据"""
         import datetime
-        from dbs.mysql_db.model_tables import (
-            FunctionDataModel, TemporaryDutyModel, ProjectDataModel, ReviewApplyModel,
-            RequirementModel, StandaloneReqModel,
-        )
+        from tables.function_table import FunctionDataModel
+        from tables.duty_table import TemporaryDutyModel
+        from tables.project_table import ProjectDataModel
+        from tables.review_table import ReviewApplyModel
+        from tables.requirement_table import RequirementModel
+        from tables.standalone_req_table import StandaloneReqModel
 
         subordinates = self.get_subordinates(work_no, all_levels=True)
         sub_work_nos = [s["work_no"] for s in subordinates]
@@ -603,11 +563,6 @@ class UserController:
         ).count()
 
         # ── 效益统计（按单位分组，仅统计当年完结专案 + 当年完结独立需求）──────
-        # 规则：
-        #   专案效益 = project.benefit_amount（立案效益，可为 0）
-        #             + sum(requirement.benefit_amount > 0)（后期追加需求的增量效益）
-        #   两者不重叠：立案需求效益记在专案层，追加需求一定会填自己的 benefit_amount。
-        #   独立需求层：统计当年完结（req_status=4）的独立需求效益，独立于专案单独计入。
         current_year = str(CommonTools.get_now("datetime").year)
 
         # 查询当年完结专案
@@ -756,7 +711,9 @@ class UserController:
     def get_alert_tasks(self, work_no: str) -> list:
         """返回当前用户7天内到期或已超期的功能任务 / AR"""
         import datetime
-        from dbs.mysql_db.model_tables import FunctionDataModel, TemporaryDutyModel, ProjectDataModel
+        from tables.function_table import FunctionDataModel
+        from tables.duty_table import TemporaryDutyModel
+        from tables.project_table import ProjectDataModel
 
         today_dt   = datetime.date.today()
         threshold  = (today_dt + datetime.timedelta(days=7)).strftime("%Y-%m-%d")
@@ -819,7 +776,8 @@ class UserController:
     def get_weekly_activity(self, work_no: str) -> list:
         """返回本周（周一到周日）每天的进度更新条数"""
         import datetime
-        from dbs.mysql_db.model_tables import ProgressRecordDataModel, DutyProgressRecordModel
+        from tables.function_table import ProgressRecordDataModel
+        from tables.duty_table import DutyProgressRecordModel
 
         today    = datetime.date.today()
         mon      = today - datetime.timedelta(days=today.weekday())   # 本周一
@@ -882,10 +840,10 @@ class UserController:
 
     def get_latest_news(self, work_no: str, page=1, size=10):
         """获取近期动态：进度更新 + 审核提交，按时间倒序"""
-        from dbs.mysql_db.model_tables import (
-            ProgressRecordDataModel, DutyProgressRecordModel,
-            ReviewApplyModel, FunctionDataModel, TemporaryDutyModel,
-        )
+        from tables.function_table import ProgressRecordDataModel, FunctionDataModel
+        from tables.duty_table import DutyProgressRecordModel, TemporaryDutyModel
+        from tables.review_table import ReviewApplyModel
+        from tables.project_table import ProjectDataModel
 
         entries = []
 
@@ -932,7 +890,6 @@ class UserController:
             })
 
         # ── 审核申请（该用户提交的）─────────────────────────────────────────
-        from dbs.mysql_db.model_tables import ProjectDataModel
         reviews = (
             db.session.query(ReviewApplyModel)
             .filter(ReviewApplyModel.submitter == work_no)
@@ -985,7 +942,7 @@ class UserController:
 
     def my_projects(self, work_no: str, page=1, size=20, status=None):
         """我的项目列表"""
-        from dbs.mysql_db.model_tables import ProjectDataModel
+        from tables.project_table import ProjectDataModel
         wn_lower = work_no.lower()
         q = db.session.query(ProjectDataModel).filter(
             db.or_(
@@ -1007,7 +964,7 @@ class UserController:
 
     def my_duties(self, work_no: str, page=1, size=20, status=None):
         """我的AR列表"""
-        from dbs.mysql_db.model_tables import TemporaryDutyModel
+        from tables.duty_table import TemporaryDutyModel
         wn_lower = work_no.lower()
         q = db.session.query(TemporaryDutyModel).filter(
             db.or_(
@@ -1028,7 +985,7 @@ class UserController:
 
     def my_project_apply(self, work_no: str, page=1, size=20):
         """我的项目申请记录"""
-        from dbs.mysql_db.model_tables import ReviewApplyModel
+        from tables.review_table import ReviewApplyModel
         q = (
             db.session.query(ReviewApplyModel)
             .filter(db.func.lower(ReviewApplyModel.submitter) == (work_no or "").lower())
@@ -1052,7 +1009,7 @@ class UserController:
 
     def my_duty_apply(self, work_no: str, page=1, size=20):
         """我的任务申请记录"""
-        from dbs.mysql_db.model_tables import ReviewApplyModel
+        from tables.review_table import ReviewApplyModel
         q = (
             db.session.query(ReviewApplyModel)
             .filter_by(submitter=work_no)
@@ -1076,17 +1033,17 @@ class UserController:
 
     def cancel_apply(self, apply_id: str, work_no: str):
         """撤回申请"""
-        from dbs.mysql_db.model_tables import ReviewApplyModel
+        from tables.review_table import ReviewApplyModel
         apply = db.session.query(ReviewApplyModel).filter(ReviewApplyModel.id == apply_id, db.func.lower(ReviewApplyModel.submitter) == (work_no or "").lower()).first()
         if not apply:
             from utils.exceptions import ResourceNotFoundException
             raise ResourceNotFoundException(msg="申请记录不存在")
         apply.apply_status = 0  # 0=已撤回
-        db.session.commit()
+        _dao.commit()
 
     def project_audit_record(self, work_no: str, page=1, size=20):
         """项目审核记录（我作为审核人的记录）"""
-        from dbs.mysql_db.model_tables import ReviewApplyModel
+        from tables.review_table import ReviewApplyModel
         q = (
             db.session.query(ReviewApplyModel)
             .filter(db.func.lower(ReviewApplyModel.reviewer).like(f"%{work_no.lower()}%"))
@@ -1111,7 +1068,7 @@ class UserController:
 
     def duty_audit_record(self, work_no: str, page=1, size=20):
         """任务审核记录（我作为审核人的记录）"""
-        from dbs.mysql_db.model_tables import ReviewApplyModel
+        from tables.review_table import ReviewApplyModel
         q = (
             db.session.query(ReviewApplyModel)
             .filter(db.func.lower(ReviewApplyModel.reviewer).like(f"%{work_no.lower()}%"))

@@ -301,7 +301,7 @@ const MonthlyAttendanceCard: React.FC = () => {
 
   return (
     <Card
-      bordered={false}
+      variant="borderless"
       className="shadow-sm mb-5"
       title={
         <div className="flex items-center gap-2">

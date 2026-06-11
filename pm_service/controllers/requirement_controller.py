@@ -6,9 +6,14 @@ from configs.base import BaseConfig
 from utils.tools import CommonTools
 from utils.exceptions import ResourceNotFoundException, BusinessException, PermissionException
 from dbs.mysql_db import db
-from dbs.mysql_db.model_tables import (
-    RequirementModel, ProjectDataModel, ReviewApplyModel, UserProfileModel, FunctionDataModel,
-)
+from tables.requirement_table import RequirementModel
+from tables.project_table import ProjectDataModel
+from tables.review_table import ReviewApplyModel
+from tables.user_table import UserProfileModel
+from tables.function_table import FunctionDataModel
+from daos.requirement_dao import RequirementDAO
+
+_dao = RequirementDAO()
 
 
 class RequirementController:
@@ -16,7 +21,7 @@ class RequirementController:
     @staticmethod
     def _sync_project_req_progress(req_id: str):
         """根据关联任务重算专案需求进度，并自动切换已完結状态"""
-        req = db.session.query(RequirementModel).filter_by(id=req_id).first()
+        req = _dao.find_by_id(req_id)
         if not req or req.req_status not in (2, 4):
             return
         funcs = db.session.query(FunctionDataModel).filter(
@@ -42,12 +47,12 @@ class RequirementController:
         page     = int(payload.get("page", 1))
         size     = int(payload.get("size", 20))
 
-        q = db.session.query(RequirementModel).filter(RequirementModel.req_status != 9)
+        q = _dao.list_active_query()
 
         # 权限过滤：只显示用户有权查看的专案的需求
         if work_no:
             from controllers.user_controller import UserController
-            from dbs.mysql_db.model_tables import HierarchyModel, FunctionDataModel
+            from tables.user_table import HierarchyModel
             user_ctrl = UserController()
             is_supervisor = db.session.query(HierarchyModel).filter_by(
                 supervisor_work_no=work_no
@@ -98,19 +103,8 @@ class RequirementController:
         project_ids = {r.project_id for r in items}
         creator_nos = {r.creator for r in items if r.creator}
 
-        proj_map = {}
-        if project_ids:
-            projects = db.session.query(ProjectDataModel).filter(
-                ProjectDataModel.id.in_(project_ids)
-            ).all()
-            proj_map = {p.id: p.project_nm for p in projects}
-
-        name_map = {}
-        if creator_nos:
-            users = db.session.query(UserProfileModel).filter(
-                db.func.lower(UserProfileModel.work_no).in_([w.lower() for w in creator_nos])
-            ).all()
-            name_map = {u.work_no.lower(): u.name for u in users}
+        proj_map = _dao.project_name_map(project_ids)
+        name_map = _dao.creator_name_map(creator_nos)
 
         data = []
         for r in items:
@@ -123,21 +117,10 @@ class RequirementController:
 
     def get_requirements(self, project_id: str):
         """获取专案下所有未删除的需求"""
-        reqs = (
-            db.session.query(RequirementModel)
-            .filter_by(project_id=project_id)
-            .filter(RequirementModel.req_status != 9)
-            .order_by(RequirementModel.created_at.asc())
-            .all()
-        )
+        reqs = _dao.list_by_project(project_id)
         # 补充创建人姓名
         creator_nos = {r.creator for r in reqs if r.creator}
-        name_map = {}
-        if creator_nos:
-            users = db.session.query(UserProfileModel).filter(
-                db.func.lower(UserProfileModel.work_no).in_([w.lower() for w in creator_nos])
-            ).all()
-            name_map = {u.work_no.lower(): u.name for u in users}
+        name_map = _dao.creator_name_map(creator_nos)
 
         result = []
         for r in reqs:
@@ -149,10 +132,10 @@ class RequirementController:
     # ── 详情 ────────────────────────────────────────────────────────────────────
 
     def get_requirement(self, req_id: str):
-        r = db.session.query(RequirementModel).filter_by(id=req_id).first()
+        r = _dao.find_by_id(req_id)
         if not r or r.req_status == 9:
             raise ResourceNotFoundException(resource_type="需求")
-        u = db.session.query(UserProfileModel).filter(db.func.lower(UserProfileModel.work_no) == (r.creator or "").lower()).first()
+        u = _dao.find_creator_user(r.creator)
         d = r.to_dict()
         d["creator_nm"] = u.name if u else (r.creator or "")
         return d
@@ -160,7 +143,7 @@ class RequirementController:
     # ── 新建 ────────────────────────────────────────────────────────────────────
 
     def create_requirement(self, project_id: str, payload: dict, creator: str):
-        p = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
+        p = _dao.find_project(project_id)
         if not p or p.project_status == 9:
             raise ResourceNotFoundException(resource_type="专案")
         # 只有产品PM可创建需求
@@ -194,8 +177,8 @@ class RequirementController:
             files_json=json.dumps(payload.get("files", []), ensure_ascii=False),
             expected_end_date=payload.get("expected_end_date", ""),
         )
-        db.session.add(req)
-        db.session.flush()
+        _dao.add(req)
+        _dao.flush()
 
         # 立案前的需求：自动创建「需求评估与立案」阶段任务
         if p.project_status == 1:  # 草稿阶段
@@ -203,13 +186,13 @@ class RequirementController:
             proj_ctrl = ProjectController()
             proj_ctrl._create_stage_task(project_id, "initiate", req.id, req.req_nm)
 
-        db.session.commit()
+        _dao.commit()
 
         # 通知非建立人的負責人
         notif_targets = [w for w in resp if w != creator]
         if notif_targets:
             from controllers.notification_controller import push_notification
-            creator_user = db.session.query(UserProfileModel).filter(db.func.lower(UserProfileModel.work_no) == (creator or "").lower()).first()
+            creator_user = _dao.find_creator_user(creator)
             creator_nm = creator_user.name if creator_user else creator
             push_notification(
                 notif_targets,
@@ -224,13 +207,13 @@ class RequirementController:
     # ── 更新 ────────────────────────────────────────────────────────────────────
 
     def update_requirement(self, req_id: str, payload: dict, operator: str):
-        r = db.session.query(RequirementModel).filter_by(id=req_id).first()
+        r = _dao.find_by_id(req_id)
         if not r or r.req_status == 9:
             raise ResourceNotFoundException(resource_type="需求")
         # 只有草稿狀態的需求可以修改，專案必須在草稿或執行中階段
         if r.req_status != 0:
             raise PermissionException(msg="只有草稿狀態的需求可以修改")
-        p = db.session.query(ProjectDataModel).filter_by(id=r.project_id).first()
+        p = _dao.find_project(r.project_id)
         if not p or p.project_status not in (1, 5):
             raise PermissionException(msg="只有草稿或執行中階段的專案才能修改需求")
 
@@ -252,28 +235,28 @@ class RequirementController:
             resp = [str(w).strip().lower() for w in (resp if isinstance(resp, list) else []) if w]
             r.responsible_json = json.dumps(resp, ensure_ascii=False)
         r.update_at = CommonTools.get_now()
-        db.session.commit()
+        _dao.commit()
         return r.to_dict()
 
     # ── 删除 ────────────────────────────────────────────────────────────────────
 
     def delete_requirement(self, req_id: str, operator: str):
-        r = db.session.query(RequirementModel).filter_by(id=req_id).first()
+        r = _dao.find_by_id(req_id)
         if not r or r.req_status == 9:
             raise ResourceNotFoundException(resource_type="需求")
         if r.req_status != 0:
             raise PermissionException(msg="只有草稿狀態的需求可以刪除")
-        p = db.session.query(ProjectDataModel).filter_by(id=r.project_id).first()
+        p = _dao.find_project(r.project_id)
         if not p or p.project_status not in (1, 5):
             raise PermissionException(msg="只有草稿或執行中階段的專案才能刪除需求")
         r.req_status = 9
         r.update_at = CommonTools.get_now()
-        db.session.commit()
+        _dao.commit()
 
     # ── 提交审核 ────────────────────────────────────────────────────────────────
 
     def submit_review(self, req_id: str, reviewer: list, operator: str):
-        r = db.session.query(RequirementModel).filter_by(id=req_id).first()
+        r = _dao.find_by_id(req_id)
         if not r or r.req_status == 9:
             raise ResourceNotFoundException(resource_type="需求")
         if r.req_status == 1:
@@ -281,7 +264,7 @@ class RequirementController:
         if r.req_status == 2:
             raise PermissionException(msg="需求已通过审核")
 
-        p = db.session.query(ProjectDataModel).filter_by(id=r.project_id).first()
+        p = _dao.find_project(r.project_id)
         # 只有執行中的專案才能提交需求審核（規劃/排程階段的需求隨排程審核一起通過）
         if not p or p.project_status != 5:
             raise PermissionException(msg="只有執行中的專案才能提交需求審核，規劃排程阶段的需求將隨排程審核自動通過")
@@ -290,7 +273,9 @@ class RequirementController:
 
         # 批量查询审核人与提交人姓名
         all_wks = list({operator} | set(reviewer))
-        wk_user_map = {
+        wk_user_map = _dao.creator_name_map(set(all_wks))
+        # 需要完整用户对象来获取 name
+        all_users = {
             u.work_no.lower(): u
             for u in db.session.query(UserProfileModel).filter(
                 db.func.lower(UserProfileModel.work_no).in_([w.lower() for w in all_wks])
@@ -298,7 +283,7 @@ class RequirementController:
         }
         nodes = []
         for i, wk in enumerate(reviewer):
-            u = wk_user_map.get(wk.lower())
+            u = all_users.get(wk.lower())
             nodes.append({
                 "node_id": f"{CommonTools.get_now().replace(' ', '')}_{i}",
                 "order": i + 1,
@@ -310,7 +295,7 @@ class RequirementController:
                 "comment": None,
             })
 
-        submitter_profile = wk_user_map.get(operator.lower())
+        submitter_profile = all_users.get(operator.lower())
         submitter_name = submitter_profile.name if submitter_profile else operator
 
         apply = ReviewApplyModel(
@@ -325,10 +310,10 @@ class RequirementController:
             description=r.req_nm,
             approval_nodes_json=json.dumps(nodes, ensure_ascii=False),
         )
-        db.session.add(apply)
+        _dao.add(apply)
         r.req_status = 1
         r.update_at = CommonTools.get_now()
-        db.session.commit()
+        _dao.commit()
 
         # 通知第一位审核人
         from controllers.notification_controller import push_notification
@@ -345,19 +330,14 @@ class RequirementController:
     # ── 批量提交审核（单一审核单覆盖多条需求） ─────────────────────────────────────
 
     def batch_submit_review(self, project_id: str, requirement_ids: list, reviewer: list, operator: str):
-        p = db.session.query(ProjectDataModel).filter_by(id=project_id).first()
+        p = _dao.find_project(project_id)
         if not p or p.project_status != 5:
             raise PermissionException(msg="只有執行中的專案才能提交需求審核")
         operator = (operator or "").strip().lower()
         if operator != (p.product_pm or "").strip().lower():
             raise PermissionException(msg="只有產品PM可以提交需求審核")
 
-        req_map = {
-            r.id: r
-            for r in db.session.query(RequirementModel).filter(
-                RequirementModel.id.in_(requirement_ids)
-            ).all()
-        }
+        req_map = _dao.find_by_ids(requirement_ids)
         reqs = []
         for req_id in requirement_ids:
             r = req_map.get(req_id)
@@ -388,7 +368,7 @@ class RequirementController:
                 "comment": None,
             })
 
-        submitter_profile = db.session.query(UserProfileModel).filter(db.func.lower(UserProfileModel.work_no) == (operator or "").lower()).first()
+        submitter_profile = _dao.find_creator_user(operator)
         submitter_name = submitter_profile.name if submitter_profile else operator
         desc = "、".join(r.req_nm for r in reqs)
 
@@ -404,11 +384,11 @@ class RequirementController:
             requirement_ids_json=json.dumps(requirement_ids, ensure_ascii=False),
             approval_nodes_json=json.dumps(nodes, ensure_ascii=False),
         )
-        db.session.add(apply)
+        _dao.add(apply)
         for r in reqs:
             r.req_status = 1
             r.update_at = CommonTools.get_now()
-        db.session.commit()
+        _dao.commit()
 
         from controllers.notification_controller import push_notification
         first_reviewers = [n["approver_work_no"] for n in nodes if n.get("order") == 1]
@@ -424,24 +404,23 @@ class RequirementController:
     # ── 提交搁置审核 ─────────────────────────────────────────────────────────────
 
     def submit_shelve(self, req_id: str, reviewer: list, operator: str):
-        r = db.session.query(RequirementModel).filter_by(id=req_id).first()
+        r = _dao.find_by_id(req_id)
         if not r or r.req_status == 9:
             raise ResourceNotFoundException(resource_type="需求")
         if r.req_status != 2:
             raise PermissionException(msg="只有已通過的需求才能申請搁置")
 
-        from dbs.mysql_db.model_tables import ReviewApplyModel as _ReviewApply
         # 检查是否已有待审的搁置申请
         pending = (
-            db.session.query(_ReviewApply)
+            db.session.query(ReviewApplyModel)
             .filter_by(requirement_id=req_id, apply_type_code="requirement_shelve")
-            .filter(_ReviewApply.status == 1)
+            .filter(ReviewApplyModel.status == 1)
             .first()
         )
         if pending:
             raise PermissionException(msg="已有搁置審核申請待審，請勿重複提交")
 
-        p = db.session.query(ProjectDataModel).filter_by(id=r.project_id).first()
+        p = _dao.find_project(r.project_id)
         operator = (operator or "").strip().lower()
         reviewer = [(w or "").strip().lower() for w in reviewer if w]
 
@@ -481,9 +460,9 @@ class RequirementController:
             description=r.req_nm,
             approval_nodes_json=json.dumps(nodes, ensure_ascii=False),
         )
-        db.session.add(apply)
+        _dao.add(apply)
         r.update_at = CommonTools.get_now()
-        db.session.commit()
+        _dao.commit()
 
         from controllers.notification_controller import push_notification
         first_reviewers = [n["approver_work_no"] for n in nodes if n.get("order") == 1]
@@ -502,7 +481,7 @@ class RequirementController:
         """上传需求附件，保存到本地并记录到 files_json"""
         import os
         from flask import current_app
-        r = db.session.query(RequirementModel).filter_by(id=req_id).first()
+        r = _dao.find_by_id(req_id)
         if not r or r.req_status == 9:
             raise ResourceNotFoundException(resource_type="需求")
 
@@ -519,7 +498,7 @@ class RequirementController:
         upload_dir = os.path.join(base_dir, "requirements", req_id)
         os.makedirs(upload_dir, exist_ok=True)
 
-        from dbs.mysql_db.model_tables import generate_uuid
+        from tables.base_table import generate_uuid
         file_id = generate_uuid()
         stored_name = f"{file_id}.{ext}"
         abs_path = os.path.join(upload_dir, stored_name)
@@ -538,14 +517,14 @@ class RequirementController:
         files.append(file_info)
         r.files_json = json.dumps(files, ensure_ascii=False)
         r.update_at = CommonTools.get_now()
-        db.session.commit()
+        _dao.commit()
         return {"files": files, "file": file_info}
 
     def get_req_file_path(self, req_id: str, file_id: str):
         """返回 (abs_path, original_name)，用于预览/下载"""
         import os
         from flask import current_app
-        r = db.session.query(RequirementModel).filter_by(id=req_id).first()
+        r = _dao.find_by_id(req_id)
         if not r or r.req_status == 9:
             raise ResourceNotFoundException(resource_type="需求")
         files = []
@@ -568,7 +547,7 @@ class RequirementController:
 
     def remove_file(self, req_id: str, file_url: str):
         """从需求附件列表删除指定文件记录"""
-        r = db.session.query(RequirementModel).filter_by(id=req_id).first()
+        r = _dao.find_by_id(req_id)
         if not r or r.req_status == 9:
             raise ResourceNotFoundException(resource_type="需求")
         files = []
@@ -580,5 +559,5 @@ class RequirementController:
         files = [f for f in files if f.get("url") != file_url]
         r.files_json = json.dumps(files, ensure_ascii=False)
         r.update_at = CommonTools.get_now()
-        db.session.commit()
+        _dao.commit()
         return files

@@ -1,30 +1,22 @@
 # -*- coding: utf-8 -*-
-"""会议备注控制器"""
+"""
+@文件: meeting_note_controller.py
+@说明: 会议备注控制器
+"""
 from utils.tools import CommonTools
-from dbs.mysql_db import db
-from dbs.mysql_db.model_tables import MeetingNoteModel, UserProfileModel
+from daos.meeting_note_dao import MeetingNoteDAO
+from tables.meeting_note_table import MeetingNoteModel
+
+_dao = MeetingNoteDAO()
 
 
 class MeetingNoteController:
 
-    def _name_map(self, work_nos: list) -> dict:
-        if not work_nos:
-            return {}
-        users = db.session.query(UserProfileModel).filter(
-            db.func.lower(UserProfileModel.work_no).in_([w.lower() for w in work_nos])
-        ).all()
-        return {u.work_no.lower(): u.name for u in users}
-
     def list_by_project(self, project_id: str) -> list:
         """获取专案下所有会议备注（按创建时间倒序）"""
-        notes = (
-            db.session.query(MeetingNoteModel)
-            .filter_by(project_id=project_id)
-            .order_by(MeetingNoteModel.created_at.desc())
-            .all()
-        )
+        notes = _dao.list_by_project(project_id)
         author_nos = list({n.author for n in notes})
-        name_map = self._name_map(author_nos)
+        name_map = _dao.name_map(author_nos)
         return [n.to_dict(author_name=name_map.get((n.author or "").lower(), n.author)) for n in notes]
 
     def create(self, project_id: str, payload: dict, author: str) -> dict:
@@ -37,31 +29,31 @@ class MeetingNoteController:
             content=payload["content"],
             author=author,
         )
-        db.session.add(note)
-        db.session.commit()
-        name_map = self._name_map([author])
+        _dao.add(note)
+        _dao.commit()
+        name_map = _dao.name_map([author])
         return note.to_dict(author_name=name_map.get((author or "").lower(), author))
 
     def update_status(self, note_id: str, status: str, operator: str) -> dict:
         """切换备注状态 pending ↔ resolved"""
-        note = db.session.query(MeetingNoteModel).filter_by(id=note_id).first()
+        note = _dao.find_by_id(note_id)
         if not note:
             from utils.exceptions import ResourceNotFoundException
             raise ResourceNotFoundException(resource_type="会议备注")
         note.status = status
         note.updated_at = CommonTools.get_now()
-        db.session.commit()
-        name_map = self._name_map([note.author])
+        _dao.commit()
+        name_map = _dao.name_map([note.author])
         return note.to_dict(author_name=name_map.get((note.author or "").lower(), note.author))
 
     def delete(self, note_id: str, operator: str) -> None:
         """删除备注（仅作者可删）"""
-        note = db.session.query(MeetingNoteModel).filter_by(id=note_id).first()
+        note = _dao.find_by_id(note_id)
         if not note:
             from utils.exceptions import ResourceNotFoundException
             raise ResourceNotFoundException(resource_type="会议备注")
         from utils.exceptions import PermissionException
         if note.author != operator:
             raise PermissionException(msg="只有備注創建人才能刪除")
-        db.session.delete(note)
-        db.session.commit()
+        _dao.delete(note)
+        _dao.commit()

@@ -1,9 +1,14 @@
 # -*- coding: utf-8 -*-
-"""首页 Widget 配置控制器"""
+"""
+@文件: dashboard_config_controller.py
+@说明: 首页 Widget 配置控制器
+"""
 import json
 from utils.tools import CommonTools
-from dbs.mysql_db import db
-from dbs.mysql_db.model_tables import UserDashboardConfigModel
+from daos.dashboard_config_dao import DashboardConfigDAO
+from tables.dashboard_table import UserDashboardConfigModel
+
+_dao = DashboardConfigDAO()
 
 
 # ── Widget 目录（定义顺序即默认排列顺序）──────────────────────────────────────
@@ -52,11 +57,7 @@ class DashboardConfigController:
         catalog = WIDGET_CATALOG.get(view_type, [])
         all_ids = [w["widget_id"] for w in catalog]
 
-        rows = (
-            db.session.query(UserDashboardConfigModel)
-            .filter(db.func.lower(UserDashboardConfigModel.work_no) == (work_no or "").lower(), UserDashboardConfigModel.view_type == view_type)
-            .all()
-        )
+        rows = _dao.list_by_user(work_no, view_type)
         saved_map = {r.widget_id: r for r in rows}
 
         result = []
@@ -91,22 +92,18 @@ class DashboardConfigController:
             layout      = w.get("layout")
             layout_json = json.dumps(layout) if layout else None
 
-            existing = (
-                db.session.query(UserDashboardConfigModel)
-                .filter(db.func.lower(UserDashboardConfigModel.work_no) == (work_no or "").lower(), UserDashboardConfigModel.view_type == view_type, UserDashboardConfigModel.widget_id == widget_id)
-                .first()
-            )
+            existing = _dao.find_one(work_no, view_type, widget_id)
             if existing:
                 existing.is_visible  = is_visible
                 existing.updated_at  = now
                 if layout_json is not None:
                     existing.layout_json = layout_json
             else:
-                db.session.add(UserDashboardConfigModel(
+                _dao.add(UserDashboardConfigModel(
                     work_no=work_no,
                     view_type=view_type,
                     widget_id=widget_id,
                     is_visible=is_visible,
                     layout_json=layout_json,
                 ))
-        db.session.commit()
+        _dao.commit()

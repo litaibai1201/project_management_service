@@ -994,7 +994,7 @@ const DutyListPage: React.FC = () => {
                     value={query.responsible ?? undefined}
                     onChange={(v) => dispatch(setDutyQuery({ responsible: v ?? undefined, page: 1 }))}
                     options={modalUserOptions}
-                    onDropdownVisibleChange={(open) => {
+                    onOpenChange={(open) => {
                       if (open && modalUserOptions.length === 0) {
                         userApi.list({ page: 1, size: 2000 }).then((res) => {
                           const data = (res.content as { data_list?: { work_no: string; name: string }[] }).data_list ?? []
@@ -1076,7 +1076,7 @@ const DutyListPage: React.FC = () => {
       {/* Create Modal */}
       <Modal title={t('duty.newAr')} open={showCreate}
         onCancel={() => { setShowCreate(false); form.resetFields() }}
-        footer={null} width="min(720px, 88vw)" destroyOnClose>
+        footer={null} width="min(720px, 88vw)" destroyOnHidden>
         <Form form={form} layout="vertical" onFinish={handleCreate} className="mt-4">
           <Form.Item name="duty_nm" label={t('duty.taskName')} rules={[{ required: true }]}>
             <Input placeholder={t('duty.taskNamePlaceholder')} />
@@ -1177,7 +1177,7 @@ const DutyListPage: React.FC = () => {
             }}>{t('common.confirm')}</Button>
           </div>
         }
-        destroyOnClose
+        destroyOnHidden
       >
         <RichTextEditor
           value={dutyExpandDraft}

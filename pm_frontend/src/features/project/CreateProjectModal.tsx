@@ -175,7 +175,7 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ open, onClose, 
       onCancel={onClose}
       footer={null}
       width="min(960px, 90vw)"
-      destroyOnClose
+      destroyOnHidden
     >
       <Form layout="vertical" onFinish={handleSubmit(onSubmit)} className="mt-4">
 
@@ -517,7 +517,7 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ open, onClose, 
             <Button type="primary" onClick={handleConfirmExpand} style={{ background: '#2563eb' }}>{t('project.completeBtn')}</Button>
           </div>
         }
-        destroyOnClose
+        destroyOnHidden
       >
         <RichTextEditor
           value={expandDraft}

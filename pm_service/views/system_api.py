@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 """系统管理接口 Blueprint"""
-from flask import request
 from flask.views import MethodView
 from flask_smorest import Blueprint
 from flask_jwt_extended import get_jwt
@@ -9,6 +8,9 @@ from utils.response import response_result
 from utils.exceptions import PermissionException
 from controllers.system_controller import SystemController
 from serializes.response_serialize import RspMsgDictSchema, RspMsgRawSchema
+from serializes.system_serialize import (
+    SystemListQuerySchema, CreateSystemSchema, UpdateSystemSchema,
+)
 from dbs.mysql_db import db
 from dbs.mysql_db.model_tables import UserRoleModel
 
@@ -40,10 +42,10 @@ class SystemReportStatsApi(MethodView):
 @blp.route("/list")
 class SystemListApi(MethodView):
     @jwt_required()
+    @blp.arguments(SystemListQuerySchema)
     @blp.response(200, RspMsgDictSchema)
-    def post(self):
+    def post(self, payload):
         """系统列表（所有人可查）"""
-        payload = request.get_json() or {}
         return response_result(content=ctrl.list_systems(payload))
 
 
@@ -59,11 +61,11 @@ class SystemGroupsApi(MethodView):
 @blp.route("/create")
 class SystemCreateApi(MethodView):
     @jwt_required()
+    @blp.arguments(CreateSystemSchema)
     @blp.response(200, RspMsgDictSchema)
-    def post(self):
+    def post(self, payload):
         """创建系统（仅管理员）"""
         _require_admin()
-        payload = request.get_json() or {}
         return response_result(content=ctrl.create_system(payload))
 
 
@@ -76,11 +78,11 @@ class SystemDetailApi(MethodView):
         return response_result(content=ctrl.get_system(system_id))
 
     @jwt_required()
+    @blp.arguments(UpdateSystemSchema)
     @blp.response(200, RspMsgDictSchema)
-    def put(self, system_id):
+    def put(self, payload, system_id):
         """更新系统（仅管理员）"""
         _require_admin()
-        payload = request.get_json() or {}
         return response_result(content=ctrl.update_system(system_id, payload))
 
     @jwt_required()

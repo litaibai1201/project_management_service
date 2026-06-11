@@ -7,6 +7,13 @@ from utils.auth import jwt_required, get_identity
 from utils.response import response_result
 from controllers.duty_controller import DutyController
 from serializes.response_serialize import RspMsgDictSchema, RspMsgRawSchema
+from serializes.duty_serialize import (
+    DutyListQuerySchema, DutyAllocationSchema, SetStatusSchema,
+    ReviewActionSchema, CountersignSchema, ProgressQuerySchema,
+    DutyRescheduleSchema, DutyActivateSchema, DutySubmitCompletionSchema,
+    DutyReqTaskReviewSchema, BatchReqTaskReviewSchema, ReviewApproveSchema,
+    ReviewListQuerySchema, TaskListQuerySchema,
+)
 
 blp = Blueprint("duty_api", __name__, description="AR管理接口")
 ctrl = DutyController()
@@ -18,11 +25,11 @@ ctrl = DutyController()
 @blp.route("/temporary_duty_list")
 class DutyListApi(MethodView):
     @jwt_required()
+    @blp.arguments(DutyListQuerySchema)
     @blp.response(200, RspMsgDictSchema)
-    def post(self):
+    def post(self, payload):
         """AR列表"""
         work_no = get_identity()
-        payload = request.get_json() or {}
         return response_result(content=ctrl.list_duties(payload, work_no=work_no))
 
 
@@ -68,11 +75,11 @@ class DutyDetailApi(MethodView):
 @blp.route("/batch_req_task_review")
 class DutyBatchReqTaskReviewApi(MethodView):
     @jwt_required()
+    @blp.arguments(BatchReqTaskReviewSchema)
     @blp.response(200, RspMsgDictSchema)
-    def post(self):
+    def post(self, payload):
         """批量提交需求任務新增審核"""
         work_no = get_identity()
-        payload = request.get_json() or {}
         duty_ids = payload.get("duty_ids", [])
         return response_result(content=ctrl.batch_submit_req_task_review(duty_ids, payload, work_no))
 
@@ -80,22 +87,22 @@ class DutyBatchReqTaskReviewApi(MethodView):
 @blp.route("/<string:duty_id>/req_task_review")
 class DutyReqTaskReviewApi(MethodView):
     @jwt_required()
+    @blp.arguments(DutyReqTaskReviewSchema)
     @blp.response(200, RspMsgDictSchema)
-    def post(self, duty_id):
+    def post(self, payload, duty_id):
         """提交需求任務新增審核"""
         work_no = get_identity()
-        payload = request.get_json() or {}
         return response_result(content=ctrl.submit_req_task_review(duty_id, payload, work_no))
 
 
 @blp.route("/<string:duty_id>/reschedule")
 class DutyRescheduleApi(MethodView):
     @jwt_required()
+    @blp.arguments(DutyRescheduleSchema)
     @blp.response(200, RspMsgDictSchema)
-    def post(self, duty_id):
+    def post(self, payload, duty_id):
         """延期任务（更新预计完成时间，记录历史）"""
         work_no = get_identity()
-        payload = request.get_json() or {}
         return response_result(content=ctrl.reschedule_duty(
             duty_id,
             new_end_date=payload.get("new_end_date", ""),
@@ -107,11 +114,11 @@ class DutyRescheduleApi(MethodView):
 @blp.route("/<string:duty_id>/activate")
 class DutyActivateApi(MethodView):
     @jwt_required()
+    @blp.arguments(DutyActivateSchema)
     @blp.response(200, RspMsgDictSchema)
-    def post(self, duty_id):
+    def post(self, payload, duty_id):
         """激活任务（草稿→进行中），可附带补充字段"""
         work_no = get_identity()
-        payload = request.get_json() or {}
         ctrl.activate_duty(duty_id, work_no, payload=payload)
         return response_result()
 
@@ -141,11 +148,11 @@ class DutyResumeApi(MethodView):
 @blp.route("/<string:duty_id>/submit_completion")
 class DutySubmitCompletionApi(MethodView):
     @jwt_required()
+    @blp.arguments(DutySubmitCompletionSchema)
     @blp.response(200, RspMsgDictSchema)
-    def post(self, duty_id):
+    def post(self, payload, duty_id):
         """提交完结审核（进行中→完结审核）"""
         work_no = get_identity()
-        payload = request.get_json() or {}
         reviewer = payload.get("reviewer", [])
         submitter_name = payload.get("submitter_name", "")
         return response_result(content=ctrl.submit_completion(duty_id, work_no, reviewer, submitter_name))
@@ -154,10 +161,10 @@ class DutySubmitCompletionApi(MethodView):
 @blp.route("/<string:duty_id>/allocation")
 class DutyAllocationApi(MethodView):
     @jwt_required()
+    @blp.arguments(DutyAllocationSchema)
     @blp.response(200, RspMsgDictSchema)
-    def put(self, duty_id):
+    def put(self, payload, duty_id):
         """分配AR"""
-        payload = request.get_json() or {}
         ctrl.allocate(duty_id, payload)
         return response_result()
 
@@ -165,10 +172,10 @@ class DutyAllocationApi(MethodView):
 @blp.route("/<string:duty_id>/set_status")
 class DutySetStatusApi(MethodView):
     @jwt_required()
+    @blp.arguments(SetStatusSchema)
     @blp.response(200, RspMsgDictSchema)
-    def put(self, duty_id):
+    def put(self, payload, duty_id):
         """设置任务状态"""
-        payload = request.get_json() or {}
         ctrl.set_status(duty_id, payload["status"])
         return response_result()
 
@@ -187,24 +194,22 @@ class DutyFilesApi(MethodView):
 @blp.route("/progress")
 class DutyUnreadProgressApi(MethodView):
     @jwt_required()
+    @blp.arguments(ProgressQuerySchema, location="query")
     @blp.response(200, RspMsgDictSchema)
-    def get(self):
+    def get(self, query_params):
         """未读进度数量"""
         work_no = get_identity()
-        page = int(request.args.get("page", 1))
-        size = int(request.args.get("size", 20))
         return response_result(content=ctrl.get_unread_progress_count(work_no))
 
 
 @blp.route("/<string:duty_id>/progress")
 class DutyProgressApi(MethodView):
     @jwt_required()
+    @blp.arguments(ProgressQuerySchema, location="query")
     @blp.response(200, RspMsgDictSchema)
-    def get(self, duty_id):
+    def get(self, query_params, duty_id):
         """获取任务进度"""
-        page = int(request.args.get("page", 1))
-        size = int(request.args.get("size", 20))
-        return response_result(content=ctrl.get_progress(duty_id, page=page, size=size))
+        return response_result(content=ctrl.get_progress(duty_id, page=query_params["page"], size=query_params["size"]))
 
     @jwt_required()
     @blp.response(200, RspMsgDictSchema)
@@ -292,22 +297,21 @@ class DutyProgressFilePreviewApi(MethodView):
 @blp.route("/review_list")
 class DutyReviewListApi(MethodView):
     @jwt_required()
+    @blp.arguments(ReviewListQuerySchema, location="query")
     @blp.response(200, RspMsgDictSchema)
-    def get(self):
+    def get(self, query_params):
         """任务审核列表"""
         work_no = get_identity()
-        page = int(request.args.get("page", 1))
-        size = int(request.args.get("size", 20))
-        return response_result(content=ctrl.get_review_list(page=page, size=size, work_no=work_no))
+        return response_result(content=ctrl.get_review_list(page=query_params["page"], size=query_params["size"], work_no=work_no))
 
 
 @blp.route("/review/<string:review_id>")
 class DutyReviewApproveApi(MethodView):
     @jwt_required()
+    @blp.arguments(ReviewApproveSchema)
     @blp.response(200, RspMsgDictSchema)
-    def put(self, review_id):
+    def put(self, payload, review_id):
         """审核操作"""
-        payload = request.get_json() or {}
         ctrl.approve_review(
             review_id,
             status=payload.get("status"),
@@ -320,10 +324,10 @@ class DutyReviewApproveApi(MethodView):
 @blp.route("/review/<string:review_id>/countersign")
 class DutyReviewCountersignApi(MethodView):
     @jwt_required()
+    @blp.arguments(CountersignSchema)
     @blp.response(200, RspMsgDictSchema)
-    def post(self, review_id):
+    def post(self, payload, review_id):
         """加签"""
-        payload = request.get_json() or {}
         ctrl.countersign_review(
             review_id,
             approver_work_no=payload.get("approver_work_no", ""),
@@ -335,10 +339,9 @@ class DutyReviewCountersignApi(MethodView):
 @blp.route("/tasklist")
 class DutyTaskListApi(MethodView):
     @jwt_required()
+    @blp.arguments(TaskListQuerySchema, location="query")
     @blp.response(200, RspMsgDictSchema)
-    def get(self):
+    def get(self, query_params):
         """任务清单"""
         work_no = get_identity()
-        page = int(request.args.get("page", 1))
-        size = int(request.args.get("size", 20))
-        return response_result(content=ctrl.get_task_list(work_no, page=page, size=size))
+        return response_result(content=ctrl.get_task_list(work_no, page=query_params["page"], size=query_params["size"]))

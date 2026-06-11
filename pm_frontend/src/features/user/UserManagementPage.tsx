@@ -214,9 +214,9 @@ const HierarchyTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor }) => 
         {/* Tree view */}
         <Col xs={24} lg={10}>
           <Card
-            bordered={false} className="shadow-sm"
+            variant="borderless" className="shadow-sm"
             title={<span className="text-sm font-semibold text-slate-700">{t('user.orgTreeTitle')}</span>}
-            bodyStyle={{ padding: '8px 16px 16px' }}
+            styles={{ body: { padding: '8px 16px 16px' } }}
           >
             <Tree
               treeData={treeData}
@@ -230,9 +230,9 @@ const HierarchyTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor }) => 
         {/* Table view */}
         <Col xs={24} lg={14}>
           <Card
-            bordered={false} className="shadow-sm"
+            variant="borderless" className="shadow-sm"
             title={<span className="text-sm font-semibold text-slate-700">{t('user.hierarchyTableTitle')}</span>}
-            bodyStyle={{ padding: 0 }}
+            styles={{ body: { padding: 0 } }}
           >
             <Table
               rowKey="work_no"
@@ -254,7 +254,7 @@ const HierarchyTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor }) => 
         onCancel={() => setEditTarget(null)}
         footer={null}
         width={440}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={editForm} layout="vertical" onFinish={handleSave} className="mt-4">
           <Form.Item name="supervisor_nos" label={t('user.supervisorMultiple')}>
@@ -402,9 +402,9 @@ const GroupManagementTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor 
           return (
             <Card
               key={g.id}
-              bordered={false}
+              variant="borderless"
               className="shadow-sm hover:shadow-md transition-all"
-              bodyStyle={{ padding: '16px 20px' }}
+              styles={{ body: { padding: '16px 20px' } }}
             >
               {/* Color bar */}
               <div className="w-full h-1 rounded-full mb-3" style={{ background: g.color }} />
@@ -470,7 +470,7 @@ const GroupManagementTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor 
       </div>
 
       {/* Create modal */}
-      <Modal title={t('user.createGroupTitle')} open={showCreate} onCancel={() => { setShowCreate(false); createForm.resetFields() }} footer={null} width={440} destroyOnClose>
+      <Modal title={t('user.createGroupTitle')} open={showCreate} onCancel={() => { setShowCreate(false); createForm.resetFields() }} footer={null} width={440} destroyOnHidden>
         <Form form={createForm} layout="vertical" onFinish={handleCreate} className="mt-4">
           {groupFormItems}
           <div className="flex justify-end gap-3">
@@ -481,7 +481,7 @@ const GroupManagementTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor 
       </Modal>
 
       {/* Edit modal */}
-      <Modal title={t('user.editGroupTitle')} open={!!editTarget} onCancel={() => setEditTarget(null)} footer={null} width={440} destroyOnClose>
+      <Modal title={t('user.editGroupTitle')} open={!!editTarget} onCancel={() => setEditTarget(null)} footer={null} width={440} destroyOnHidden>
         <Form form={editForm} layout="vertical" onFinish={handleEdit} className="mt-4">
           {groupFormItems}
           <div className="flex justify-end gap-3">
@@ -741,7 +741,7 @@ const UserManagementPage: React.FC = () => {
         onCancel={() => { setShowCreate(false); createForm.resetFields() }}
         footer={null}
         width={520}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={createForm} layout="vertical" onFinish={handleCreate} className="mt-4">
           {userFormItems(false)}
@@ -759,7 +759,7 @@ const UserManagementPage: React.FC = () => {
         onCancel={() => setEditTarget(null)}
         footer={null}
         width={520}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={editForm} layout="vertical" onFinish={handleEdit} className="mt-4">
           {userFormItems(true)}

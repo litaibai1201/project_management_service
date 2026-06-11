@@ -376,7 +376,7 @@ const SystemListPage: React.FC = () => {
         confirmLoading={saving}
         okText={editTarget ? t('common.save') : t('system.createBtn')}
         width="min(900px, 92vw)"
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical" className="mt-4">
           <div className="grid grid-cols-2 gap-x-4">
@@ -399,7 +399,7 @@ const SystemListPage: React.FC = () => {
                 mode="multiple" placeholder={t('system.maintainersPlaceholder')}
                 options={userOptions} showSearch allowClear
                 filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
-                onDropdownVisibleChange={(open) => { if (open) loadUsers() }}
+                onOpenChange={(open) => { if (open) loadUsers() }}
               />
             </Form.Item>
           </div>

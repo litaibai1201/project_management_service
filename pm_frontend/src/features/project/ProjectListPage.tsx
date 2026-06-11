@@ -101,9 +101,9 @@ const KanbanView: React.FC<{
                 <Card
                   key={p.id}
                   size="small"
-                  bordered={false}
+                  variant="borderless"
                   className={`kanban-card shadow-sm priority-border-${p.priority}`}
-                  bodyStyle={{ padding: '12px 14px' }}
+                  styles={{ body: { padding: '12px 14px' } }}
                   onClick={() => onView(p.id)}
                 >
                   <div className="font-medium text-slate-700 text-sm leading-snug truncate-2 mb-2">
@@ -352,7 +352,7 @@ const ProjectListPage: React.FC = () => {
         footer={null}
         title={wbsProject?.project_nm ?? 'WBS'}
         width={860}
-        destroyOnClose
+        destroyOnHidden
       >
         {wbsLoading ? (
           <div className="flex items-center justify-center py-12"><Spin /></div>

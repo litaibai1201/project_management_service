@@ -833,8 +833,7 @@ const groupedByReq = useMemo(() => {
                 <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: 24 } }}>
                   <Descriptions
                     bordered column={2} size="small"
-                    labelStyle={{ background: '#f8fafc', color: '#64748b', fontWeight: 500, fontSize: 12 }}
-                    contentStyle={{ fontSize: 13 }}
+                    styles={{ label: { background: '#f8fafc', color: '#64748b', fontWeight: 500, fontSize: 12 }, content: { fontSize: 13 } }}
                   >
                     <Descriptions.Item label={t('system.sysName')} span={2}>{system?.sys_nm || '—'}</Descriptions.Item>
                     <Descriptions.Item label={t('system.sysGroup')}>
@@ -1237,7 +1236,7 @@ const groupedByReq = useMemo(() => {
         title={editTarget ? `${t('system.editReq')} — ${editTarget.req_nm}` : t('system.editReq')}
         open={showEditReq}
         onCancel={() => { setShowEditReq(false); editForm.resetFields() }}
-        footer={null} width="min(600px, 88vw)" destroyOnClose
+        footer={null} width="min(600px, 88vw)" destroyOnHidden
       >
         <Form form={editForm} layout="vertical" onFinish={handleEditReq} className="mt-4">
           <Form.Item name="req_nm" label={t('system.reqName')} rules={[{ required: true }]}>
@@ -1246,7 +1245,7 @@ const groupedByReq = useMemo(() => {
           <Form.Item name="system_id" label={t('system.relatedSystem')} rules={[{ required: true }]}>
             <Select options={systemOptions} showSearch
               filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
-              onDropdownVisibleChange={(open) => { if (open) loadSystemOptions() }}
+              onOpenChange={(open) => { if (open) loadSystemOptions() }}
             />
           </Form.Item>
           <div className="grid grid-cols-3 gap-x-4">
@@ -1274,7 +1273,7 @@ const groupedByReq = useMemo(() => {
           <Form.Item name="responsible" label={t('system.responsible')}>
             <Select mode="multiple" placeholder={t('system.selectResponsible')} options={userOptions} showSearch allowClear
               filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
-              onDropdownVisibleChange={(open) => { if (open) loadUsers() }}
+              onOpenChange={(open) => { if (open) loadUsers() }}
             />
           </Form.Item>
           <Form.Item label={t('system.reqDescribe')}>
@@ -1308,7 +1307,7 @@ const groupedByReq = useMemo(() => {
         footer={<div className="flex justify-end gap-2">
           <Button onClick={() => setEditExpandOpen(false)}>{t('common.cancel')}</Button>
           <Button type="primary" onClick={() => { editForm.setFieldValue('describe', editExpandDraft); setEditExpandOpen(false) }} style={{ background: '#2563eb' }}>{t('system.done')}</Button>
-        </div>} destroyOnClose
+        </div>} destroyOnHidden
       >
         <RichTextEditor value={editExpandDraft} onChange={setEditExpandDraft} placeholder={t('system.reqDescPlaceholder')} minHeight={480} />
       </Modal>
@@ -1320,7 +1319,7 @@ const groupedByReq = useMemo(() => {
         onCancel={() => { setShowCreate(false); createForm.resetFields() }}
         footer={null}
         width="min(600px, 88vw)"
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={createForm} layout="vertical" onFinish={handleCreate} className="mt-4">
           <Form.Item name="req_nm" label={t('system.reqName')} rules={[{ required: true, message: t('system.reqNameRequired') }]}>
@@ -1350,7 +1349,7 @@ const groupedByReq = useMemo(() => {
               mode="multiple" placeholder={t('system.selectResponsible')}
               options={userOptions} showSearch allowClear
               filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
-              onDropdownVisibleChange={(open) => { if (open) loadUsers() }}
+              onOpenChange={(open) => { if (open) loadUsers() }}
             />
           </Form.Item>
           <Form.Item label={t('system.reqDescribe')}>
@@ -1390,7 +1389,7 @@ const groupedByReq = useMemo(() => {
           <Button onClick={() => setExpandOpen(false)}>{t('common.cancel')}</Button>
           <Button type="primary" onClick={() => { createForm.setFieldValue('describe', expandDraft); setExpandOpen(false) }} style={{ background: '#2563eb' }}>{t('system.done')}</Button>
         </div>}
-        destroyOnClose
+        destroyOnHidden
       >
         <RichTextEditor value={expandDraft} onChange={setExpandDraft} placeholder={t('system.reqDescPlaceholder')} minHeight={480} />
       </Modal>
@@ -1402,7 +1401,7 @@ const groupedByReq = useMemo(() => {
           : `${t('system.submitReview')} — ${reviewTargetReq?.req_nm ?? ''}`}
         open={showReview}
         onCancel={() => { setShowReview(false); setReviewTargetReq(null); setBatchReviewMode(false) }}
-        footer={null} width={520} destroyOnClose
+        footer={null} width={520} destroyOnHidden
       >
         <div className="mt-4 space-y-4">
           <div className="text-xs text-slate-400">
@@ -1495,7 +1494,7 @@ const groupedByReq = useMemo(() => {
         onCancel={() => { setShowCreateDuty(false); setDutyTargetReq(null); dutyForm.resetFields() }}
         footer={null}
         width="min(720px, 88vw)"
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={dutyForm} layout="vertical" onFinish={handleCreateDutyFromReq} className="mt-4">
           <Form.Item name="duty_nm" label={t('system.dutyName')} rules={[{ required: true, message: t('system.dutyNameRequired') }]}>
@@ -1515,7 +1514,7 @@ const groupedByReq = useMemo(() => {
           <Form.Item name="responsible" label={t('system.responsible')}>
             <Select mode="multiple" placeholder={t('system.selectResponsible')} options={userOptions} showSearch allowClear
               filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
-              onDropdownVisibleChange={(open) => { if (open) loadUsers() }}
+              onOpenChange={(open) => { if (open) loadUsers() }}
             />
           </Form.Item>
           <Form.Item name="standalone_req_id" label={t('system.relatedReq')} rules={[{ required: true, message: t('system.relatedReqRequired') }]}>
@@ -1572,7 +1571,7 @@ const groupedByReq = useMemo(() => {
         title={t('system.batchDutyReviewTitle', { count: selectedReqDutyIds.length })}
         open={showBatchDutyReview}
         onCancel={() => setShowBatchDutyReview(false)}
-        footer={null} width={520} destroyOnClose
+        footer={null} width={520} destroyOnHidden
       >
         <div className="mt-4 space-y-4">
           <div className="text-xs text-amber-600 bg-amber-50 rounded px-3 py-2">
@@ -1681,7 +1680,7 @@ const groupedByReq = useMemo(() => {
             <Button type="primary" onClick={() => { dutyForm.setFieldValue('describe', dutyExpandDraft); setDutyExpandOpen(false) }} style={{ background: '#2563eb' }}>{t('system.done')}</Button>
           </div>
         }
-        destroyOnClose
+        destroyOnHidden
       >
         <RichTextEditor value={dutyExpandDraft} onChange={setDutyExpandDraft} placeholder={t('system.dutyDescPlaceholder')} minHeight={480} />
       </Modal>

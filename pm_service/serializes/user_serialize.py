@@ -1,15 +1,16 @@
 # -*- coding: utf-8 -*-
 """用户模块序列化"""
-from marshmallow import Schema, fields, validate
+from marshmallow import fields, validate
+from serializes.base_schema import BaseSchema
 
 
-class LoginSchema(Schema):
+class LoginSchema(BaseSchema):
     work_no = fields.Str(required=True, metadata={"description": "工号"})
     password = fields.Str(required=True, metadata={"description": "密码"})
     location = fields.Str(load_default="", metadata={"description": "登录地点"})
 
 
-class CreateUserSchema(Schema):
+class CreateUserSchema(BaseSchema):
     work_no = fields.Str(required=True)
     name = fields.Str(required=True)
     department = fields.Str(load_default="")
@@ -20,7 +21,7 @@ class CreateUserSchema(Schema):
     location = fields.Str(load_default="")
 
 
-class UpdateUserSchema(Schema):
+class UpdateUserSchema(BaseSchema):
     name = fields.Str()
     department = fields.Str()
     position = fields.Str()
@@ -30,26 +31,43 @@ class UpdateUserSchema(Schema):
     location = fields.Str()
 
 
-class QueryUsersSchema(Schema):
+class QueryUsersSchema(BaseSchema):
     page = fields.Int(load_default=1)
     size = fields.Int(load_default=20)
     keyword = fields.Str(load_default="")
     department = fields.Str(load_default="")
 
 
-class HierarchySchema(Schema):
+class HierarchySchema(BaseSchema):
     supervisor_work_no = fields.Str(required=True)
     subordinate_work_no = fields.Str(required=True)
 
 
-class SubordinateQuerySchema(Schema):
+class SubordinateQuerySchema(BaseSchema):
     all_levels = fields.Bool(load_default=False)
 
 
-class AssignRoleSchema(Schema):
+class AssignRoleSchema(BaseSchema):
     role_code = fields.Str(required=True)
 
 
-class PageSchema(Schema):
+class PageSchema(BaseSchema):
     page = fields.Int(load_default=1)
     size = fields.Int(load_default=20)
+
+
+class LatestNewsQuerySchema(BaseSchema):
+    page = fields.Int(load_default=1)
+    size = fields.Int(load_default=10)
+
+
+class MyProjectsQuerySchema(BaseSchema):
+    page = fields.Int(load_default=1)
+    size = fields.Int(load_default=20)
+    status = fields.Int(load_default=None, allow_none=True)
+
+
+class MyDutiesQuerySchema(BaseSchema):
+    page = fields.Int(load_default=1)
+    size = fields.Int(load_default=20)
+    status = fields.Int(load_default=None, allow_none=True)

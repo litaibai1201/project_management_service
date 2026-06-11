@@ -1373,8 +1373,7 @@ const ProjectDetailPage: React.FC = () => {
             children: (
               <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: 24 } }}>
                 <Descriptions bordered column={2} size="small"
-                  labelStyle={{ background: '#f8fafc', color: '#64748b', fontWeight: 500, fontSize: 12 }}
-                  contentStyle={{ fontSize: 13 }}
+                  styles={{ label: { background: '#f8fafc', color: '#64748b', fontWeight: 500, fontSize: 12 }, content: { fontSize: 13 } }}
                 >
                   <Descriptions.Item label={t('common.priority')}>
                     {(() => { const p = PRIORITY_MAP[current.priority]; return p ? <Tag color={p.color}>{p.label}</Tag> : current.priority })()}
@@ -1385,13 +1384,12 @@ const ProjectDetailPage: React.FC = () => {
                   <Descriptions.Item label={t('common.expectedEndDate')}>{current.expected_end_date ?? '—'}</Descriptions.Item>
                   <Descriptions.Item label={t('common.createdAt')}>{current.created_at}</Descriptions.Item>
                   <Descriptions.Item label={t('common.description')} span={2}><RichTextContent html={current.describe} /></Descriptions.Item>
-                  <Descriptions.Item label={t('projectDetail.estimatedBenefit')}>
+                  <Descriptions.Item label={t('projectDetail.estimatedBenefit')} span={2}>
                     {current.benefit_amount != null
                       ? <>{current.benefit_amount} {benefitUnitLabel(current.benefit_unit ?? "元/年")}{current.expected_benefit ? <span className="text-slate-400 ml-2 text-xs">（{current.expected_benefit}）</span> : null}</>
                       : current.expected_benefit || '—'
                     }
                   </Descriptions.Item>
-
                 </Descriptions>
               </Card>
             ),
@@ -2503,7 +2501,7 @@ const ProjectDetailPage: React.FC = () => {
             }}>{t('project.completeBtn')}</Button>
           </div>
         }
-        destroyOnClose
+        destroyOnHidden
       >
         <RichTextEditor
           value={addFuncExpandDraft}
@@ -2717,7 +2715,7 @@ const ProjectDetailPage: React.FC = () => {
             <Button type="primary" onClick={handleConfirmExpandEdit} style={{ background: '#2563eb' }}>{t('project.completeBtn')}</Button>
           </div>
         }
-        destroyOnClose
+        destroyOnHidden
       >
         <RichTextEditor
           value={editExpandDraft}
@@ -2911,7 +2909,7 @@ const ProjectDetailPage: React.FC = () => {
             }}>{t('project.completeBtn')}</Button>
           </div>
         }
-        destroyOnClose
+        destroyOnHidden
       >
         <RichTextEditor
           value={funcEditExpandDraft}

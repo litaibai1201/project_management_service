@@ -430,8 +430,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
 
           {/* Meta info */}
           <Descriptions column={2} size="small" className="mb-4"
-            labelStyle={{ color: '#94a3b8', fontSize: 12, fontWeight: 500 }}
-            contentStyle={{ fontSize: 13, color: '#334155' }}>
+            styles={{ label: { color: '#94a3b8', fontSize: 12, fontWeight: 500 }, content: { fontSize: 13, color: '#334155' } }}>
             <Descriptions.Item label={t('function.priority')}>
               {(() => { const p = PRIORITY_MAP[funcData.priority]; return p ? <Tag color={p.color} style={{ fontSize: 11 }}>{p.label}</Tag> : funcData.priority })()}
             </Descriptions.Item>
@@ -461,6 +460,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
                 )}
               </div>
             </Descriptions.Item>
+            <Descriptions.Item label={t('common.createdAt')}>{(funcData as unknown as { created_at?: string }).created_at ?? '—'}</Descriptions.Item>
             {funcData.describe && (
               <Descriptions.Item label={t('function.describe')} span={2}><RichTextContent html={funcData.describe} /></Descriptions.Item>
             )}
@@ -501,10 +501,10 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
               <Form form={form} layout="vertical" onFinish={handleSubmit}>
                 <div className="grid grid-cols-2 gap-x-3">
                   <Form.Item name="progress" label={t('function.completionPct')} rules={[{ required: true }]}>
-                    <InputNumber min={1} max={100} style={{ width: '100%' }} addonAfter="%" />
+                    <InputNumber min={1} max={100} style={{ width: '100%' }} suffix="%" />
                   </Form.Item>
                   <Form.Item name="time_consum" label={t('function.timeConsumed')}>
-                    <InputNumber min={0} step={0.5} style={{ width: '100%' }} addonAfter="h" />
+                    <InputNumber min={0} step={0.5} style={{ width: '100%' }} suffix="h" />
                   </Form.Item>
                 </div>
                 <div className="grid grid-cols-2 gap-x-3">
@@ -514,7 +514,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
                   <Form.Item noStyle shouldUpdate={(prev, cur) => prev.is_overtime !== cur.is_overtime}>
                     {({ getFieldValue }) => getFieldValue('is_overtime') ? (
                       <Form.Item name="overtime_hours" label={t('dailyLog.overtimeHours')}>
-                        <InputNumber min={0} step={0.5} style={{ width: '100%' }} addonAfter="h" />
+                        <InputNumber min={0} step={0.5} style={{ width: '100%' }} suffix="h" />
                       </Form.Item>
                     ) : null}
                   </Form.Item>
@@ -961,7 +961,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
           }}>{t('project.completeBtn')}</Button>
         </div>
       }
-      destroyOnClose
+      destroyOnHidden
     >
       <RichTextEditor
         value={editExpandDraft}
@@ -987,7 +987,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
           }}>{t('project.completeBtn')}</Button>
         </div>
       }
-      destroyOnClose
+      destroyOnHidden
     >
       <RichTextEditor
         value={progExpandDraft}

@@ -8,6 +8,8 @@ from utils.response import response_result
 from controllers.user_controller import UserController
 from serializes.user_serialize import (
     LoginSchema, CreateUserSchema, UpdateUserSchema, HierarchySchema,
+    QueryUsersSchema, SubordinateQuerySchema, PageSchema,
+    LatestNewsQuerySchema, MyProjectsQuerySchema, MyDutiesQuerySchema,
 )
 from serializes.response_serialize import RspMsgDictSchema, RspMsgRawSchema
 
@@ -84,13 +86,14 @@ class AlertTasksApi(MethodView):
 @blp.route("/latest_news")
 class LatestNewsApi(MethodView):
     @jwt_required()
+    @blp.arguments(LatestNewsQuerySchema, location="query")
     @blp.response(200, RspMsgDictSchema)
-    def get(self):
+    def get(self, query_params):
         """获取最新动态"""
         work_no = get_identity()
-        page = int(request.args.get("page", 1))
-        size = int(request.args.get("size", 10))
-        return response_result(content=ctrl.get_latest_news(work_no, page=page, size=size))
+        return response_result(content=ctrl.get_latest_news(
+            work_no, page=query_params["page"], size=query_params["size"],
+        ))
 
 
 # ─── User MGMT ───────────────────────────────────────────────────────────────
@@ -98,14 +101,16 @@ class LatestNewsApi(MethodView):
 @blp.route("/mgmt/users")
 class UserListApi(MethodView):
     @jwt_required()
+    @blp.arguments(QueryUsersSchema, location="query")
     @blp.response(200, RspMsgDictSchema)
-    def get(self):
+    def get(self, query_params):
         """获取用户列表"""
-        page = int(request.args.get("page", 1))
-        size = int(request.args.get("size", 20))
-        keyword = request.args.get("keyword", "")
-        department = request.args.get("department", "")
-        return response_result(content=ctrl.list_users(page=page, size=size, keyword=keyword, department=department))
+        return response_result(content=ctrl.list_users(
+            page=query_params["page"],
+            size=query_params["size"],
+            keyword=query_params["keyword"],
+            department=query_params["department"],
+        ))
 
 
 @blp.route("/mgmt/user")
@@ -204,11 +209,11 @@ class HierarchyDeleteApi(MethodView):
 @blp.route("/mgmt/<string:work_no>/subordinates")
 class SubordinatesApi(MethodView):
     @jwt_required()
+    @blp.arguments(SubordinateQuerySchema, location="query")
     @blp.response(200, RspMsgRawSchema)
-    def get(self, work_no):
+    def get(self, query_params, work_no):
         """获取下属列表"""
-        all_levels = request.args.get("all_levels", "false").lower() == "true"
-        return response_result(content=ctrl.get_subordinates(work_no, all_levels=all_levels))
+        return response_result(content=ctrl.get_subordinates(work_no, all_levels=query_params["all_levels"]))
 
 
 @blp.route("/mgmt/<string:work_no>/supervisors")
@@ -234,55 +239,59 @@ class TeamTreeApi(MethodView):
 @blp.route("/project")
 class MyProjectsApi(MethodView):
     @jwt_required()
+    @blp.arguments(MyProjectsQuerySchema, location="query")
     @blp.response(200, RspMsgDictSchema)
-    def get(self):
+    def get(self, query_params):
         """我的项目列表"""
         work_no = get_identity()
-        page = int(request.args.get("page", 1))
-        size = int(request.args.get("size", 20))
-        status = request.args.get("status")
         return response_result(content=ctrl.my_projects(
-            work_no, page=page, size=size, status=int(status) if status else None
+            work_no,
+            page=query_params["page"],
+            size=query_params["size"],
+            status=query_params["status"],
         ))
 
 
 @blp.route("/temporary_duty")
 class MyDutiesApi(MethodView):
     @jwt_required()
+    @blp.arguments(MyDutiesQuerySchema, location="query")
     @blp.response(200, RspMsgDictSchema)
-    def get(self):
+    def get(self, query_params):
         """我的AR列表"""
         work_no = get_identity()
-        page = int(request.args.get("page", 1))
-        size = int(request.args.get("size", 20))
-        status = request.args.get("status")
         return response_result(content=ctrl.my_duties(
-            work_no, page=page, size=size, status=int(status) if status else None
+            work_no,
+            page=query_params["page"],
+            size=query_params["size"],
+            status=query_params["status"],
         ))
 
 
 @blp.route("/project/my_apply")
 class MyProjectApplyApi(MethodView):
     @jwt_required()
+    @blp.arguments(PageSchema, location="query")
     @blp.response(200, RspMsgDictSchema)
-    def get(self):
+    def get(self, query_params):
         """我的项目申请"""
         work_no = get_identity()
-        page = int(request.args.get("page", 1))
-        size = int(request.args.get("size", 20))
-        return response_result(content=ctrl.my_project_apply(work_no, page=page, size=size))
+        return response_result(content=ctrl.my_project_apply(
+            work_no, page=query_params["page"], size=query_params["size"],
+        ))
 
 
 @blp.route("/temporary_duty/my_apply")
 class MyDutyApplyApi(MethodView):
     @jwt_required()
+    @blp.arguments(PageSchema, location="query")
     @blp.response(200, RspMsgDictSchema)
-    def get(self):
+    def get(self, query_params):
         """我的任务申请"""
         work_no = get_identity()
-        page = int(request.args.get("page", 1))
-        size = int(request.args.get("size", 20))
-        return response_result(content=ctrl.my_duty_apply(work_no, page=page, size=size))
+        return response_result(content=ctrl.my_duty_apply(
+            work_no, page=query_params["page"], size=query_params["size"],
+        ))
 
 
 @blp.route("/project/apply/<string:apply_id>")
@@ -310,22 +319,24 @@ class CancelDutyApplyApi(MethodView):
 @blp.route("/project/audit_record")
 class ProjectAuditRecordApi(MethodView):
     @jwt_required()
+    @blp.arguments(PageSchema, location="query")
     @blp.response(200, RspMsgDictSchema)
-    def get(self):
+    def get(self, query_params):
         """项目审核记录"""
         work_no = get_identity()
-        page = int(request.args.get("page", 1))
-        size = int(request.args.get("size", 20))
-        return response_result(content=ctrl.project_audit_record(work_no, page=page, size=size))
+        return response_result(content=ctrl.project_audit_record(
+            work_no, page=query_params["page"], size=query_params["size"],
+        ))
 
 
 @blp.route("/duty/audit_record")
 class DutyAuditRecordApi(MethodView):
     @jwt_required()
+    @blp.arguments(PageSchema, location="query")
     @blp.response(200, RspMsgDictSchema)
-    def get(self):
+    def get(self, query_params):
         """任务审核记录"""
         work_no = get_identity()
-        page = int(request.args.get("page", 1))
-        size = int(request.args.get("size", 20))
-        return response_result(content=ctrl.duty_audit_record(work_no, page=page, size=size))
+        return response_result(content=ctrl.duty_audit_record(
+            work_no, page=query_params["page"], size=query_params["size"],
+        ))

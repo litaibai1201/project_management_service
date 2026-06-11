@@ -376,7 +376,7 @@ const SelfReportView: React.FC<{
 
       {/* ── Category breakdown ── */}
       {catTotals.length > 0 && (
-        <Card bordered={false} className="shadow-sm" title={<span className="text-sm font-semibold text-slate-700">{t('dailyLog.categoryDistribution')}</span>}>
+        <Card variant="borderless" className="shadow-sm" title={<span className="text-sm font-semibold text-slate-700">{t('dailyLog.categoryDistribution')}</span>}>
           <div className="flex flex-col gap-2.5">
             {catTotals.map((c) => (
               <div key={c.value} className="flex items-center gap-3">
@@ -399,7 +399,7 @@ const SelfReportView: React.FC<{
       {(() => {
         if (rangeLogs.length === 0) {
           return (
-            <Card bordered={false} className="shadow-sm">
+            <Card variant="borderless" className="shadow-sm">
               <Empty description={t('dailyLog.noPeriodRecords')} className="py-6" />
             </Card>
           )
@@ -1976,7 +1976,7 @@ const DailyLogPage: React.FC = () => {
         onCancel={() => { setModalOpen(false); form.resetFields() }}
         footer={null}
         width="min(680px, 88vw)"
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical" onFinish={handleSaveEntry} className="mt-4">
           {(() => {
@@ -2006,12 +2006,12 @@ const DailyLogPage: React.FC = () => {
                   </Select>
                 </Form.Item>
                 <Form.Item name="hours" label={t('dailyLog.hoursLabel')} rules={[{ required: true, message: t('dailyLog.pleaseInputHours') }]}>
-                  <InputNumber min={0.01} max={24} step={0.01} precision={2} style={{ width: '100%' }} addonAfter="h" />
+                  <InputNumber min={0.01} max={24} step={0.01} precision={2} style={{ width: '100%' }} suffix="h" />
                 </Form.Item>
                 {hasTaskLink && (
                   <Form.Item name="progress" label={t('dailyLog.progressLabel')}
                     rules={[{ type: 'number', min: 0, max: 100, message: '0-100' }]}>
-                    <InputNumber min={0} max={100} step={1} precision={0} style={{ width: '100%' }} addonAfter="%" />
+                    <InputNumber min={0} max={100} step={1} precision={0} style={{ width: '100%' }} suffix="%" />
                   </Form.Item>
                 )}
               </div>
@@ -2172,7 +2172,7 @@ const DailyLogPage: React.FC = () => {
                   }} />
                 </Form.Item>
                 <Form.Item name="hours" label={t('dailyLog.leaveHoursDefault')} initialValue={8}>
-                  <InputNumber min={0.5} max={8} step={0.5} style={{ width: '100%' }} addonAfter="h" />
+                  <InputNumber min={0.5} max={8} step={0.5} style={{ width: '100%' }} suffix="h" />
                 </Form.Item>
               </div>
               {/* Hidden field to store per-day overrides */}
@@ -2296,7 +2296,7 @@ const DailyLogPage: React.FC = () => {
               rules={[{ required: true, message: t('dailyLog.pleaseInputOvertimeHours') }]}
               extra={t('dailyLog.overtimeHoursExtra')}
             >
-              <InputNumber min={0.01} max={24} step={0.5} precision={2} style={{ width: '100%' }} addonAfter="h" />
+              <InputNumber min={0.01} max={24} step={0.5} precision={2} style={{ width: '100%' }} suffix="h" />
             </Form.Item>
           )}
 
@@ -2378,7 +2378,7 @@ const DailyLogPage: React.FC = () => {
             }}>{t('dailyLog.done')}</Button>
           </div>
         }
-        destroyOnClose
+        destroyOnHidden
       >
         <RichTextEditor
           value={descExpandDraft}

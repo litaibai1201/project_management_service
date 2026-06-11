@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { ConfigProvider, App as AntApp } from 'antd'
 import zhTW from 'antd/locale/zh_TW'
 import zhCN from 'antd/locale/zh_CN'
@@ -6,6 +6,14 @@ import enUS from 'antd/locale/en_US'
 import thTH from 'antd/locale/th_TH'
 import { useTranslation } from 'react-i18next'
 import AppRouter from '@/router'
+import { setMessageApi } from '@/utils/toast'
+
+/** Injects the App-context message instance into the global showToast helper */
+const ToastHolder: React.FC = () => {
+  const { message } = AntApp.useApp()
+  useEffect(() => { setMessageApi(message) }, [message])
+  return null
+}
 
 const ANT_LOCALES: Record<string, typeof zhTW> = {
   zh: zhTW,
@@ -88,6 +96,7 @@ const App: React.FC = () => {
       }}
     >
       <AntApp>
+        <ToastHolder />
         <AppRouter />
       </AntApp>
     </ConfigProvider>

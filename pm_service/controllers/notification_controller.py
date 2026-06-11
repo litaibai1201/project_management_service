@@ -1,7 +1,11 @@
 # -*- coding: utf-8 -*-
-"""通知控制器"""
-from dbs.mysql_db import db
-from dbs.mysql_db.model_tables import NotificationModel
+"""
+@文件: notification_controller.py
+@说明: 通知控制器
+"""
+from daos.notification_dao import NotificationDAO
+
+_dao = NotificationDAO()
 
 
 # ─── Module-level helper（在各 controller 中导入后直接调用）─────────────────────
@@ -29,17 +33,10 @@ def push_notification(recipients: list, title: str, desc: str = "",
 
     # ── 降级：同步写入平台通知表 ─────────────────────────────────────────
     try:
-        for wn in clean:
-            db.session.add(NotificationModel(
-                recipient=wn,
-                title=title,
-                desc=desc,
-                link_type=link_type,
-                link_id=link_id or "",
-            ))
-        db.session.commit()
+        _dao.batch_insert(clean, title, desc, link_type, link_id)
     except Exception:
         try:
+            from dbs.mysql_db import db
             db.session.rollback()
         except Exception:
             pass
@@ -58,13 +55,9 @@ class NotificationController:
 
     def list_notifications(self, work_no: str, page: int = 1, size: int = 30):
         """获取当前用户通知列表（按时间倒序）"""
-        q = (db.session.query(NotificationModel)
-             .filter(db.func.lower(NotificationModel.recipient) == (work_no or "").lower())
-             .order_by(NotificationModel.created_at.desc()))
+        q = _dao.query_by_recipient(work_no)
         total = q.count()
-        unread = (db.session.query(NotificationModel)
-                  .filter(db.func.lower(NotificationModel.recipient) == (work_no or "").lower(), NotificationModel.is_read == False)
-                  .count())
+        unread = _dao.count_unread(work_no)
         items = q.offset((page - 1) * size).limit(size).all()
         return {
             "data_list":    [n.to_dict() for n in items],
@@ -74,20 +67,15 @@ class NotificationController:
 
     def mark_read(self, work_no: str, notif_id: str):
         """标记单条为已读"""
-        n = (db.session.query(NotificationModel)
-             .filter(NotificationModel.id == notif_id, db.func.lower(NotificationModel.recipient) == (work_no or "").lower())
-             .first())
+        n = _dao.find_by_id_and_recipient(notif_id, work_no)
         if n and not n.is_read:
             n.is_read = True
-            db.session.commit()
+            _dao.commit()
         return True
 
     def mark_all_read(self, work_no: str):
         """标记全部为已读"""
-        (db.session.query(NotificationModel)
-         .filter_by(recipient=work_no, is_read=False)
-         .update({"is_read": True}))
-        db.session.commit()
+        _dao.mark_all_read(work_no)
         return True
 
     def send_daily_log_reminder(self, work_nos: list) -> int:
