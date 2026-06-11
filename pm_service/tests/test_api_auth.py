@@ -68,37 +68,7 @@ class TestLoginAPI(BaseTest):
         self.assertIn("content", data)
 
 
-class TestProfileAPI(BaseTest):
-    """GET /api/test/profile（需要 JWT 认证）"""
-
-    def test_profile_without_token_returns_401(self):
-        resp = self.client.get("/api/test/profile")
-        self.assertEqual(resp.status_code, 401)
-
-    def test_profile_with_valid_token(self):
-        headers = self.auth_headers("test_user_001")
-        resp = self.client.get("/api/test/profile", headers=headers)
-        self.assertEqual(resp.status_code, 200)
-        data = json.loads(resp.data)
-        self.assertEqual(data.get("code"), "S10000")
-
-    def test_profile_contains_identity(self):
-        headers = self.auth_headers("my_test_identity")
-        resp = self.client.get("/api/test/profile", headers=headers)
-        data = json.loads(resp.data)
-        content = data.get("content", {})
-        # 响应中应包含 username 或 identity 信息
-        self.assertTrue(
-            "username" in content or "identity" in content or "my_test_identity" in str(content)
-        )
-
-    def test_invalid_token_returns_401(self):
-        headers = {
-            "Authorization": "Bearer invalid.token.here",
-            "Content-Type": "application/json"
-        }
-        resp = self.client.get("/api/test/profile", headers=headers)
-        self.assertIn(resp.status_code, [401, 422])
+    # TestProfileAPI removed — /api/test/profile endpoint was deleted
 
 
 if __name__ == "__main__":

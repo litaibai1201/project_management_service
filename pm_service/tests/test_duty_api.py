@@ -9,14 +9,14 @@ def create_duty(client, token, **overrides):
     """辅助：创建一条草稿AR，返回 duty_id"""
     payload = {
         "duty_nm": "测试AR",
-        "responsible": '["T001"]',
         "expected_start_date": "2026-01-01",
         "expected_end_date": "2026-12-31",
         "duty_type": "开发",
     }
     payload.update(overrides)
+    # responsible 用 getlist 方式传（多次同名字段）
     resp = client.post("/api/temporary_duty/create_temporary_duty",
-                       data=payload,
+                       data={**payload, "responsible": "t001"},
                        headers={"Authorization": f"Bearer {token}"})
     data = resp.get_json()
     return data.get("content", {}).get("id") or data.get("content", {}).get("duty_id")
@@ -130,12 +130,14 @@ class TestDutyLifecycle:
     def test_submit_completion(self, client, auth_token, seed_user, app):
         with app.app_context():
             did = create_duty(client, auth_token)
-            json_post(client, f"/api/temporary_duty/{did}/activate", {}, token=auth_token)
+            json_post(client, f"/api/temporary_duty/{did}/activate",
+                       {"responsible": ["t001"], "expected_start_date": "2026-01-01", "expected_end_date": "2026-12-31"},
+                       token=auth_token)
             resp = json_post(client, f"/api/temporary_duty/{did}/submit_completion",
-                             {"reviewer": ["T001"], "submitter_name": "测试用户"},
+                             {"reviewer": ["t001"], "submitter_name": "测试用户"},
                              token=auth_token)
             data = resp.get_json()
-            assert data["code"] == "S10000"
+            assert data["code"] == "S10000", f"submit_completion failed: {data}"
 
     def test_reschedule_duty(self, client, auth_token, app):
         with app.app_context():
@@ -176,10 +178,11 @@ class TestDutyProgress:
     def test_create_progress(self, client, auth_token, app):
         with app.app_context():
             did = create_duty(client, auth_token)
-            # Must activate duty (status=1) before creating progress
-            json_post(client, f"/api/temporary_duty/{did}/activate", {}, token=auth_token)
+            json_post(client, f"/api/temporary_duty/{did}/activate",
+                       {"responsible": ["t001"], "expected_start_date": "2026-01-01", "expected_end_date": "2026-12-31"},
+                       token=auth_token)
             resp = client.post(f"/api/temporary_duty/{did}/progress",
-                               data={"content": "完成了基础框架", "progress": "25"},
+                               data={"progress_record": "完成了基础框架", "progress": "25", "time_consum": "2"},
                                headers={"Authorization": f"Bearer {auth_token}"})
             data = resp.get_json()
             assert data["code"] == "S10000"

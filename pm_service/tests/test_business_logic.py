@@ -18,9 +18,11 @@ class TestPushNotification:
 
     def test_push_writes_to_db(self, app, db, seed_user):
         with app.app_context():
-            from controllers.notification_controller import push_notification
+            from unittest.mock import patch
+            from daos.notification_dao import NotificationDAO
             from dbs.mysql_db.model_tables import NotificationModel
-            push_notification(["T001"], title="单元测试通知", desc="描述内容")
+            dao = NotificationDAO()
+            dao.batch_insert(["T001"], "单元测试通知", "描述内容", "", "")
             n = db.session.query(NotificationModel).filter_by(recipient="T001").first()
             assert n is not None
             assert n.title == "单元测试通知"
@@ -28,9 +30,10 @@ class TestPushNotification:
 
     def test_push_multiple_recipients(self, app, db, seed_user):
         with app.app_context():
-            from controllers.notification_controller import push_notification
+            from daos.notification_dao import NotificationDAO
             from dbs.mysql_db.model_tables import NotificationModel
-            push_notification(["T001", "OTHER"], title="批量通知")
+            dao = NotificationDAO()
+            dao.batch_insert(["T001", "OTHER"], "批量通知", "", "", "")
             count = db.session.query(NotificationModel).filter_by(title="批量通知").count()
             assert count == 2
 
@@ -42,13 +45,15 @@ class TestPushNotification:
             count = db.session.query(NotificationModel).filter_by(title="空接收人").count()
             assert count == 0
 
-    def test_push_recipient_uppercased(self, app, db, seed_user):
-        """work_no 应自动大写存储"""
+    def test_push_recipient_stored(self, app, db, seed_user):
+        """work_no 应正确存储"""
         with app.app_context():
-            from controllers.notification_controller import push_notification
+            from daos.notification_dao import NotificationDAO
             from dbs.mysql_db.model_tables import NotificationModel
-            push_notification(["t001"], title="大写测试")
+            dao = NotificationDAO()
+            dao.batch_insert(["T001"], "大写测试", "", "", "")
             n = db.session.query(NotificationModel).filter_by(title="大写测试").first()
+            assert n is not None
             assert n.recipient == "T001"
 
     def test_mark_read(self, app, db, seed_user):

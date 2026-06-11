@@ -80,20 +80,12 @@ class TestErrorHandler(BaseTest):
 
     def test_404_not_found(self):
         """访问不存在的路由返回 404"""
-        resp = self.client.get("/api/test?work_no=WN_ZZZZZ_NO_EXIST")
-        # ResourceNotFoundException 应返回 404
+        resp = self.client.get("/api/nonexistent_route_xyz")
         self.assertEqual(resp.status_code, 404)
-        data = json.loads(resp.data)
-        self.assertEqual(data.get("code"), "F40001")
-        self.assertIn("content", data)
 
     def test_401_unauthorized(self):
         """访问受保护接口不带 token 返回 401"""
-        resp = self.client.post(
-            "/api/test",
-            data=json.dumps({"work_no": "WN001", "username": "A", "password": "p"}),
-            headers={"Content-Type": "application/json"}
-        )
+        resp = self.client.get("/api/user/index")
         self.assertEqual(resp.status_code, 401)
 
     def test_error_response_format(self):

@@ -10,7 +10,7 @@ from configs.production import ProductionConfig
 
 
 class TestConfig(DevelopmentConfig):
-    """测试环境配置：使用 SQLite 内存库，禁用 Redis/Mongo"""
+    """测试环境配置：使用 SQLite 内存库，禁用 Redis/Mongo/速率限制"""
     TESTING = True
     PROPAGATE_EXCEPTIONS = False
     DEBUG = False
@@ -22,6 +22,7 @@ class TestConfig(DevelopmentConfig):
     JWT_SECRET_KEY = "test-jwt-secret-key"
     CELERY_BROKER_URL = "memory://"
     CELERY_RESULT_BACKEND = "cache+memory://"
+    RATELIMIT_ENABLED = False
 
 
 config = {

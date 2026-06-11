@@ -140,6 +140,7 @@ def auth_token(client, seed_user, app):
         resp = json_post(client, "/api/user/login",
                          {"work_no": work_no, "password": password})
         data = resp.get_json()
+        assert resp.status_code == 200, f"Login failed ({resp.status_code}): {data}"
         return data["content"]["access_token"]
 
 
