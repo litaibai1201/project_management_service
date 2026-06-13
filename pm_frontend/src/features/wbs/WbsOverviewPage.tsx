@@ -44,6 +44,7 @@ import dayjs from 'dayjs'
 import isoWeek from 'dayjs/plugin/isoWeek'
 import { useTranslation } from 'react-i18next'
 import i18n from '@/i18n'
+import { formatGroupName, formatGroupNamePlain } from '@/utils/status'
 
 dayjs.extend(isoWeek)
 
@@ -134,8 +135,8 @@ const WEEK_TAG_CONFIG: Record<WeekTag, { labelKey: string; color: string; bg: st
 }
 
 const STATUS_CONFIG: Record<TaskStatus, { labelKey: string; color: string; icon: React.ReactNode }> = {
-  completed:   { labelKey: 'wbs.statusCompleted',  color: '#16a34a', icon: <CheckCircleIcon className="w-3.5 h-3.5 text-green-500" /> },
-  in_progress: { labelKey: 'wbs.statusInProgress', color: '#2563eb', icon: <ArrowTrendingUpIcon className="w-3.5 h-3.5 text-blue-500" /> },
+  completed:   { labelKey: 'wbs.statusCompleted',  color: '#2563eb', icon: <CheckCircleIcon className="w-3.5 h-3.5 text-blue-500" /> },
+  in_progress: { labelKey: 'wbs.statusInProgress', color: '#16a34a', icon: <ArrowTrendingUpIcon className="w-3.5 h-3.5 text-green-500" /> },
   not_started: { labelKey: 'wbs.statusNotStarted', color: '#94a3b8', icon: <ClockIcon className="w-3.5 h-3.5 text-slate-400" /> },
   overdue:     { labelKey: 'wbs.statusOverdue',    color: '#dc2626', icon: <ExclamationTriangleIcon className="w-3.5 h-3.5 text-red-500" /> },
 }
@@ -159,7 +160,7 @@ function exportWbsCSV(projects: WbsProject[], t: (key: string) => string) {
   const rows = projects.flatMap((p) =>
     p.functions.flatMap((f) =>
       f.tasks.map((tk) => [
-        p.name, f.name === '__stage__' ? t('common.stageTaskPlain') : f.name, tk.name, tk.assignee, statusLabel(tk.status),
+        p.name, formatGroupNamePlain(f.name) || f.name, tk.name, tk.assignee, statusLabel(tk.status),
         String(tk.progress), tk.expected_end, tk.actual_end ?? '',
         String(tk.days_overdue ?? ''), tk.week_tag.map((wt) => weekTagLabel(wt)).join('+'),
         (tk.latest_update ?? '').replace(/<[^>]*>/g, ''),
@@ -177,7 +178,7 @@ function exportWbsCSV(projects: WbsProject[], t: (key: string) => string) {
 // ─── PPT Export (matching 专案周报.pptx template) ────────────────────────────
 //
 // Color scheme:
-//   已完成 → #00B050 (green, bold)    進行中 → #0070C0 (blue, bold)
+//   已完成 → #0070C0 (blue, bold)     進行中 → #00B050 (green, bold)
 //   風險   → #FFC000 (yellow)         delay  → #FF0000 (red)
 //   Header bg → #002FA7               Title  → #0070C0
 
@@ -196,9 +197,9 @@ const _run = (text: string, extra: object = {}): PptTextRun => ({
 function _statusRuns(task: WbsTask): PptTextRun[] {
   if (task.status === 'completed') {
     return [
-      _run('(', { color: '00B050' }),
-      _run(i18n.t('wbs.rpt.completed'), { bold: true, color: '00B050' }),
-      _run(')', { color: '00B050' }),
+      _run('(', { color: '0070C0' }),
+      _run(i18n.t('wbs.rpt.completed'), { bold: true, color: '0070C0' }),
+      _run(')', { color: '0070C0' }),
     ]
   }
   if (task.is_overdue) {
@@ -211,7 +212,7 @@ function _statusRuns(task: WbsTask): PptTextRun[] {
   if (task.status === 'in_progress') {
     return [
       _run('('),
-      _run(i18n.t('wbs.rpt.inProgress'), { bold: true, color: '0070C0' }),
+      _run(i18n.t('wbs.rpt.inProgress'), { bold: true, color: '00B050' }),
       _run(')'),
     ]
   }
@@ -271,12 +272,12 @@ function buildProgressTextRuns(project: WbsProject): PptTextRun[] {
   }
 
   // Render sections → runs
-  const nameLabel = (n: string) => n === '__stage__' ? i18n.t('common.stageTaskPlain') : n
+  const nameLabel = (n: string) => formatGroupNamePlain(n) || n
 
   if (sections.length === 0) {
     allItems.forEach(({ task }, i) => {
       if (i > 0) runs.push({ text: '\n' })
-      const lineColor = task.status === 'completed' ? '00B050' : '000000'
+      const lineColor = task.status === 'completed' ? '0070C0' : '000000'
       runs.push(_run(`${i + 1}. `, { color: lineColor }))
       runs.push(..._statusRuns(task))
       _appendTaskDetail(runs, task)
@@ -316,7 +317,7 @@ function buildProgressTextRuns(project: WbsProject): PptTextRun[] {
 }
 
 function _appendTaskDetail(runs: PptTextRun[], task: WbsTask, indent = '') {
-  const lineColor = task.status === 'completed' ? '00B050' : '000000'
+  const lineColor = task.status === 'completed' ? '0070C0' : '000000'
   if (task.is_suspended) runs.push(_run(`[${i18n.t('wbs.rpt.suspended')}] `, { color: '6B7280', bold: true }))
   runs.push(_run(task.name, { color: lineColor }))
   const hasReschedule = (task.reschedule_count ?? 0) > 0 && !!task.original_end
@@ -363,16 +364,16 @@ function _dutyStatusLabel(d: TemporaryDuty, t: (key: string) => string): { label
 function _dutyListDotColor(ds: TemporaryDuty[]): string {
   const today = dayjs()
   if (ds.some(d => d.status !== 3 && !!d.expected_end_date && dayjs(d.expected_end_date).isBefore(today, 'day'))) return 'FF0000'
-  if (ds.every(d => d.status === 3) && ds.length > 0) return '00B050'
-  return '0070C0'
+  if (ds.every(d => d.status === 3) && ds.length > 0) return '0070C0'
+  return '00B050'
 }
 
 function _projectDotColor(project: WbsProject): string {
   const hasOverdue = project.functions.some((f) => f.tasks.some((t) => !!t.is_overdue))
   if (hasOverdue) return 'FF0000'
   const allDone = project.functions.every((f) => f.tasks.every((t) => t.status === 'completed'))
-  if (allDone && project.functions.length > 0) return '00B050'
-  return '0070C0'
+  if (allDone && project.functions.length > 0) return '0070C0'
+  return '00B050'
 }
 
 // (行数通过 splitRunsToLines 实际计算，不再需要估算函数)
@@ -447,7 +448,7 @@ async function exportWbsPptx(projects: WbsProject[], department = '資訊部') {
       { text: project.product_pm || project.pm, options: cellMid({ align: 'left' as const }) },
       { text: project.pm, options: cellMid({ align: 'left' as const }) },
       { text: project.start_date ?? '-', options: cellMid() },
-      { text: project.is_completed ? (project.end_time || project.expected_end || '-') : (project.expected_end || '-'), options: cellMid({ color: project.is_completed ? '16a34a' : '000000' }) },
+      { text: project.is_completed ? (project.end_time || project.expected_end || '-') : (project.expected_end || '-'), options: cellMid({ color: project.is_completed ? '0070C0' : '000000' }) },
       { text: progressRuns, options: { valign: 'top' as const, fontSize: PPT_FONT_SIZE, fontFace: F, color: '000000' } },
     ]
   }
@@ -525,9 +526,9 @@ async function exportWbsPptx(projects: WbsProject[], department = '資訊部') {
 
     slide.addText(
       [
-        { text: '●已完成', options: { color: '00B050', fontSize: 12, fontFace: F } },
+        { text: '●已完成', options: { color: '0070C0', fontSize: 12, fontFace: F } },
         { text: '  ', options: { fontSize: 12 } },
-        { text: '●進行中', options: { color: '0070C0', fontSize: 12, fontFace: F } },
+        { text: '●進行中', options: { color: '00B050', fontSize: 12, fontFace: F } },
         { text: '  ', options: { fontSize: 12 } },
         { text: '●風險',   options: { color: 'FFC000', fontSize: 12, fontFace: F } },
         { text: '  ', options: { fontSize: 12 } },
@@ -938,7 +939,7 @@ const TaskRow: React.FC<{
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span
-              className={`text-xs font-medium ${hasHistory ? 'cursor-pointer hover:underline decoration-dotted underline-offset-2' : ''} ${isCompleted ? 'text-green-600 line-through decoration-green-300' : isOverdue ? 'text-red-700' : 'text-slate-700'} ${hasHistory && !isCompleted ? 'hover:text-blue-600' : ''}`}
+              className={`text-xs font-medium ${hasHistory ? 'cursor-pointer hover:underline decoration-dotted underline-offset-2' : ''} ${isCompleted ? 'text-blue-600 line-through decoration-blue-300' : isOverdue ? 'text-red-700' : 'text-slate-700'} ${hasHistory && !isCompleted ? 'hover:text-blue-600' : ''}`}
               onClick={(e) => { if (hasHistory) { e.stopPropagation(); onToggleExpand?.() } }}
             >
               {task.name}
@@ -976,7 +977,7 @@ const TaskRow: React.FC<{
         {/* Progress */}
         <div className="flex items-center gap-2 flex-shrink-0 w-[120px]">
           {isCompleted ? (
-            <span className="text-xs font-semibold text-green-600">{t('wbs.doneLabel')}</span>
+            <span className="text-xs font-semibold text-blue-600">{t('wbs.doneLabel')}</span>
           ) : (
             <>
               <Progress
@@ -996,7 +997,7 @@ const TaskRow: React.FC<{
         <div className="flex-shrink-0 text-right w-[85px]">
           {isCompleted ? (
             <Tooltip title={t('wbs.plannedActual', { expected: task.expected_end, actual: task.actual_end })}>
-              <span className="text-[10px] text-green-600">{task.actual_end}</span>
+              <span className="text-[10px] text-blue-600">{task.actual_end}</span>
             </Tooltip>
           ) : (task.reschedule_count ?? 0) > 0 ? (
             <Tooltip title={t('wbs.rescheduledDetail', { count: task.reschedule_count, original: task.original_end })}>
@@ -1071,7 +1072,7 @@ const FunctionModule: React.FC<{
           ? <ChevronDownIcon className="w-3 h-3 text-slate-400 transition-transform" />
           : <ChevronRightIcon className="w-3 h-3 text-slate-400 transition-transform" />
         }
-        <span className="text-xs font-semibold text-slate-600">{func.name === '__stage__' ? t('common.stageTask') : func.name}</span>
+        <span className="text-xs font-semibold text-slate-600">{formatGroupName(func.name) || func.name}</span>
         <Progress
           percent={func.progress}
           size="small"
@@ -1424,7 +1425,7 @@ const ProjectCard: React.FC<{
 
 // Status → color mapping matching template
 const RPT_STATUS_COLOR: Record<string, string> = {
-  completed: '#00B050', in_progress: '#0070C0', overdue: '#FF0000', not_started: '#94a3b8',
+  completed: '#0070C0', in_progress: '#00B050', overdue: '#FF0000', not_started: '#94a3b8',
 }
 
 function _taskStatusLabel(task: WbsTask, t: (key: string) => string): { label: string; color: string } {
@@ -1484,7 +1485,7 @@ const ReportPreviewModal: React.FC<{
   // Render a single duty task line — mirrors renderTaskRow for projects (with reschedule info)
   const renderDutyTask = (d: TemporaryDuty, indent: number) => {
     const { label, color } = _dutyStatusLabel(d, t)
-    const lineColor = d.status === 3 ? '#00B050' : '#000'
+    const lineColor = d.status === 3 ? '#0070C0' : '#000'
     const hasReschedule = (d.reschedule_count ?? 0) > 0 && !!d.original_end_date
     const rescheduleReason = d.reschedule_history?.at(-1)?.reason
     const dateStr = d.status === 3
@@ -1586,7 +1587,7 @@ const ReportPreviewModal: React.FC<{
             sortedGroups.map(([grp, grpDuties]) => (
               <div key={grp}>
                 {grp !== '__nogroup__' && (
-                  <div style={{ fontWeight: 600, color: '#374151', paddingLeft: reqNm ? 12 : 0 }}>▸ {grp === '__stage__' ? t('common.stageTask') : grp}</div>
+                  <div style={{ fontWeight: 600, color: '#374151', paddingLeft: reqNm ? 12 : 0 }}>▸ {formatGroupName(grp) || grp}</div>
                 )}
                 {grpDuties
                   .sort((a, b) => (a.expected_end_date ?? '').localeCompare(b.expected_end_date ?? ''))
@@ -1662,9 +1663,9 @@ const ReportPreviewModal: React.FC<{
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 8px', marginBottom: 4 }}>
             <img src={reportLogoUrl} alt="logo" style={{ height: 36 }} />
             <div style={{ fontSize: 12 }}>
-              <span style={{ color: '#00B050' }}>●{t('wbs.rpt.completed')}</span>
+              <span style={{ color: '#0070C0' }}>●{t('wbs.rpt.completed')}</span>
               <span>{'   '}</span>
-              <span style={{ color: '#0070C0' }}>●{t('wbs.rpt.inProgress')}</span>
+              <span style={{ color: '#00B050' }}>●{t('wbs.rpt.inProgress')}</span>
               <span>{'   '}</span>
               <span style={{ color: '#FFC000' }}>●{t('wbs.rpt.risk')}</span>
               <span>{' '}</span>
@@ -1714,7 +1715,7 @@ const ReportPreviewModal: React.FC<{
                     <td style={{ verticalAlign: 'middle', border: '1px solid #B4C6E7', color: '#000' }}>
                       {project.name}
                       {project.is_completed && (
-                        <span style={{ marginLeft: 4, color: '#16a34a', fontWeight: 700, fontSize: 11 }}>[{t('wbs.rpt.closed')}]</span>
+                        <span style={{ marginLeft: 4, color: '#2563eb', fontWeight: 700, fontSize: 11 }}>[{t('wbs.rpt.closed')}]</span>
                       )}
                     </td>
                     {/* 需求使用者（產品PM） */}
@@ -1730,7 +1731,7 @@ const ReportPreviewModal: React.FC<{
                       {project.start_date ?? '-'}
                     </td>
                     {/* 結案日（完結專案顯示實際完結日，否則顯示預計） */}
-                    <td style={{ textAlign: 'center', verticalAlign: 'middle', border: '1px solid #B4C6E7', color: project.is_completed ? '#16a34a' : '#000', whiteSpace: 'nowrap', fontWeight: project.is_completed ? 700 : 400 }}>
+                    <td style={{ textAlign: 'center', verticalAlign: 'middle', border: '1px solid #B4C6E7', color: project.is_completed ? '#2563eb' : '#000', whiteSpace: 'nowrap', fontWeight: project.is_completed ? 700 : 400 }}>
                       {project.is_completed ? (project.end_time || project.expected_end || '-') : (project.expected_end || '-')}
                     </td>
                     {/* 進度 — rich-text matching template style */}
@@ -1766,7 +1767,7 @@ const ReportPreviewModal: React.FC<{
                         // 渲染單一任務行（縮進 + - 開頭）
                         const renderTaskRow = (task: WbsTask, indent: number) => {
                           const { label, color } = _taskStatusLabel(task, t)
-                          const lineColor = task.status === 'completed' ? '#00B050' : '#000'
+                          const lineColor = task.status === 'completed' ? '#0070C0' : '#000'
                           const hasReschedule = (task.reschedule_count ?? 0) > 0 && !!task.original_end
                           const dateStr = task.status === 'completed'
                             ? t('wbs.rpt.completedOnDate', { date: task.actual_end || task.expected_end })
@@ -1815,7 +1816,7 @@ const ReportPreviewModal: React.FC<{
                         const renderTaskFlat = (task: WbsTask) => {
                           flatSeq++
                           const { label, color } = _taskStatusLabel(task, t)
-                          const lineColor = task.status === 'completed' ? '#00B050' : '#000'
+                          const lineColor = task.status === 'completed' ? '#0070C0' : '#000'
                           const hasReschedule = (task.reschedule_count ?? 0) > 0 && !!task.original_end
                           const dateStr = task.status === 'completed'
                             ? t('wbs.rpt.completedOnDate', { date: task.actual_end || task.expected_end })
@@ -1898,10 +1899,10 @@ const ReportPreviewModal: React.FC<{
                           if (section.kind === 'req') {
                             return (
                               <div key={section.key} style={{ marginBottom: 4 }}>
-                                <div style={{ fontWeight: 700, color: '#002FA7' }}>{num}. {section.name === '__stage__' ? t('common.stageTaskPlain') : section.name}</div>
+                                <div style={{ fontWeight: 700, color: '#002FA7' }}>{num}. {formatGroupNamePlain(section.name) || section.name}</div>
                                 {section.funcs.map((func) => (
                                   <div key={func.key} style={{ paddingLeft: 12 }}>
-                                    <div style={{ fontWeight: 600, color: '#374151' }}>▸ {func.name === '__stage__' ? t('common.stageTaskPlain') : func.name}</div>
+                                    <div style={{ fontWeight: 600, color: '#374151' }}>▸ {formatGroupNamePlain(func.name) || func.name}</div>
                                     {func.tasks.map((task) => renderTaskRow(task, 24))}
                                   </div>
                                 ))}
@@ -1910,7 +1911,7 @@ const ReportPreviewModal: React.FC<{
                           } else {
                             return (
                               <div key={section.key} style={{ marginBottom: 4 }}>
-                                <div style={{ fontWeight: 700, color: '#002FA7' }}>{num}. {section.name === '__stage__' ? t('common.stageTaskPlain') : section.name}</div>
+                                <div style={{ fontWeight: 700, color: '#002FA7' }}>{num}. {formatGroupNamePlain(section.name) || section.name}</div>
                                 {section.tasks.map((task) => renderTaskRow(task, 16))}
                               </div>
                             )
@@ -2095,15 +2096,15 @@ const DutyTaskRow: React.FC<{
   return (
     <div className={`group flex items-start gap-3 px-4 py-2.5 border-b border-slate-50 last:border-b-0 hover:bg-slate-50/50 transition-colors ${isOverdue ? 'bg-red-50/30' : ''} ${hasPending ? 'border-l-[3px] border-l-blue-400' : ''}`}>
       <div className="mt-0.5 flex-shrink-0">
-        {isCompleted  ? <CheckCircleIcon className="w-3.5 h-3.5 text-green-500" />
+        {isCompleted  ? <CheckCircleIcon className="w-3.5 h-3.5 text-blue-500" />
          : isOverdue  ? <ExclamationTriangleIcon className="w-3.5 h-3.5 text-red-500" />
-         : isInProgress ? <ArrowTrendingUpIcon className="w-3.5 h-3.5 text-blue-500" />
+         : isInProgress ? <ArrowTrendingUpIcon className="w-3.5 h-3.5 text-green-500" />
          : <ClockIcon className="w-3.5 h-3.5 text-slate-400" />}
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <span
-            className={`text-xs font-medium cursor-pointer hover:underline decoration-dotted underline-offset-2 ${isCompleted ? 'text-green-600 line-through decoration-green-300' : isOverdue ? 'text-red-700' : 'text-slate-700 hover:text-blue-600'}`}
+            className={`text-xs font-medium cursor-pointer hover:underline decoration-dotted underline-offset-2 ${isCompleted ? 'text-blue-600 line-through decoration-blue-300' : isOverdue ? 'text-red-700' : 'text-slate-700 hover:text-blue-600'}`}
             onClick={() => onSelect(d.id)}
           >
             {d.duty_nm}
@@ -2196,7 +2197,7 @@ const DutyFunctionBlock: React.FC<{
         onClick={() => setOpen(!open)}
       >
         {open ? <ChevronDownIcon className="w-3 h-3 text-slate-400" /> : <ChevronRightIcon className="w-3 h-3 text-slate-400" />}
-        <span className="text-xs font-semibold text-slate-600">{groupNm === '__stage__' ? t('common.stageTask') : groupNm}</span>
+        <span className="text-xs font-semibold text-slate-600">{formatGroupName(groupNm) || groupNm}</span>
         <Progress percent={progress} size="small"
           strokeColor={progress >= 100 ? '#16a34a' : progress >= 60 ? '#2563eb' : '#d97706'}
           trailColor="#e2e8f0" style={{ width: 60, marginBottom: 0 }} format={() => ''} />
@@ -2842,8 +2843,8 @@ const WbsOverviewPage: React.FC = () => {
         {[
           { label: t('wbs.summaryProjects'), value: summary.totalProjects, unit: t('wbs.unitCount'), color: '#2563eb', bg: '#eff6ff' },
           { label: t('wbs.summaryTotal'),    value: summary.totalTasks,    unit: t('wbs.unitItem'),  color: '#64748b', bg: '#f8fafc' },
-          { label: t('wbs.summaryCompleted'),value: summary.completed,     unit: t('wbs.unitItem'),  color: '#16a34a', bg: '#f0fdf4' },
-          { label: t('wbs.summaryInProgress'),value: summary.inProgress,   unit: t('wbs.unitItem'),  color: '#2563eb', bg: '#eff6ff' },
+          { label: t('wbs.summaryCompleted'),value: summary.completed,     unit: t('wbs.unitItem'),  color: '#2563eb', bg: '#eff6ff' },
+          { label: t('wbs.summaryInProgress'),value: summary.inProgress,   unit: t('wbs.unitItem'),  color: '#16a34a', bg: '#f0fdf4' },
           { label: t('wbs.summaryOverdue'),  value: summary.overdue,       unit: t('wbs.unitItem'),  color: '#dc2626', bg: '#fef2f2' },
           { label: t('wbs.summaryNotStarted'),value: summary.notStarted,   unit: t('wbs.unitItem'),  color: '#94a3b8', bg: '#f8fafc' },
           { label: t('wbs.summaryThisWeek'), value: summary.thisWeek,      unit: t('wbs.unitItem'),  color: '#2563eb', bg: '#eff6ff' },

@@ -541,8 +541,8 @@ const BenefitDetailCard: React.FC<BenefitDetailCardProps> = ({ benefit, navigate
 interface TeamLogCardProps {
   logReportData: LogRow[]
   logLoading: boolean
-  logPeriod: 'day' | 'week' | 'month' | 'quarter'
-  setLogPeriod: (p: 'day' | 'week' | 'month' | 'quarter') => void
+  logPeriod: 'day' | 'yesterday' | 'week' | 'lastWeek' | 'month' | 'lastMonth' | 'quarter'
+  setLogPeriod: (p: 'day' | 'yesterday' | 'week' | 'lastWeek' | 'month' | 'lastMonth' | 'quarter') => void
   notifyingSet: Set<string>
   setNotifyingSet: React.Dispatch<React.SetStateAction<Set<string>>>
   notifyingAll: boolean
@@ -557,10 +557,13 @@ const TeamLogCard: React.FC<TeamLogCardProps> = ({
   const { t } = useTranslation()
   const todayStr = dayjs().format('YYYY-MM-DD')
   const LOG_PERIODS = [
-    { key: 'day'     as const, label: t('dashboard.thisDay') },
-    { key: 'week'    as const, label: t('dashboard.thisWeek') },
-    { key: 'month'   as const, label: t('dashboard.thisMonth') },
-    { key: 'quarter' as const, label: t('dashboard.thisQuarter') },
+    { key: 'yesterday' as const, label: t('dashboard.yesterday') },
+    { key: 'day'       as const, label: t('dashboard.thisDay') },
+    { key: 'lastWeek'  as const, label: t('statistics.lastWeek') },
+    { key: 'week'      as const, label: t('dashboard.thisWeek') },
+    { key: 'lastMonth' as const, label: t('dashboard.lastMonth') },
+    { key: 'month'     as const, label: t('dashboard.thisMonth') },
+    { key: 'quarter'   as const, label: t('dashboard.thisQuarter') },
   ]
   const unsubmittedMembers = logReportData.filter((r) => {
     const todayLog = r.daily_logs?.find((l) => l.log_date === todayStr)
@@ -750,7 +753,7 @@ const DashboardPage: React.FC = () => {
   const [teamStat,         setTeamStat]         = useState<TeamStatistical | null>(null)
   const [weeklyActivity,   setWeeklyActivity]   = useState<WeeklyActivityItem[]>([])
   const [latestNews,       setLatestNews]       = useState<NewsItem[]>([])
-  const [logPeriod,        setLogPeriod]        = useState<'day' | 'week' | 'month' | 'quarter'>('day')
+  const [logPeriod,        setLogPeriod]        = useState<'day' | 'yesterday' | 'week' | 'lastWeek' | 'month' | 'lastMonth' | 'quarter'>('day')
   const [notifyingSet,     setNotifyingSet]     = useState<Set<string>>(new Set())
   const [notifyingAll,     setNotifyingAll]     = useState(false)
   const [logReportData,    setLogReportData]    = useState<Array<{
@@ -906,12 +909,20 @@ const DashboardPage: React.FC = () => {
     let start: string, end: string
     if (logPeriod === 'day') {
       start = end = today.format('YYYY-MM-DD')
+    } else if (logPeriod === 'yesterday') {
+      start = end = today.subtract(1, 'day').format('YYYY-MM-DD')
     } else if (logPeriod === 'week') {
       start = today.startOf('isoWeek').format('YYYY-MM-DD')
       end   = today.endOf('isoWeek').format('YYYY-MM-DD')
+    } else if (logPeriod === 'lastWeek') {
+      start = today.subtract(1, 'week').startOf('isoWeek').format('YYYY-MM-DD')
+      end   = today.subtract(1, 'week').endOf('isoWeek').format('YYYY-MM-DD')
     } else if (logPeriod === 'month') {
       start = today.startOf('month').format('YYYY-MM-DD')
       end   = today.endOf('month').format('YYYY-MM-DD')
+    } else if (logPeriod === 'lastMonth') {
+      start = today.subtract(1, 'month').startOf('month').format('YYYY-MM-DD')
+      end   = today.subtract(1, 'month').endOf('month').format('YYYY-MM-DD')
     } else {
       const q = Math.floor(today.month() / 3)
       start = today.month(q * 3).startOf('month').format('YYYY-MM-DD')
@@ -927,7 +938,7 @@ const DashboardPage: React.FC = () => {
   }, [logPeriod, isManager, allWidgets.length, refreshKey])
 
   // ── 統計數據預計算 ─────────────────────────────────────────────────────────
-  const taskInProg     = (indexData?.total_task_num?.doing_task   ?? 0) + (indexData?.total_task_num?.doing_duty    ?? 0)
+  const taskInProg     = userStat?.in_progress ?? ((indexData?.total_task_num?.doing_task ?? 0) + (indexData?.total_task_num?.doing_duty ?? 0))
   const taskUnstart    = (indexData?.total_task_num?.unstart_task ?? 0) + (indexData?.total_task_num?.unstart_duty  ?? 0)
   const taskDone       = userStat?.completed ?? 0
   const taskTotal      = (userStat?.total_projects ?? 0) + (userStat?.total_duties ?? 0)
@@ -1592,7 +1603,16 @@ const DashboardPage: React.FC = () => {
                 {pendingReviews.length === 0
                   ? <Empty description={t('dashboard.noPendingItems')} className="py-6" image={Empty.PRESENTED_IMAGE_SIMPLE} />
                   : pendingReviews.map((r) => {
-                    const title = r.project_nm || r.duty_nm || r.function_nm || r.id
+                    const isFuncComplete  = r.apply_type_code === 'function_complete'
+                    const isDutyComplete  = r.apply_type_code === 'duty_complete'
+                    const isStandaloneReq = r.apply_type_code === 'standalone_req_review' || r.apply_type_code === 'standalone_req_batch_review' || r.apply_type_code === 'req_task_addition_review'
+                    const title = isFuncComplete
+                      ? (r.function_nm || r.project_nm || r.apply_type)
+                      : isDutyComplete
+                      ? (r.duty_nm || r.apply_type)
+                      : isStandaloneReq
+                      ? (r.system_nm || r.apply_type)
+                      : (r.project_nm || r.duty_nm || r.function_nm || r.apply_type)
                     const typeLabel = r.apply_type || t('dashboard.applicationLabel')
                     return (
                       <div

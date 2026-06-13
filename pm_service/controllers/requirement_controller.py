@@ -22,7 +22,7 @@ class RequirementController:
     def _sync_project_req_progress(req_id: str):
         """根据关联任务重算专案需求进度，并自动切换已完結状态"""
         req = _dao.find_by_id(req_id)
-        if not req or req.req_status not in (2, 4):
+        if not req or req.req_status in (9,):
             return
         funcs = db.session.query(FunctionDataModel).filter(
             FunctionDataModel.requirement_id == req_id,
@@ -30,11 +30,12 @@ class RequirementController:
         ).all()
         if not funcs:
             req.progress = 0
-            req.req_status = 2
         else:
             avg = round(sum(int(f.progress or 0) for f in funcs) / len(funcs))
             req.progress = avg
-            req.req_status = 4 if avg >= 100 else 2
+            # 只有已通过(2)或已完结(4)的需求才自动切换状态
+            if req.req_status in (2, 4):
+                req.req_status = 4 if avg >= 100 else 2
         req.update_at = CommonTools.get_now()
 
     # ── 列表 ────────────────────────────────────────────────────────────────────

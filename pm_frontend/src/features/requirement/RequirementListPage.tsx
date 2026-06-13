@@ -1,15 +1,16 @@
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Table, Button, Input, Select, Space, Tooltip, Popconfirm,
   Modal, Form, Tag, Avatar, Card, Tabs, Progress, Spin, Empty,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { PlusIcon, PencilSquareIcon, TrashIcon, ArrowsPointingOutIcon, TableCellsIcon } from '@heroicons/react/24/outline'
+import type { InputRef } from 'antd'
+import { PlusIcon, PencilSquareIcon, TrashIcon, ArrowsPointingOutIcon, TableCellsIcon, UserPlusIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import { standaloneReqApi, type StandaloneReq } from '@/api/standalone_req.api'
 import { dutyApi } from '@/api/duty.api'
 import { requirementApi, projectApi, type ProjectReqItem } from '@/api/project.api'
-import type { ProjectFunction, TemporaryDuty } from '@/types/api.types'
+import type { ProjectFunction, TemporaryDuty, UserProfile } from '@/types/api.types'
 import RichTextEditor from '@/components/common/RichTextEditor'
 import WbsTable from '@/components/common/WbsTable'
 import DutyWbsTable from '@/components/common/DutyWbsTable'
@@ -37,24 +38,6 @@ const DaysLeftBadge: React.FC<{ date?: string }> = ({ date }) => {
   return <span className="days-ok">{date}</span>
 }
 
-const REQ_STATUS_COLORS: Record<number, string> = {
-  0: 'default',
-  1: 'processing',
-  2: 'blue',
-  3: 'error',
-  4: 'success',
-  8: 'warning',
-}
-
-const REQ_STATUS_KEYS: Record<number, string> = {
-  0: 'requirement.statusDraft',
-  1: 'requirement.statusReviewing',
-  2: 'requirement.statusInProgress',
-  3: 'requirement.statusRejected',
-  4: 'requirement.statusCompleted',
-  8: 'requirement.statusShelved',
-}
-
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 const RequirementListPage: React.FC = () => {
@@ -70,7 +53,7 @@ const RequirementListPage: React.FC = () => {
   const [projPage,     setProjPage]     = useState(1)
   const [projPageSize, setProjPageSize] = useState(20)
   const [projKeyword,  setProjKeyword]  = useState('')
-  const [projStatus,   setProjStatus]   = useState<number | undefined>()
+  const [projStatus]   = useState<number | undefined>()
   const [projPriority, setProjPriority] = useState<number | undefined>()
 
   // ── 系統需求 state ────────────────────────────────────────────────────────
@@ -80,7 +63,7 @@ const RequirementListPage: React.FC = () => {
   const [reqPage,     setReqPage]     = useState(1)
   const [reqPageSize, setReqPageSize] = useState(20)
   const [reqKeyword,  setReqKeyword]  = useState('')
-  const [reqStatus,   setReqStatus]   = useState<number | undefined>()
+  const [reqStatus]   = useState<number | undefined>()
   const [reqPriority, setReqPriority] = useState<number | undefined>()
 
   // ── 專案需求 WBS Modal ────────────────────────────────────────────────────
@@ -123,6 +106,61 @@ const RequirementListPage: React.FC = () => {
   const [expandDraft,   setExpandDraft]   = useState('')
   const [form] = Form.useForm()
   const describeValue = Form.useWatch('describe', form)
+
+  // ── 設定責任人 Modal ────────────────────────────────────────────────────
+  const [respEditReqId,    setRespEditReqId]    = useState<string | null>(null)
+  const [respPersons,      setRespPersons]      = useState<UserProfile[]>([])
+  const [respSaving,       setRespSaving]       = useState(false)
+  const [respSearchKw,     setRespSearchKw]     = useState('')
+  const [respSearching,    setRespSearching]    = useState(false)
+  const [respSearchResult, setRespSearchResult] = useState<UserProfile | false | null>(null)
+  const [respPreloading,   setRespPreloading]   = useState(false)
+  const respSearchRef = useRef<InputRef>(null)
+
+  const openRespModal = async (r: StandaloneReq) => {
+    setRespEditReqId(r.id)
+    setRespSearchKw('')
+    setRespSearchResult(null)
+    setRespPreloading(true)
+    setRespPersons([])
+    const wnos = r.responsible ?? []
+    if (wnos.length > 0) {
+      try {
+        const profiles = await Promise.all(wnos.map(async (wn) => {
+          try { return (await userApi.get(wn)).content as UserProfile }
+          catch { return { work_no: wn, name: toName(wn) || wn, department: '' } as UserProfile }
+        }))
+        setRespPersons(profiles)
+      } catch { /* ignore */ }
+    }
+    setRespPreloading(false)
+  }
+
+  useEffect(() => {
+    if (respSearchKw.trim().length < 4) { setRespSearchResult(null); return }
+    const timer = setTimeout(async () => {
+      setRespSearching(true)
+      setRespSearchResult(null)
+      try {
+        const res = await userApi.getQuiet(respSearchKw.trim().toLowerCase())
+        setRespSearchResult(res.content ?? false)
+      } catch { setRespSearchResult(false) }
+      finally { setRespSearching(false); respSearchRef.current?.focus() }
+    }, 600)
+    return () => clearTimeout(timer)
+  }, [respSearchKw])
+
+  const handleSaveResponsible = async () => {
+    if (!respEditReqId) return
+    setRespSaving(true)
+    try {
+      await standaloneReqApi.update(respEditReqId, { responsible: respPersons.map((p) => p.work_no) })
+      showToast.success(t('common.saveSuccess'))
+      setRespEditReqId(null)
+      loadSysReqs(reqPage)
+    } catch { showToast.error(t('common.saveFailed')) }
+    finally { setRespSaving(false) }
+  }
 
   // ── 載入資料 ─────────────────────────────────────────────────────────────
 
@@ -262,16 +300,10 @@ const RequirementListPage: React.FC = () => {
       ),
     },
     {
-      title: t('nav.projectList'), dataIndex: 'project_nm', width: 150, ellipsis: true,
-      render: (v: string) => v
-        ? <Tag color="blue" style={{ fontSize: 11 }}>{v}</Tag>
+      title: t('project.projectName'), dataIndex: 'project_nm', width: 150, ellipsis: true,
+      render: (v: string, r: ProjectReqItem) => v
+        ? <Button type="link" style={{ padding: 0, fontSize: 12 }} onClick={() => navigate(`/projects/${r.project_id}`)}>{v}</Button>
         : <span className="text-slate-300 text-xs">—</span>,
-    },
-    {
-      title: t('common.status'), dataIndex: 'status', width: 88,
-      render: (v: number) => {
-        return <Tag color={REQ_STATUS_COLORS[v] ?? 'default'} style={{ fontSize: 11 }}>{REQ_STATUS_KEYS[v] ? t(REQ_STATUS_KEYS[v]) : String(v)}</Tag>
-      },
     },
     {
       title: t('common.priority'), dataIndex: 'priority', width: 80,
@@ -281,17 +313,14 @@ const RequirementListPage: React.FC = () => {
       },
     },
     {
-      title: t('common.progress'), dataIndex: 'progress', width: 130,
-      render: (v: number, r: ProjectReqItem) => {
-        if (r.status !== 2 && r.status !== 4) return <span className="text-slate-300 text-xs">—</span>
-        return (
-          <div className="flex items-center gap-2">
-            <Progress percent={v ?? 0} size="small" showInfo={false} style={{ flex: 1 }}
-              strokeColor={(v ?? 0) >= 100 ? '#16a34a' : '#2563eb'} trailColor="#f1f5f9" />
-            <span className="text-xs text-slate-400">{v ?? 0}%</span>
-          </div>
-        )
-      },
+      title: t('common.progress'), dataIndex: 'progress', width: 140,
+      render: (v: number) => (
+        <div className="flex items-center gap-2">
+          <Progress percent={v ?? 0} size="small" showInfo={false} style={{ flex: 1 }}
+            strokeColor={(v ?? 0) >= 100 ? '#16a34a' : '#2563eb'} trailColor="#f1f5f9" />
+          <span className="text-xs text-slate-400">{v ?? 0}%</span>
+        </div>
+      ),
     },
     {
       title: t('common.expectedEndDate'), dataIndex: 'expected_end_date', width: 120,
@@ -323,16 +352,10 @@ const RequirementListPage: React.FC = () => {
       ),
     },
     {
-      title: t('nav.systemMgmt'), dataIndex: 'system_nm', width: 140, ellipsis: true,
-      render: (v: string) => v
-        ? <Tag color="purple" style={{ fontSize: 11 }}>{v}</Tag>
+      title: t('system.sysName'), dataIndex: 'system_nm', width: 140, ellipsis: true,
+      render: (v: string, r: StandaloneReq) => v
+        ? <Button type="link" style={{ padding: 0, fontSize: 12 }} onClick={() => r.system_id && navigate(`/systems/${r.system_id}`)}>{v}</Button>
         : <span className="text-slate-300 text-xs">—</span>,
-    },
-    {
-      title: t('common.status'), dataIndex: 'status', width: 90,
-      render: (v: number) => {
-        return <Tag color={REQ_STATUS_COLORS[v] ?? 'default'} style={{ fontSize: 11 }}>{REQ_STATUS_KEYS[v] ? t(REQ_STATUS_KEYS[v]) : String(v)}</Tag>
-      },
     },
     {
       title: t('common.priority'), dataIndex: 'priority', width: 72,
@@ -342,7 +365,7 @@ const RequirementListPage: React.FC = () => {
       },
     },
     {
-      title: t('common.progress'), dataIndex: 'progress', width: 110,
+      title: t('common.progress'), dataIndex: 'progress', width: 140,
       render: (v: number) => (
         <div className="flex items-center gap-2">
           <Progress percent={v ?? 0} size="small" showInfo={false} style={{ flex: 1 }}
@@ -352,17 +375,36 @@ const RequirementListPage: React.FC = () => {
       ),
     },
     {
-      title: t('function.assignee'), dataIndex: 'responsible', width: 130,
-      render: (v: string[]) => (
-        <Avatar.Group max={{ count: 3 }} size="small">
-          {(v ?? []).map((wn) => (
-            <Tooltip key={wn} title={`${toName(wn)} (${wn})`}>
-              <Avatar size="small" style={{ background: '#2563eb', fontSize: 10 }}>
-                {toName(wn)?.[0] ?? wn[0]}
-              </Avatar>
-            </Tooltip>
-          ))}
-        </Avatar.Group>
+      title: t('function.assignee'), dataIndex: 'responsible', width: 160,
+      render: (v: string[], r: StandaloneReq) => (
+        <div className="flex items-center gap-1.5">
+          {(v ?? []).length > 0 ? (
+            <>
+              <Avatar.Group max={{ count: 3 }} size="small">
+                {v.map((wn) => (
+                  <Tooltip key={wn} title={`${toName(wn)} (${wn})`}>
+                    <Avatar size="small" style={{ background: '#2563eb', fontSize: 10 }}>
+                      {toName(wn)?.[0] ?? wn[0]}
+                    </Avatar>
+                  </Tooltip>
+                ))}
+              </Avatar.Group>
+              <Tooltip title={t('system.setResponsible')}>
+                <Button type="text" size="small" icon={<UserPlusIcon className="w-3.5 h-3.5" />}
+                  onClick={(e) => { e.stopPropagation(); openRespModal(r) }} />
+              </Tooltip>
+            </>
+          ) : (
+            <Button
+              type="dashed" size="small"
+              icon={<PlusIcon className="w-3.5 h-3.5" />}
+              onClick={(e) => { e.stopPropagation(); openRespModal(r) }}
+              style={{ fontSize: 12, color: '#64748b' }}
+            >
+              {t('system.setResponsible')}
+            </Button>
+          )}
+        </div>
       ),
     },
     {
@@ -488,12 +530,6 @@ const RequirementListPage: React.FC = () => {
                     onSearch={(v) => { setReqKeyword(v); loadSysReqs(1, reqPageSize, v, reqStatus, reqPriority) }}
                   />
                   <Select
-                    placeholder={t('common.status')} allowClear style={{ width: 110 }}
-                    value={reqStatus}
-                    onChange={(v) => { setReqStatus(v); loadSysReqs(1, reqPageSize, reqKeyword, v, reqPriority) }}
-                    options={Object.entries(REQ_STATUS_KEYS).map(([k, key]) => ({ value: Number(k), label: t(key) }))}
-                  />
-                  <Select
                     placeholder={t('common.priority')} allowClear style={{ width: 110 }}
                     value={reqPriority}
                     onChange={(v) => { setReqPriority(v); loadSysReqs(1, reqPageSize, reqKeyword, reqStatus, v) }}
@@ -538,12 +574,6 @@ const RequirementListPage: React.FC = () => {
                     allowClear
                     style={{ width: 220 }}
                     onSearch={(v) => { setProjKeyword(v); loadProjReqs(1, projPageSize, v, projStatus, projPriority) }}
-                  />
-                  <Select
-                    placeholder={t('common.status')} allowClear style={{ width: 110 }}
-                    value={projStatus}
-                    onChange={(v) => { setProjStatus(v); loadProjReqs(1, projPageSize, projKeyword, v, projPriority) }}
-                    options={Object.entries(REQ_STATUS_KEYS).map(([k, key]) => ({ value: Number(k), label: t(key) }))}
                   />
                   <Select
                     placeholder={t('common.priority')} allowClear style={{ width: 110 }}
@@ -680,6 +710,98 @@ const RequirementListPage: React.FC = () => {
           placeholder={t('requirement.describePlaceholder')}
           minHeight={480}
         />
+      </Modal>
+
+      {/* 設定責任人 Modal */}
+      <Modal
+        title={t('system.setResponsible')}
+        open={!!respEditReqId}
+        onCancel={() => setRespEditReqId(null)}
+        onOk={handleSaveResponsible}
+        okText={t('system.confirmSave')}
+        confirmLoading={respSaving}
+        okButtonProps={{ style: { background: '#2563eb' } }}
+        width={440}
+        destroyOnHidden
+      >
+        <div className="py-3 space-y-4">
+          <div>
+            <div className="text-sm font-medium text-slate-700 mb-2">{t('system.searchByWorkNo')}</div>
+            <Input
+              ref={respSearchRef}
+              value={respSearchKw}
+              onChange={(e) => setRespSearchKw(e.target.value)}
+              placeholder={t('system.workNoSearchPlaceholder')}
+              suffix={respSearching ? <Spin size="small" /> : null}
+              autoFocus
+            />
+            {respSearchResult === false && (
+              <div className="mt-2 text-xs text-red-500 flex items-center gap-1">
+                <XMarkIcon className="w-3.5 h-3.5" />{t('system.workNoNotFound')}
+              </div>
+            )}
+            {respSearchResult && typeof respSearchResult === 'object' && (
+              <div className="mt-2 flex items-center justify-between bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+                <div className="flex items-center gap-2">
+                  <Avatar size={28} style={{ background: '#2563eb', fontSize: 11, fontWeight: 700 }}>
+                    {(respSearchResult as UserProfile).name?.[0]?.toUpperCase()}
+                  </Avatar>
+                  <div>
+                    <div className="text-sm font-medium text-slate-800">{(respSearchResult as UserProfile).name}</div>
+                    <div className="text-xs text-slate-400">{(respSearchResult as UserProfile).work_no} · {(respSearchResult as UserProfile).department}</div>
+                  </div>
+                </div>
+                <Button
+                  size="small" type="primary" style={{ background: '#2563eb' }}
+                  disabled={respPersons.some((p) => p.work_no === (respSearchResult as UserProfile).work_no)}
+                  onClick={() => {
+                    const person = respSearchResult as UserProfile
+                    if (!respPersons.some((p) => p.work_no === person.work_no)) {
+                      setRespPersons((prev) => [...prev, person])
+                    }
+                    setRespSearchKw(''); setRespSearchResult(null)
+                  }}
+                >
+                  {respPersons.some((p) => p.work_no === (respSearchResult as UserProfile).work_no) ? t('system.alreadyAdded') : t('system.addPerson')}
+                </Button>
+              </div>
+            )}
+          </div>
+          <div>
+            <div className="text-sm font-medium text-slate-700 mb-2">
+              {t('system.selectedResponsible')}
+              {respPersons.length > 0 && (
+                <span className="ml-1.5 text-xs font-normal text-slate-400">{t('system.personsCountSaveHint', { count: respPersons.length })}</span>
+              )}
+            </div>
+            {respPreloading ? (
+              <div className="flex items-center justify-center py-5 text-slate-400 text-xs gap-2"><Spin size="small" />{t('common.loading')}</div>
+            ) : respPersons.length === 0 ? (
+              <div className="border border-dashed border-slate-200 rounded-lg py-5 text-center text-slate-400 text-xs">{t('system.noPersonYet')}</div>
+            ) : (
+              <div className="space-y-1.5">
+                {respPersons.map((p, i) => (
+                  <div key={p.work_no} className="flex items-center gap-2.5 bg-slate-50 rounded-lg px-3 py-2">
+                    <div className="w-5 h-5 rounded-full bg-violet-100 text-violet-600 text-[10px] font-bold flex items-center justify-center flex-shrink-0">{i + 1}</div>
+                    <Avatar size={24} style={{ background: '#7c3aed', fontSize: 10, fontWeight: 700, flexShrink: 0 }}>
+                      {p.name?.[0]?.toUpperCase()}
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm font-medium text-slate-700">{p.name}</span>
+                      <span className="text-xs text-slate-400 ml-1.5">{p.work_no} · {p.department}</span>
+                    </div>
+                    <button
+                      className="text-red-400 hover:text-red-600 transition-colors flex-shrink-0 border-0 outline-none bg-transparent p-0 cursor-pointer"
+                      onClick={() => setRespPersons((prev) => prev.filter((x) => x.work_no !== p.work_no))}
+                    >
+                      <XMarkIcon className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       </Modal>
     </div>
   )

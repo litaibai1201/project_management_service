@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TemporaryDuty } from '@/types/api.types'
-import { DUTY_STATUS_MAP } from '@/utils/status'
+import { DUTY_STATUS_MAP, formatGroupName } from '@/utils/status'
 
 const PRIORITY_LABEL: Record<number, { label: string; color: string }> = {
   1: { label: '低',   color: '#22c55e' },
@@ -36,7 +36,7 @@ const DutyWbsTable: React.FC<{
         subGroupMap.get(g)!.push(t)
       })
       const subGroups = [...subGroupMap.entries()].map(([g, items]) => ({
-        name: g === '__nogroup__' ? t('system.ungrouped') : (g === '__stage__' ? t('common.stageTask') : g),
+        name: g === '__nogroup__' ? t('system.ungrouped') : (formatGroupName(g) || g),
         key: g,
         items,
       }))

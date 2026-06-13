@@ -24,9 +24,9 @@ const DEFAULT_GROUPS = ['部門管理', '長期工作', '臨時工作', '想法�
 
 const STATUS_TAG: Record<number, { color: string; bg: string; label: string }> = {
   0: { color: '#64748b', bg: '#f1f5f9', label: '草稿' },
-  1: { color: '#2563eb', bg: '#eff6ff', label: '進行中' },
+  1: { color: '#16a34a', bg: '#f0fdf4', label: '進行中' },
   2: { color: '#d97706', bg: '#fffbeb', label: '完結審核' },
-  3: { color: '#16a34a', bg: '#f0fdf4', label: '已完結' },
+  3: { color: '#2563eb', bg: '#eff6ff', label: '已完結' },
   8: { color: '#9333ea', bg: '#faf5ff', label: '擱置' },
   9: { color: '#dc2626', bg: '#fef2f2', label: '已刪除' },
 }

@@ -19,16 +19,17 @@ class DutyController:
     def _sync_req_progress(standalone_req_id: str):
         """根据绑定任务重算需求进度，并自动切换 進行中/已完結 状态"""
         req = dao.get_req_by_id(standalone_req_id)
-        if not req or req.req_status not in (2, 4):
+        if not req or req.req_status in (9,):
             return
         duties = dao.query_duties_by_req(standalone_req_id)
         if not duties:
             req.progress = 0
-            req.req_status = 2
         else:
             avg = round(sum(int(d.progress or 0) for d in duties) / len(duties))
             req.progress = avg
-            req.req_status = 4 if avg >= 100 else 2
+            # 只有已通过(2)或已完结(4)的需求才自动切换状态
+            if req.req_status in (2, 4):
+                req.req_status = 4 if avg >= 100 else 2
         req.updated_at = CommonTools.get_now()
 
     def list_duties(self, payload: dict, work_no: str = None):

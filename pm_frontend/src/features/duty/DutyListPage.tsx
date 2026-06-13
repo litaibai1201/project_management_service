@@ -12,7 +12,7 @@ import { PlusIcon, TrashIcon, EyeIcon, FolderIcon, ArrowsPointingOutIcon, Pencil
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
 import { fetchDutyListThunk, deleteDutyThunk, setDutyQuery, createDutyThunk } from './dutySlice'
 import { TemporaryDuty, ProjectFunction, UserProfile } from '@/types/api.types'
-import { DUTY_STATUS_MAP, PRIORITY_MAP, FUNCTION_STATUS_MAP } from '@/utils/status'
+import { DUTY_STATUS_MAP, PRIORITY_MAP, FUNCTION_STATUS_MAP, formatGroupName, STAGE_GROUP } from '@/utils/status'
 import { showToast } from '@/utils/toast'
 import { projectApi } from '@/api/project.api'
 import { dutyApi } from '@/api/duty.api'
@@ -90,7 +90,7 @@ const DutyListPage: React.FC = () => {
   )
   const funcGroupOptions = useMemo(
     () => Array.from(new Set(myFunctions.map((f) => f.group1).filter(Boolean)))
-      .map((g) => ({ value: g, label: g })),
+      .map((g) => ({ value: g, label: formatGroupName(g) || g })),
     [myFunctions],
   )
   const funcResponsibleOptions = useMemo(
@@ -121,7 +121,7 @@ const DutyListPage: React.FC = () => {
   const groupedMyFunctions = useMemo(() => {
     const map = new Map<string, MyFunction[]>()
     filteredMyFunctions.forEach((f) => {
-      const key = f.group1 === '__stage__' ? t('common.stageTask') : (f.group1 || t('common.ungrouped'))
+      const key = formatGroupName(f.group1) || t('common.ungrouped')
       if (!map.has(key)) map.set(key, [])
       map.get(key)!.push(f)
     })
@@ -147,7 +147,7 @@ const DutyListPage: React.FC = () => {
     finally { setMyFuncLoading(false) }
   }, [myFuncPage, myFuncPageSize, myFuncStatus, myFuncScope])
 
-  useEffect(() => { if (activeTab === 'project') loadMyFunctions(1, myFuncPageSize, myFuncStatus, myFuncScope) }, [activeTab, isManagerView])
+  useEffect(() => { loadMyFunctions(1, myFuncPageSize, myFuncStatus, myFuncScope) }, [isManagerView]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── 系統任務 state ────────────────────────────────────────────────────────
   const [sysTaskView,        setSysTaskView]        = useState<'all' | 'mine'>('all')
@@ -244,7 +244,7 @@ const DutyListPage: React.FC = () => {
   const groupedSysTasks = useMemo(() => {
     const map = new Map<string, TemporaryDuty[]>()
     displayedSysTasks.forEach((d) => {
-      const g = d.group || t('common.ungrouped')
+      const g = formatGroupName(d.group) || t('common.ungrouped')
       if (!map.has(g)) map.set(g, [])
       map.get(g)!.push(d)
     })
@@ -273,7 +273,7 @@ const DutyListPage: React.FC = () => {
   )
   const sysGroupOptions = useMemo(
     () => Array.from(new Set(sysTaskList.map((d) => d.group || t('common.ungrouped')).filter(Boolean)))
-      .map((g) => ({ value: g, label: g })),
+      .map((g) => ({ value: g, label: formatGroupName(g) || g })),
     [sysTaskList],
   )
 
@@ -291,7 +291,7 @@ const DutyListPage: React.FC = () => {
   // Apply personal filter + group filter (AR only: no standalone_req_id)
   // scope is already applied by backend; dutyPersonal='mine' further filters to responsible-only
   const displayedList = useMemo(() => {
-    let result = list.filter((d) => !d.standalone_req_id)
+    let result = list.filter((d) => !d.standalone_req_id && d.group !== STAGE_GROUP)
     if (dutyPersonal === 'mine') result = result.filter((d) =>
       (d.responsible ?? []).some((wn) => wn.toLowerCase() === workNo.toLowerCase())
     )
@@ -302,16 +302,16 @@ const DutyListPage: React.FC = () => {
 
   // Unique groups from the full list
   const existingGroups = useMemo(
-    () => Array.from(new Set(list.map((d) => d.group).filter(Boolean) as string[])),
+    () => Array.from(new Set(list.filter((d) => !d.standalone_req_id && d.group !== STAGE_GROUP).map((d) => d.group).filter(Boolean) as string[])),
     [list],
   )
   const groupFilterOptions = useMemo(
-    () => existingGroups.map((g) => ({ label: g, value: g })),
-    [existingGroups],
+    () => existingGroups.map((g) => ({ label: formatGroupName(g) || g, value: g })),
+    [existingGroups, t],
   )
   const groupAutoOptions = useMemo(
-    () => existingGroups.map((g) => ({ value: g, label: g })),
-    [existingGroups],
+    () => existingGroups.map((g) => ({ value: g, label: formatGroupName(g) || g })),
+    [existingGroups, t],
   )
 
   // Grouped data
@@ -319,7 +319,7 @@ const DutyListPage: React.FC = () => {
     const source = hideCompleted ? displayedList.filter((d) => d.status !== 3) : displayedList
     const map = new Map<string, TemporaryDuty[]>()
     source.forEach((d) => {
-      const g = d.group || t('common.ungrouped')
+      const g = formatGroupName(d.group) || t('common.ungrouped')
       if (!map.has(g)) map.set(g, [])
       map.get(g)!.push(d)
     })
@@ -413,7 +413,7 @@ const DutyListPage: React.FC = () => {
       },
     },
     {
-      title: t('nav.projectList'), dataIndex: 'project_nm', width: 150, ellipsis: true,
+      title: t('project.projectName'), dataIndex: 'project_nm', width: 150, ellipsis: true,
       render: (v: string, r) => (
         <Button type="link" style={{ padding: 0, fontSize: 12 }} onClick={() => navigate(`/projects/${r.project_id}`)}>
           {v}
@@ -421,16 +421,18 @@ const DutyListPage: React.FC = () => {
       ),
     },
     {
-      title: t('nav.requirementList'), dataIndex: 'requirement_nm', width: 150, ellipsis: true,
-      render: (v: string) => v
-        ? <Tag color="purple" style={{ fontSize: 10 }}>{v}</Tag>
+      title: t('requirement.name'), dataIndex: 'requirement_nm', width: 150, ellipsis: true,
+      render: (v: string, r) => v
+        ? <Button type="link" style={{ padding: 0, fontSize: 12 }} onClick={() => navigate(`/projects/${r.project_id}?tab=requirements&req_id=${r.requirement_id || ''}`)}>
+            {v}
+          </Button>
         : <span className="text-slate-300 text-xs">—</span>,
     },
     {
       title: t('function.group'), key: 'group', width: 140, ellipsis: true,
       render: (_: unknown, r: MyFunction) => (
         <span className="text-slate-600 text-xs">
-          {r.group1 === '__stage__' ? t('common.stageTask') : r.group1}{r.group2 ? ` / ${r.group2}` : ''}
+          {formatGroupName(r.group1) || r.group1}{r.group2 ? ` / ${r.group2}` : ''}
         </span>
       ),
     },
@@ -490,15 +492,15 @@ const DutyListPage: React.FC = () => {
       ),
     },
     {
-      title: t('nav.systemMgmt'), dataIndex: 'system_nm', width: 130, ellipsis: true,
-      render: (v: string) => v
-        ? <Tag color="geekblue" style={{ fontSize: 10 }}>{v}</Tag>
+      title: t('system.sysName'), dataIndex: 'system_nm', width: 130, ellipsis: true,
+      render: (v: string, r) => v
+        ? <Button type="link" style={{ padding: 0, fontSize: 12 }} onClick={() => r.system_id && navigate(`/systems/${r.system_id}`)}>{v}</Button>
         : <span className="text-slate-300 text-xs">—</span>,
     },
     {
       title: t('common.grouped'), dataIndex: 'group', width: 100,
       render: (v: string) => v ? (
-        <Tag style={{ fontSize: 10, lineHeight: '16px', padding: '0 5px', margin: 0 }} color="processing">{v}</Tag>
+        <Tag style={{ fontSize: 10, lineHeight: '16px', padding: '0 5px', margin: 0 }} color="processing">{formatGroupName(v) || v}</Tag>
       ) : <span className="text-slate-300 text-xs">—</span>,
     },
     {
@@ -626,20 +628,22 @@ const DutyListPage: React.FC = () => {
       },
     },
     {
-      title: t('nav.systemMgmt'), dataIndex: 'system_nm', width: 150, ellipsis: true,
+      title: t('system.sysName'), dataIndex: 'system_nm', width: 150, ellipsis: true,
       render: (v: string, r) => v
         ? <Button type="link" style={{ padding: 0, fontSize: 12 }} onClick={() => navigate(`/systems/${r.system_id}`)}>{v}</Button>
         : <span className="text-slate-300 text-xs">—</span>,
     },
     {
-      title: t('nav.requirementList'), dataIndex: 'standalone_req_id', width: 150, ellipsis: true,
-      render: (v: string) => v && reqNameMap[v]
-        ? <Tag color="purple" style={{ fontSize: 10 }}>{reqNameMap[v]}</Tag>
+      title: t('requirement.name'), dataIndex: 'standalone_req_id', width: 150, ellipsis: true,
+      render: (v: string, r) => v && reqNameMap[v]
+        ? <Button type="link" style={{ padding: 0, fontSize: 12 }} onClick={() => r.system_id && navigate(`/systems/${r.system_id}?req=${v}`)}>
+            {reqNameMap[v]}
+          </Button>
         : <span className="text-slate-300 text-xs">—</span>,
     },
     {
       title: t('function.group'), dataIndex: 'group', width: 140, ellipsis: true,
-      render: (v: string) => <span className="text-slate-600 text-xs">{v || '—'}</span>,
+      render: (v: string) => <span className="text-slate-600 text-xs">{formatGroupName(v) || v || '—'}</span>,
     },
     {
       title: t('common.status'), dataIndex: 'status', width: 100,
@@ -734,7 +738,7 @@ const DutyListPage: React.FC = () => {
                   options={Object.entries(FUNCTION_STATUS_MAP).map(([k, v]) => ({ value: Number(k), label: v.label }))}
                 />
                 <Select
-                  placeholder={t('nav.projectList')} allowClear style={{ width: 160 }}
+                  placeholder={t('project.projectName')} allowClear style={{ width: 160 }}
                   value={myFuncProject}
                   onChange={(v) => setMyFuncProject(v)}
                   options={funcProjectOptions}
@@ -860,7 +864,7 @@ const DutyListPage: React.FC = () => {
                   filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
                 />
                 <Select
-                  placeholder={t('nav.requirementList')} allowClear style={{ width: 150 }}
+                  placeholder={t('requirement.name')} allowClear style={{ width: 150 }}
                   value={sysTaskReq}
                   onChange={(v) => setSysTaskReq(v)}
                   options={sysReqOptions}
@@ -981,14 +985,12 @@ const DutyListPage: React.FC = () => {
                     onChange={(v) => dispatch(setDutyQuery({ priority: v, page: 1 }))}
                     options={Object.entries(PRIORITY_MAP).map(([k]) => ({ value: Number(k), label: PRIORITY_MAP[Number(k)]?.label ?? k }))}
                   />
-                  {groupFilterOptions.length > 0 && (
-                    <Select
-                      placeholder={t('common.grouped')} allowClear style={{ width: 110 }}
-                      value={filterGroup}
-                      onChange={(v) => setFilterGroup(v ?? null)}
-                      options={groupFilterOptions}
-                    />
-                  )}
+                  <Select
+                    placeholder={t('common.grouped')} allowClear style={{ width: 110 }}
+                    value={filterGroup}
+                    onChange={(v) => setFilterGroup(v ?? null)}
+                    options={groupFilterOptions}
+                  />
                   <Select
                     placeholder={t('function.assignee')} allowClear showSearch optionFilterProp="label" style={{ width: 130 }}
                     value={query.responsible ?? undefined}

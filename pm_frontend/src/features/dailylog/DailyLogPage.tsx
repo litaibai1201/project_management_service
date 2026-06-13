@@ -32,6 +32,7 @@ import { systemApi } from '@/api/system.api'
 import { userApi } from '@/api/user.api'
 import { useTranslation } from 'react-i18next'
 import i18n from '@/i18n'
+import { formatGroupName } from '@/utils/status'
 import dayjs, { Dayjs } from 'dayjs'
 import isoWeek from 'dayjs/plugin/isoWeek'
 import { exportDailyReport, exportRangeReport } from './exportDailyReport'
@@ -151,7 +152,7 @@ function buildRequirements(
     for (const tk of rg.taskKeys) {
       const { g1, g2 } = taskMeta.get(tk)!
       const gk = (g1 || g2) ? `${g1}\x00${g2}` : '__no_group__'
-      const g1Label = g1 === '__stage__' ? i18n.t('common.stageTask') : g1
+      const g1Label = formatGroupName(g1) || g1
       const nm = g1Label ? (g2 ? `${g1Label} / ${g2}` : g1Label) : (g2 || '')
       if (!grpMap.has(gk)) grpMap.set(gk, { nm, taskKeys: [] })
       grpMap.get(gk)!.taskKeys.push(tk)
@@ -753,13 +754,12 @@ const DailyLogPage: React.FC = () => {
     if (functionsMap[selectedProject]) return  // already cached
     projectApi.functionList(selectedProject, { page: 1, size: 200 })
       .then((res) => {
-        type RawFunc = { id: string; function_nm: string; status?: number; end_time?: string; requirement_nm?: string; group1?: string; group2?: string; expected_start_date?: string; expected_end_date?: string }
+        type RawFunc = { id: string; function_nm: string; status?: number; requirement_nm?: string; group1?: string; group2?: string; expected_start_date?: string; expected_end_date?: string }
         const list = (res.content as { data_list?: RawFunc[] })?.data_list ?? []
-        const today = dayjs().format('YYYY-MM-DD')
         setFunctionsMap((prev) => ({
           ...prev,
           [selectedProject]: list
-            .filter((f) => f.status == null || ([0, 9].includes(f.status!) ? false : f.status !== 4 || (f.end_time ?? '').slice(0, 10) === today))
+            .filter((f) => f.status != null && ![0, 4, 9].includes(f.status!))
             .map((f) => ({
               id: f.id, name: f.function_nm,
               requirement_nm: f.requirement_nm || undefined,
@@ -778,12 +778,11 @@ const DailyLogPage: React.FC = () => {
     if (systemDutiesMap[selectedSystem]) return
     dutyApi.list({ page: 1, size: 200, system_id: selectedSystem })
       .then((res) => {
-        const list = (res.content as { data_list?: { id: string; duty_nm: string; status?: number; end_time?: string; requirement_nm?: string; group?: string; expected_start_date?: string; expected_end_date?: string }[] })?.data_list ?? []
-        const todayStr = dayjs().format('YYYY-MM-DD')
+        const list = (res.content as { data_list?: { id: string; duty_nm: string; status?: number; requirement_nm?: string; group?: string; expected_start_date?: string; expected_end_date?: string }[] })?.data_list ?? []
         setSystemDutiesMap((prev) => ({
           ...prev,
           [selectedSystem]: list
-            .filter((d) => d.status == null || ([0, 9].includes(d.status!) ? false : d.status !== 3 || (d.end_time ?? '').slice(0, 10) === todayStr))
+            .filter((d) => d.status != null && ![0, 3, 8, 9].includes(d.status!))
             .map((d) => ({
               id: d.id, name: d.duty_nm,
               requirement_nm: d.requirement_nm || undefined,
@@ -1012,11 +1011,10 @@ const DailyLogPage: React.FC = () => {
           .then((res) => {
             type RawFunc = { id: string; function_nm: string; status?: number; end_time?: string; group1?: string; group2?: string; expected_start_date?: string; expected_end_date?: string }
             const list = (res.content as { data_list?: RawFunc[] })?.data_list ?? []
-            const today = dayjs().format('YYYY-MM-DD')
             setFunctionsMap((prev) => ({
               ...prev,
               [projId]: list
-                .filter((f) => f.status == null || ([0, 9].includes(f.status!) ? false : f.status !== 4 || (f.end_time ?? '').slice(0, 10) === today))
+                .filter((f) => f.status != null && ![0, 4, 9].includes(f.status!))
                 .map((f) => ({
                   id: f.id, name: f.function_nm,
                   group1: f.group1, group2: f.group2,
@@ -2066,7 +2064,7 @@ const DailyLogPage: React.FC = () => {
                             <span className="text-[10px] bg-blue-50 text-blue-600 border border-blue-200 rounded px-1.5 py-px leading-none flex-shrink-0">{f.requirement_nm}</span>
                           )}
                           {f.group1 && (
-                            <span className="text-[10px] bg-slate-100 text-slate-500 rounded px-1.5 py-px leading-none flex-shrink-0">{f.group1 === '__stage__' ? t('common.stageTask') : f.group1}</span>
+                            <span className="text-[10px] bg-slate-100 text-slate-500 rounded px-1.5 py-px leading-none flex-shrink-0">{formatGroupName(f.group1) || f.group1}</span>
                           )}
                           {f.group2 && (
                             <span className="text-[10px] bg-slate-100 text-slate-400 rounded px-1.5 py-px leading-none flex-shrink-0">{f.group2}</span>

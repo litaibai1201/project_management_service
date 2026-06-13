@@ -9,17 +9,22 @@ class ReqListQuerySchema(BaseSchema):
     status = fields.Int(load_default=None, allow_none=True)
     priority = fields.Int(load_default=None, allow_none=True)
     responsible = fields.Str(load_default="")
+    system_id = fields.Str(load_default="")
     page = fields.Int(load_default=1)
     size = fields.Int(load_default=20)
 
 
 class CreateReqSchema(BaseSchema):
     req_nm = fields.Str(required=True)
+    system_id = fields.Str(load_default="")
     describe = fields.Str(load_default="")
     priority = fields.Int(load_default=2)
     responsible = fields.List(fields.Str(), load_default=[])
     expected_start_date = fields.Str(load_default="")
     expected_end_date = fields.Str(load_default="")
+    expected_benefit = fields.Str(load_default="")
+    benefit_amount = fields.Float(load_default=None, allow_none=True)
+    benefit_unit = fields.Str(load_default="元/年")
 
 
 class UpdateReqSchema(BaseSchema):
@@ -29,6 +34,10 @@ class UpdateReqSchema(BaseSchema):
     responsible = fields.List(fields.Str())
     expected_start_date = fields.Str()
     expected_end_date = fields.Str()
+    expected_benefit = fields.Str()
+    benefit_amount = fields.Float(allow_none=True)
+    benefit_unit = fields.Str()
+    system_id = fields.Str()
 
 
 class SubmitReviewSchema(BaseSchema):

@@ -21,7 +21,7 @@ import { dutyApi } from '@/api/duty.api'
 import { dailyLogApi } from '@/api/daily_log.api'
 import type { TaskLogEntry } from '@/api/daily_log.api'
 import { tokenStorage } from '@/api/httpClient'
-import { DUTY_STATUS_MAP, PRIORITY_MAP } from '@/utils/status'
+import { DUTY_STATUS_MAP, PRIORITY_MAP, formatGroupName } from '@/utils/status'
 import { showToast } from '@/utils/toast'
 import dayjs from 'dayjs'
 import DateInput from '@/components/common/DateInput'
@@ -121,6 +121,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
   // 需求任務提交審核
   const [showReqReviewModal,        setShowReqReviewModal]        = useState(false)
   const [reqReviewers,              setReqReviewers]              = useState<UserProfile[]>([])
+  const [defaultReqReviewerWnos,   setDefaultReqReviewerWnos]    = useState<Set<string>>(new Set())
   const [reqReviewersLoading,       setReqReviewersLoading]       = useState(false)
   const [reqReviewSearch,           setReqReviewSearch]           = useState('')
   const [reqReviewSearchResults,    setReqReviewSearchResults]    = useState<UserProfile[]>([])
@@ -310,13 +311,16 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
 
   const openReqReviewModal = useCallback(async () => {
     setReqReviewers([])
+    setDefaultReqReviewerWnos(new Set())
     setReqReviewSearch('')
     setReqReviewSearchResults([])
     setShowReqReviewModal(true)
     setReqReviewersLoading(true)
     try {
       const res = await userApi.getSupervisors(workNo ?? '')
-      setReqReviewers((Array.isArray(res.content) ? res.content : []) as UserProfile[])
+      const list = (Array.isArray(res.content) ? res.content : []) as UserProfile[]
+      setReqReviewers(list)
+      setDefaultReqReviewerWnos(new Set(list.map((u) => u.work_no)))
     } catch { /* ignore */ }
     finally { setReqReviewersLoading(false) }
   }, [workNo])
@@ -548,7 +552,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
                 </div>
               </Descriptions.Item>
               <Descriptions.Item label={t('duty.taskGroup')}>
-                {duty.group ? <Tag color="processing" style={{ fontSize: 11 }}>{duty.group === '__stage__' ? t('common.stageTask') : duty.group}</Tag> : '—'}
+                {duty.group ? <Tag color="processing" style={{ fontSize: 11 }}>{formatGroupName(duty.group) || duty.group}</Tag> : '—'}
               </Descriptions.Item>
               <Descriptions.Item label={t('duty.linkedSystem')}>
                 {duty.system_nm ? <span className="text-blue-600 text-xs">{duty.system_nm}</span> : '—'}
@@ -1114,8 +1118,13 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
                       <Button size="small" type="text" disabled={i === reqReviewers.length - 1}
                         onClick={() => setReqReviewers((prev) => { const a = [...prev]; [a[i], a[i+1]] = [a[i+1], a[i]]; return a })}
                         style={{ padding: '0 4px', fontSize: 12, color: i === reqReviewers.length - 1 ? '#cbd5e1' : '#64748b' }}>↓</Button>
-                      <Button size="small" type="text" danger icon={<TrashIcon className="w-3.5 h-3.5" />}
-                        onClick={() => setReqReviewers((prev) => prev.filter((u) => u.work_no !== r.work_no))} />
+                      {defaultReqReviewerWnos.has(r.work_no) && reqReviewers.filter((u) => defaultReqReviewerWnos.has(u.work_no)).length <= 1
+                        ? <Tooltip title={t('system.defaultReviewer') || '默認主管審核人'}>
+                            <span className="w-7 h-7 flex items-center justify-center text-slate-300">🔒</span>
+                          </Tooltip>
+                        : <Button size="small" type="text" danger icon={<TrashIcon className="w-3.5 h-3.5" />}
+                            onClick={() => setReqReviewers((prev) => prev.filter((u) => u.work_no !== r.work_no))} />
+                      }
                     </div>
                   </div>
                 ))}

@@ -359,6 +359,11 @@ class DailyLogController:
             if func:
                 func.progress = latest_progress if latest_progress is not None else 0
                 db.session.commit()
+                # 同步需求进度
+                if func.requirement_id:
+                    from controllers.requirement_controller import RequirementController
+                    RequirementController._sync_project_req_progress(func.requirement_id)
+                    db.session.commit()
 
         elif task_type == "duty":
             rec = (db.session.query(DutyProgressRecordModel.progress)
@@ -385,6 +390,11 @@ class DailyLogController:
             if duty:
                 duty.progress = latest_progress if latest_progress is not None else 0
                 db.session.commit()
+                # 同步需求进度
+                if duty.standalone_req_id:
+                    from controllers.duty_controller import DutyController
+                    DutyController._sync_req_progress(duty.standalone_req_id)
+                    db.session.commit()
 
     # ─── 同步任务进度字段 ─────────────────────────────────────────────────
     def sync_task_progress(self, task_type: str, task_id: str, progress: int):
@@ -399,12 +409,22 @@ class DailyLogController:
                 raise ResourceNotFoundException(msg="任务不存在")
             func.progress = progress
             db.session.commit()
+            # 同步需求进度
+            if func.requirement_id:
+                from controllers.requirement_controller import RequirementController
+                RequirementController._sync_project_req_progress(func.requirement_id)
+                db.session.commit()
         elif task_type == "duty":
             duty = db.session.query(TemporaryDutyModel).filter_by(id=task_id).first()
             if not duty:
                 raise ResourceNotFoundException(msg="AR不存在")
             duty.progress = progress
             db.session.commit()
+            # 同步需求进度
+            if duty.standalone_req_id:
+                from controllers.duty_controller import DutyController
+                DutyController._sync_req_progress(duty.standalone_req_id)
+                db.session.commit()
         else:
             raise ValidationException(msg="task_type 无效")
 

@@ -24,7 +24,7 @@ import { tokenStorage } from '@/api/httpClient'
 import AttachmentPreview from '@/components/ui/AttachmentPreview'
 import { userApi } from '@/api/user.api'
 import { ProjectFunction, Milestone, ProjectFile, UserProfile, Requirement } from '@/types/api.types'
-import { FUNCTION_STATUS_MAP, PRIORITY_MAP , benefitUnitLabel } from '@/utils/status'
+import { FUNCTION_STATUS_MAP, PRIORITY_MAP, benefitUnitLabel, formatGroupName, STAGE_GROUP } from '@/utils/status'
 import { showToast } from '@/utils/toast'
 import FunctionDetailDrawer from './FunctionDetailDrawer'
 import GanttChart from './GanttChart'
@@ -38,10 +38,6 @@ import DateInput from '@/components/common/DateInput'
 
 
 const PRIORITY_VALUES = [1, 2, 3, 4]
-
-const REQ_STATUS_COLORS: Record<number, string> = {
-  0: 'default', 1: 'processing', 2: 'blue', 3: 'error', 4: 'success', 8: 'warning',
-}
 
 const PRIORITY_COLORS = ['', '#22c55e', '#f59e0b', '#ef4444', '#7c3aed']
 
@@ -72,14 +68,6 @@ const ProjectDetailPage: React.FC = () => {
 
   // Computed i18n helpers
   const PRIORITY_OPTIONS = PRIORITY_VALUES.map((v) => ({ value: v, label: t(`status.priority.${v}`) }))
-  const REQ_STATUS_MAP: Record<number, { label: string; color: string }> = {
-    0: { label: t('projectDetail.reqStatus.draft'), color: REQ_STATUS_COLORS[0] },
-    1: { label: t('projectDetail.reqStatus.reviewing'), color: REQ_STATUS_COLORS[1] },
-    2: { label: t('projectDetail.reqStatus.inProgress'), color: REQ_STATUS_COLORS[2] },
-    3: { label: t('projectDetail.reqStatus.rejected'), color: REQ_STATUS_COLORS[3] },
-    4: { label: t('projectDetail.reqStatus.completed'), color: REQ_STATUS_COLORS[4] },
-    8: { label: t('projectDetail.reqStatus.shelved'), color: REQ_STATUS_COLORS[8] },
-  }
   const STATUS_STEPS = [
     t('projectDetail.step.draft'), t('projectDetail.step.initReview'), t('projectDetail.step.planning'),
     t('projectDetail.step.planReview'), t('projectDetail.step.scheduling'), t('projectDetail.step.schedReview'),
@@ -123,8 +111,16 @@ const ProjectDetailPage: React.FC = () => {
   const [funcForm]                             = Form.useForm()
 
   // ── Tab 控制 ──────────────────────────────────────────────────────────────
-  const [activeTab,          setActiveTab]          = useState(() => searchParams.get('req') ? 'requirements' : 'info')
-  const [expandedReqKeys,    setExpandedReqKeys]    = useState<string[]>(() => { const r = searchParams.get('req'); return r ? [r] : [] })
+  const [activeTab,          setActiveTab]          = useState(() => {
+    const tab = searchParams.get('tab')
+    if (tab) return tab
+    if (searchParams.get('req') || searchParams.get('req_id')) return 'requirements'
+    return 'info'
+  })
+  const [expandedReqKeys,    setExpandedReqKeys]    = useState<string[]>(() => {
+    const r = searchParams.get('req') || searchParams.get('req_id')
+    return r ? [r] : []
+  })
 
   // ── 需求管理 ──────────────────────────────────────────────────────────────
   const [requirements,       setRequirements]       = useState<Requirement[]>([])
@@ -919,7 +915,7 @@ const ProjectDetailPage: React.FC = () => {
 
   // Group-related computed data
   const existingGroups = useMemo(
-    () => Array.from(new Set(functions.map((f) => f.group1).filter((g) => g && g !== '__stage__'))),
+    () => Array.from(new Set(functions.map((f) => f.group1).filter((g) => g && g !== STAGE_GROUP))),
     [functions],
   )
   const groupAutoOptions = useMemo(
@@ -929,7 +925,7 @@ const ProjectDetailPage: React.FC = () => {
   const groupedFunctions = useMemo(() => {
     const map = new Map<string, ProjectFunction[]>()
     displayedFunctions.forEach((f) => {
-      const g = f.group1 === '__stage__' ? t('projectDetail.stageTaskGroup') : (f.group1 || t('common.ungrouped'))
+      const g = formatGroupName(f.group1) || f.group1 || t('common.ungrouped')
       if (!map.has(g)) map.set(g, [])
       map.get(g)!.push(f)
     })
@@ -966,7 +962,7 @@ const ProjectDetailPage: React.FC = () => {
       .map(([key, { reqNm, expectedEndDate, items }]) => {
         const groupMap = new Map<string, ProjectFunction[]>()
         items.forEach((f) => {
-          const g = f.group1 === '__stage__' ? t('projectDetail.stageTaskGroup') : (f.group1 || t('common.ungrouped'))
+          const g = formatGroupName(f.group1) || f.group1 || t('common.ungrouped')
           if (!groupMap.has(g)) groupMap.set(g, [])
           groupMap.get(g)!.push(f)
         })
@@ -1028,7 +1024,7 @@ const ProjectDetailPage: React.FC = () => {
     {
       title: t('projectDetail.colResponsible'), dataIndex: 'responsible', width: 150,
       render: (v: string[], record) => {
-        const isStage = record.group1 === '__stage__'
+        const isStage = record.group1 === STAGE_GROUP
         // 阶段任务：PM 在任何非完结阶段都可设定负责人；普通任务：PM 在规划/执行/排程阶段
         const ispm = isPm && record.status !== 4 && record.status !== 3 && !isProjectLocked && (isStage || [3, 5, 10].includes(current?.status ?? 0))
         const openPicker = async () => {
@@ -1114,7 +1110,7 @@ const ProjectDetailPage: React.FC = () => {
       render: (_: unknown, record) => {
         const isDraft = record.status === 0
         const canModifyTask = [3, 10].includes(current?.status ?? 0) || isDraft
-        const isStage = record.group1 === '__stage__'
+        const isStage = record.group1 === STAGE_GROUP
         return (
           <Space size={0}>
             <Tooltip title={t('common.view')}><Button icon={<EyeIcon className="w-4 h-4" />} size="small" type="text" onClick={() => setSelectedFid(record.id)} /></Tooltip>
@@ -1134,7 +1130,7 @@ const ProjectDetailPage: React.FC = () => {
 
   const rawFuncColumnsFlat: ColumnsType<ProjectFunction> = [
     rawFuncColumnsGrouped[0], // 功能名稱
-    { title: t('projectDetail.colGroup'), dataIndex: 'group1', width: 100, render: (v: string) => <Tag style={{ fontSize: 10 }}>{v === '__stage__' ? t('projectDetail.stageTaskGroup') : (v || t('common.ungrouped'))}</Tag> },
+    { title: t('projectDetail.colGroup'), dataIndex: 'group1', width: 100, render: (v: string) => <Tag style={{ fontSize: 10 }}>{formatGroupName(v) || v || t('common.ungrouped')}</Tag> },
     ...rawFuncColumnsGrouped.slice(1), // 狀態, 優先級, 進度, 負責人, 預計完成, 實際完成, 操作
   ]
 
@@ -1486,24 +1482,14 @@ const ProjectDetailPage: React.FC = () => {
                       render: (name: string) => <span className="font-medium text-slate-800">{name}</span>,
                     },
                     {
-                      title: t('common.status'), dataIndex: 'status', width: 90,
-                      render: (v: number) => {
-                        const st = REQ_STATUS_MAP[v] ?? { label: String(v), color: 'default' }
-                        return <Tag color={st.color} style={{ fontSize: 11 }}>{st.label}</Tag>
-                      },
-                    },
-                    {
-                      title: t('common.progress'), dataIndex: 'progress', width: 110,
-                      render: (v: number, req: Requirement) => {
-                        if (req.status !== 2 && req.status !== 4) return <span className="text-slate-300 text-xs">—</span>
-                        return (
-                          <div className="flex items-center gap-2">
-                            <Progress percent={v ?? 0} size="small" showInfo={false} style={{ flex: 1 }}
-                              strokeColor={(v ?? 0) >= 100 ? '#16a34a' : '#2563eb'} trailColor="#f1f5f9" />
-                            <span className="text-xs text-slate-400">{v ?? 0}%</span>
-                          </div>
-                        )
-                      },
+                      title: t('common.progress'), dataIndex: 'progress', width: 140,
+                      render: (v: number) => (
+                        <div className="flex items-center gap-2">
+                          <Progress percent={v ?? 0} size="small" showInfo={false} style={{ flex: 1 }}
+                            strokeColor={(v ?? 0) >= 100 ? '#16a34a' : '#2563eb'} trailColor="#f1f5f9" />
+                          <span className="text-xs text-slate-400">{v ?? 0}%</span>
+                        </div>
+                      ),
                     },
                     {
                       title: t('common.priority'), dataIndex: 'priority', width: 72,

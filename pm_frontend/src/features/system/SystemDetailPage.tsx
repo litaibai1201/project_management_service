@@ -7,7 +7,7 @@ import {
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import {
-  ArrowLeftIcon, PlusIcon, PencilSquareIcon, TrashIcon,
+  ArrowLeftIcon, PlusIcon, PencilSquareIcon, TrashIcon, UserPlusIcon,
   PaperClipIcon, ArrowsPointingOutIcon, UserCircleIcon, FolderIcon, EyeIcon, XMarkIcon,
 } from '@heroicons/react/24/outline'
 import type { InputRef } from 'antd'
@@ -19,7 +19,7 @@ import { dutyApi } from '@/api/duty.api'
 import { userApi } from '@/api/user.api'
 import { useAppSelector } from '@/hooks/redux'
 import { useWorkNoToName } from '@/hooks/useWorkNoToName'
-import { PRIORITY_MAP, DUTY_STATUS_MAP , benefitUnitLabel } from '@/utils/status'
+import { PRIORITY_MAP, DUTY_STATUS_MAP , benefitUnitLabel, formatGroupName } from '@/utils/status'
 import type { UserProfile } from '@/types/api.types'
 import { showToast } from '@/utils/toast'
 import { tokenStorage } from '@/api/httpClient'
@@ -31,19 +31,6 @@ import DateInput from '@/components/common/DateInput'
 
 const { Link } = Typography
 
-const useReqStatusMap = () => {
-  const { t } = useTranslation()
-  return {
-    0: { label: t('system.reqStatus.draft'),      color: 'default'    },
-    1: { label: t('system.reqStatus.reviewing'),  color: 'processing' },
-    2: { label: t('system.reqStatus.inProgress'), color: 'blue'       },
-    3: { label: t('system.reqStatus.rejected'),   color: 'error'      },
-    4: { label: t('system.reqStatus.completed'),  color: 'success'    },
-    8: { label: t('system.reqStatus.onHold'),     color: 'warning'    },
-    9: { label: t('system.reqStatus.deleted'),    color: 'error'      },
-  } as Record<number, { label: string; color: string }>
-}
-
 const PRIORITY_COLORS = ['', '#22c55e', '#f59e0b', '#ef4444', '#7c3aed']
 
 const isHtml = (v: string) => /<[a-z][\s\S]*>/i.test(v)
@@ -53,7 +40,6 @@ const stripHtml = (html: string) => html.replace(/<[^>]*>/g, ' ').replace(/\s+/g
 
 const SystemDetailPage: React.FC = () => {
   const { t } = useTranslation()
-  const REQ_STATUS_MAP = useReqStatusMap()
   const { id }   = useParams<{ id: string }>()
   const navigate = useNavigate()
   const location = useLocation()
@@ -64,7 +50,11 @@ const SystemDetailPage: React.FC = () => {
 
   const [system,      setSystem]      = useState<SystemItem | null>(null)
   const [sysLoading,  setSysLoading]  = useState(false)
-  const [activeTab,   setActiveTab]   = useState(() => searchParams.get('req') ? 'requirements' : 'info')
+  const [activeTab,   setActiveTab]   = useState(() => {
+    if (searchParams.get('tab')) return searchParams.get('tab')!
+    if (searchParams.get('req')) return 'requirements'
+    return 'info'
+  })
 
   const [reqList,     setReqList]     = useState<StandaloneReq[]>([])
   const [reqLoading,  setReqLoading]  = useState(false)
@@ -103,6 +93,62 @@ const SystemDetailPage: React.FC = () => {
 
   const [userOptions, setUserOptions] = useState<{ value: string; label: string }[]>([])
   const workNo = useAppSelector((s) => s.auth.workNo) ?? ''
+
+  // 設定需求責任人 Modal
+  const [respEditReqId,    setRespEditReqId]    = useState<string | null>(null)
+  const [respPersons,      setRespPersons]      = useState<UserProfile[]>([])
+  const [respSaving,       setRespSaving]       = useState(false)
+  const [respSearchKw,     setRespSearchKw]     = useState('')
+  const [respSearching,    setRespSearching]    = useState(false)
+  const [respSearchResult, setRespSearchResult] = useState<UserProfile | false | null>(null)
+  const [respPreloading,   setRespPreloading]   = useState(false)
+  const respSearchRef = useRef<InputRef>(null)
+
+  const openRespModal = async (r: StandaloneReq) => {
+    setRespEditReqId(r.id)
+    setRespSearchKw('')
+    setRespSearchResult(null)
+    setRespPreloading(true)
+    setRespPersons([])
+    // 預載現有責任人
+    const wnos = r.responsible ?? []
+    if (wnos.length > 0) {
+      try {
+        const profiles = await Promise.all(wnos.map(async (wn) => {
+          try { return (await userApi.get(wn)).content as UserProfile }
+          catch { return { work_no: wn, name: toName(wn) || wn, department: '' } as UserProfile }
+        }))
+        setRespPersons(profiles)
+      } catch { /* ignore */ }
+    }
+    setRespPreloading(false)
+  }
+
+  useEffect(() => {
+    if (respSearchKw.trim().length < 4) { setRespSearchResult(null); return }
+    const timer = setTimeout(async () => {
+      setRespSearching(true)
+      setRespSearchResult(null)
+      try {
+        const res = await userApi.getQuiet(respSearchKw.trim().toLowerCase())
+        setRespSearchResult(res.content ?? false)
+      } catch { setRespSearchResult(false) }
+      finally { setRespSearching(false); respSearchRef.current?.focus() }
+    }, 600)
+    return () => clearTimeout(timer)
+  }, [respSearchKw])
+
+  const handleSaveResponsible = async () => {
+    if (!respEditReqId) return
+    setRespSaving(true)
+    try {
+      await standaloneReqApi.update(respEditReqId, { responsible: respPersons.map((p) => p.work_no) })
+      showToast.success(t('common.saveSuccess'))
+      setRespEditReqId(null)
+      loadReqs(reqPage)
+    } catch { showToast.error(t('common.saveFailed')) }
+    finally { setRespSaving(false) }
+  }
 
   // 行選擇（批量）
   const [selectedReqIds, setSelectedReqIds] = useState<string[]>([])
@@ -496,7 +542,7 @@ const SystemDetailPage: React.FC = () => {
   // ── Duty 分類計算 ─────────────────────────────────────────────────────────
   // eslint-disable-next-line react-hooks/rules-of-hooks
   const existingDutyGroups = useMemo(
-    () => Array.from(new Set(duties.map((d) => d.group).filter(Boolean))).map((g) => ({ value: g as string, label: g === '__stage__' ? t('common.stageTask') : g as string })),
+    () => Array.from(new Set(duties.map((d) => d.group).filter(Boolean))).map((g) => ({ value: g as string, label: formatGroupName(g) || (g as string) })),
     [duties],
   )
 const reqDuties   = useMemo(() => duties.filter((d) => !!d.standalone_req_id), [duties])
@@ -508,7 +554,7 @@ const displayedArDuties  = useMemo(() => arDutyView  === 'mine' ? myArDuties  : 
 const groupedArDuties = useMemo(() => {
     const map = new Map<string, TemporaryDuty[]>()
     displayedArDuties.forEach((d) => {
-      const g = d.group === '__stage__' ? t('common.stageTask') : (d.group || t('system.ungrouped'))
+      const g = formatGroupName(d.group) || d.group || t('system.ungrouped')
       if (!map.has(g)) map.set(g, [])
       map.get(g)!.push(d)
     })
@@ -527,7 +573,7 @@ const groupedByReq = useMemo(() => {
       const items = displayedReqDuties.filter((d) => d.standalone_req_id === req.id)
       const groupMap = new Map<string, TemporaryDuty[]>()
       items.forEach((d) => {
-        const g = d.group === '__stage__' ? t('common.stageTask') : (d.group || t('system.ungrouped'))
+        const g = formatGroupName(d.group) || d.group || t('system.ungrouped')
         if (!groupMap.has(g)) groupMap.set(g, [])
         groupMap.get(g)!.push(d)
       })
@@ -556,13 +602,6 @@ const groupedByReq = useMemo(() => {
       render: (v: string) => <span className="font-medium text-slate-800">{v}</span>,
     },
     {
-      title: t('system.status'), dataIndex: 'status', width: 90,
-      render: (v: number) => {
-        const c = REQ_STATUS_MAP[v] ?? { label: String(v), color: 'default' }
-        return <Tag color={c.color} style={{ fontSize: 11 }}>{c.label}</Tag>
-      },
-    },
-    {
       title: t('system.priority'), dataIndex: 'priority', width: 72,
       render: (v: number) => {
         const p = PRIORITY_MAP[v]
@@ -570,11 +609,11 @@ const groupedByReq = useMemo(() => {
       },
     },
     {
-      title: t('system.progress'), dataIndex: 'progress', width: 110,
+      title: t('system.progress'), dataIndex: 'progress', width: 140,
       render: (v: number) => (
         <div className="flex items-center gap-2">
           <Progress percent={v ?? 0} size="small" showInfo={false} style={{ flex: 1 }}
-            strokeColor={v >= 100 ? '#16a34a' : '#2563eb'} trailColor="#f1f5f9" />
+            strokeColor={(v ?? 0) >= 100 ? '#16a34a' : '#2563eb'} trailColor="#f1f5f9" />
           <span className="text-xs text-slate-400">{v ?? 0}%</span>
         </div>
       ),
@@ -584,15 +623,31 @@ const groupedByReq = useMemo(() => {
       render: (v: string) => <span className="text-xs text-slate-500">{v || '—'}</span>,
     },
     {
-      title: t('system.responsible'), dataIndex: 'responsible', width: 130,
-      render: (v: string[]) => (
-        <Avatar.Group max={{ count: 3 }} size="small">
-          {(v ?? []).map((wn) => (
-            <Tooltip key={wn} title={`${toName(wn)} (${wn})`}>
-              <Avatar size="small" style={{ background: '#2563eb', fontSize: 10 }}>{toName(wn)?.[0] ?? wn[0]}</Avatar>
-            </Tooltip>
-          ))}
-        </Avatar.Group>
+      title: t('system.responsible'), dataIndex: 'responsible', width: 160,
+      render: (v: string[], r: StandaloneReq) => (
+        <div className="flex items-center gap-1.5">
+          {(v ?? []).length > 0 ? (
+            <>
+              <Avatar.Group max={{ count: 3 }} size="small">
+                {v.map((wn) => (
+                  <Tooltip key={wn} title={`${toName(wn)} (${wn})`}>
+                    <Avatar size="small" style={{ background: '#2563eb', fontSize: 10 }}>{toName(wn)?.[0] ?? wn[0]}</Avatar>
+                  </Tooltip>
+                ))}
+              </Avatar.Group>
+              <Tooltip title={t('system.setResponsible')}>
+                <Button type="text" size="small" icon={<UserPlusIcon className="w-3.5 h-3.5" />}
+                  onClick={(e) => { e.stopPropagation(); openRespModal(r) }} />
+              </Tooltip>
+            </>
+          ) : (
+            <Button type="dashed" size="small" icon={<PlusIcon className="w-3.5 h-3.5" />}
+              onClick={(e) => { e.stopPropagation(); openRespModal(r) }}
+              style={{ fontSize: 12, color: '#64748b' }}>
+              {t('system.setResponsible')}
+            </Button>
+          )}
+        </div>
       ),
     },
     {
@@ -1248,10 +1303,7 @@ const groupedByReq = useMemo(() => {
               onOpenChange={(open) => { if (open) loadSystemOptions() }}
             />
           </Form.Item>
-          <div className="grid grid-cols-3 gap-x-4">
-            <Form.Item name="status" label={t('system.status')}>
-              <Select options={Object.entries(REQ_STATUS_MAP).map(([k, s]) => ({ value: Number(k), label: s.label }))} />
-            </Form.Item>
+          <div className="grid grid-cols-2 gap-x-4">
             <Form.Item name="priority" label={t('system.priority')}>
               <Select options={[{ value: 1, label: t('system.priorityLow') }, { value: 2, label: t('system.priorityMed') }, { value: 3, label: t('system.priorityHigh') }, { value: 4, label: t('system.priorityUrgent') }]} />
             </Form.Item>
@@ -1322,6 +1374,9 @@ const groupedByReq = useMemo(() => {
         destroyOnHidden
       >
         <Form form={createForm} layout="vertical" onFinish={handleCreate} className="mt-4">
+          <Form.Item label={t('system.sysName')}>
+            <Input value={system?.sys_nm ?? ''} disabled style={{ color: '#334155', fontWeight: 500 }} />
+          </Form.Item>
           <Form.Item name="req_nm" label={t('system.reqName')} rules={[{ required: true, message: t('system.reqNameRequired') }]}>
             <Input placeholder={t('system.reqNamePlaceholder')} />
           </Form.Item>
@@ -1683,6 +1738,96 @@ const groupedByReq = useMemo(() => {
         destroyOnHidden
       >
         <RichTextEditor value={dutyExpandDraft} onChange={setDutyExpandDraft} placeholder={t('system.dutyDescPlaceholder')} minHeight={480} />
+      </Modal>
+      {/* 設定需求責任人 Modal */}
+      <Modal
+        title={t('system.setResponsible')}
+        open={!!respEditReqId}
+        onCancel={() => setRespEditReqId(null)}
+        onOk={handleSaveResponsible}
+        okText={t('system.confirmSave')}
+        confirmLoading={respSaving}
+        okButtonProps={{ style: { background: '#2563eb' } }}
+        width={440}
+        destroyOnHidden
+      >
+        <div className="py-3 space-y-4">
+          <div>
+            <div className="text-sm font-medium text-slate-700 mb-2">{t('system.searchByWorkNo')}</div>
+            <Input
+              ref={respSearchRef}
+              value={respSearchKw}
+              onChange={(e) => setRespSearchKw(e.target.value)}
+              placeholder={t('system.workNoSearchPlaceholder')}
+              suffix={respSearching ? <Spin size="small" /> : null}
+              autoFocus
+            />
+            {respSearchResult === false && (
+              <div className="mt-2 text-xs text-red-500 flex items-center gap-1">
+                <XMarkIcon className="w-3.5 h-3.5" />{t('system.workNoNotFound')}
+              </div>
+            )}
+            {respSearchResult && typeof respSearchResult === 'object' && (
+              <div className="mt-2 flex items-center justify-between bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+                <div className="flex items-center gap-2">
+                  <Avatar size={28} style={{ background: '#2563eb', fontSize: 11, fontWeight: 700 }}>
+                    {respSearchResult.name?.[0]?.toUpperCase()}
+                  </Avatar>
+                  <div>
+                    <div className="text-sm font-medium text-slate-800">{respSearchResult.name}</div>
+                    <div className="text-xs text-slate-400">{respSearchResult.work_no} · {respSearchResult.department}</div>
+                  </div>
+                </div>
+                <Button
+                  size="small" type="primary" style={{ background: '#2563eb' }}
+                  disabled={respPersons.some((p) => p.work_no === respSearchResult.work_no)}
+                  onClick={() => {
+                    if (!respPersons.some((p) => p.work_no === respSearchResult.work_no)) {
+                      setRespPersons((prev) => [...prev, respSearchResult])
+                    }
+                    setRespSearchKw(''); setRespSearchResult(null)
+                  }}
+                >
+                  {respPersons.some((p) => p.work_no === respSearchResult.work_no) ? t('system.alreadyAdded') : t('system.addPerson')}
+                </Button>
+              </div>
+            )}
+          </div>
+          <div>
+            <div className="text-sm font-medium text-slate-700 mb-2">
+              {t('system.selectedResponsible')}
+              {respPersons.length > 0 && (
+                <span className="ml-1.5 text-xs font-normal text-slate-400">{t('system.personsCountSaveHint', { count: respPersons.length })}</span>
+              )}
+            </div>
+            {respPreloading ? (
+              <div className="flex items-center justify-center py-5 text-slate-400 text-xs gap-2"><Spin size="small" />{t('common.loading')}</div>
+            ) : respPersons.length === 0 ? (
+              <div className="border border-dashed border-slate-200 rounded-lg py-5 text-center text-slate-400 text-xs">{t('system.noPersonYet')}</div>
+            ) : (
+              <div className="space-y-1.5">
+                {respPersons.map((p, i) => (
+                  <div key={p.work_no} className="flex items-center gap-2.5 bg-slate-50 rounded-lg px-3 py-2">
+                    <div className="w-5 h-5 rounded-full bg-violet-100 text-violet-600 text-[10px] font-bold flex items-center justify-center flex-shrink-0">{i + 1}</div>
+                    <Avatar size={24} style={{ background: '#7c3aed', fontSize: 10, fontWeight: 700, flexShrink: 0 }}>
+                      {p.name?.[0]?.toUpperCase()}
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm font-medium text-slate-700">{p.name}</span>
+                      <span className="text-xs text-slate-400 ml-1.5">{p.work_no} · {p.department}</span>
+                    </div>
+                    <button
+                      className="text-red-400 hover:text-red-600 transition-colors flex-shrink-0 border-0 outline-none bg-transparent p-0 cursor-pointer"
+                      onClick={() => setRespPersons((prev) => prev.filter((x) => x.work_no !== p.work_no))}
+                    >
+                      <XMarkIcon className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       </Modal>
       {/* 快速設定任務負責人 Modal */}
       <Modal

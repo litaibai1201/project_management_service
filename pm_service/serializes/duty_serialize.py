@@ -11,6 +11,7 @@ class DutyListQuerySchema(BaseSchema):
     status = fields.Int(load_default=None, allow_none=True)
     priority = fields.Int(load_default=None, allow_none=True)
     responsible = fields.Str(load_default="")
+    system_id = fields.Str(load_default="")
 
 
 class CreateDutySchema(BaseSchema):
@@ -18,6 +19,8 @@ class CreateDutySchema(BaseSchema):
     describe = fields.Str(load_default="")
     group = fields.Str(load_default="")
     project_id = fields.Str(load_default="")
+    system_id = fields.Str(load_default="")
+    standalone_req_id = fields.Str(load_default="")
     expected_start_date = fields.Str(load_default="")
     expected_end_date = fields.Str(load_default="")
     priority = fields.Int(load_default=2)
@@ -75,7 +78,9 @@ class DutyRescheduleSchema(BaseSchema):
 
 class DutyActivateSchema(BaseSchema):
     """激活任务时可附带的补充字段（全部可选）"""
-    pass
+    responsible = fields.List(fields.Str(), load_default=[])
+    expected_start_date = fields.Str(load_default="")
+    expected_end_date = fields.Str(load_default="")
 
 
 class DutySubmitCompletionSchema(BaseSchema):
@@ -84,8 +89,9 @@ class DutySubmitCompletionSchema(BaseSchema):
 
 
 class DutyReqTaskReviewSchema(BaseSchema):
-    """提交需求任务新增审核（单条/批量共用body字段）"""
-    pass
+    """提交需求任务新增审核"""
+    reviewer = fields.List(fields.Str(), load_default=[])
+    submitter_name = fields.Str(load_default="")
 
 
 class BatchReqTaskReviewSchema(BaseSchema):

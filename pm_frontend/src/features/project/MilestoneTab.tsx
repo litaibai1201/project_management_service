@@ -18,6 +18,7 @@ import { Milestone, ProjectFunction, Requirement } from '@/types/api.types'
 import { showToast } from '@/utils/toast'
 import dayjs from 'dayjs'
 import { useResizableColumns, tableComponents } from '@/hooks/useResizableColumns'
+import { formatGroupName } from '@/utils/status'
 import DateInput from '@/components/common/DateInput'
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
@@ -268,7 +269,7 @@ const MilestoneTab: React.FC<Props> = ({ projectId, functions, requirements = []
               optionFilterProp="label"
               options={functions.map((f) => ({
                 value: f.id,
-                label: `${f.function_nm} (${f.group1 === '__stage__' ? t('common.stageTask') : (f.group1 || '')})`,
+                label: `${f.function_nm} (${formatGroupName(f.group1) || f.group1 || ''})`,
               }))}
             />
           </Form.Item>

@@ -14,6 +14,7 @@ import {
 } from 'docx'
 import type { DailyLogEntry } from '@/types/api.types'
 import { tokenStorage } from '@/api/httpClient'
+import { formatGroupNamePlain, STAGE_GROUP } from '@/utils/status'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -479,7 +480,7 @@ export async function exportDailyReport(opts: ExportDailyReportOptions): Promise
     taskId,
     taskNm,
     reqNm:       e.requirement_nm ?? '',
-    groupNm:     e.group1 ? (e.group1 === '__stage__' ? '评估与规划' : (e.group2 ? `${e.group1} / ${e.group2}` : e.group1)) : (e.group2 ?? ''),
+    groupNm:     e.group1 ? (e.group1 === STAGE_GROUP ? formatGroupNamePlain(e.group1) : (e.group2 ? `${e.group1} / ${e.group2}` : e.group1)) : (e.group2 ?? ''),
     progress:    e.progress,
     hours:       e.hours,
     description: e.description,
@@ -684,7 +685,7 @@ export async function exportRangeReport(opts: ExportRangeReportOptions): Promise
     taskId,
     taskNm,
     reqNm:       e.requirement_nm ?? '',
-    groupNm:     e.group1 ? (e.group1 === '__stage__' ? '评估与规划' : (e.group2 ? `${e.group1} / ${e.group2}` : e.group1)) : (e.group2 ?? ''),
+    groupNm:     e.group1 ? (e.group1 === STAGE_GROUP ? formatGroupNamePlain(e.group1) : (e.group2 ? `${e.group1} / ${e.group2}` : e.group1)) : (e.group2 ?? ''),
     progress:    e.progress,
     hours:       e.hours,
     description: e.description,

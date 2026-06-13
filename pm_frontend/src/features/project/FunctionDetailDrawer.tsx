@@ -15,7 +15,7 @@ import { dailyLogApi } from '@/api/daily_log.api'
 import type { TaskLogEntry } from '@/api/daily_log.api'
 import { tokenStorage } from '@/api/httpClient'
 import { ProjectFunction, ProgressRecord, FileInfo } from '@/types/api.types'
-import { FUNCTION_STATUS_MAP, PRIORITY_MAP } from '@/utils/status'
+import { FUNCTION_STATUS_MAP, PRIORITY_MAP, formatGroupName, STAGE_GROUP } from '@/utils/status'
 import { showToast } from '@/utils/toast'
 import { useAppSelector } from '@/hooks/redux'
 import { useWorkNoToName } from '@/hooks/useWorkNoToName'
@@ -295,7 +295,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
   const isCompleted       = funcData?.status === 4
   const isReviewing       = funcData?.status === 3
   const isResponsible     = (funcData?.responsible ?? []).map((r) => r.toLowerCase()).includes(workNo.toLowerCase())
-  const isStageTask       = funcData?.group1 === '__stage__'
+  const isStageTask       = funcData?.group1 === STAGE_GROUP
   // 草稿任务不可更新进度；阶段任务在任何非完结阶段都可；普通任务仅执行中阶段
   const canUpdateProgress = !isDraft && !isCompleted && !isReviewing && isResponsible && (isStageTask || projectStatus === 5)
   // 阶段任务不允许编辑全部字段；草稿任务允许编辑
@@ -441,7 +441,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
                   ))
                 : '—'}
             </Descriptions.Item>
-            <Descriptions.Item label={t('function.groupLabel')}>{funcData.group1 === '__stage__' ? t('projectDetail.stageTaskGroup') : (funcData.group1 ?? '—')}</Descriptions.Item>
+            <Descriptions.Item label={t('function.groupLabel')}>{formatGroupName(funcData.group1) || funcData.group1 || '—'}</Descriptions.Item>
             <Descriptions.Item label={t('function.expectedStart')}>{funcData.expected_start_date ?? '—'}</Descriptions.Item>
             <Descriptions.Item label={t('function.expectedEnd')}>
               <div className="flex items-center gap-2 flex-wrap">

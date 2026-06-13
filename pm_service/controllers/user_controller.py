@@ -399,26 +399,29 @@ class UserController:
         from tables.project_table import ProjectDataModel
         wn_lower = work_no.lower()
         resp_pat = f'%"{wn_lower}"%'
+        # 功能任务：按负责人筛选
+        func_filter = db.func.lower(FunctionDataModel.responsible).like(resp_pat)
+        # AR/系统任务：按负责人或创建人筛选
+        duty_filter = db.or_(
+            db.func.lower(TemporaryDutyModel.responsible).like(resp_pat),
+            db.func.lower(TemporaryDutyModel.creator) == wn_lower,
+        )
         # ── 功能任务统计 ──────────────────────────────────────────────────────
         total_projects = (
             db.session.query(FunctionDataModel)
-            .filter(db.func.lower(FunctionDataModel.responsible).like(resp_pat),
-                    FunctionDataModel.function_status.notin_([9])).count()
+            .filter(func_filter, FunctionDataModel.function_status.notin_([9])).count()
         )
         total_duties = (
             db.session.query(TemporaryDutyModel)
-            .filter(db.func.lower(TemporaryDutyModel.responsible).like(resp_pat),
-                    TemporaryDutyModel.duty_status.notin_([9])).count()
+            .filter(duty_filter, TemporaryDutyModel.duty_status.notin_([9])).count()
         )
         completed = (
             db.session.query(FunctionDataModel)
-            .filter(db.func.lower(FunctionDataModel.responsible).like(resp_pat),
-                    FunctionDataModel.function_status == 4).count()
+            .filter(func_filter, FunctionDataModel.function_status == 4).count()
         )
         in_progress = (
             db.session.query(FunctionDataModel)
-            .filter(db.func.lower(FunctionDataModel.responsible).like(resp_pat),
-                    FunctionDataModel.function_status == 2).count()
+            .filter(func_filter, FunctionDataModel.function_status == 2).count()
         )
         # ── 专案统计 ──────────────────────────────────────────────────────────
         resp_proj_ids = (
@@ -446,9 +449,20 @@ class UserController:
             db.session.query(ProjectDataModel)
             .filter(_proj_filter, ProjectDataModel.project_status == 5).count()
         )
+        duty_completed = (
+            db.session.query(TemporaryDutyModel)
+            .filter(duty_filter, TemporaryDutyModel.duty_status == 3).count()
+        )
+        duty_in_progress = (
+            db.session.query(TemporaryDutyModel)
+            .filter(duty_filter, TemporaryDutyModel.duty_status.in_([1, 2, 5, 6])).count()
+        )
         return {
             "total_projects": total_projects, "total_duties": total_duties,
-            "completed": completed, "in_progress": in_progress,
+            "completed": completed + duty_completed,
+            "in_progress": in_progress + duty_in_progress,
+            "func_completed": completed, "func_in_progress": in_progress,
+            "duty_completed": duty_completed, "duty_in_progress": duty_in_progress,
             "project_total":       project_total,
             "project_completed":   project_completed,
             "project_in_progress": project_in_progress,

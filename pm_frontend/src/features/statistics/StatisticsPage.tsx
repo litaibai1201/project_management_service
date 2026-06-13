@@ -36,7 +36,7 @@ import { backendDetailToLog } from '@/api/daily_log.api'
 import { SelfReportView } from '@/features/dailylog/DailyLogPage'
 import { tokenStorage } from '@/api/httpClient'
 import FilePreviewModal from '@/features/project/FilePreviewModal'
-import { PROJECT_STATUS_MAP, DUTY_STATUS_MAP, PRIORITY_MAP } from '@/utils/status'
+import { PROJECT_STATUS_MAP, DUTY_STATUS_MAP, PRIORITY_MAP, formatGroupNamePlain, STAGE_GROUP } from '@/utils/status'
 import dayjs, { Dayjs } from 'dayjs'
 import { useResizableColumns, tableComponents } from '@/hooks/useResizableColumns'
 
@@ -192,7 +192,7 @@ function buildReportTree(reports: ReportMember[], t: (k: string) => string): { t
           category:    rawCat,
           projectNm:   String(ti.project_nm ?? ti.system_nm ?? ''),
           reqNm:       String(ti.requirement_nm ?? ''),
-          group:       String(ti.group1 === '__stage__' ? (t('common.stageTaskPlain') || '评估与规划') : (ti.group1 ?? '')),
+          group:       String(formatGroupNamePlain(ti.group1 as string)),
           taskNm:      String(ti.task_nm ?? ti.duty_nm ?? ti.category ?? ''),
           date:        lg.log_date ?? '',
           description: String(ti.description ?? '').replace(/<[^>]*>/g, ''),
@@ -508,7 +508,7 @@ const MemberReportCard: React.FC<{ report: ReportMember; initialExpanded?: boole
                               <div className="text-xs font-medium text-slate-700">{task.name}</div>
                               <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                                 {task.requirement_nm && <Tag style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '14px' }} color="purple">{task.requirement_nm}</Tag>}
-                                {task.group && task.group !== '__stage__' && <Tag style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '14px' }} color="cyan">{task.group}</Tag>}
+                                {task.group && task.group !== STAGE_GROUP && <Tag style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '14px' }} color="cyan">{task.group}</Tag>}
                                 <span className="text-[10px] text-slate-400">{t('statistics.completedAt', { date: task.completed_at })}</span>
                                 {Number(task.hours) > 0 && <span className="text-[10px] text-green-600 font-medium">{task.hours}h</span>}
                               </div>
@@ -548,7 +548,7 @@ const MemberReportCard: React.FC<{ report: ReportMember; initialExpanded?: boole
                               </div>
                               <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                                 {task.requirement_nm && <Tag style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '14px' }} color="purple">{task.requirement_nm}</Tag>}
-                                {task.group && task.group !== '__stage__' && <Tag style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '14px' }} color="cyan">{task.group}</Tag>}
+                                {task.group && task.group !== STAGE_GROUP && <Tag style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '14px' }} color="cyan">{task.group}</Tag>}
                                 {(task.expected_start_date || task.expected_end_date) && (
                                   <span className="text-[10px] text-slate-300">{task.expected_start_date || '—'} ~ {task.expected_end_date || '—'}</span>
                                 )}
@@ -581,7 +581,7 @@ const MemberReportCard: React.FC<{ report: ReportMember; initialExpanded?: boole
                               </div>
                               <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                                 {task.requirement_nm && <Tag style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '14px' }} color="purple">{task.requirement_nm}</Tag>}
-                                {task.group && task.group !== '__stage__' && <Tag style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '14px' }} color="cyan">{task.group}</Tag>}
+                                {task.group && task.group !== STAGE_GROUP && <Tag style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '14px' }} color="cyan">{task.group}</Tag>}
                                 <span className="text-[10px] text-slate-300">
                                   {t('statistics.expectedPeriod', { start: task.expected_start_date || '—', end: task.expected_end_date || '—' })}
                                 </span>
@@ -1074,7 +1074,7 @@ const StatisticsPage: React.FC = () => {
   const isManager = useAppSelector((s) => s.auth.isSupervisor)
   const myWorkNo  = useAppSelector((s) => s.auth.workNo) ?? ''
   const [searchParams] = useSearchParams()
-  const initialTab    = searchParams.get('tab')    ?? 'analysis'
+  const initialTab    = searchParams.get('tab')    ?? 'report'
   const initialPeriod = (searchParams.get('period') ?? 'week') as PeriodKey
   const initialMember = searchParams.get('member') ?? undefined
 
@@ -1503,15 +1503,6 @@ const StatisticsPage: React.FC = () => {
   /* ── Build tab items based on role ──────────────────────────────────── */
   const managerTabs = [
     {
-      key: 'analysis',
-      label: (
-        <span className="flex items-center gap-1.5">
-          <ChartBarIcon className="w-4 h-4" />{t('statistics.workHoursAnalysisTab')}
-        </span>
-      ),
-      children: analysisTab,
-    },
-    {
       key: 'report',
       label: (
         <span className="flex items-center gap-1.5">
@@ -1519,6 +1510,15 @@ const StatisticsPage: React.FC = () => {
         </span>
       ),
       children: <ProgressReportTab initialPeriod={initialPeriod} initialMember={initialMember} />,
+    },
+    {
+      key: 'analysis',
+      label: (
+        <span className="flex items-center gap-1.5">
+          <ChartBarIcon className="w-4 h-4" />{t('statistics.workHoursAnalysisTab')}
+        </span>
+      ),
+      children: analysisTab,
     },
   ]
 
@@ -1532,7 +1532,7 @@ const StatisticsPage: React.FC = () => {
     children: <MemberOverviewTab />,
   }
 
-  const tabItems = isManager ? [...managerTabs, memberTab] : [managerTabs[0], memberTab]
+  const tabItems = isManager ? [...managerTabs, memberTab] : [managerTabs[1], memberTab]
 
   return (
     <div className="p-6">
