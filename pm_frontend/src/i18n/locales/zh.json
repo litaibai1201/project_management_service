@@ -1305,6 +1305,8 @@
     "reasonLabel": "{{action}}原因",
     "reasonRequired": "請填寫原因",
     "reasonPlaceholder": "請填寫{{action}}原因",
+    "approveRemarkLabel": "備註（選填）",
+    "approveRemarkPlaceholder": "可填寫審批備註...",
     "countersignNote": "通過後，流程將依序轉至加簽人員：",
     "col": {
       "applyType": "申請類型",

@@ -1758,13 +1758,17 @@ const ReviewListPage: React.FC = () => {
           })()}
         </div>
         <Form form={actionForm} layout="vertical" onFinish={handleActionConfirm}>
-          {needReason && (
+          {needReason ? (
             <Form.Item
               name="reason"
               label={t('review.reasonLabel', { action: actionTarget ? actionLabels[actionTarget.action] : '' })}
               rules={[{ required: true, message: t('review.reasonRequired') }]}
             >
               <Input.TextArea rows={3} placeholder={t('review.reasonPlaceholder', { action: actionTarget ? actionLabels[actionTarget.action] : '' })} />
+            </Form.Item>
+          ) : (
+            <Form.Item name="reason" label={t('review.approveRemarkLabel')}>
+              <Input.TextArea rows={2} placeholder={t('review.approveRemarkPlaceholder')} />
             </Form.Item>
           )}
           {actionTarget?.action === 'approve' && !!actionTarget.countersigns?.length && (

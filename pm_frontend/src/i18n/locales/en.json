@@ -1305,6 +1305,8 @@
     "reasonLabel": "{{action}} Reason",
     "reasonRequired": "Please enter a reason",
     "reasonPlaceholder": "Please enter {{action}} reason",
+    "approveRemarkLabel": "Remark (optional)",
+    "approveRemarkPlaceholder": "Enter approval remark...",
     "countersignNote": "After approval, the flow will be forwarded to countersigners in order: ",
     "col": {
       "applyType": "Type",

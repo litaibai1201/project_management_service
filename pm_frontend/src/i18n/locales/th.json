@@ -1305,6 +1305,8 @@
     "reasonLabel": "เหตุผล{{action}}",
     "reasonRequired": "กรุณากรอกเหตุผล",
     "reasonPlaceholder": "กรุณากรอกเหตุผล{{action}}",
+    "approveRemarkLabel": "หมายเหตุ (ไม่บังคับ)",
+    "approveRemarkPlaceholder": "กรอกหมายเหตุการอนุมัติ...",
     "countersignNote": "หลังอนุมัติ กระบวนการจะส่งต่อไปยังผู้ร่วมลงนามตามลำดับ: ",
     "col": {
       "applyType": "ประเภท",
