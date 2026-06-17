@@ -370,18 +370,38 @@ class UserController:
             .filter(db.func.lower(TemporaryDutyModel.responsible).like(resp_pat),
                     TemporaryDutyModel.duty_status == 0).count()
         )
-        pending_project = (
-            db.session.query(ReviewApplyModel)
-            .filter(db.func.lower(ReviewApplyModel.reviewer).like(f"%{wn_lower}%"),
-                    ReviewApplyModel.duty_id.is_(None),
-                    ReviewApplyModel.apply_status == 1).count()
+        # 待审批计数：需解析 approval_nodes_json 判断是否轮到当前用户
+        import json as _json
+        from sqlalchemy import or_
+        pending_reviews = (
+            db.session.query(ReviewApplyModel.duty_id, ReviewApplyModel.approval_nodes_json)
+            .filter(
+                or_(
+                    db.func.lower(ReviewApplyModel.reviewer).like(f"%{wn_lower}%"),
+                    ReviewApplyModel.approval_nodes_json.like(f"%{wn_lower}%"),
+                ),
+                ReviewApplyModel.apply_status == 1,
+            ).all()
         )
-        pending_duty = (
-            db.session.query(ReviewApplyModel)
-            .filter(db.func.lower(ReviewApplyModel.reviewer).like(f"%{wn_lower}%"),
-                    ReviewApplyModel.duty_id.isnot(None),
-                    ReviewApplyModel.apply_status == 1).count()
-        )
+        pending_project = 0
+        pending_duty = 0
+        for duty_id, nodes_json in pending_reviews:
+            if not nodes_json:
+                continue
+            try:
+                nodes = _json.loads(nodes_json)
+            except Exception:
+                continue
+            sorted_nodes = sorted(nodes, key=lambda n: n.get("order", 0))
+            first_pending = next((n for n in sorted_nodes if n.get("status") == 0), None)
+            if not first_pending:
+                continue
+            if first_pending.get("approver_work_no", "").lower() != wn_lower:
+                continue
+            if duty_id:
+                pending_duty += 1
+            else:
+                pending_project += 1
         return {
             "total_task_num": {
                 "doing_task": doing_task, "unstart_task": unstart_task,
@@ -531,15 +551,32 @@ class UserController:
         f = db.session.query(FunctionDataModel)
         d = db.session.query(TemporaryDutyModel)
 
+        # 系统任务筛选条件（有 standalone_req_id）
+        sys_duty_filter = db.and_(duty_filter, TemporaryDutyModel.standalone_req_id.isnot(None),
+                                  TemporaryDutyModel.standalone_req_id != '')
+        # AR 任务筛选条件（无 standalone_req_id）
+        ar_duty_filter = db.and_(duty_filter, db.or_(
+            TemporaryDutyModel.standalone_req_id.is_(None),
+            TemporaryDutyModel.standalone_req_id == '',
+        ))
+
         func_total       = f.filter(func_filter, FunctionDataModel.function_status.notin_([9])).count()
-        duty_total       = d.filter(duty_filter, TemporaryDutyModel.duty_status.notin_([9])).count()
+        # 团队任务中的 duty 只统计系统任务
+        duty_total       = d.filter(sys_duty_filter, TemporaryDutyModel.duty_status.notin_([9])).count()
         func_draft       = f.filter(func_filter, FunctionDataModel.function_status == 0).count()
         func_in_prog     = f.filter(func_filter, FunctionDataModel.function_status == 2).count()
-        duty_in_prog     = d.filter(duty_filter, TemporaryDutyModel.duty_status   == 1).count()
+        duty_in_prog     = d.filter(sys_duty_filter, TemporaryDutyModel.duty_status   == 1).count()
         func_not_start   = f.filter(func_filter, FunctionDataModel.function_status == 1).count()
-        duty_not_start   = d.filter(duty_filter, TemporaryDutyModel.duty_status.in_([0, 6])).count()
+        duty_not_start   = d.filter(sys_duty_filter, TemporaryDutyModel.duty_status.in_([0, 6])).count()
         func_completed   = f.filter(func_filter, FunctionDataModel.function_status == 4).count()
-        duty_completed   = d.filter(duty_filter, TemporaryDutyModel.duty_status   == 3).count()
+        duty_completed   = d.filter(sys_duty_filter, TemporaryDutyModel.duty_status   == 3).count()
+
+        # AR 任务单独统计
+        ar_total       = d.filter(ar_duty_filter, TemporaryDutyModel.duty_status.notin_([9])).count()
+        ar_in_prog     = d.filter(ar_duty_filter, TemporaryDutyModel.duty_status == 1).count()
+        ar_not_start   = d.filter(ar_duty_filter, TemporaryDutyModel.duty_status.in_([0, 6])).count()
+        ar_completed   = d.filter(ar_duty_filter, TemporaryDutyModel.duty_status == 3).count()
+        ar_suspended   = d.filter(ar_duty_filter, TemporaryDutyModel.duty_status == 8).count()
 
         # 超时/临期排除草稿（function_status=0）和已完结/删除
         func_overdue = f.filter(
@@ -549,7 +586,13 @@ class UserController:
             FunctionDataModel.expected_end_date <  today,
         ).count()
         duty_overdue = d.filter(
-            duty_filter, TemporaryDutyModel.duty_status.notin_([0, 3, 9]),
+            sys_duty_filter, TemporaryDutyModel.duty_status.notin_([0, 3, 9]),
+            TemporaryDutyModel.expected_end_date.isnot(None),
+            TemporaryDutyModel.expected_end_date != '',
+            TemporaryDutyModel.expected_end_date <  today,
+        ).count()
+        ar_overdue = d.filter(
+            ar_duty_filter, TemporaryDutyModel.duty_status.notin_([0, 3, 9]),
             TemporaryDutyModel.expected_end_date.isnot(None),
             TemporaryDutyModel.expected_end_date != '',
             TemporaryDutyModel.expected_end_date <  today,
@@ -570,11 +613,28 @@ class UserController:
             TemporaryDutyModel.expected_end_date <= today_plus7,
         ).count()
 
-        # ── 待处理 ──────────────────────────────────────────────────────────────
-        pending_review = db.session.query(ReviewApplyModel).filter(
-            ReviewApplyModel.reviewer.like(f"%{work_no.lower()}%"),
+        # ── 待处理（需判断 is_my_turn）─────────────────────────────────────────
+        import json as _json2
+        from sqlalchemy import or_ as _or
+        _pending_rows = db.session.query(ReviewApplyModel.approval_nodes_json).filter(
+            _or(
+                db.func.lower(ReviewApplyModel.reviewer).like(f"%{work_no.lower()}%"),
+                ReviewApplyModel.approval_nodes_json.like(f"%{work_no.lower()}%"),
+            ),
             ReviewApplyModel.apply_status == 1,
-        ).count()
+        ).all()
+        pending_review = 0
+        for (nodes_json,) in _pending_rows:
+            if not nodes_json:
+                continue
+            try:
+                _nodes = _json2.loads(nodes_json)
+            except Exception:
+                continue
+            _sorted = sorted(_nodes, key=lambda n: n.get("order", 0))
+            _first = next((n for n in _sorted if n.get("status") == 0), None)
+            if _first and _first.get("approver_work_no", "").lower() == work_no.lower():
+                pending_review += 1
 
         # ── 效益统计（按单位分组，仅统计当年完结专案 + 当年完结独立需求）──────
         current_year = str(CommonTools.get_now("datetime").year)
@@ -713,6 +773,14 @@ class UserController:
                 "completed":   func_completed   + duty_completed,
                 "overdue":     func_overdue     + duty_overdue,
                 "urgent":      func_urgent      + duty_urgent,
+            },
+            "team_ar_task": {
+                "total":       ar_total,
+                "in_progress": ar_in_prog,
+                "not_started": ar_not_start,
+                "completed":   ar_completed,
+                "overdue":     ar_overdue,
+                "suspended":   ar_suspended,
             },
             "pending": {
                 "review":           pending_review,

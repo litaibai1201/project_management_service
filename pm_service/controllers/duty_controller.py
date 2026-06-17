@@ -17,7 +17,7 @@ class DutyController:
 
     @staticmethod
     def _sync_req_progress(standalone_req_id: str):
-        """根据绑定任务重算需求进度，并自动切换 進行中/已完結 状态"""
+        """根据绑定任务重算需求进度和预计完成时间，并自动切换 進行中/已完結 状态"""
         req = dao.get_req_by_id(standalone_req_id)
         if not req or req.req_status in (9,):
             return
@@ -30,6 +30,14 @@ class DutyController:
             # 只有已通过(2)或已完结(4)的需求才自动切换状态
             if req.req_status in (2, 4):
                 req.req_status = 4 if avg >= 100 else 2
+            # 同步预计完成时间：取所有任务中最晚的 expected_end_date
+            end_dates = [
+                d.latest_expected_end_date or d.expected_end_date
+                for d in duties
+                if d.expected_end_date and d.duty_status != 9
+            ]
+            if end_dates:
+                req.expected_end_date = max(end_dates)
         req.updated_at = CommonTools.get_now()
 
     def list_duties(self, payload: dict, work_no: str = None):
@@ -367,6 +375,10 @@ class DutyController:
         d.reschedule_log = json.dumps(history, ensure_ascii=False)
         d.update_at = CommonTools.get_now()
         dao.commit()
+        # 同步需求预计完成时间
+        if d.standalone_req_id:
+            self._sync_req_progress(d.standalone_req_id)
+            dao.commit()
         # 延期通知：责任人操作 → 通知建立人 + 其他责任人；建立人操作 → 通知所有责任人
         from controllers.notification_controller import push_notification
         op_nm = dao.get_user_display_name(operator)
@@ -386,6 +398,41 @@ class DutyController:
                 link_type="duty",
                 link_id=d.id,
             )
+        return d.to_dict()
+
+    def set_dates(self, duty_id: str, payload: dict, operator: str):
+        """首次设定预计开始/完成时间（仅当字段为空时允许，且任务已激活）"""
+        d = dao.find_active_by_id(duty_id)
+        if not d:
+            raise ResourceNotFoundException(resource_type="AR")
+        if d.duty_status not in (1, 6):
+            raise BusinessException("只有進行中或未開始的任務可以設定時間")
+        responsible = json.loads(d.responsible) if d.responsible else []
+        op_lower = operator.lower()
+        is_creator = d.creator.lower() == op_lower
+        is_responsible = op_lower in [w.lower() for w in responsible]
+        # 也允许需求负责人设定
+        is_req_responsible = False
+        if d.standalone_req_id:
+            req = dao.get_req_by_id(d.standalone_req_id)
+            if req:
+                req_resp = json.loads(req.responsible) if req.responsible else []
+                is_req_responsible = op_lower in [w.lower() for w in req_resp]
+        if not is_creator and not is_responsible and not is_req_responsible:
+            raise PermissionException("只有建立人、負責人或需求負責人可以設定時間")
+        start = payload.get("expected_start_date", "")
+        end = payload.get("expected_end_date", "")
+        if start and not d.expected_start_date:
+            d.expected_start_date = start
+        if end and not d.expected_end_date:
+            d.expected_end_date = end
+            d.latest_expected_end_date = end
+        d.update_at = CommonTools.get_now()
+        dao.commit()
+        # 同步需求预计完成时间
+        if d.standalone_req_id and end:
+            self._sync_req_progress(d.standalone_req_id)
+            dao.commit()
         return d.to_dict()
 
     def delete_duty(self, duty_id: str, work_no: str = None):

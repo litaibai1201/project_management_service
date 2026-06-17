@@ -59,9 +59,9 @@ const PIE_PALETTE = ['#2563eb','#7c3aed','#16a34a','#d97706','#0891b2','#db2777'
 
 // ─── Progress Report Mock Data ─────────────────────────────────────────────────
 
-interface CompletedTask  { id: string; name: string; project: string; type: 'function'|'duty'; completed_at: string; hours: number; expected_start_date?: string; expected_end_date?: string; requirement_nm?: string; group?: string }
-interface InProgressTask { id: string; name: string; project: string; progress: number; days_left: number; status: 'normal'|'urgent'|'overdue'; expected_start_date?: string; expected_end_date?: string; hours?: number; requirement_nm?: string; group?: string }
-interface OverdueTask    { id: string; name: string; project: string; days_overdue: number; requirement_nm?: string; group?: string }
+interface CompletedTask  { id: string; name: string; project: string; project_id?: string; system_id?: string; type: 'function'|'duty'; completed_at: string; hours: number; expected_start_date?: string; expected_end_date?: string; requirement_nm?: string; group?: string }
+interface InProgressTask { id: string; name: string; project: string; project_id?: string; system_id?: string; progress: number; days_left: number; status: 'normal'|'urgent'|'overdue'; expected_start_date?: string; expected_end_date?: string; hours?: number; requirement_nm?: string; group?: string }
+interface OverdueTask    { id: string; name: string; project: string; project_id?: string; system_id?: string; days_overdue: number; requirement_nm?: string; group?: string }
 
 interface ReportDailyLog {
   log_id:      string
@@ -474,15 +474,21 @@ const MemberReportCard: React.FC<{ report: ReportMember; initialExpanded?: boole
               tasks.forEach((t) => { const k = t.project || '—'; if (!m.has(k)) m.set(k, []); m.get(k)!.push(t) })
               return m
             }
+            const taskLink = (t: { project_id?: string; system_id?: string }) =>
+              t.project_id ? `/projects/${t.project_id}` : t.system_id ? `/systems/${t.system_id}` : undefined
             const completedByProj = groupByProject(report.completed)
             const inProgressByProj = groupByProject(report.in_progress)
             const notStartedByProj = groupByProject(report.not_started ?? [])
 
-            const renderProjectGroup = (projNm: string, children: React.ReactNode, count: number, color: string) => (
+            const renderProjectGroup = (projNm: string, children: React.ReactNode, count: number, color: string, link?: string) => (
               <details key={projNm} className="group mb-2">
                 <summary className="flex items-center gap-2 cursor-pointer list-none px-2 py-1.5 rounded-lg hover:bg-slate-50 transition-colors select-none">
                   <ChevronDownIcon className="w-3 h-3 text-slate-400 transition-transform group-open:rotate-0 -rotate-90 flex-shrink-0" />
-                  <span className="text-[11px] font-semibold text-slate-700 flex-1 truncate">{projNm}</span>
+                  {link
+                    ? <span className="text-[11px] font-semibold text-blue-600 hover:underline truncate" style={{ cursor: 'pointer' }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); window.open(link, '_blank') }}>{projNm}</span>
+                    : <span className="text-[11px] font-semibold text-slate-700 truncate">{projNm}</span>
+                  }
+                  <span className="flex-1" />
                   <Badge count={count} color={color} style={{ fontSize: 9 }} />
                 </summary>
                 <div className="pl-2 space-y-1.5 mt-1">{children}</div>
@@ -514,7 +520,7 @@ const MemberReportCard: React.FC<{ report: ReportMember; initialExpanded?: boole
                               </div>
                             </div>
                           </div>
-                        )), tasks.length, '#16a34a')
+                        )), tasks.length, '#16a34a', taskLink(tasks[0]))
                       )
                   }
                 </div>
@@ -556,7 +562,7 @@ const MemberReportCard: React.FC<{ report: ReportMember; initialExpanded?: boole
                               </div>
                             </div>
                           )
-                        }), tasks.length, '#2563eb')
+                        }), tasks.length, '#2563eb', taskLink(tasks[0]))
                       )
                   }
                 </div>
@@ -588,7 +594,7 @@ const MemberReportCard: React.FC<{ report: ReportMember; initialExpanded?: boole
                               </div>
                             </div>
                           )
-                        }), tasks.length, '#94a3b8')
+                        }), tasks.length, '#94a3b8', taskLink(tasks[0]))
                       )
                   }
                 </div>

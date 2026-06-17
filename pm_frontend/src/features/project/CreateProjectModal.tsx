@@ -164,7 +164,7 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ open, onClose, 
       showToast.success(t('project.createSuccess'))
       onSuccess()
     } catch (err: unknown) {
-      showToast.error((err as string) || t('project.createFailed'))
+      showToast.error((err instanceof Error ? err.message : String(err)) || t('project.createFailed'))
     }
   }
 

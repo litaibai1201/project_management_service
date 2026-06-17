@@ -10,7 +10,7 @@ from serializes.response_serialize import RspMsgDictSchema, RspMsgRawSchema
 from serializes.duty_serialize import (
     DutyListQuerySchema, DutyAllocationSchema, SetStatusSchema,
     ReviewActionSchema, CountersignSchema, ProgressQuerySchema,
-    DutyRescheduleSchema, DutyActivateSchema, DutySubmitCompletionSchema,
+    DutyRescheduleSchema, DutyActivateSchema, DutySetDatesSchema, DutySubmitCompletionSchema,
     DutyReqTaskReviewSchema, BatchReqTaskReviewSchema, ReviewApproveSchema,
     ReviewListQuerySchema, TaskListQuerySchema,
 )
@@ -109,6 +109,17 @@ class DutyRescheduleApi(MethodView):
             reason=payload.get("reason", ""),
             operator=work_no,
         ))
+
+
+@blp.route("/<string:duty_id>/set_dates")
+class DutySetDatesApi(MethodView):
+    @jwt_required()
+    @blp.arguments(DutySetDatesSchema)
+    @blp.response(200, RspMsgDictSchema)
+    def post(self, payload, duty_id):
+        """首次设定预计开始/完成时间"""
+        work_no = get_identity()
+        return response_result(content=ctrl.set_dates(duty_id, payload, operator=work_no))
 
 
 @blp.route("/<string:duty_id>/activate")

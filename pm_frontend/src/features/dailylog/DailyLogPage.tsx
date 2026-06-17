@@ -15,7 +15,7 @@ import {
   ArrowUpTrayIcon, ArrowsPointingOutIcon,
   DocumentTextIcon, SunIcon, MoonIcon, BriefcaseIcon,
   AcademicCapIcon, UsersIcon,
-  EllipsisHorizontalCircleIcon, ArrowDownTrayIcon, ServerIcon,
+  EllipsisHorizontalCircleIcon, ArrowDownTrayIcon, ServerIcon, XMarkIcon,
 } from '@heroicons/react/24/outline'
 import { useAppSelector } from '@/hooks/redux'
 import { useWorkNoToName } from '@/hooks/useWorkNoToName'
@@ -93,6 +93,7 @@ interface RequirementSection {
 interface ProjectSubGroup {
   projKey:      string
   projNm:       string   // project_nm / system_nm / '' for unnamed
+  linkUrl?:     string   // clickable link to project/system detail
   requirements: RequirementSection[]
   totalHours:   number
 }
@@ -206,6 +207,7 @@ function groupDailyEntries(entries: DailyLogEntry[]): CategorySection[] {
       for (const [projKey, pg] of projMap) {
         projectGroups.push({
           projKey, projNm: pg.nm,
+          linkUrl: projKey !== '__no_proj__' ? `/projects/${projKey}` : undefined,
           requirements: buildRequirements(pg.list, (e) => e.function_id ?? e.entry_id, (e) => e.function_nm ?? ''),
           totalHours: pg.list.reduce((s, e) => s + e.hours, 0),
         })
@@ -217,15 +219,16 @@ function groupDailyEntries(entries: DailyLogEntry[]): CategorySection[] {
         totalHours: catEntries.reduce((s, e) => s + e.hours, 0),
       }]
     } else if (catInfo.value === 'system_req') {
-      const sysMap = new Map<string, { nm: string; list: DailyLogEntry[] }>()
+      const sysMap = new Map<string, { nm: string; sysId?: string; list: DailyLogEntry[] }>()
       for (const e of catEntries) {
-        const k = e.system_nm ?? '__no_sys__'
-        if (!sysMap.has(k)) sysMap.set(k, { nm: e.system_nm ?? '', list: [] })
+        const k = e.system_id ?? e.system_nm ?? '__no_sys__'
+        if (!sysMap.has(k)) sysMap.set(k, { nm: e.system_nm ?? '', sysId: e.system_id, list: [] })
         sysMap.get(k)!.list.push(e)
       }
       for (const [sysKey, sg] of sysMap) {
         projectGroups.push({
           projKey: sysKey, projNm: sg.nm,
+          linkUrl: sg.sysId ? `/systems/${sg.sysId}` : undefined,
           requirements: buildRequirements(sg.list, (e) => e.duty_id ?? e.entry_id, (e) => e.duty_nm ?? ''),
           totalHours: sg.list.reduce((s, e) => s + e.hours, 0),
         })
@@ -455,8 +458,12 @@ const SelfReportView: React.FC<{
                                 className="w-full flex items-center gap-2 px-4 py-2.5 border-0 outline-none text-left cursor-pointer hover:bg-slate-50 transition-colors"
                                 style={{ background: section.color + '08', borderTop: pgIdx > 0 ? `1px solid ${section.color}20` : undefined, borderBottom: `1px solid ${section.color}20` }}>
                                 <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: section.color }} />
-                                <span className="text-sm font-bold text-slate-800 flex-1 min-w-0">{pg.projNm}</span>
-                                <span className="text-xs text-slate-400 mr-1">{t('dailyLog.nTasks', { count: countTasks([pg]) })}</span>
+                                {pg.linkUrl
+                                  ? <span className="text-sm font-bold text-blue-600 hover:underline truncate" style={{ cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); window.open(pg.linkUrl!, '_blank') }}>{pg.projNm}</span>
+                                  : <span className="text-sm font-bold text-slate-800 truncate">{pg.projNm}</span>
+                                }
+                                <span className="flex-1" />
+                                <span className="text-xs text-slate-400 mr-1 flex-shrink-0">{t('dailyLog.nTasks', { count: countTasks([pg]) })}</span>
                                 <span className="text-[11px] font-semibold flex-shrink-0" style={{ color: section.color }}>{fmtH(pg.totalHours)}h</span>
                                 <ChevronDownIcon className="w-3.5 h-3.5 ml-1 transition-transform duration-150 flex-shrink-0" style={{ color: section.color, transform: projCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }} />
                               </button>
@@ -668,6 +675,9 @@ const DailyLogPage: React.FC = () => {
   // Key = task_id (function_id or duty_id), Value = latest user-entered progress %.
   const [taskProgressState, setTaskProgressState] = useState<Record<string, number>>({})
   const [logsLoading, setLogsLoading] = useState(false)
+  const [logsRefreshKey, setLogsRefreshKey] = useState(0)
+  // 记录后端已保存的 entry IDs（用于区分新追加的条目）
+  const [savedEntryIds, setSavedEntryIds] = useState<Set<string>>(new Set())
   const [collapsedSections, setCollapsedSections] = useState<Set<WorkCategory>>(new Set())
   const toggleSection = (cat: WorkCategory) =>
     setCollapsedSections((prev) => {
@@ -691,6 +701,8 @@ const DailyLogPage: React.FC = () => {
   // Files already saved on the entry (non-progress source) — user can delete individual ones
   const [existingFiles, setExistingFiles] = useState<{ name: string; url: string; size?: number }[]>([])
   const [selectedProject, setSelectedProject] = useState<string | null>(null)
+  const [selectedFuncReq, setSelectedFuncReq] = useState<string | undefined>()
+  const [selectedFuncGrp, setSelectedFuncGrp] = useState<string | undefined>()
 
   // Dropdown options loaded from real API
   const [projectOpts, setProjectOpts] = useState<ProjectOpt[]>([])
@@ -699,7 +711,51 @@ const DailyLogPage: React.FC = () => {
   const [systemOpts, setSystemOpts] = useState<{ id: string; name: string }[]>([])
   const [departmentOpts, setDepartmentOpts] = useState<string[]>([])
   const [selectedSystem, setSelectedSystem] = useState<string | null>(null)
+  const [selectedSysReq, setSelectedSysReq] = useState<string | undefined>()
+  const [selectedSysGrp, setSelectedSysGrp] = useState<string | undefined>()
   const [systemDutiesMap, setSystemDutiesMap] = useState<Record<string, DutyOpt[]>>({})
+
+  // Filtered function options for project tasks
+  const filteredFuncOpts = useMemo(() => {
+    let list = functionsMap[selectedProject ?? ''] ?? []
+    if (selectedFuncReq) list = list.filter((f) => (f.requirement_nm || '') === selectedFuncReq)
+    if (selectedFuncGrp) list = list.filter((f) => (formatGroupName(f.group1) || f.group1 || '') === selectedFuncGrp)
+    return list
+  }, [functionsMap, selectedProject, selectedFuncReq, selectedFuncGrp])
+
+  const funcReqOpts = useMemo(() => {
+    const list = functionsMap[selectedProject ?? ''] ?? []
+    return Array.from(new Set(list.map((f) => f.requirement_nm).filter(Boolean) as string[]))
+      .map((v) => ({ value: v, label: v }))
+  }, [functionsMap, selectedProject])
+
+  const funcGrpOpts = useMemo(() => {
+    let list = functionsMap[selectedProject ?? ''] ?? []
+    if (selectedFuncReq) list = list.filter((f) => (f.requirement_nm || '') === selectedFuncReq)
+    return Array.from(new Set(list.map((f) => formatGroupName(f.group1) || f.group1).filter(Boolean) as string[]))
+      .map((v) => ({ value: v, label: v }))
+  }, [functionsMap, selectedProject, selectedFuncReq])
+
+  // Filtered duty options for system tasks
+  const filteredSysDutyOpts = useMemo(() => {
+    let list = systemDutiesMap[selectedSystem ?? ''] ?? []
+    if (selectedSysReq) list = list.filter((d) => (d.requirement_nm || '') === selectedSysReq)
+    if (selectedSysGrp) list = list.filter((d) => (formatGroupName(d.group) || d.group || '') === selectedSysGrp)
+    return list
+  }, [systemDutiesMap, selectedSystem, selectedSysReq, selectedSysGrp])
+
+  const sysReqOpts = useMemo(() => {
+    const list = systemDutiesMap[selectedSystem ?? ''] ?? []
+    return Array.from(new Set(list.map((d) => d.requirement_nm).filter(Boolean) as string[]))
+      .map((v) => ({ value: v, label: v }))
+  }, [systemDutiesMap, selectedSystem])
+
+  const sysGrpOpts = useMemo(() => {
+    let list = systemDutiesMap[selectedSystem ?? ''] ?? []
+    if (selectedSysReq) list = list.filter((d) => (d.requirement_nm || '') === selectedSysReq)
+    return Array.from(new Set(list.map((d) => formatGroupName(d.group) || d.group).filter(Boolean) as string[]))
+      .map((v) => ({ value: v, label: v }))
+  }, [systemDutiesMap, selectedSystem, selectedSysReq])
 
   // Load project list once on mount
   useEffect(() => {
@@ -830,6 +886,11 @@ const DailyLogPage: React.FC = () => {
         )
 
         setLogs((prev) => ({ ...prev, ...incoming }))
+        // 记录后端已保存的 entry IDs
+        const todayLog = incoming[startStr]
+        if (todayLog) {
+          setSavedEntryIds(new Set(todayLog.entries.map((e) => e.entry_id)))
+        }
 
         // In day view: always fetch fresh suggest entries into separate state.
         // Suggest entries are NEVER written to the DB — only manually added/edited
@@ -871,7 +932,7 @@ const DailyLogPage: React.FC = () => {
       })
       .catch(() => { /* silently ignore — user sees empty state */ })
       .finally(() => setLogsLoading(false))
-  }, [currentDate, viewMode]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentDate, viewMode, logsRefreshKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Dismissed suggest IDs (persisted in localStorage) ──────────────────────
   // When a user explicitly deletes an entry that originated from a suggest record,
@@ -915,12 +976,8 @@ const DailyLogPage: React.FC = () => {
     )
   }, [currentLog, suggestEntries, dateStr, dismissedVersion]) // eslint-disable-line react-hooks/exhaustive-deps
   const dismissedSuggestCount = dismissedSuggestEntries.length
+  const isReadOnly = currentLog?.status === 'submitted' || currentLog?.status === 'confirmed'
   const displayEntries = useMemo(() => {
-    const logStatus = currentLog?.status
-    // Only show suggest entries for draft logs; submitted/confirmed logs show DB entries only
-    if (logStatus === 'submitted' || logStatus === 'confirmed') {
-      return currentLog?.entries ?? []
-    }
     const promotedSuggestIds = new Set(
       (currentLog?.entries ?? []).map((e) => e.suggest_id).filter(Boolean) as string[],
     )
@@ -931,13 +988,18 @@ const DailyLogPage: React.FC = () => {
     return [...(currentLog?.entries ?? []), ...dedupedSuggest]
   }, [currentLog, suggestEntries, dateStr, dismissedVersion]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // 已提交日报中待追加的条目数量（suggest entries + 手动追加的新条目）
+  const pendingAppendCount = useMemo(() => {
+    if (!isReadOnly) return 0
+    return displayEntries.filter((e) => !savedEntryIds.has(e.entry_id)).length
+  }, [isReadOnly, displayEntries, savedEntryIds])
+
   const dayWorkEntries = displayEntries.filter((e) => e.work_category !== 'leave')
   const dayLeaveHours = displayEntries.filter((e) => e.work_category === 'leave').reduce((s, e) => s + e.hours, 0)
   const totalHours = dayWorkEntries.reduce((s, e) => s + e.hours, 0)
   const overtimeHours = dayWorkEntries.filter((e) => e.is_overtime).reduce((s, e) => s + (e.overtime_hours ?? e.hours), 0)
 
   const sufficiencyPct = Math.round(((totalHours + dayLeaveHours) / STANDARD_DAILY_HOURS) * 100)
-  const isReadOnly = currentLog?.status === 'submitted' || currentLog?.status === 'confirmed'
 
   // Navigation
   const navigate = (delta: number) => {
@@ -1284,7 +1346,8 @@ const DailyLogPage: React.FC = () => {
       }
     }
 
-    if (logId) {
+    // 已提交日報的追加模式：不立即保存到後端，等用戶點「追加提交」
+    if (logId && !isReadOnly) {
       const backendPayload = entriesToPayload(newEntries, dateStr)
       try {
         await dailyLogApi.update(logId, {
@@ -1382,6 +1445,43 @@ const DailyLogPage: React.FC = () => {
         submitted_at: dayjs().format('YYYY-MM-DD HH:mm:ss'),
       },
     }))
+    setTimeout(() => setLogsRefreshKey((v) => v + 1), 300)
+  }
+
+  // 追加提交（已提交日報追加新條目）
+  const handleAppendSubmit = () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const logId = (currentLog as any)?.log_id as string | undefined
+    if (!logId || logId.startsWith('log-')) return
+    const payload = entriesToPayload(displayEntries, dateStr)
+    dailyLogApi.update(logId, {
+      task_items: payload.task_items,
+      free_items: payload.free_items,
+    }).then(() => {
+      // 同步追加條目中的任務進度
+      const newSuggestEntries = displayEntries.filter((e) => e.entry_id.startsWith('suggest-'))
+      for (const entry of newSuggestEntries) {
+        if (typeof entry.progress === 'number') {
+          const taskId = entry.function_id ?? entry.duty_id
+          const taskType = entry.function_id ? 'project' : 'duty'
+          if (taskId) dailyLogApi.syncTaskProgress(taskType as 'project' | 'duty', taskId, entry.progress).catch(() => {})
+        }
+      }
+      showToast.success(t('dailyLog.appendSubmitSuccess'))
+    }).catch(() => {})
+    setSuggestMap((prev) => ({ ...prev, [dateStr]: [] }))
+    clearDismissedIds(dateStr)
+    setDismissedVersion((v) => v + 1)
+    setLogs((prev) => ({
+      ...prev,
+      [dateStr]: {
+        ...(prev[dateStr] ?? {}),
+        entries: displayEntries,
+        total_hours: totalHours,
+        status: 'submitted',
+      },
+    }))
+    setTimeout(() => setLogsRefreshKey((v) => v + 1), 300)
   }
 
   // Export CSV
@@ -1617,7 +1717,7 @@ const DailyLogPage: React.FC = () => {
             <PencilSquareIcon className="w-4 h-4 text-slate-400" />
             <span className="text-sm font-semibold text-slate-700">{t('dailyLog.entries')}</span>
             <Badge count={displayEntries.length} color="#2563eb" />
-            {dismissedSuggestCount > 0 && !isReadOnly && (
+            {dismissedSuggestCount > 0 && (
               <Popover
                 trigger="click"
                 placement="bottomLeft"
@@ -1659,11 +1759,22 @@ const DailyLogPage: React.FC = () => {
                 </button>
               </Popover>
             )}
-            {!isReadOnly && (
+            {!isReadOnly ? (
               <Button type="primary" size="small" icon={<PlusIcon className="w-4 h-4" />}
                 style={{ background: '#2563eb' }} className="ml-auto" onClick={() => openEntryModal()}>
                 {t('dailyLog.addEntry')}
               </Button>
+            ) : (
+              <div className="ml-auto flex items-center gap-2">
+                {pendingAppendCount > 0 && (
+                  <span className="text-xs text-orange-500">{t('dailyLog.pendingSuggest', { count: pendingAppendCount })}</span>
+                )}
+                <Button size="small" icon={<PlusIcon className="w-4 h-4" />}
+                  onClick={() => openEntryModal()}
+                  style={{ borderColor: '#d97706', color: '#d97706' }}>
+                  {t('dailyLog.appendEntry')}
+                </Button>
+              </div>
             )}
           </div>
 
@@ -1727,8 +1838,12 @@ const DailyLogPage: React.FC = () => {
                                   style={{ background: section.color + '08', borderTop: pgIdx > 0 ? `1px solid ${section.color}20` : undefined, borderBottom: `1px solid ${section.color}20` }}
                                   onClick={() => toggleDayGroup(projKey)}>
                                   <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: section.color }} />
-                                  <span className="text-sm font-bold text-slate-800 flex-1 min-w-0">{pg.projNm}</span>
-                                  <span className="text-xs text-slate-400 mr-1">{t('dailyLog.nTasks', { count: countTasks([pg]) })}</span>
+                                  {pg.linkUrl
+                                    ? <span className="text-sm font-bold text-blue-600 hover:underline truncate" style={{ cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); window.open(pg.linkUrl!, '_blank') }}>{pg.projNm}</span>
+                                    : <span className="text-sm font-bold text-slate-800 truncate">{pg.projNm}</span>
+                                  }
+                                  <span className="flex-1" />
+                                  <span className="text-xs text-slate-400 mr-1 flex-shrink-0">{t('dailyLog.nTasks', { count: countTasks([pg]) })}</span>
                                   <span className="text-[11px] font-semibold flex-shrink-0" style={{ color: section.color }}>{fmtH(pg.totalHours)}h</span>
                                   <ChevronDownIcon className="w-3.5 h-3.5 ml-1 transition-transform duration-150 flex-shrink-0" style={{ color: section.color, transform: projCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }} />
                                 </button>
@@ -1873,18 +1988,30 @@ const DailyLogPage: React.FC = () => {
                                                             {entry.source === 'updated' && <Tag color="orange" style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px' }}>{t('dailyLog.sourceUpdated')}</Tag>}
                                                             {entry.source === 'manual' && <Tag color="green" style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px' }}>{t('dailyLog.sourceManual')}</Tag>}
                                                           </div>
-                                                          {!isReadOnly && (
+                                                          {(() => {
+                                                            const isSuggest = entry.entry_id.startsWith('suggest-')
+                                                            const isNewAppend = isReadOnly && !isSuggest && !savedEntryIds.has(entry.entry_id)
+                                                            if (!isReadOnly || isSuggest || isNewAppend) return (
                                                             <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                                                               <Button size="small" type="text" icon={<PencilSquareIcon className="w-3.5 h-3.5" />}
                                                                 className="text-slate-400 hover:!text-blue-500 !h-6 !w-6 !p-0 !min-w-0"
                                                                 onClick={() => openEntryModal(entry)} />
-                                                              <Popconfirm title={t('dailyLog.confirmDeleteEntry')} onConfirm={() => handleDeleteEntry(entry.entry_id)}
-                                                                okText={t('common.delete')} cancelText={t('common.cancel')} placement="topRight">
-                                                                <Button size="small" type="text" danger icon={<TrashIcon className="w-3.5 h-3.5" />}
-                                                                  className="text-slate-400 hover:!text-red-500 !h-6 !w-6 !p-0 !min-w-0" />
-                                                              </Popconfirm>
+                                                              {isSuggest ? (
+                                                                <Button size="small" type="text" className="text-slate-300 hover:!text-slate-500 !h-6 !w-6 !p-0 !min-w-0"
+                                                                  onClick={() => { addDismissedId(dateStr, entry.suggest_id ?? entry.entry_id); setDismissedVersion((v) => v + 1) }}>
+                                                                  <XMarkIcon className="w-3.5 h-3.5" />
+                                                                </Button>
+                                                              ) : (
+                                                                <Popconfirm title={t('dailyLog.confirmDeleteEntry')} onConfirm={() => handleDeleteEntry(entry.entry_id)}
+                                                                  okText={t('common.delete')} cancelText={t('common.cancel')} placement="topRight">
+                                                                  <Button size="small" type="text" danger icon={<TrashIcon className="w-3.5 h-3.5" />}
+                                                                    className="text-slate-400 hover:!text-red-500 !h-6 !w-6 !p-0 !min-w-0" />
+                                                                </Popconfirm>
+                                                              )}
                                                             </div>
-                                                          )}
+                                                            )
+                                                            return null
+                                                          })()}
                                                         </div>
                                                       </div>
                                                       {idx < task.entries.length - 1 && <div style={{ height: '1px', background: '#e2e8f0', margin: '0 16px' }} />}
@@ -1926,6 +2053,16 @@ const DailyLogPage: React.FC = () => {
                 <Button type="primary" icon={<ArrowUpTrayIcon className="w-4 h-4" />} size="large"
                   style={{ background: '#2563eb', borderRadius: 10, height: 42 }}>
                   {t('dailyLog.submitLog')}
+                </Button>
+              </Popconfirm>
+            </div>
+          )}
+          {isReadOnly && pendingAppendCount > 0 && (
+            <div className="flex justify-end gap-3">
+              <Popconfirm title={t('dailyLog.confirmAppendSubmit')} onConfirm={handleAppendSubmit} okText={t('dailyLog.confirmSubmitOk')} cancelText={t('common.cancel')}>
+                <Button type="primary" icon={<ArrowUpTrayIcon className="w-4 h-4" />} size="large"
+                  style={{ background: '#d97706', borderRadius: 10, height: 42 }}>
+                  {t('dailyLog.appendSubmit', { count: pendingAppendCount })}
                 </Button>
               </Popconfirm>
             </div>
@@ -2039,24 +2176,39 @@ const DailyLogPage: React.FC = () => {
           })()}
 
           {watchedCategory === 'project' && (
-            <div className="grid grid-cols-2 gap-x-3">
-              <Form.Item name="project_id" label={t('dailyLog.relatedProject')} rules={[{ required: true, message: t('dailyLog.pleaseSelectProject') }]}>
-                <Select placeholder={t('dailyLog.selectProject')} allowClear onChange={(v: string) => {
-                  setSelectedProject(v)
-                  form.setFieldsValue({ function_id: undefined })
-                }}>
-                  {projectOpts.map((p) => (
-                    <Select.Option key={p.id} value={p.id}>{p.name}</Select.Option>
-                  ))}
-                </Select>
-              </Form.Item>
+            <>
+              <div className="grid grid-cols-2 gap-x-3">
+                <Form.Item name="project_id" label={t('dailyLog.relatedProject')} rules={[{ required: true, message: t('dailyLog.pleaseSelectProject') }]}>
+                  <Select placeholder={t('dailyLog.selectProject')} allowClear onChange={(v: string) => {
+                    setSelectedProject(v)
+                    setSelectedFuncReq(undefined); setSelectedFuncGrp(undefined)
+                    form.setFieldsValue({ function_id: undefined })
+                  }}>
+                    {projectOpts.map((p) => (
+                      <Select.Option key={p.id} value={p.id}>{p.name}</Select.Option>
+                    ))}
+                  </Select>
+                </Form.Item>
+                <div className="grid grid-cols-2 gap-x-2">
+                  <Form.Item label={t('requirement.name')}>
+                    <Select placeholder={t('common.all')} allowClear value={selectedFuncReq} disabled={!selectedProject}
+                      onChange={(v) => { setSelectedFuncReq(v); setSelectedFuncGrp(undefined); form.setFieldsValue({ function_id: undefined }) }}
+                      options={funcReqOpts} />
+                  </Form.Item>
+                  <Form.Item label={t('function.group')}>
+                    <Select placeholder={t('common.all')} allowClear value={selectedFuncGrp} disabled={!selectedProject}
+                      onChange={(v) => { setSelectedFuncGrp(v); form.setFieldsValue({ function_id: undefined }) }}
+                      options={funcGrpOpts} />
+                  </Form.Item>
+                </div>
+              </div>
               <Form.Item name="function_id" label={t('dailyLog.relatedTask')}>
                 <Select
                   placeholder={t('dailyLog.selectFunction')} allowClear disabled={!selectedProject}
-                  optionLabelProp="label"
+                  optionLabelProp="label" showSearch optionFilterProp="label"
                   dropdownStyle={{ minWidth: 320 }}
                 >
-                  {(functionsMap[selectedProject ?? ''] ?? []).map((f) => (
+                  {filteredFuncOpts.map((f) => (
                     <Select.Option key={f.id} value={f.id} label={f.name}>
                       <div className="py-0.5">
                         <div className="flex items-center gap-1.5 flex-wrap">
@@ -2081,7 +2233,7 @@ const DailyLogPage: React.FC = () => {
                   ))}
                 </Select>
               </Form.Item>
-            </div>
+            </>
           )}
           {watchedCategory === 'duty' && (
             <Form.Item name="duty_id" label={t('dailyLog.relatedAR')} rules={[{ required: true, message: t('dailyLog.pleaseSelectTask') }]}>
@@ -2094,7 +2246,7 @@ const DailyLogPage: React.FC = () => {
                           <span className="text-[10px] bg-cyan-50 text-cyan-600 border border-cyan-200 rounded px-1.5 py-px leading-none flex-shrink-0">{d.system_nm}</span>
                         )}
                         {d.group && (
-                          <span className="text-[10px] bg-slate-100 text-slate-500 rounded px-1.5 py-px leading-none flex-shrink-0">{d.group}</span>
+                          <span className="text-[10px] bg-slate-100 text-slate-500 rounded px-1.5 py-px leading-none flex-shrink-0">{formatGroupName(d.group) || d.group}</span>
                         )}
                         <span className="text-sm text-slate-800 font-medium">{d.name}</span>
                       </div>
@@ -2110,29 +2262,43 @@ const DailyLogPage: React.FC = () => {
             </Form.Item>
           )}
           {watchedCategory === 'system_req' && (
-            <div className="grid grid-cols-2 gap-x-3">
-              <Form.Item name="system_id" label={t('dailyLog.relatedSystem')} rules={[{ required: true, message: t('dailyLog.pleaseSelectSystem') }]}>
-                <Select
-                  placeholder={t('dailyLog.selectSystem')} allowClear showSearch optionFilterProp="children"
-                  onChange={(v: string) => {
-                    setSelectedSystem(v ?? null)
-                    form.setFieldsValue({ duty_id: undefined })
-                  }}
-                >
-                  {systemOpts.map((s) => (
-                    <Select.Option key={s.id} value={s.id}>{s.name}</Select.Option>
-                  ))}
-                </Select>
-              </Form.Item>
+            <>
+              <div className="grid grid-cols-2 gap-x-3">
+                <Form.Item name="system_id" label={t('dailyLog.relatedSystem')} rules={[{ required: true, message: t('dailyLog.pleaseSelectSystem') }]}>
+                  <Select
+                    placeholder={t('dailyLog.selectSystem')} allowClear showSearch optionFilterProp="children"
+                    onChange={(v: string) => {
+                      setSelectedSystem(v ?? null)
+                      setSelectedSysReq(undefined); setSelectedSysGrp(undefined)
+                      form.setFieldsValue({ duty_id: undefined })
+                    }}
+                  >
+                    {systemOpts.map((s) => (
+                      <Select.Option key={s.id} value={s.id}>{s.name}</Select.Option>
+                    ))}
+                  </Select>
+                </Form.Item>
+                <div className="grid grid-cols-2 gap-x-2">
+                  <Form.Item label={t('requirement.name')}>
+                    <Select placeholder={t('common.all')} allowClear value={selectedSysReq} disabled={!selectedSystem}
+                      onChange={(v) => { setSelectedSysReq(v); setSelectedSysGrp(undefined); form.setFieldsValue({ duty_id: undefined }) }}
+                      options={sysReqOpts} />
+                  </Form.Item>
+                  <Form.Item label={t('function.group')}>
+                    <Select placeholder={t('common.all')} allowClear value={selectedSysGrp} disabled={!selectedSystem}
+                      onChange={(v) => { setSelectedSysGrp(v); form.setFieldsValue({ duty_id: undefined }) }}
+                      options={sysGrpOpts} />
+                  </Form.Item>
+                </div>
+              </div>
               <Form.Item name="duty_id" label={t('dailyLog.relatedTask')} rules={[{ required: true, message: t('dailyLog.pleaseSelectTask') }]}>
                 <Select
                   placeholder={selectedSystem ? t('dailyLog.selectTask') : t('dailyLog.pleaseSelectSystemFirst')}
-                  allowClear showSearch optionFilterProp="children"
-                  disabled={!selectedSystem}
+                  allowClear showSearch disabled={!selectedSystem}
                   optionLabelProp="label"
                   dropdownStyle={{ minWidth: 280 }}
                 >
-                  {(systemDutiesMap[selectedSystem ?? ''] ?? []).map((d) => (
+                  {filteredSysDutyOpts.map((d) => (
                     <Select.Option key={d.id} value={d.id} label={d.name}>
                       <div className="py-0.5">
                         <div className="flex items-center gap-1.5 flex-wrap">
@@ -2143,7 +2309,7 @@ const DailyLogPage: React.FC = () => {
                             <span className="text-[10px] bg-blue-50 text-blue-600 border border-blue-200 rounded px-1.5 py-px leading-none flex-shrink-0">{d.requirement_nm}</span>
                           )}
                           {d.group && (
-                            <span className="text-[10px] bg-slate-100 text-slate-500 rounded px-1.5 py-px leading-none flex-shrink-0">{d.group}</span>
+                            <span className="text-[10px] bg-slate-100 text-slate-500 rounded px-1.5 py-px leading-none flex-shrink-0">{formatGroupName(d.group) || d.group}</span>
                           )}
                           <span className="text-sm text-slate-800 font-medium">{d.name}</span>
                         </div>
@@ -2157,7 +2323,7 @@ const DailyLogPage: React.FC = () => {
                   ))}
                 </Select>
               </Form.Item>
-            </div>
+            </>
           )}
 
           {watchedCategory === 'leave' && (

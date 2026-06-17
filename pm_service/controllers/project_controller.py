@@ -731,16 +731,17 @@ class ProjectController:
         #       （2）主管查看专案完结申请时，若申请仍待审（apply_status=1），主管也可审批
         if viewer_work_no and result["approval_nodes"]:
             nodes = result["approval_nodes"]
+            viewer_wn_lower = viewer_work_no.lower()
             sorted_nodes = sorted(nodes, key=lambda n: n.get("order", 0))
             first_pending = next((n for n in sorted_nodes if n.get("status") == 0), None)
             is_listed_turn = (
                 first_pending is not None and
-                first_pending.get("approver_work_no") == viewer_work_no
+                first_pending.get("approver_work_no", "").lower() == viewer_wn_lower
             )
             # 主管对专案完结申请有额外审批权（即使未在节点列表中）
             # 但若主管已签核过（节点列表中已有其 work_no），则不重复
             already_acted = any(
-                n.get("approver_work_no") == viewer_work_no
+                n.get("approver_work_no", "").lower() == viewer_wn_lower
                 for n in nodes
             )
             is_supervisor_override = (
@@ -2242,6 +2243,11 @@ class FunctionController:
             f.responsible = json.dumps(resp, ensure_ascii=False)
         f.update_at = CommonTools.get_now()
         db.session.commit()
+        # 同步需求进度和预计完成时间
+        if f.requirement_id:
+            from controllers.requirement_controller import RequirementController
+            RequirementController._sync_project_req_progress(f.requirement_id)
+            db.session.commit()
         if resp_changed and (new_resp or removed_resp):
             from controllers.notification_controller import push_notification
             project = db.session.query(ProjectDataModel).filter_by(id=f.project_id).first()
@@ -2324,6 +2330,11 @@ class FunctionController:
         f.reschedule_log = json.dumps(history, ensure_ascii=False)
         f.update_at = CommonTools.get_now()
         db.session.commit()
+        # 同步需求预计完成时间
+        if f.requirement_id:
+            from controllers.requirement_controller import RequirementController
+            RequirementController._sync_project_req_progress(f.requirement_id)
+            db.session.commit()
         # 通知所有责任人任务已延期
         resp = json.loads(f.responsible) if f.responsible else []
         if resp:

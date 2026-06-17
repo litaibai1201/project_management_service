@@ -1,9 +1,9 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react'
 import {
   Drawer, Descriptions, Progress, Button, Form, Input, InputNumber, Switch,
-  Timeline, Avatar, Typography, Tag, Upload, Spin, Divider, Steps, Select, Modal, Popover, Tooltip, Popconfirm,
+  Timeline, Avatar, Typography, Tag, Upload, Spin, Divider, Steps, Select, Modal, Tooltip, Popconfirm,
 } from 'antd'
-import { PlusIcon, PaperClipIcon, PencilSquareIcon, CalendarDaysIcon, ArrowsPointingOutIcon } from '@heroicons/react/24/outline'
+import { PlusIcon, PaperClipIcon, PencilSquareIcon, ArrowsPointingOutIcon } from '@heroicons/react/24/outline'
 import RichTextEditor from '@/components/common/RichTextEditor'
 import RichTextContent from '@/components/common/RichTextContent'
 import AttachmentPreview from '@/components/ui/AttachmentPreview'
@@ -20,7 +20,6 @@ import { showToast } from '@/utils/toast'
 import { useAppSelector } from '@/hooks/redux'
 import { useWorkNoToName } from '@/hooks/useWorkNoToName'
 import { useTranslation } from 'react-i18next'
-import dayjs from 'dayjs'
 import DateInput from '@/components/common/DateInput'
 
 const { Text } = Typography
@@ -45,55 +44,46 @@ const RescheduleButton: React.FC<{
 }> = ({ projectId, functionId, currentEnd, onSuccess }) => {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
-  const [newDate, setNewDate] = useState('')
-  const [reason, setReason] = useState('')
+  const [form] = Form.useForm()
   const [loading, setLoading] = useState(false)
 
   const handleSubmit = async () => {
-    if (!newDate) { showToast.warning(t('function.selectNewEndDate')); return }
-    if (newDate <= currentEnd) { showToast.warning(t('function.newDateMustBeLater')); return }
+    const values = await form.validateFields()
     setLoading(true)
     try {
-      await projectApi.rescheduleFunction(projectId, functionId, { new_end_date: newDate, reason })
+      await projectApi.rescheduleFunction(projectId, functionId, { new_end_date: values.new_end_date, reason: values.reason || '' })
       showToast.success(t('function.rescheduleSuccess'))
-      setOpen(false); setNewDate(''); setReason('')
+      setOpen(false); form.resetFields()
       onSuccess()
     } catch { showToast.error(t('function.rescheduleFailed')) }
     finally { setLoading(false) }
   }
 
   return (
-    <Popover
-      open={open}
-      onOpenChange={(v) => { setOpen(v); if (!v) { setNewDate(''); setReason('') } }}
-      trigger="click"
-      placement="bottomLeft"
-      title={
-        <div className="flex items-center gap-2">
-          <CalendarDaysIcon className="w-4 h-4 text-orange-500" />
-          <span className="text-xs font-semibold text-slate-700">{t('function.rescheduleTitle')}</span>
-          <span className="text-[10px] text-slate-400">{t('function.currentDeadline', { date: currentEnd })}</span>
-        </div>
-      }
-      content={
-        <div className="w-64">
-          <div className="mb-2">
-            <label className="text-[10px] text-slate-500 block mb-1">{t('function.newExpectedEnd')}</label>
-            <DateInput size="small" value={newDate} onChange={(v) => setNewDate(v)} minDate={currentEnd ? dayjs(currentEnd) : undefined} />
-          </div>
-          <div className="mb-2">
-            <label className="text-[10px] text-slate-500 block mb-1">{t('function.rescheduleReason')}</label>
-            <Input.TextArea rows={2} size="small" value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t('function.rescheduleReasonPlaceholder')} />
-          </div>
-          <div className="flex justify-end gap-1.5">
-            <Button size="small" onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
-            <Button size="small" type="primary" loading={loading} onClick={handleSubmit} style={{ background: '#d97706' }}>{t('function.confirmReschedule')}</Button>
-          </div>
-        </div>
-      }
-    >
-      <Button size="small">{t('function.rescheduleBtn')}</Button>
-    </Popover>
+    <>
+      <Button size="small" onClick={() => { form.resetFields(); setOpen(true) }}>{t('function.rescheduleBtn')}</Button>
+      <Modal
+        title={t('function.rescheduleTitle')}
+        open={open}
+        onCancel={() => { setOpen(false); form.resetFields() }}
+        onOk={handleSubmit}
+        okText={t('function.confirmReschedule')}
+        cancelText={t('common.cancel')}
+        okButtonProps={{ loading, danger: true }}
+      >
+        <p className="text-sm text-slate-500 mb-3">
+          {t('function.currentDeadline', { date: currentEnd })}
+        </p>
+        <Form form={form} layout="vertical">
+          <Form.Item name="new_end_date" label={t('function.newExpectedEnd')} rules={[{ required: true, message: t('function.selectNewEndDate') }]}>
+            <DateInput />
+          </Form.Item>
+          <Form.Item name="reason" label={t('function.rescheduleReason')}>
+            <Input.TextArea rows={2} placeholder={t('function.rescheduleReasonPlaceholder')} />
+          </Form.Item>
+        </Form>
+      </Modal>
+    </>
   )
 }
 
@@ -300,8 +290,9 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
   const canUpdateProgress = !isDraft && !isCompleted && !isReviewing && isResponsible && (isStageTask || projectStatus === 5)
   // 阶段任务不允许编辑全部字段；草稿任务允许编辑
   const canEdit           = isProjectPm && !isCompleted && !isStageTask
-  // 阶段任务：PM或负责人可以设定预计完成时间
-  const canSetEndDate     = isStageTask && !isCompleted && (isProjectPm || isResponsible)
+  // 设定日期：任务待开始/进行中且日期为空时，仅PM可设定一次
+  const canSetDates       = isProjectPm && !isDraft && !isCompleted && !isReviewing
+                            && (!funcData?.expected_start_date || !funcData?.expected_end_date)
   const canHold           = !!projectPm && workNo.toLowerCase() === projectPm.toLowerCase() && projectStatus === 5
 
   const token = tokenStorage.get()
@@ -344,33 +335,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
               {t('function.editBtn')}
             </Button>
           )}
-          {canSetEndDate && (
-            <Popover
-              trigger="click"
-              title={t('function.setEndDate')}
-              content={
-                <div className="flex items-center gap-2">
-                  <DateInput
-                    value={funcData?.expected_end_date}
-                    onChange={async (v) => {
-                      if (!v) return
-                      try {
-                        await projectApi.updateFunction(projectId, functionId, { expected_end_date: v })
-                        showToast.success(t('function.endDateSet'))
-                        loadData()
-                        onRefresh?.()
-                      } catch { /* interceptor */ }
-                    }}
-                  />
-                </div>
-              }
-            >
-              <Button icon={<CalendarDaysIcon className="w-4 h-4" />} size="small">
-                {t('function.setEndDate')}
-              </Button>
-            </Popover>
-          )}
-          {!canEdit && !canSetEndDate && !!projectPm && workNo.toLowerCase() === projectPm.toLowerCase() &&
+          {!canEdit && !!projectPm && workNo.toLowerCase() === projectPm.toLowerCase() &&
             funcData && funcData.status !== 0 && funcData.status !== 4 && funcData.status !== 8 && funcData.status !== 9 &&
             funcData.expected_end_date && funcData.expected_end_date < new Date().toISOString().slice(0, 10) && (
             <RescheduleButton projectId={projectId} functionId={functionId}
@@ -442,10 +407,26 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
                 : '—'}
             </Descriptions.Item>
             <Descriptions.Item label={t('function.groupLabel')}>{formatGroupName(funcData.group1) || funcData.group1 || '—'}</Descriptions.Item>
-            <Descriptions.Item label={t('function.expectedStart')}>{funcData.expected_start_date ?? '—'}</Descriptions.Item>
+            <Descriptions.Item label={t('function.expectedStart')}>
+              {funcData.expected_start_date
+                ? funcData.expected_start_date
+                : canSetDates
+                ? <DateInput value="" placeholder={t('projectDetail.clickToSetDate')} onChange={async (d) => {
+                    if (!d) return
+                    try { await projectApi.updateFunction(projectId, functionId, { expected_start_date: d }); showToast.success(t('common.saveSuccess')); loadData(); onRefresh?.() } catch { /* */ }
+                  }} style={{ width: 130 }} />
+                : '—'}
+            </Descriptions.Item>
             <Descriptions.Item label={t('function.expectedEnd')}>
               <div className="flex items-center gap-2 flex-wrap">
-                <span>{funcData.expected_end_date ?? '—'}</span>
+                {funcData.expected_end_date
+                  ? <span>{funcData.expected_end_date}</span>
+                  : canSetDates
+                  ? <DateInput value="" placeholder={t('projectDetail.clickToSetDate')} onChange={async (d) => {
+                      if (!d) return
+                      try { await projectApi.updateFunction(projectId, functionId, { expected_end_date: d }); showToast.success(t('common.saveSuccess')); loadData(); onRefresh?.() } catch { /* */ }
+                    }} style={{ width: 130 }} />
+                  : <span>—</span>}
                 {(funcData.reschedule_count ?? 0) > 0 && (
                   <>
                     <Tooltip title={t('function.originalExpectedEnd', { date: funcData.original_end_date ?? '—' })}>

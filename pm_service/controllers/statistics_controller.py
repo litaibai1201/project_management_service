@@ -601,6 +601,33 @@ class StatisticsController:
         def _req_name(rid: str) -> str:
             return req_nm_cache.get(rid, "")
 
+        # ── 批量预加载：系统名称 + 独立需求名称（系统任务用）────────
+        from tables.standalone_req_table import StandaloneReqModel
+        from tables.system_table import SystemModel
+        all_sys_ids = {d.system_id for d in all_duties_pre if d.system_id}
+        sys_nm_cache: dict = {}
+        if all_sys_ids:
+            systems = db.session.query(SystemModel.id, SystemModel.sys_nm).filter(
+                SystemModel.id.in_(all_sys_ids)
+            ).all()
+            sys_nm_cache = {s.id: s.sys_nm for s in systems}
+
+        all_sr_ids = {d.standalone_req_id for d in all_duties_pre if d.standalone_req_id}
+        sr_nm_cache: dict = {}
+        if all_sr_ids:
+            srs = db.session.query(StandaloneReqModel.id, StandaloneReqModel.req_nm).filter(
+                StandaloneReqModel.id.in_(all_sr_ids)
+            ).all()
+            sr_nm_cache = {s.id: s.req_nm for s in srs}
+
+        # 预加载映射（用于 enrich 日志 task_items）
+        duty_sys_id_map = {d.id: d.system_id for d in all_duties_pre if d.system_id}
+        duty_sr_id_map = {d.id: d.standalone_req_id for d in all_duties_pre if d.standalone_req_id}
+        func_req_map = {f.id: f.requirement_id for f in all_funcs_pre if f.requirement_id}
+        func_proj_map = {f.id: f.project_id for f in all_funcs_pre if f.project_id}
+        func_grp_map = {f.id: f.group1 for f in all_funcs_pre if f.group1}
+        duty_grp_map = {d.id: d.group for d in all_duties_pre if d.group}
+
         # ── 按用户处理（全部使用预加载数据，零额外 SQL）────────────
         result = []
         for user in users:
@@ -617,7 +644,37 @@ class StatisticsController:
             daily_logs = []
             updates_count = 0
             for lg in logs:
-                task_items = lg.get("task_items") or []
+                task_items = [dict(item) for item in (lg.get("task_items") or [])]
+                # Enrich task_items（与 _to_detail 逻辑一致）
+                for item in task_items:
+                    tid = item.get("task_id", "")
+                    if item.get("task_type") == "duty":
+                        if not item.get("system_nm"):
+                            sys_id = duty_sys_id_map.get(tid)
+                            if sys_id:
+                                item["system_nm"] = sys_nm_cache.get(sys_id, "")
+                        if not item.get("requirement_nm"):
+                            sr_id = duty_sr_id_map.get(tid)
+                            if sr_id:
+                                item["requirement_nm"] = sr_nm_cache.get(sr_id, "")
+                        if not item.get("group1"):
+                            grp = duty_grp_map.get(tid)
+                            if grp:
+                                item["group1"] = grp
+                    elif item.get("task_type") == "project":
+                        if not item.get("project_nm"):
+                            pid = func_proj_map.get(tid)
+                            if pid:
+                                item["project_nm"] = proj_cache.get(pid, "")
+                                item["project_id"] = pid
+                        if not item.get("requirement_nm"):
+                            item["requirement_nm"] = req_nm_cache.get(
+                                func_req_map.get(tid, ""), ""
+                            ) if tid in func_req_map else ""
+                        if not item.get("group1"):
+                            grp = func_grp_map.get(tid)
+                            if grp:
+                                item["group1"] = grp
                 free_items = lg.get("free_items") or []
                 updates_count += len(task_items) + len(free_items)
                 daily_logs.append({
@@ -657,7 +714,7 @@ class StatisticsController:
                     # 已完成：仅显示在本期内完成的
                     if f_actual_end and start_date <= f_actual_end <= end_date:
                         completed_list.append({
-                            "id": f.id, "name": f.function_nm, "project": proj_nm,
+                            "id": f.id, "name": f.function_nm, "project": proj_nm, "project_id": f.project_id,
                             "type": "function",
                             "completed_at": f_actual_end,
                             "hours": task_hours,
@@ -678,7 +735,7 @@ class StatisticsController:
                                 task_status = "overdue"
                                 overdue_list.append({
                                     "id": f.id, "name": f.function_nm,
-                                    "project": proj_nm, "days_overdue": abs(days_left),
+                                    "project": proj_nm, "project_id": f.project_id, "days_overdue": abs(days_left),
                                     "requirement_nm": _req_name(f.requirement_id) if f.requirement_id else "",
                                     "group": f.group1 or "",
                                 })
@@ -687,7 +744,7 @@ class StatisticsController:
                         except ValueError:
                             pass
                     in_progress_list.append({
-                        "id": f.id, "name": f.function_nm, "project": proj_nm,
+                        "id": f.id, "name": f.function_nm, "project": proj_nm, "project_id": f.project_id,
                         "progress": f.progress or 0, "days_left": days_left,
                         "status": task_status,
                         "expected_start_date": f_start,
@@ -712,7 +769,7 @@ class StatisticsController:
                             except ValueError:
                                 pass
                         not_started_list.append({
-                            "id": f.id, "name": f.function_nm, "project": proj_nm,
+                            "id": f.id, "name": f.function_nm, "project": proj_nm, "project_id": f.project_id,
                             "progress": 0, "days_left": days_left,
                             "status": task_status,
                             "expected_start_date": f_start,
@@ -732,7 +789,11 @@ class StatisticsController:
                 resp = json.loads(d.responsible) if d.responsible else []
                 if wn not in resp:
                     continue
-                proj_nm = _proj_name(d.project_id) if getattr(d, "project_id", None) else "AR"
+                if d.standalone_req_id:
+                    proj_nm = sys_nm_cache.get(d.system_id, "") or "系統任務"
+                else:
+                    proj_nm = "AR"
+                sr_nm = sr_nm_cache.get(d.standalone_req_id, "") if d.standalone_req_id else ""
                 s = d.duty_status or 0
                 d_start = str(d.expected_start_date or "")
                 d_end = str(d.latest_expected_end_date or d.expected_end_date or "")
@@ -743,13 +804,13 @@ class StatisticsController:
                     # 已完結：仅显示在本期内完成的
                     if d_actual_end and start_date <= d_actual_end <= end_date:
                         completed_list.append({
-                            "id": d.id, "name": d.duty_nm, "project": proj_nm,
+                            "id": d.id, "name": d.duty_nm, "project": proj_nm, "system_id": d.system_id or "",
                             "type": "duty",
                             "completed_at": d_actual_end,
                             "hours": task_hours,
                             "expected_start_date": d_start,
                             "expected_end_date": d_end,
-                            "requirement_nm": "",
+                            "requirement_nm": sr_nm,
                             "group": d.group or "",
                         })
                 elif s in (1, 2, 5):
@@ -764,8 +825,8 @@ class StatisticsController:
                                 task_status = "overdue"
                                 overdue_list.append({
                                     "id": d.id, "name": d.duty_nm,
-                                    "project": proj_nm, "days_overdue": abs(days_left),
-                                    "requirement_nm": "",
+                                    "project": proj_nm, "system_id": d.system_id or "", "days_overdue": abs(days_left),
+                                    "requirement_nm": sr_nm,
                                     "group": d.group or "",
                                 })
                             elif days_left <= 3:
@@ -773,13 +834,13 @@ class StatisticsController:
                         except ValueError:
                             pass
                     in_progress_list.append({
-                        "id": d.id, "name": d.duty_nm, "project": proj_nm,
-                        "progress": 0, "days_left": days_left,
+                        "id": d.id, "name": d.duty_nm, "project": proj_nm, "system_id": d.system_id or "",
+                        "progress": d.progress or 0, "days_left": days_left,
                         "status": task_status,
                         "expected_start_date": d_start,
                         "expected_end_date": d_end,
                         "hours": task_hours,
-                        "requirement_nm": "",
+                        "requirement_nm": sr_nm,
                         "group": d.group or "",
                     })
                 elif s in (0, 6):
@@ -798,12 +859,12 @@ class StatisticsController:
                             except ValueError:
                                 pass
                         not_started_list.append({
-                            "id": d.id, "name": d.duty_nm, "project": proj_nm,
+                            "id": d.id, "name": d.duty_nm, "project": proj_nm, "system_id": d.system_id or "",
                             "progress": 0, "days_left": days_left,
                             "status": task_status,
                             "expected_start_date": d_start,
                             "expected_end_date": d_end,
-                            "requirement_nm": "",
+                            "requirement_nm": sr_nm,
                             "group": d.group or "",
                         })
 

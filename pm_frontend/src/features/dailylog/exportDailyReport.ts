@@ -454,6 +454,7 @@ export async function exportDailyReport(opts: ExportDailyReportOptions): Promise
 
   // ── Group entries ──────────────────────────────────────────────────────
   const projectGroups = new Map<string, DailyLogEntry[]>()
+  const systemGroups = new Map<string, DailyLogEntry[]>()
   const dutyGroup: DailyLogEntry[] = []
   const otherGroup: DailyLogEntry[] = []
 
@@ -461,8 +462,13 @@ export async function exportDailyReport(opts: ExportDailyReportOptions): Promise
     if (e.work_category === 'project') {
       const key = e.project_nm || e.function_nm || '未分類'
       projectGroups.set(key, [...(projectGroups.get(key) ?? []), e])
-    } else if (e.work_category === 'duty') {
-      dutyGroup.push(e)
+    } else if (e.work_category === 'duty' || e.work_category === 'system_req') {
+      if (e.system_nm) {
+        const key = e.system_nm
+        systemGroups.set(key, [...(systemGroups.get(key) ?? []), e])
+      } else {
+        dutyGroup.push(e)
+      }
     } else {
       otherGroup.push(e)
     }
@@ -503,7 +509,19 @@ export async function exportDailyReport(opts: ExportDailyReportOptions): Promise
     sectionIdx++
   }
 
-  // Duty group — group by duty_id
+  // System groups — group by system name, then by duty
+  for (const [sysNm, items] of systemGroups) {
+    const hierarchy = buildExportHierarchy(
+      items.map(e => toRawItem(e, e.duty_id ?? e.entry_id, e.duty_nm || ''))
+    )
+    dataRows.push(new TableRow({ children: [
+      cell([p(tr(`${sectionIdx}. ${sysNm}`, true))], COL_LEFT),
+      cell(buildRightParas(hierarchy, inlineImgMap), COL_RIGHT),
+    ]}))
+    sectionIdx++
+  }
+
+  // Duty group (AR) — group by duty_id
   if (dutyGroup.length) {
     const hierarchy = buildExportHierarchy(
       dutyGroup.map(e => toRawItem(e, e.duty_id ?? e.entry_id, e.duty_nm || ''))
@@ -667,6 +685,7 @@ export async function exportRangeReport(opts: ExportRangeReportOptions): Promise
 
   // ── Group by project / duty / other across all days ───────────────────
   const projectGroups = new Map<string, DatedEntry[]>()
+  const systemGroups = new Map<string, DatedEntry[]>()
   const dutyGroup: DatedEntry[] = []
   const otherGroup: DatedEntry[] = []
 
@@ -674,8 +693,13 @@ export async function exportRangeReport(opts: ExportRangeReportOptions): Promise
     if (e.work_category === 'project') {
       const key = e.project_nm || e.function_nm || '未分類'
       projectGroups.set(key, [...(projectGroups.get(key) ?? []), e])
-    } else if (e.work_category === 'duty') {
-      dutyGroup.push(e)
+    } else if (e.work_category === 'duty' || e.work_category === 'system_req') {
+      if (e.system_nm) {
+        const key = e.system_nm
+        systemGroups.set(key, [...(systemGroups.get(key) ?? []), e])
+      } else {
+        dutyGroup.push(e)
+      }
     } else {
       otherGroup.push(e)
     }
@@ -701,6 +725,15 @@ export async function exportRangeReport(opts: ExportRangeReportOptions): Promise
     const hierarchy = buildExportHierarchy(items.map(e => toRawItem(e, e.function_id ?? e.entry_id, e.function_nm || '')))
     dataRows.push(new TableRow({ children: [
       cell([p(tr(`${sectionIdx}. ${projNm}`, true))], COL_LEFT),
+      cell(buildRangeRightParas(hierarchy, today, inlineImgMap), COL_RIGHT),
+    ]}))
+    sectionIdx++
+  }
+
+  for (const [sysNm, items] of systemGroups) {
+    const hierarchy = buildExportHierarchy(items.map(e => toRawItem(e, e.duty_id ?? e.entry_id, e.duty_nm || '')))
+    dataRows.push(new TableRow({ children: [
+      cell([p(tr(`${sectionIdx}. ${sysNm}`, true))], COL_LEFT),
       cell(buildRangeRightParas(hierarchy, today, inlineImgMap), COL_RIGHT),
     ]}))
     sectionIdx++

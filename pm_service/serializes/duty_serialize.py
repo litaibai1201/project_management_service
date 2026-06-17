@@ -83,6 +83,12 @@ class DutyActivateSchema(BaseSchema):
     expected_end_date = fields.Str(load_default="")
 
 
+class DutySetDatesSchema(BaseSchema):
+    """首次设定预计日期"""
+    expected_start_date = fields.Str(load_default="")
+    expected_end_date = fields.Str(load_default="")
+
+
 class DutySubmitCompletionSchema(BaseSchema):
     reviewer = fields.List(fields.Str(), load_default=[])
     submitter_name = fields.Str(load_default="")
@@ -96,6 +102,7 @@ class DutyReqTaskReviewSchema(BaseSchema):
 
 class BatchReqTaskReviewSchema(BaseSchema):
     duty_ids = fields.List(fields.Str(), load_default=[])
+    reviewer = fields.List(fields.Str(), load_default=[])
 
 
 class ReviewApproveSchema(BaseSchema):

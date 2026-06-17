@@ -277,7 +277,7 @@ const SystemDetailPage: React.FC = () => {
       setShowCreate(false)
       createForm.resetFields()
       loadReqs(1)
-    } catch (err: unknown) { showToast.error((err as string) || t('system.createFailed')) }
+    } catch (err: unknown) { showToast.error((err instanceof Error ? err.message : String(err)) || t('system.createFailed')) }
     finally { setCreateSaving(false) }
   }
 
@@ -339,7 +339,7 @@ const SystemDetailPage: React.FC = () => {
       setShowEditReq(false)
       editForm.resetFields()
       handleReqUpdated()
-    } catch (err: unknown) { showToast.error((err as string) || t('common.error')) }
+    } catch (err: unknown) { showToast.error((err instanceof Error ? err.message : String(err)) || t('common.error')) }
     finally { setEditSaving(false) }
   }
 
@@ -452,7 +452,7 @@ const SystemDetailPage: React.FC = () => {
       setShowReview(false)
       setReviewTargetReq(null)
       loadReqs(reqPage)
-    } catch (err: unknown) { showToast.error((err as string) || t('common.error')) }
+    } catch (err: unknown) { showToast.error((err instanceof Error ? err.message : String(err)) || t('common.error')) }
     finally { setReviewSaving(false) }
   }
 
@@ -467,7 +467,7 @@ const SystemDetailPage: React.FC = () => {
       setShowReview(false)
       setSelectedReqIds([])
       loadReqs(reqPage)
-    } catch (err: unknown) { showToast.error((err as string) || t('common.error')) }
+    } catch (err: unknown) { showToast.error((err instanceof Error ? err.message : String(err)) || t('common.error')) }
     finally { setReviewSaving(false) }
   }
 
@@ -494,7 +494,7 @@ const SystemDetailPage: React.FC = () => {
       setDutyTargetReq(null)
       dutyForm.resetFields()
       loadDuties()
-    } catch (err: unknown) { showToast.error((err as string) || t('system.createFailed')) }
+    } catch (err: unknown) { showToast.error((err instanceof Error ? err.message : String(err)) || t('system.createFailed')) }
     finally { setCreateDutySaving(false) }
   }
 
@@ -535,7 +535,7 @@ const SystemDetailPage: React.FC = () => {
       setShowBatchDutyReview(false)
       setSelectedReqDutyIds([])
       loadDuties()
-    } catch (err: unknown) { showToast.error((err as string) || t('system.submitFailed')) }
+    } catch (err: unknown) { showToast.error((err instanceof Error ? err.message : String(err)) || t('system.submitFailed')) }
     finally { setBatchDutyReviewSaving(false) }
   }
 
@@ -800,8 +800,38 @@ const groupedByReq = useMemo(() => {
       },
     },
     {
-      title: t('system.expectedEnd'), dataIndex: 'expected_end_date', width: 100,
-      render: (v: string) => <span className="text-xs text-slate-500">{v || '—'}</span>,
+      title: t('common.expectedStartDate'), dataIndex: 'expected_start_date', width: 130,
+      render: (v: string, r: TemporaryDuty) => {
+        if (!v) {
+          const req = reqList.find((rq) => rq.id === r.standalone_req_id)
+          const isReqResp = (req?.responsible ?? []).some((wn: string) => wn.toLowerCase() === workNo.toLowerCase())
+          if (isReqResp && r.status !== 0 && r.status !== 3 && r.status !== 9) {
+            return <DateInput value="" placeholder={t('projectDetail.clickToSetDate')} onChange={async (d) => {
+              if (!d) return
+              try { await dutyApi.setDates(r.id, { expected_start_date: d }); showToast.success(t('common.saveSuccess')); loadDuties() } catch { /* */ }
+            }} />
+          }
+          return <span className="text-slate-300 text-xs">—</span>
+        }
+        return <span className="text-xs text-slate-500">{v}</span>
+      },
+    },
+    {
+      title: t('system.expectedEnd'), dataIndex: 'expected_end_date', width: 130,
+      render: (v: string, r: TemporaryDuty) => {
+        if (!v) {
+          const req = reqList.find((rq) => rq.id === r.standalone_req_id)
+          const isReqResp = (req?.responsible ?? []).some((wn: string) => wn.toLowerCase() === workNo.toLowerCase())
+          if (isReqResp && r.status !== 0 && r.status !== 3 && r.status !== 9) {
+            return <DateInput value="" placeholder={t('projectDetail.clickToSetDate')} onChange={async (d) => {
+              if (!d) return
+              try { await dutyApi.setDates(r.id, { expected_end_date: d }); showToast.success(t('common.saveSuccess')); loadDuties() } catch { /* */ }
+            }} />
+          }
+          return <span className="text-slate-300 text-xs">—</span>
+        }
+        return <span className="text-xs text-slate-500">{v}</span>
+      },
     },
     {
       title: t('system.actualEnd'), dataIndex: 'end_time', width: 110,

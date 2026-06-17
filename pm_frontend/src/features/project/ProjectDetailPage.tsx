@@ -1080,9 +1080,55 @@ const ProjectDetailPage: React.FC = () => {
       },
     },
     {
+      title: t('common.expectedStartDate'), dataIndex: 'expected_start_date', width: 110,
+      render: (v: string, record) => {
+        if (!v) {
+          const canSet = isPm && record.status !== 0 && record.status !== 4 && record.status !== 9
+          if (canSet) {
+            return (
+              <DateInput
+                value=""
+                placeholder={t('projectDetail.clickToSetDate')}
+                onChange={async (d) => {
+                  if (!d || !current) return
+                  try {
+                    await projectApi.updateFunction(current.id, record.id, { expected_start_date: d })
+                    showToast.success(t('common.saveSuccess'))
+                    if (id) loadFunctions(id)
+                  } catch { /* interceptor */ }
+                }}
+              />
+            )
+          }
+          return <span className="text-slate-300 text-xs">—</span>
+        }
+        return <span className="text-xs">{v}</span>
+      },
+    },
+    {
       title: t('common.expectedEndDate'), dataIndex: 'expected_end_date', width: 110,
       render: (v: string, record) => {
-        if (!v) return <span className="text-slate-300 text-xs">—</span>
+        if (!v) {
+          // PM 可在任务非草稿、非完结时设定日期（仅一次）
+          const canSet = isPm && record.status !== 0 && record.status !== 4 && record.status !== 9
+          if (canSet) {
+            return (
+              <DateInput
+                value=""
+                placeholder={t('projectDetail.clickToSetDate')}
+                onChange={async (d) => {
+                  if (!d || !current) return
+                  try {
+                    await projectApi.updateFunction(current.id, record.id, { expected_end_date: d })
+                    showToast.success(t('common.saveSuccess'))
+                    if (id) loadFunctions(id)
+                  } catch { /* interceptor */ }
+                }}
+              />
+            )
+          }
+          return <span className="text-slate-300 text-xs">—</span>
+        }
         const isLate = record.end_time && record.end_time > v
         const isEarly = record.end_time && record.end_time <= v
         return (

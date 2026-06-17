@@ -58,6 +58,10 @@ export const dutyApi = {
   setStatus: (id: string, status: number): Promise<ApiResponse<null>> =>
     put(`/temporary_duty/${id}/set_status`, { status }),
 
+  /** POST /api/temporary_duty/:id/set_dates — 首次设定预计日期 */
+  setDates: (id: string, payload: { expected_start_date?: string; expected_end_date?: string }): Promise<ApiResponse<TemporaryDuty>> =>
+    post(`/temporary_duty/${id}/set_dates`, payload),
+
   /** GET /api/temporary_duty/:id/files */
   files: (id: string) =>
     get(`/temporary_duty/${id}/files`),

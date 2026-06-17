@@ -16,7 +16,6 @@ import {
 } from '@heroicons/react/24/outline'
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
 import { fetchIndexThunk, setManagerView } from './authSlice'
-import { useNavigate } from 'react-router-dom'
 import dayjs from 'dayjs'
 import isoWeek from 'dayjs/plugin/isoWeek'
 dayjs.extend(isoWeek)
@@ -24,7 +23,6 @@ import { projectApi } from '@/api/project.api'
 import { authApi, type AlertTask, type WeeklyActivityItem, type NewsItem } from '@/api/auth.api'
 import { dailyLogApi, type BackendDailyLogSummary } from '@/api/daily_log.api'
 import { standaloneReqApi } from '@/api/standalone_req.api'
-import { dutyApi } from '@/api/duty.api'
 import { notificationApi } from '@/api/notification.api'
 import type { ProjectListItem, UserStatistical, TeamStatistical, TeamBenefitGroup, ApplyRecord, ProjectFunction } from '@/types/api.types'
 import { FUNCTION_STATUS_MAP, benefitUnitLabel } from '@/utils/status'
@@ -40,7 +38,6 @@ import { useTranslation } from 'react-i18next'
 // ─── Types for dashboard data ─────────────────────────────────────────────────
 type MonthLogEntry = { hours: number; ot: number; status: 'confirmed' | 'submitted' | 'draft' }
 interface ReqStats { total: number; in_progress: number; completed: number; pending: number }
-interface ArTaskStats { total: number; in_progress: number; completed: number; overdue: number; suspended: number }
 interface MemberWorkStat {
   work_no: string; name: string; total_hours: number
   completed_tasks: number; in_progress_tasks: number; overdue_tasks: number
@@ -71,7 +68,6 @@ const DaysLeftBadge: React.FC<{ days: number }> = ({ days }) => {
 
 const AlertBar: React.FC<{ pendingReview: number; alertTasks: AlertTask[] }> = ({ pendingReview, alertTasks }) => {
   const [open, setOpen] = useState(true)
-  const navigate = useNavigate()
   const { t } = useTranslation()
 
   const overdue  = alertTasks.filter((t) => t.days_diff < 0).sort((a, b) => a.days_diff - b.days_diff)
@@ -81,8 +77,8 @@ const AlertBar: React.FC<{ pendingReview: number; alertTasks: AlertTask[] }> = (
   if (overdue.length === 0 && urgent.length === 0 && upcoming.length === 0 && pendingReview === 0) return null
 
   const handleTaskClick = (task: AlertTask) => {
-    if (task.type === 'duty') navigate(`/duties/${task.id}`)
-    else if (task.project_id) navigate(`/projects/${task.project_id}?fid=${task.id}`)
+    if (task.type === 'duty') window.open(`/duties/${task.id}`, '_blank')
+    else if (task.project_id) window.open(`/projects/${task.project_id}?fid=${task.id}`, '_blank')
   }
 
   const AlertRow: React.FC<{ task: AlertTask }> = ({ task }) => (
@@ -180,7 +176,7 @@ const AlertBar: React.FC<{ pendingReview: number; alertTasks: AlertTask[] }> = (
               {pendingReview > 0 && (
                 <div
                   className="flex items-center gap-2 py-1.5 mt-1 border-t border-slate-50 cursor-pointer hover:bg-white/60 rounded-md px-1 -mx-1 transition-colors"
-                  onClick={() => navigate('/review')}
+                  onClick={() => window.open('/review', '_blank')}
                 >
                   <Tag style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }} color="blue">{t('dashboard.approvalTag')}</Tag>
                   <span className="text-slate-700 text-xs flex-1">{t('dashboard.pendingApprovalItem')}</span>
@@ -197,7 +193,7 @@ const AlertBar: React.FC<{ pendingReview: number; alertTasks: AlertTask[] }> = (
 
 // ─── Daily Log Status Card ─────────────────────────────────────────────────
 const DailyLogCard: React.FC<{ canDismiss?: boolean; todayLog: BackendDailyLogSummary | null; onDismiss?: () => void }> = ({ canDismiss = false, todayLog, onDismiss }) => {
-  const navigate = useNavigate()
+
   const { t } = useTranslation()
   const todayHours = todayLog ? Number(todayLog.total_hours) : 0
   const standardHours = 8.0
@@ -248,7 +244,7 @@ const DailyLogCard: React.FC<{ canDismiss?: boolean; todayLog: BackendDailyLogSu
         </div>
         <div className="flex flex-col items-end gap-3 flex-shrink-0 mr-6">
           <Button type="primary" size="small" style={{ background: '#2563eb', borderRadius: 8 }}
-            onClick={() => navigate('/daily-log')}>
+            onClick={() => window.open('/daily-log', '_blank')}>
             {status === 'not_started' ? t('dashboard.fillNow') : t('dashboard.continueFill')} →
           </Button>
           {canDismiss && (
@@ -265,7 +261,7 @@ const DailyLogCard: React.FC<{ canDismiss?: boolean; todayLog: BackendDailyLogSu
 
 // ─── Monthly Attendance Calendar Card ─────────────────────────────────────────
 const MonthlyAttendanceCard: React.FC = () => {
-  const navigate = useNavigate()
+
   const { t } = useTranslation()
   const today = dayjs()
   const firstDay = today.startOf('month')
@@ -311,7 +307,7 @@ const MonthlyAttendanceCard: React.FC = () => {
         </div>
       }
       extra={
-        <span className="text-xs text-blue-500 cursor-pointer hover:underline" onClick={() => navigate('/daily-log')}>
+        <span className="text-xs text-blue-500 cursor-pointer hover:underline" onClick={() => window.open('/daily-log', '_blank')}>
           {t('dashboard.fillLogLink')}
         </span>
       }
@@ -367,7 +363,7 @@ const MonthlyAttendanceCard: React.FC = () => {
               <div
                 className={`aspect-square rounded-md flex flex-col items-center justify-center cursor-pointer transition-all hover:ring-2 hover:ring-blue-300 ${isToday ? 'ring-2 ring-blue-500' : ''} ${noLog ? 'ring-1 ring-red-200' : ''}`}
                 style={{ background: isFuture || isWeekend ? '#f8fafc' : getHeatColor(hours), minHeight: 32 }}
-                onClick={() => navigate('/daily-log')}
+                onClick={() => window.open('/daily-log', '_blank')}
               >
                 <span className={`text-[10px] font-semibold ${hours > 6 ? 'text-white' : isToday ? 'text-blue-600' : isWeekend ? 'text-slate-300' : 'text-slate-500'}`}>
                   {i + 1}
@@ -449,10 +445,9 @@ const BenefitCard: React.FC<BenefitCardProps> = ({ benefit }) => {
 
 interface BenefitDetailCardProps {
   benefit: TeamBenefitGroup[]
-  navigate: (path: string) => void
 }
 
-const BenefitDetailCard: React.FC<BenefitDetailCardProps> = ({ benefit, navigate }) => {
+const BenefitDetailCard: React.FC<BenefitDetailCardProps> = ({ benefit }) => {
   const { t } = useTranslation()
   const projStatusLabel = (s: number) => {
     const m: Record<number, [string, string]> = {
@@ -514,8 +509,8 @@ const BenefitDetailCard: React.FC<BenefitDetailCardProps> = ({ benefit, navigate
                       <div key={item.id}
                         className={`rounded-lg px-3 py-2 transition-colors flex items-center gap-2 ${type !== 'standalone_req' ? 'hover:bg-slate-100 cursor-pointer' : ''} bg-slate-50`}
                         onClick={() => {
-                          if (type === 'project') navigate(`/projects/${item.id}`)
-                          else if (type === 'addon_req' && item.proj_id) navigate(`/projects/${item.proj_id}`)
+                          if (type === 'project') window.open(`/projects/${item.id}`, '_blank')
+                          else if (type === 'addon_req' && item.proj_id) window.open(`/projects/${item.proj_id}`, '_blank')
                         }}>
                         <span className="text-xs font-medium text-slate-700 truncate flex-1">{item.name}</span>
                         {type === 'project' && projStatusLabel(item.status)}
@@ -547,12 +542,11 @@ interface TeamLogCardProps {
   setNotifyingSet: React.Dispatch<React.SetStateAction<Set<string>>>
   notifyingAll: boolean
   setNotifyingAll: (v: boolean) => void
-  navigate: ReturnType<typeof useNavigate>
 }
 
 const TeamLogCard: React.FC<TeamLogCardProps> = ({
   logReportData, logLoading, logPeriod, setLogPeriod,
-  notifyingSet, setNotifyingSet, notifyingAll, setNotifyingAll, navigate,
+  notifyingSet, setNotifyingSet, notifyingAll, setNotifyingAll,
 }) => {
   const { t } = useTranslation()
   const todayStr = dayjs().format('YYYY-MM-DD')
@@ -695,7 +689,7 @@ const TeamLogCard: React.FC<TeamLogCardProps> = ({
               </button>
             </Tooltip>
           )}
-          <span className="text-xs text-blue-500 cursor-pointer hover:underline" onClick={() => navigate(`/statistics?tab=report&period=${logPeriod}`)}>{t('dashboard.viewDetail')}</span>
+          <span className="text-xs text-blue-500 cursor-pointer hover:underline" onClick={() => window.open(`/statistics?tab=report&period=${logPeriod}`, '_blank')}>{t('dashboard.viewDetail')}</span>
         </div>
       }
       styles={{ body: { flex: 1, padding: '0 16px 8px', minHeight: 0, overflowY: 'auto' } }}>
@@ -710,7 +704,7 @@ const TeamLogCard: React.FC<TeamLogCardProps> = ({
         pagination={false}
         locale={{ emptyText: <Empty description={t('dashboard.noTableData')} image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
         onRow={(r) => ({
-          onClick: () => navigate(`/statistics?tab=report&period=${logPeriod}&member=${r.work_no}`),
+          onClick: () => window.open(`/statistics?tab=report&period=${logPeriod}&member=${r.work_no}`, '_blank'),
           style: { cursor: 'pointer' },
         })}
       />
@@ -723,7 +717,7 @@ const TeamLogCard: React.FC<TeamLogCardProps> = ({
 const DashboardPage: React.FC = () => {
   const { t } = useTranslation()
   const dispatch  = useAppDispatch()
-  const navigate  = useNavigate()
+
   const { indexData, name, workNo, isSupervisor, isManagerView } = useAppSelector((s) => s.auth)
   const isManager = isManagerView
   const setIsManager = (v: boolean) => dispatch(setManagerView(v))
@@ -762,7 +756,6 @@ const DashboardPage: React.FC = () => {
   }>>([])
   const [logLoading,       setLogLoading]       = useState(false)
   const [reqStats,         setReqStats]         = useState<ReqStats | null>(null)
-  const [arTaskStats,      setArTaskStats]       = useState<ArTaskStats | null>(null)
 
   useEffect(() => { dispatch(fetchIndexThunk()) }, [dispatch])
 
@@ -878,22 +871,7 @@ const DashboardPage: React.FC = () => {
         .catch(() => {})
     }
 
-    if (visible.has('team_ar_task')) {
-      const today = new Date().toISOString().slice(0, 10)
-      dutyApi.list({ page: 1, size: 2000 })
-        .then((res) => {
-          const list = (res.content as any).data_list ?? []
-          const active = list.filter((d: any) => d.status !== 9)
-          setArTaskStats({
-            total:       active.length,
-            in_progress: active.filter((d: any) => d.status === 1).length,
-            completed:   active.filter((d: any) => d.status === 3).length,
-            overdue:     active.filter((d: any) => d.status !== 3 && d.expected_end_date && d.expected_end_date < today).length,
-            suspended:   active.filter((d: any) => d.status === 8).length,
-          })
-        })
-        .catch(() => {})
-    }
+    // team_ar_task 数据由 teamStat 提供，无需额外请求
 
     authApi.getAlertTasks()
       .then((res) => { if (Array.isArray(res.content)) setAlertTasks(res.content) })
@@ -1129,23 +1107,23 @@ const DashboardPage: React.FC = () => {
                 </div>
                 <div className="flex divide-x divide-slate-100">
                   <div className="flex-1 text-center pr-2">
-                    <div className="text-xl font-bold text-slate-700">{arTaskStats?.total ?? 0}</div>
+                    <div className="text-xl font-bold text-slate-700">{teamStat?.team_ar_task?.total ?? 0}</div>
                     <div className="text-xs text-slate-400 mt-0.5">{t('dashboard.totalCount')}</div>
                   </div>
                   <div className="flex-1 text-center px-2">
-                    <div className="text-xl font-bold text-blue-600">{arTaskStats?.in_progress ?? 0}</div>
+                    <div className="text-xl font-bold text-blue-600">{teamStat?.team_ar_task?.in_progress ?? 0}</div>
                     <div className="text-xs text-slate-400 mt-0.5">{t('dashboard.inProgress')}</div>
                   </div>
                   <div className="flex-1 text-center px-2">
-                    <div className="text-xl font-bold text-green-600">{arTaskStats?.completed ?? 0}</div>
+                    <div className="text-xl font-bold text-green-600">{teamStat?.team_ar_task?.completed ?? 0}</div>
                     <div className="text-xs text-slate-400 mt-0.5">{t('dashboard.completedCount')}</div>
                   </div>
                   <div className="flex-1 text-center px-2">
-                    <div className={`text-xl font-bold ${(arTaskStats?.overdue ?? 0) > 0 ? 'text-red-500' : 'text-slate-400'}`}>{arTaskStats?.overdue ?? 0}</div>
+                    <div className={`text-xl font-bold ${(teamStat?.team_ar_task?.overdue ?? 0) > 0 ? 'text-red-500' : 'text-slate-400'}`}>{teamStat?.team_ar_task?.overdue ?? 0}</div>
                     <div className="text-xs text-slate-400 mt-0.5">{t('dashboard.overdueColumn')}</div>
                   </div>
                   <div className="flex-1 text-center pl-2">
-                    <div className={`text-xl font-bold ${(arTaskStats?.suspended ?? 0) > 0 ? 'text-orange-400' : 'text-slate-400'}`}>{arTaskStats?.suspended ?? 0}</div>
+                    <div className={`text-xl font-bold ${(teamStat?.team_ar_task?.suspended ?? 0) > 0 ? 'text-orange-400' : 'text-slate-400'}`}>{teamStat?.team_ar_task?.suspended ?? 0}</div>
                     <div className="text-xs text-slate-400 mt-0.5">{t('dashboard.suspendedLabel')}</div>
                   </div>
                 </div>
@@ -1225,7 +1203,7 @@ const DashboardPage: React.FC = () => {
                 className="h-full"
                 style={{ display: 'flex', flexDirection: 'column' }}
                 title={<span className="text-sm font-semibold text-slate-600">{t('dashboard.memberDetailTitle')}</span>}
-                extra={<span className="text-xs text-slate-400 cursor-pointer hover:text-blue-500" onClick={() => navigate('/duties')}>{t('dashboard.viewDetail')}</span>}
+                extra={<span className="text-xs text-slate-400 cursor-pointer hover:text-blue-500" onClick={() => window.open('/duties', '_blank')}>{t('dashboard.viewDetail')}</span>}
                 styles={{ body: { flex: 1, overflow: 'auto', padding: 0, minHeight: 0 } }}
               >
                 <div className="divide-y divide-slate-50">
@@ -1235,7 +1213,7 @@ const DashboardPage: React.FC = () => {
                       <div
                         key={m.work_no}
                         className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 cursor-pointer transition-colors"
-                        onClick={() => navigate(`/duties?responsible=${m.work_no}`)}
+                        onClick={() => window.open(`/duties?responsible=${m.work_no}`, '_blank')}
                       >
                         <Avatar
                           size={28}
@@ -1304,7 +1282,7 @@ const DashboardPage: React.FC = () => {
               return (
                 <Card className="h-full" style={{ display: 'flex', flexDirection: 'column' }}
                   title={<span className="text-sm font-semibold text-slate-600">{t('dashboard.projectStatusDistTitle')}</span>}
-                  extra={<span className="text-xs text-blue-500 cursor-pointer hover:underline" onClick={() => navigate('/projects')}>{t('dashboard.viewAll')}</span>}
+                  extra={<span className="text-xs text-blue-500 cursor-pointer hover:underline" onClick={() => window.open('/projects', '_blank')}>{t('dashboard.viewAll')}</span>}
                   styles={{ body: { flex: 1, padding: '8px 16px', minHeight: 0, display: 'flex', flexDirection: 'column' } }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={data} margin={{ top: 4, right: 16, left: -20, bottom: 0 }}>
@@ -1329,13 +1307,13 @@ const DashboardPage: React.FC = () => {
               return (
                 <Card className="h-full" style={{ display: 'flex', flexDirection: 'column' }}
                   title={<span className="text-sm font-semibold text-slate-600">{t('dashboard.projectRankingTitle')}</span>}
-                  extra={<span className="text-xs text-blue-500 cursor-pointer hover:underline" onClick={() => navigate('/projects')}>{t('dashboard.viewAll')}</span>}
+                  extra={<span className="text-xs text-blue-500 cursor-pointer hover:underline" onClick={() => window.open('/projects', '_blank')}>{t('dashboard.viewAll')}</span>}
                   styles={{ body: { flex: 1, padding: '8px 16px', minHeight: 0, overflowY: 'auto' } }}>
                   <div className="space-y-2 pt-1">
                     {sorted.length === 0
                       ? <Empty description={t('dashboard.noInProgressProjects')} image={Empty.PRESENTED_IMAGE_SIMPLE} className="py-4" />
                       : sorted.map((p) => (
-                        <div key={p.id} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 rounded-md px-1 py-0.5 transition-colors" onClick={() => navigate(`/projects/${p.id}`)}>
+                        <div key={p.id} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 rounded-md px-1 py-0.5 transition-colors" onClick={() => window.open(`/projects/${p.id}`, '_blank')}>
                           <span className="text-xs text-slate-600 truncate flex-1" title={p.project_nm}>{p.project_nm}</span>
                           <div className="flex items-center gap-1.5 flex-shrink-0 w-32">
                             <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
@@ -1361,7 +1339,6 @@ const DashboardPage: React.FC = () => {
                 setNotifyingSet={setNotifyingSet}
                 notifyingAll={notifyingAll}
                 setNotifyingAll={setNotifyingAll}
-                navigate={navigate}
               />
             )
 
@@ -1388,7 +1365,7 @@ const DashboardPage: React.FC = () => {
                       )}
                     </div>
                   }
-                  extra={<span className="text-xs text-blue-500 cursor-pointer hover:underline" onClick={() => navigate('/review')}>{t('dashboard.goApprove')}</span>}
+                  extra={<span className="text-xs text-blue-500 cursor-pointer hover:underline" onClick={() => window.open('/review', '_blank')}>{t('dashboard.goApprove')}</span>}
                   styles={{ body: { flex: 1, padding: '8px 16px', minHeight: 0, display: 'flex', flexDirection: 'column' } }}>
                   {data.length === 0
                     ? <Empty description={t('dashboard.noPendingApprovals')} image={Empty.PRESENTED_IMAGE_SIMPLE} className="py-4" />
@@ -1415,7 +1392,7 @@ const DashboardPage: React.FC = () => {
             )
 
             case 'team_benefit_detail': return !isManager ? null : (
-              <BenefitDetailCard benefit={teamStat?.team_benefit ?? []} navigate={navigate} />
+              <BenefitDetailCard benefit={teamStat?.team_benefit ?? []} />
             )
 
             // ── Personal widgets ────────────────────────────────────────────
@@ -1528,7 +1505,7 @@ const DashboardPage: React.FC = () => {
                       <div
                         key={p.id}
                         className="flex items-center gap-3 px-5 py-3 border-b border-slate-100 last:border-0 hover:bg-slate-50 cursor-pointer transition-colors"
-                        onClick={() => navigate(`/projects/${p.id}`)}
+                        onClick={() => window.open(`/projects/${p.id}`, '_blank')}
                       >
                         <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0" style={{ background: `${PRIORITY_COLORS[(p.priority ?? 1) - 1]}20` }}>
                           <FolderIcon className="w-4 h-4" style={{ color: PRIORITY_COLORS[(p.priority ?? 1) - 1] }} />
@@ -1569,7 +1546,7 @@ const DashboardPage: React.FC = () => {
                       <div
                         key={f.id}
                         className="flex items-center gap-3 px-5 py-3 border-b border-slate-100 last:border-0 hover:bg-slate-50 cursor-pointer transition-colors"
-                        onClick={() => navigate(`/projects/${f.project_id}?fid=${f.id}`)}
+                        onClick={() => window.open(`/projects/${f.project_id}?fid=${f.id}`, '_blank')}
                       >
                         <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: st?.dot ?? '#94a3b8' }} />
                         <span className="flex-1 text-sm text-slate-700 truncate">{f.function_nm}</span>
@@ -1618,7 +1595,7 @@ const DashboardPage: React.FC = () => {
                       <div
                         key={r.id}
                         className="flex items-center gap-3 px-5 py-3 border-b border-slate-100 last:border-0 hover:bg-slate-50 cursor-pointer transition-colors"
-                        onClick={() => navigate('/review')}
+                        onClick={() => window.open('/review', '_blank')}
                       >
                         <Tag color="orange" style={{ fontSize: 10, padding: '0 5px', lineHeight: '18px', margin: 0, flexShrink: 0 }}>{typeLabel}</Tag>
                         <span className="flex-1 text-sm text-slate-700 truncate">{title}</span>

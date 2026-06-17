@@ -11,7 +11,7 @@ import {
   MagnifyingGlassIcon, FolderIcon, ClipboardDocumentListIcon,
   UserCircleIcon, CalendarDaysIcon, ArrowRightIcon,
 } from '@heroicons/react/24/outline'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import { searchApi } from '@/api/search.api'
 import { SearchResult } from '@/types/api.types'
 import { PROJECT_STATUS_MAP, DUTY_STATUS_MAP, FUNCTION_STATUS_MAP, PRIORITY_MAP } from '@/utils/status'
@@ -170,7 +170,6 @@ const SUGGESTIONS = [
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 const SearchPage: React.FC = () => {
-  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const initialQ = searchParams.get('q') ?? ''
 
@@ -206,10 +205,10 @@ const SearchPage: React.FC = () => {
   }, [])
 
   const handleNavigate = (item: SearchResult) => {
-    if (item.type === 'project') navigate(`/projects/${item.id}`)
-    else if (item.type === 'requirement') navigate(`/projects/${item.project_id}?tab=requirement`)
-    else if (item.type === 'function') navigate(`/projects/${item.project_id}?fid=${item.id}`)
-    else navigate(`/duties?dutyId=${item.id}&tab=duty`)
+    if (item.type === 'project') window.open(`/projects/${item.id}`, '_blank')
+    else if (item.type === 'requirement') window.open(`/projects/${item.project_id}?tab=requirement`, '_blank')
+    else if (item.type === 'function') window.open(`/projects/${item.project_id}?fid=${item.id}`, '_blank')
+    else window.open(`/duties?dutyId=${item.id}&tab=duty`, '_blank')
   }
 
   const allFiltered = results.filter((r) =>

@@ -23,6 +23,7 @@ export interface BackendTaskItem {
   expected_end_date?: string       // 任務預計結束日期 YYYY-MM-DD
   group1?: string                  // 任務分組 level-1
   group2?: string                  // 任務分組 level-2
+  system_id?: string               // 所屬系統 ID（duty 類型且有系統關聯時使用）
   system_nm?: string               // 所屬系統名稱（duty 類型且有系統關聯時使用）
   requirement_nm?: string          // 所屬需求名稱（project/duty 類型有需求關聯時使用）
 }
@@ -173,6 +174,7 @@ export function backendDetailToLog(raw: BackendDailyLogDetail): DailyLog {
     function_nm:   t.task_type === 'project' ? t.task_nm : undefined,
     duty_id:        t.task_type === 'duty' ? t.task_id : undefined,
     duty_nm:        t.task_type === 'duty' ? t.task_nm : undefined,
+    system_id:      t.task_type === 'duty' ? (t.system_id || undefined) : undefined,
     system_nm:      t.task_type === 'duty' ? (t.system_nm || undefined) : undefined,
     requirement_nm: t.requirement_nm || undefined,
     description:         t.description,

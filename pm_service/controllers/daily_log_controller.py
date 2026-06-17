@@ -255,6 +255,13 @@ class DailyLogController:
         if duty_sys_ids:
             syss = db.session.query(SystemModel.id, SystemModel.sys_nm).filter(SystemModel.id.in_(duty_sys_ids)).all()
             duty_sys_map = {s.id: s.sys_nm for s in syss}
+        # Batch-load requirement names for duties that have standalone_req_id
+        from tables.standalone_req_table import StandaloneReqModel
+        duty_sr_ids = list({d.standalone_req_id for d in duty_obj_map.values() if d.standalone_req_id})
+        duty_req_nm_map = {}
+        if duty_sr_ids:
+            srs = db.session.query(StandaloneReqModel.id, StandaloneReqModel.req_nm).filter(StandaloneReqModel.id.in_(duty_sr_ids)).all()
+            duty_req_nm_map = {s.id: s.req_nm for s in srs}
         for r in duty_recs:
             try:
                 raw_files = json.loads(r.files_json or "[]")
@@ -266,6 +273,7 @@ class DailyLogController:
             # Use the duty's current progress (TemporaryDutyModel.progress) — always the latest
             current_progress = duty_obj.progress if duty_obj else None
             system_id = duty_obj.system_id if duty_obj else None
+            sr_id = duty_obj.standalone_req_id if duty_obj else None
             result.append({
                 "task_type":   "duty",
                 "task_id":     r.duty_id,
@@ -273,6 +281,7 @@ class DailyLogController:
                 "project_nm":  None,
                 "system_id":   system_id,
                 "system_nm":   duty_sys_map.get(system_id, "") if system_id else None,
+                "requirement_nm": duty_req_nm_map.get(sr_id, "") if sr_id else None,
                 "group1":      duty_obj.group if duty_obj and duty_obj.group else None,
                 "work_hours":  float(r.time_consum or 0),
                 "description": r.progress_record or "",
@@ -441,6 +450,7 @@ class DailyLogController:
         }
 
     def _to_detail(self, doc: dict):
+        from dbs.mysql_db.model_tables import ProjectDataModel
         base = self._to_summary(doc)
         task_items = [dict(item) for item in doc.get("task_items", [])]
         # Enrich duty task items with system_nm (backward compat: items saved before this field existed)
@@ -463,16 +473,33 @@ class DailyLogController:
                     if item.get("task_type") == "duty" and item.get("task_id") in duty_sys_map:
                         sys_id = duty_sys_map[item["task_id"]]
                         item["system_nm"] = sys_nm_map.get(sys_id, "")
-        # Enrich project task items with requirement_nm (backward compat)
-        proj_items_needing_req = [
+        # Enrich project task items with project_nm / requirement_nm / group1 (backward compat)
+        proj_items_needing = [
             item for item in task_items
-            if item.get("task_type") == "project" and not item.get("requirement_nm")
+            if item.get("task_type") == "project" and (not item.get("project_nm") or not item.get("requirement_nm") or not item.get("group1"))
         ]
-        if proj_items_needing_req:
-            func_task_ids = list({item["task_id"] for item in proj_items_needing_req})
+        if proj_items_needing:
+            func_task_ids = list({item["task_id"] for item in proj_items_needing})
             funcs = db.session.query(
-                FunctionDataModel.id, FunctionDataModel.requirement_id
+                FunctionDataModel.id, FunctionDataModel.project_id,
+                FunctionDataModel.requirement_id, FunctionDataModel.group1
             ).filter(FunctionDataModel.id.in_(func_task_ids)).all()
+            # project_nm enrich
+            func_proj_map = {f.id: f.project_id for f in funcs if f.project_id}
+            if func_proj_map:
+                proj_ids = list(set(func_proj_map.values()))
+                projs = db.session.query(ProjectDataModel.id, ProjectDataModel.project_nm).filter(ProjectDataModel.id.in_(proj_ids)).all()
+                proj_nm_map = {p.id: p.project_nm for p in projs}
+                for item in task_items:
+                    if item.get("task_type") == "project" and not item.get("project_nm") and item.get("task_id") in func_proj_map:
+                        item["project_nm"] = proj_nm_map.get(func_proj_map[item["task_id"]], "")
+                        item["project_id"] = func_proj_map[item["task_id"]]
+            # group1 enrich
+            func_grp_map = {f.id: f.group1 for f in funcs if f.group1}
+            for item in task_items:
+                if item.get("task_type") == "project" and not item.get("group1") and item.get("task_id") in func_grp_map:
+                    item["group1"] = func_grp_map[item["task_id"]]
+            # requirement_nm enrich
             func_req_map = {f.id: f.requirement_id for f in funcs if f.requirement_id}
             if func_req_map:
                 from dbs.mysql_db.model_tables import RequirementModel
@@ -503,6 +530,20 @@ class DailyLogController:
                     if item.get("task_type") == "duty" and item.get("task_id") in duty_req_map:
                         req_id = duty_req_map[item["task_id"]]
                         item["requirement_nm"] = req_nm_map.get(req_id, "")
+        # Enrich duty task items with group1 (backward compat: items saved before this field existed)
+        duty_items_needing_grp = [
+            item for item in task_items
+            if item.get("task_type") == "duty" and not item.get("group1")
+        ]
+        if duty_items_needing_grp:
+            grp_duty_ids = list({item["task_id"] for item in duty_items_needing_grp})
+            duties_grp = db.session.query(
+                TemporaryDutyModel.id, TemporaryDutyModel.group
+            ).filter(TemporaryDutyModel.id.in_(grp_duty_ids)).all()
+            duty_grp_map = {d.id: d.group for d in duties_grp if d.group}
+            for item in task_items:
+                if item.get("task_type") == "duty" and item.get("task_id") in duty_grp_map:
+                    item["group1"] = duty_grp_map[item["task_id"]]
         base["task_items"] = task_items
         base["free_items"] = doc.get("free_items", [])
         base["remark"]     = doc.get("remark", "")

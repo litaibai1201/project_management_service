@@ -552,7 +552,7 @@ const UserManagementPage: React.FC = () => {
       createForm.resetFields()
       dispatch(fetchUserListThunk({ page, size: pageSize }))
     } catch (err: unknown) {
-      showToast.error((err as string) || t('user.createFailed'))
+      showToast.error((err instanceof Error ? err.message : String(err)) || t('user.createFailed'))
     }
   }
 

@@ -26,7 +26,6 @@ import {
   EyeIcon, ChatBubbleOvalLeftEllipsisIcon, PlusIcon, CheckIcon, XMarkIcon,
   PresentationChartBarIcon,
 } from '@heroicons/react/24/outline'
-import { useNavigate } from 'react-router-dom'
 import { projectApi } from '@/api/project.api'
 import { dutyApi } from '@/api/duty.api'
 import { standaloneReqApi } from '@/api/standalone_req.api'
@@ -640,12 +639,13 @@ const TaskProgressDetail: React.FC<{ task: WbsTask }> = ({ task }) => {
 
 const NotePopover: React.FC<{
   taskName?: string
+  context?: string  // e.g. "需求名 / 分组名"
   notes?: MeetingNote[]
   onAdd: (type: NoteType, content: string) => void
   onResolve?: (noteId: string) => void
   onDelete?: (noteId: string) => void
   children: React.ReactNode
-}> = ({ taskName, notes = [], onAdd, onResolve, onDelete, children }) => {
+}> = ({ taskName, context, notes = [], onAdd, onResolve, onDelete, children }) => {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [noteType, setNoteType] = useState<NoteType>('行動項')
@@ -681,7 +681,11 @@ const NotePopover: React.FC<{
           <div className="flex items-center gap-2">
             <ChatBubbleOvalLeftEllipsisIcon className="w-4 h-4 text-blue-500" />
             <span className="text-xs font-semibold text-slate-700">
-              {taskName ? t('wbs.noteTitle', { taskName }) : t('wbs.projectNoteTitle')}
+              {taskName
+                ? (context
+                  ? <>{context && <span className="text-slate-400 font-normal">{context} / </span>}{taskName}</>
+                  : t('wbs.noteTitle', { taskName }))
+                : t('wbs.projectNoteTitle')}
             </span>
           </div>
           {hasNotes && !showAddForm && (
@@ -913,6 +917,7 @@ const MeetingNotesPanel: React.FC<{
 
 const TaskRow: React.FC<{
   task: WbsTask
+  context?: string
   onWeekTagClick?: (wt: WeekTag) => void
   expanded?: boolean
   onToggleExpand?: () => void
@@ -920,7 +925,7 @@ const TaskRow: React.FC<{
   onAddNote?: (type: NoteType, content: string) => void
   onResolveNote?: (noteId: string) => void
   onDeleteNote?: (noteId: string) => void
-}> = ({ task, onWeekTagClick, expanded = false, onToggleExpand, notes = [], onAddNote, onResolveNote, onDeleteNote }) => {
+}> = ({ task, context, onWeekTagClick, expanded = false, onToggleExpand, notes = [], onAddNote, onResolveNote, onDeleteNote }) => {
   const { t } = useTranslation()
   const sc = STATUS_CONFIG[task.status]
   const isOverdue = !!task.is_overdue
@@ -1019,7 +1024,7 @@ const TaskRow: React.FC<{
         {/* Meeting note button — click to view notes + add new */}
         {onAddNote && (
           <div className="flex-shrink-0 w-[24px] flex items-center justify-center">
-            <NotePopover taskName={task.name} notes={notes} onAdd={onAddNote} onResolve={onResolveNote} onDelete={onDeleteNote}>
+            <NotePopover taskName={task.name} context={context} notes={notes} onAdd={onAddNote} onResolve={onResolveNote} onDelete={onDeleteNote}>
               <button
                 className={`border-0 bg-transparent cursor-pointer relative p-0.5 rounded transition-all ${hasPending || notes.length > 0 ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} hover:bg-blue-50`}
                 onClick={(e) => e.stopPropagation()}
@@ -1047,6 +1052,7 @@ const TaskRow: React.FC<{
 
 const FunctionModule: React.FC<{
   func: WbsFunction
+  reqName?: string
   defaultOpen?: boolean
   onWeekTagClick?: (wt: WeekTag) => void
   expandedTaskId: string | null
@@ -1055,7 +1061,7 @@ const FunctionModule: React.FC<{
   onAddNote: (taskId: string, taskName: string, type: NoteType, content: string) => void
   onResolveNote: (noteId: string) => void
   onDeleteNote: (noteId: string) => void
-}> = ({ func, defaultOpen = false, onWeekTagClick, expandedTaskId, onToggleTaskExpand, notesByTaskId, onAddNote, onResolveNote, onDeleteNote }) => {
+}> = ({ func, reqName, defaultOpen = false, onWeekTagClick, expandedTaskId, onToggleTaskExpand, notesByTaskId, onAddNote, onResolveNote, onDeleteNote }) => {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(defaultOpen)
   const overdueCount = func.tasks.filter((t) => !!t.is_overdue).length
@@ -1098,19 +1104,24 @@ const FunctionModule: React.FC<{
       </div>
       {expanded && (
         <div>
-          {func.tasks.map((t) => (
+          {func.tasks.map((t) => {
+            const ctx = [reqName, formatGroupName(func.name) || func.name].filter(Boolean).join(' / ')
+            const ctxPlain = [reqName, formatGroupNamePlain(func.name) || func.name].filter(Boolean).join(' / ')
+            const fullName = ctxPlain ? `${ctxPlain} / ${t.name}` : t.name
+            return (
             <TaskRow
               key={t.id}
               task={t}
+              context={ctx || undefined}
               onWeekTagClick={onWeekTagClick}
               expanded={expandedTaskId === t.id}
               onToggleExpand={() => onToggleTaskExpand(t.id)}
               notes={notesByTaskId[t.id] ?? []}
-              onAddNote={(type, content) => onAddNote(t.id, t.name, type, content)}
+              onAddNote={(type, content) => onAddNote(t.id, fullName, type, content)}
               onResolveNote={onResolveNote}
               onDeleteNote={onDeleteNote}
             />
-          ))}
+          )})}
         </div>
       )}
     </div>
@@ -1176,7 +1187,6 @@ const ProjectCard: React.FC<{
   groupMode?: 'by_group' | 'by_req'
 }> = ({ project, originalProject, onWeekTagClick, expandedTaskId, onToggleTaskExpand, notes, onAddNote, onResolveNote, onDeleteNote, groupMode = 'by_group' }) => {
   const { t } = useTranslation()
-  const navigate = useNavigate()
 
   // Use ORIGINAL project data for summary stats to avoid filter distortion
   const totalTasks = originalProject.functions.reduce((s, f) => s + f.tasks.length, 0)
@@ -1230,7 +1240,7 @@ const ProjectCard: React.FC<{
             {/* Clickable project name → navigate to detail */}
             <span
               className="font-semibold text-slate-700 text-sm hover:text-blue-600 cursor-pointer hover:underline decoration-dotted underline-offset-2 transition-colors"
-              onClick={(e) => { e.stopPropagation(); navigate(`/projects/${originalProject.id}`) }}
+              onClick={(e) => { e.stopPropagation(); window.open(`/projects/${originalProject.id}`, '_blank') }}
             >
               {originalProject.name}
             </span>
@@ -1318,23 +1328,26 @@ const ProjectCard: React.FC<{
           }
 
           // Render tasks directly (no inner group header) — used when only one group
-          const renderDirectTasks = (tasks: WbsTask[]) =>
-            tasks.map((t) => (
+          const renderDirectTasks = (tasks: WbsTask[], rName?: string) =>
+            tasks.map((t) => {
+              const fullName = rName ? `${rName} / ${t.name}` : t.name
+              return (
               <TaskRow key={t.id} task={t}
+                context={rName || undefined}
                 onWeekTagClick={onWeekTagClick}
                 expanded={expandedTaskId === t.id}
                 onToggleExpand={() => onToggleTaskExpand(t.id)}
                 notes={notesByTaskId[t.id] ?? []}
-                onAddNote={(type, content) => onAddNote(t.id, t.name, type, content)}
+                onAddNote={(type, content) => onAddNote(t.id, fullName, type, content)}
                 onResolveNote={onResolveNote}
                 onDeleteNote={onDeleteNote}
               />
-            ))
+            )})
 
           // Render FunctionModules with group headers — used when multiple groups
-          const renderFuncModules = (fns: typeof project.functions) =>
+          const renderFuncModules = (fns: typeof project.functions, rName?: string) =>
             fns.map((f) => (
-              <FunctionModule key={f.id} func={f}
+              <FunctionModule key={f.id} func={f} reqName={rName}
                 defaultOpen={false}
                 onWeekTagClick={onWeekTagClick} expandedTaskId={expandedTaskId}
                 onToggleTaskExpand={onToggleTaskExpand} notesByTaskId={notesByTaskId}
@@ -1361,8 +1374,8 @@ const ProjectCard: React.FC<{
                   taskCount={g.tasks.length} overdueCount={g.overdueCount}>
                   {/* Single group → show tasks directly; multiple groups → show with group headers */}
                   {g.subFunctions.length === 1
-                    ? renderDirectTasks(g.subFunctions[0].tasks)
-                    : renderFuncModules(g.subFunctions)}
+                    ? renderDirectTasks(g.subFunctions[0].tasks, g.name)
+                    : renderFuncModules(g.subFunctions, g.name)}
                 </ReqGroupWrapper>
               ))}
               {/* Tasks with no requirement → use original function groups directly */}
@@ -2075,13 +2088,14 @@ function computeDutyWeekTags(d: TemporaryDuty): WeekTag[] {
 
 const DutyTaskRow: React.FC<{
   duty: TemporaryDuty
+  context?: string
   onSelect: (id: string) => void
   onWeekTagClick?: (wt: WeekTag) => void
   notes?: MeetingNote[]
   onAddNote?: (type: NoteType, content: string) => void
   onResolveNote?: (noteId: string) => void
   onDeleteNote?: (noteId: string) => void
-}> = ({ duty: d, onSelect, onWeekTagClick, notes = [], onAddNote, onResolveNote, onDeleteNote }) => {
+}> = ({ duty: d, context, onSelect, onWeekTagClick, notes = [], onAddNote, onResolveNote, onDeleteNote }) => {
   const { t } = useTranslation()
   const toName       = useWorkNoToName()
   const isOverdue    = d.status !== 3 && !!d.expected_end_date && dayjs(d.expected_end_date).isBefore(dayjs(), 'day')
@@ -2150,7 +2164,7 @@ const DutyTaskRow: React.FC<{
       {/* Meeting note button — far right, same as TaskRow */}
       {onAddNote && (
         <div className="flex-shrink-0 w-[24px] flex items-center justify-center">
-          <NotePopover taskName={d.duty_nm} notes={notes} onAdd={onAddNote} onResolve={onResolveNote} onDelete={onDeleteNote}>
+          <NotePopover taskName={d.duty_nm} context={context} notes={notes} onAdd={onAddNote} onResolve={onResolveNote} onDelete={onDeleteNote}>
             <button
               className={`border-0 bg-transparent cursor-pointer relative p-0.5 rounded transition-all ${hasPending || notes.length > 0 ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} hover:bg-blue-50`}
               onClick={(e) => e.stopPropagation()}
@@ -2174,6 +2188,7 @@ const DutyTaskRow: React.FC<{
 
 const DutyFunctionBlock: React.FC<{
   groupNm: string
+  reqName?: string
   duties: TemporaryDuty[]
   onSelect: (id: string) => void
   onWeekTagClick?: (wt: WeekTag) => void
@@ -2182,7 +2197,7 @@ const DutyFunctionBlock: React.FC<{
   onAddNote: (dutyId: string, dutyNm: string, type: NoteType, content: string) => void
   onResolveNote: (noteId: string) => void
   onDeleteNote: (noteId: string) => void
-}> = ({ groupNm, duties, onSelect, onWeekTagClick, defaultOpen = false, notesByDutyId, onAddNote, onResolveNote, onDeleteNote }) => {
+}> = ({ groupNm, reqName, duties, onSelect, onWeekTagClick, defaultOpen = false, notesByDutyId, onAddNote, onResolveNote, onDeleteNote }) => {
   const { t } = useTranslation()
   const [open, setOpen] = useState(defaultOpen)
   const completed  = duties.filter((d) => d.status === 3).length
@@ -2208,18 +2223,23 @@ const DutyFunctionBlock: React.FC<{
           {overdue > 0 && <Tag color="error" style={{ fontSize: 9, margin: 0, lineHeight: '14px', padding: '0 3px' }}>{t('wbs.overdueCountLabel', { count: overdue })}</Tag>}
         </div>
       </div>
-      {open && duties.map((d) => (
+      {open && duties.map((d) => {
+        const ctx = [reqName, formatGroupName(groupNm) || groupNm].filter((s) => s && s !== t('common.ungrouped')).join(' / ')
+        const ctxPlain = [reqName, formatGroupNamePlain(groupNm) || groupNm].filter((s) => s && s !== t('common.ungrouped')).join(' / ')
+        const fullName = ctxPlain ? `${ctxPlain} / ${d.duty_nm}` : d.duty_nm
+        return (
         <DutyTaskRow
           key={d.id}
           duty={d}
+          context={ctx || undefined}
           onSelect={onSelect}
           onWeekTagClick={onWeekTagClick}
           notes={notesByDutyId[d.id] ?? []}
-          onAddNote={(type, content) => onAddNote(d.id, d.duty_nm, type, content)}
+          onAddNote={(type, content) => onAddNote(d.id, fullName, type, content)}
           onResolveNote={onResolveNote}
           onDeleteNote={onDeleteNote}
         />
-      ))}
+      )})}
     </div>
   )
 }
@@ -2237,7 +2257,8 @@ const DutyCard: React.FC<{
   onDeleteNote: (noteId: string) => void
   tag?: string
   systemInfo?: SystemItem
-}> = ({ title, duties, notes, onSelect, onWeekTagClick, onAddNote, onResolveNote, onDeleteNote, tag, systemInfo }) => {
+  reqNameMap?: Record<string, string>
+}> = ({ title, duties, notes, onSelect, onWeekTagClick, onAddNote, onResolveNote, onDeleteNote, tag, systemInfo, reqNameMap = {} }) => {
   const { t } = useTranslation()
   const today   = dayjs()
   const twStart = today.startOf('isoWeek')
@@ -2272,13 +2293,19 @@ const DutyCard: React.FC<{
     prevNoteCountRef.current = notes.length
   }, [notes.length])
 
-  // Group by d.group
-  const groupMap = new Map<string, TemporaryDuty[]>()
-  duties.forEach((d) => {
-    const g = d.group || t('common.ungrouped')
-    if (!groupMap.has(g)) groupMap.set(g, [])
-    groupMap.get(g)!.push(d)
-  })
+  // Group by requirement → group
+  const reqGroupMap = useMemo(() => {
+    const rMap = new Map<string, { reqNm: string; groups: Map<string, TemporaryDuty[]> }>()
+    duties.forEach((d) => {
+      const rk = d.standalone_req_id || '__none__'
+      if (!rMap.has(rk)) rMap.set(rk, { reqNm: reqNameMap[rk] ?? '', groups: new Map() })
+      const g = d.group || t('common.ungrouped')
+      const req = rMap.get(rk)!
+      if (!req.groups.has(g)) req.groups.set(g, [])
+      req.groups.get(g)!.push(d)
+    })
+    return rMap
+  }, [duties, t, reqNameMap])
 
   return (
     <Collapse
@@ -2360,20 +2387,42 @@ const DutyCard: React.FC<{
         </div>
 
         {/* Group blocks — matches FunctionModule layout */}
-        {Array.from(groupMap.entries()).map(([groupNm, groupDuties]) => (
-          <DutyFunctionBlock
-            key={groupNm}
-            groupNm={groupNm}
-            duties={groupDuties}
-            onSelect={onSelect}
-            onWeekTagClick={onWeekTagClick}
-            defaultOpen={false}
-            notesByDutyId={notesByDutyId}
-            onAddNote={(dutyId, dutyNm, type, content) => onAddNote(dutyId, dutyNm, type, content)}
-            onResolveNote={onResolveNote}
-            onDeleteNote={onDeleteNote}
-          />
-        ))}
+        {(() => {
+          const sorted = Array.from(reqGroupMap.entries())
+            .sort(([a], [b]) => a === '__none__' ? 1 : b === '__none__' ? -1 : (reqNameMap[a] ?? a).localeCompare(reqNameMap[b] ?? b))
+
+          const renderGroups = (groups: Map<string, TemporaryDuty[]>, rName?: string) =>
+            Array.from(groups.entries()).map(([groupNm, groupDuties]) => (
+              <DutyFunctionBlock
+                key={groupNm}
+                groupNm={groupNm}
+                reqName={rName}
+                duties={groupDuties}
+                onSelect={onSelect}
+                onWeekTagClick={onWeekTagClick}
+                defaultOpen={false}
+                notesByDutyId={notesByDutyId}
+                onAddNote={(dutyId, dutyNm, type, content) => onAddNote(dutyId, dutyNm, type, content)}
+                onResolveNote={onResolveNote}
+                onDeleteNote={onDeleteNote}
+              />
+            ))
+
+          return sorted.map(([reqKey, { reqNm, groups }]) => {
+            const allDuties = Array.from(groups.values()).flat()
+            if (reqNm) {
+              const progress = allDuties.length ? Math.round(allDuties.reduce((s, d) => s + (d.progress ?? 0), 0) / allDuties.length) : 0
+              const overdueCount = allDuties.filter((d) => d.status !== 3 && !!d.expected_end_date && dayjs(d.expected_end_date).isBefore(dayjs(), 'day')).length
+              return (
+                <ReqGroupWrapper key={reqKey} name={reqNm} progress={progress}
+                  taskCount={allDuties.length} overdueCount={overdueCount}>
+                  {renderGroups(groups, reqNm)}
+                </ReqGroupWrapper>
+              )
+            }
+            return <div key={reqKey}>{renderGroups(groups)}</div>
+          })
+        })()}
 
         {/* Meeting Notes Section — same as ProjectCard */}
         <div className="mt-3 px-1">
@@ -2986,6 +3035,7 @@ const WbsOverviewPage: React.FC = () => {
                 onDeleteNote={(noteId) => handleDeleteDutyNote(noteKey, noteId)}
                 tag="AR"
                 systemInfo={systemInfoMap[sysId]}
+                reqNameMap={reqNameMap}
               />
             ))}
           </div>

@@ -44,7 +44,7 @@ const LoginPage: React.FC = () => {
         navigate('/', { replace: true })
       }
     } catch (err: unknown) {
-      showToast.error((err as string) || t('auth.loginFailed'))
+      showToast.error((err instanceof Error ? err.message : String(err)) || t('auth.loginFailed'))
     }
   }
 

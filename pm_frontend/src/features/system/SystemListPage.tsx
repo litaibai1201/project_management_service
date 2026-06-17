@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useLocation } from 'react-router-dom'
 import {
   Table, Button, Input, Select, AutoComplete, Space, Tooltip, Popconfirm,
   Modal, Form, Tag, Avatar,
@@ -26,7 +26,7 @@ const EMPTY_DEPLOY_ROW: DeployRow = {
 const SystemListPage: React.FC = () => {
   const { t } = useTranslation()
   const isAdmin  = useAppSelector((s) => s.auth.isAdmin)
-  const navigate = useNavigate()
+
   const location = useLocation()
   const isAdminPage = location.pathname.startsWith('/admin')
   const systemBasePath = isAdminPage ? '/admin/systems' : '/systems'
@@ -140,7 +140,7 @@ const SystemListPage: React.FC = () => {
       setFormOpen(false)
       loadList(1)
       loadGroups()
-    } catch (err: unknown) { showToast.error((err as string) || t('common.error')) }
+    } catch (err: unknown) { showToast.error((err instanceof Error ? err.message : String(err)) || t('common.error')) }
     finally { setSaving(false) }
   }
 
@@ -157,7 +157,7 @@ const SystemListPage: React.FC = () => {
       title: t('system.name'), dataIndex: 'sys_nm', ellipsis: true, width: 260,
       render: (v: string, r) => isAdminPage
         ? <span className="font-medium text-slate-700">{v}</span>
-        : <Button type="link" style={{ padding: 0, fontWeight: 500 }} onClick={() => navigate(`${systemBasePath}/${r.id}`)}>{v}</Button>,
+        : <Button type="link" style={{ padding: 0, fontWeight: 500 }} onClick={() => window.open(`${systemBasePath}/${r.id}`, '_blank')}>{v}</Button>,
     },
     ...(visibleCols.has('sys_group') ? [{
       title: t('system.group'), dataIndex: 'sys_group', width: 120,
@@ -205,7 +205,7 @@ const SystemListPage: React.FC = () => {
         <Space size={0}>
           {!isAdminPage && (
             <Tooltip title={t('system.viewDetail')}>
-              <Button icon={<EyeIcon className="w-4 h-4" />} size="small" type="text" onClick={() => navigate(`${systemBasePath}/${r.id}`)} />
+              <Button icon={<EyeIcon className="w-4 h-4" />} size="small" type="text" onClick={() => window.open(`${systemBasePath}/${r.id}`, '_blank')} />
             </Tooltip>
           )}
           {isAdmin && (

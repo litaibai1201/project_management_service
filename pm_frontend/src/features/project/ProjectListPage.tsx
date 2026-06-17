@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import {
   Table, Button, Input, Select, Space, Tooltip, Popconfirm,
   Progress, Tag, Avatar, Card, Badge, Modal, Spin, Empty,
@@ -153,7 +152,6 @@ const KanbanView: React.FC<{
 const ProjectListPage: React.FC = () => {
   const { t } = useTranslation()
   const dispatch  = useAppDispatch()
-  const navigate  = useNavigate()
   const { list, totalCount, isLoading, query, groups } = useAppSelector((s) => s.project)
   const { isManagerView } = useAppSelector((s) => s.auth)
   const toName = useWorkNoToName()
@@ -196,7 +194,7 @@ const ProjectListPage: React.FC = () => {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ width: 3, height: 28, borderRadius: 2, flexShrink: 0, background: PRIORITY_COLORS[record.priority] }} />
           <Button type="link" style={{ padding: 0, fontWeight: 500 }}
-            onClick={() => navigate(`/projects/${record.id}`)}>
+            onClick={() => window.open(`/projects/${record.id}`, '_blank')}>
             {name}
           </Button>
         </div>
@@ -259,7 +257,7 @@ const ProjectListPage: React.FC = () => {
         <Space size={0}>
           <Tooltip title={t('common.detail')}>
             <Button icon={<EyeIcon className="w-4 h-4" />} size="small" type="text"
-              onClick={() => navigate(`/projects/${record.id}`)} />
+              onClick={() => window.open(`/projects/${record.id}`, '_blank')} />
           </Tooltip>
           <Popconfirm title={t('project.deleteConfirm')} onConfirm={() => handleDelete(record.id)} okText={t('common.confirm')} cancelText={t('common.cancel')}>
             <Tooltip title={t('common.delete')}><Button icon={<TrashIcon className="w-4 h-4" />} size="small" type="text" danger /></Tooltip>
@@ -322,7 +320,7 @@ const ProjectListPage: React.FC = () => {
         {viewMode === 'kanban' ? (
           <KanbanView
             list={list}
-            onView={(id) => navigate(`/projects/${id}`)}
+            onView={(id) => window.open(`/projects/${id}`, '_blank')}
             onDelete={handleDelete}
           />
         ) : (

@@ -1,5 +1,4 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
 import {
   Table, Button, Input, Select, Space, Tooltip, Popconfirm,
   Modal, Form, Tag, Avatar, Card, Tabs, Progress, Spin, Empty,
@@ -43,7 +42,6 @@ const DaysLeftBadge: React.FC<{ date?: string }> = ({ date }) => {
 const RequirementListPage: React.FC = () => {
   const { t } = useTranslation()
   const toName   = useWorkNoToName()
-  const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState<'project' | 'system'>('system')
 
   // ── 專案需求 state ────────────────────────────────────────────────────────
@@ -266,7 +264,7 @@ const RequirementListPage: React.FC = () => {
       setShowForm(false)
       form.resetFields()
       loadSysReqs(editTarget ? reqPage : 1)
-    } catch (err: unknown) { showToast.error((err as string) || t('common.error')) }
+    } catch (err: unknown) { showToast.error((err instanceof Error ? err.message : String(err)) || t('common.error')) }
     finally { setReqSaving(false) }
   }
 
@@ -294,7 +292,7 @@ const RequirementListPage: React.FC = () => {
       title: t('requirement.name'), dataIndex: 'req_nm', width: 200, ellipsis: true,
       render: (v: string, r: ProjectReqItem) => (
         <Button type="link" style={{ padding: 0, fontWeight: 500 }}
-          onClick={() => navigate(`/projects/${r.project_id}?req=${r.id}`)}>
+          onClick={() => window.open(`/projects/${r.project_id}?req=${r.id}`, '_blank')}>
           {v}
         </Button>
       ),
@@ -302,7 +300,7 @@ const RequirementListPage: React.FC = () => {
     {
       title: t('project.projectName'), dataIndex: 'project_nm', width: 150, ellipsis: true,
       render: (v: string, r: ProjectReqItem) => v
-        ? <Button type="link" style={{ padding: 0, fontSize: 12 }} onClick={() => navigate(`/projects/${r.project_id}`)}>{v}</Button>
+        ? <Button type="link" style={{ padding: 0, fontSize: 12 }} onClick={() => window.open(`/projects/${r.project_id}`, '_blank')}>{v}</Button>
         : <span className="text-slate-300 text-xs">—</span>,
     },
     {
@@ -346,7 +344,7 @@ const RequirementListPage: React.FC = () => {
       title: t('requirement.name'), dataIndex: 'req_nm', ellipsis: true,
       render: (v: string, r: StandaloneReq) => (
         <Button type="link" style={{ padding: 0, fontWeight: 500 }}
-          onClick={() => navigate(`/systems/${r.system_id}?req=${r.id}`)}>
+          onClick={() => window.open(`/systems/${r.system_id}?req=${r.id}`, '_blank')}>
           {v}
         </Button>
       ),
@@ -354,7 +352,7 @@ const RequirementListPage: React.FC = () => {
     {
       title: t('system.sysName'), dataIndex: 'system_nm', width: 140, ellipsis: true,
       render: (v: string, r: StandaloneReq) => v
-        ? <Button type="link" style={{ padding: 0, fontSize: 12 }} onClick={() => r.system_id && navigate(`/systems/${r.system_id}`)}>{v}</Button>
+        ? <Button type="link" style={{ padding: 0, fontSize: 12 }} onClick={() => r.system_id && window.open(`/systems/${r.system_id}`, '_blank')}>{v}</Button>
         : <span className="text-slate-300 text-xs">—</span>,
     },
     {

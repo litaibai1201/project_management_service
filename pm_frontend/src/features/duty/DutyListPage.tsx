@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import {
   Table, Button, Input, Select, Space, Tooltip, Popconfirm,
   Progress, Modal, Form, Tag, Avatar, Segmented, Collapse, AutoComplete, Spin, Empty, Tabs, Switch, Card,
@@ -12,7 +12,7 @@ import { PlusIcon, TrashIcon, EyeIcon, FolderIcon, ArrowsPointingOutIcon, Pencil
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
 import { fetchDutyListThunk, deleteDutyThunk, setDutyQuery, createDutyThunk } from './dutySlice'
 import { TemporaryDuty, ProjectFunction, UserProfile } from '@/types/api.types'
-import { DUTY_STATUS_MAP, PRIORITY_MAP, FUNCTION_STATUS_MAP, formatGroupName, STAGE_GROUP } from '@/utils/status'
+import { DUTY_STATUS_MAP, PRIORITY_MAP, FUNCTION_STATUS_MAP, PROJECT_STATUS_MAP, formatGroupName, STAGE_GROUP } from '@/utils/status'
 import { showToast } from '@/utils/toast'
 import { projectApi } from '@/api/project.api'
 import { dutyApi } from '@/api/duty.api'
@@ -56,7 +56,6 @@ type MyFunction = ProjectFunction & { project_nm: string; project_status: number
 const DutyListPage: React.FC = () => {
   const { t } = useTranslation()
   const dispatch = useAppDispatch()
-  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const { list, isLoading, isSaving, query } = useAppSelector((s) => s.duty)
   const workNo        = useAppSelector((s) => s.auth.workNo) ?? ''
@@ -76,23 +75,11 @@ const DutyListPage: React.FC = () => {
   const [myFuncView,        setMyFuncView]        = useState<'flat' | 'grouped'>('flat')
   const [myFuncPersonal,    setMyFuncPersonal]    = useState<'all' | 'mine'>('all')
   const [myFuncStatus,      setMyFuncStatus]      = useState<number | undefined>()
-  const [myFuncProject,     setMyFuncProject]     = useState<string | undefined>()
-  const [myFuncGroup,       setMyFuncGroup]       = useState<string | undefined>()
   const [myFuncResponsible, setMyFuncResponsible] = useState<string | undefined>()
   const [selectedFid,    setSelectedFid]    = useState<string | null>(null)
   const selectedFunc = useMemo(() => myFunctions.find((f) => f.id === selectedFid) ?? null, [myFunctions, selectedFid])
 
   // ── 專案任務篩選選項（從已載入資料動態生成）────────────────────────────────
-  const funcProjectOptions = useMemo(
-    () => Array.from(new Map(myFunctions.map((f) => [f.project_id, f.project_nm])).entries())
-      .map(([id, nm]) => ({ value: id, label: nm })),
-    [myFunctions],
-  )
-  const funcGroupOptions = useMemo(
-    () => Array.from(new Set(myFunctions.map((f) => f.group1).filter(Boolean)))
-      .map((g) => ({ value: g, label: formatGroupName(g) || g })),
-    [myFunctions],
-  )
   const funcResponsibleOptions = useMemo(
     () => Array.from(new Set(myFunctions.flatMap((f) => f.responsible ?? []).filter(Boolean)))
       .map((wn) => ({ value: wn, label: toName(wn) })),
@@ -111,27 +98,95 @@ const DutyListPage: React.FC = () => {
     )
     if (hideCompleted)       result = result.filter((f) => f.status !== 4)
     if (!funcShowHeld)       result = result.filter((f) => f.status !== 8)
-    if (myFuncProject)       result = result.filter((f) => f.project_id === myFuncProject)
-    if (myFuncGroup)         result = result.filter((f) => f.group1 === myFuncGroup)
     if (myFuncResponsible)   result = result.filter((f) => (f.responsible ?? []).some((wn) => wn.toLowerCase() === myFuncResponsible.toLowerCase()))
     return result
-  }, [myFunctions, myFuncPersonal, hideCompleted, funcShowHeld, myFuncProject, myFuncGroup, myFuncResponsible, workNo])
+  }, [myFunctions, myFuncPersonal, hideCompleted, funcShowHeld, myFuncResponsible, workNo])
 
-  // ── 專案任務分組視圖 ───────────────────────────────────────────────────────
-  const groupedMyFunctions = useMemo(() => {
-    const map = new Map<string, MyFunction[]>()
-    filteredMyFunctions.forEach((f) => {
-      const key = formatGroupName(f.group1) || t('common.ungrouped')
-      if (!map.has(key)) map.set(key, [])
-      map.get(key)!.push(f)
+  // ── 專案任務合併儲存格表格（支持折疊）───────────────────────────────────────
+  const [funcCollapsed, setFuncCollapsed] = useState<Set<string>>(new Set())
+  const toggleFuncCollapse = (key: string) => setFuncCollapsed((prev) => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s })
+
+  type MergedFuncRow = MyFunction & {
+    _projSpan: number; _reqSpan: number; _grpSpan: number
+    _reqNm: string; _grpNm: string; _projKey: string; _reqKey: string; _grpKey: string
+    _isSummary?: 'proj' | 'req' | 'grp'  // which level is collapsed on this row
+    _summaryProgress?: number; _summaryEndDate?: string; _summaryPm?: string; _summaryStatus?: number; _summaryCount?: number
+  }
+  const mergedFuncRows = useMemo((): MergedFuncRow[] => {
+    const sorted = [...filteredMyFunctions].sort((a, b) => {
+      const p = (a.project_nm ?? '').localeCompare(b.project_nm ?? '')
+      if (p !== 0) return p
+      const r = (a.requirement_nm ?? '').localeCompare(b.requirement_nm ?? '')
+      if (r !== 0) return r
+      const g = (a.group1 ?? '').localeCompare(b.group1 ?? '')
+      if (g !== 0) return g
+      return (a.function_nm ?? '').localeCompare(b.function_nm ?? '')
     })
-    return Array.from(map.entries()).map(([name, items]) => ({
-      name,
-      items,
-      avgProgress: Math.round(items.reduce((s, f) => s + (f.progress ?? 0), 0) / items.length),
-      overdueCount: items.filter((f) => f.expected_end_date && dayjs(f.expected_end_date).isBefore(dayjs(), 'day') && f.status !== 4).length,
-    }))
-  }, [filteredMyFunctions])
+    const all = sorted.map((f) => ({
+      ...f, _projSpan: 0, _reqSpan: 0, _grpSpan: 0,
+      _reqNm: f.requirement_nm || '', _grpNm: formatGroupName(f.group1) || f.group1 || '',
+      _projKey: `p::${f.project_id}`, _reqKey: `r::${f.project_id}::${f.requirement_nm || ''}`, _grpKey: `g::${f.project_id}::${f.requirement_nm || ''}::${f.group1 || ''}`,
+    } as MergedFuncRow))
+
+    // Helper: compute summary for a set of rows
+    const summarize = (rows: MergedFuncRow[]) => ({
+      _summaryProgress: rows.length ? Math.round(rows.reduce((s, r) => s + (r.progress ?? 0), 0) / rows.length) : 0,
+      _summaryEndDate: rows.filter((r) => r.expected_end_date).map((r) => r.expected_end_date!).sort().pop() || '',
+      _summaryCount: rows.length,
+    })
+
+    // Build visible rows with summary data for collapsed groups
+    const visible: MergedFuncRow[] = []
+    const seen = { proj: new Set<string>(), req: new Set<string>(), grp: new Set<string>() }
+    for (const r of all) {
+      const projCollapsed = funcCollapsed.has(r._projKey)
+      const reqCollapsed = funcCollapsed.has(r._reqKey)
+      const grpCollapsed = funcCollapsed.has(r._grpKey)
+
+      if (projCollapsed && seen.proj.has(r._projKey)) continue
+      if (reqCollapsed && !projCollapsed && seen.req.has(r._reqKey)) continue
+      if (grpCollapsed && !projCollapsed && !reqCollapsed && seen.grp.has(r._grpKey)) continue
+
+      const row = { ...r }
+      if (projCollapsed && !seen.proj.has(r._projKey)) {
+        const projRows = all.filter((x) => x._projKey === r._projKey)
+        row._isSummary = 'proj'
+        Object.assign(row, summarize(projRows))
+        row._summaryPm = r.project_pm
+        row._summaryStatus = r.project_status
+      } else if (reqCollapsed && !seen.req.has(r._reqKey)) {
+        const reqRows = all.filter((x) => x._reqKey === r._reqKey)
+        row._isSummary = 'req'
+        Object.assign(row, summarize(reqRows))
+      } else if (grpCollapsed && !seen.grp.has(r._grpKey)) {
+        const grpRows = all.filter((x) => x._grpKey === r._grpKey)
+        row._isSummary = 'grp'
+        Object.assign(row, summarize(grpRows))
+      }
+      visible.push(row)
+      seen.proj.add(r._projKey); seen.req.add(r._reqKey); seen.grp.add(r._grpKey)
+    }
+    // Recalculate spans
+    for (let i = 0; i < visible.length;) {
+      let pEnd = i + 1
+      while (pEnd < visible.length && visible[pEnd].project_id === visible[i].project_id) pEnd++
+      visible[i]._projSpan = pEnd - i
+      for (let j = i; j < pEnd;) {
+        let rEnd = j + 1
+        while (rEnd < pEnd && visible[rEnd]._reqKey === visible[j]._reqKey) rEnd++
+        visible[j]._reqSpan = rEnd - j
+        for (let k = j; k < rEnd;) {
+          let gEnd = k + 1
+          while (gEnd < rEnd && visible[gEnd]._grpKey === visible[k]._grpKey) gEnd++
+          visible[k]._grpSpan = gEnd - k
+          k = gEnd
+        }
+        j = rEnd
+      }
+      i = pEnd
+    }
+    return visible
+  }, [filteredMyFunctions, funcCollapsed])
 
   const loadMyFunctions = useCallback(async (
     page = myFuncPage, size = myFuncPageSize, status = myFuncStatus, scope = myFuncScope,
@@ -153,14 +208,11 @@ const DutyListPage: React.FC = () => {
   const [sysTaskView,        setSysTaskView]        = useState<'all' | 'mine'>('all')
   const [sysTaskGroupMode,   setSysTaskGroupMode]   = useState<'flat' | 'grouped'>('flat')
   const [sysTaskStatus,      setSysTaskStatus]      = useState<number | undefined>()
-  const [sysTaskSystem,      setSysTaskSystem]      = useState<string | undefined>()
-  const [sysTaskReq,         setSysTaskReq]         = useState<string | undefined>()
   const [sysTaskResponsible, setSysTaskResponsible] = useState<string | undefined>()
-  const [sysTaskGroup,       setSysTaskGroup]       = useState<string | undefined>()
   const [sysHideCompleted,   setSysHideCompleted]   = useState(true)
   const [sysShowHeld,        setSysShowHeld]        = useState(false)
   const [reqNameMap,         setReqNameMap]         = useState<Record<string, string>>({})
-  const [sysOpenGroups,      setSysOpenGroups]      = useState<string[]>([])
+  const [reqRespMap,         setReqRespMap]         = useState<Record<string, string[]>>({})
 
   // ── AR 快速設定負責人 ─────────────────────────────────────────────────
   const [arQuickResp,      setArQuickResp]      = useState<{ did: string; persons: UserProfile[] } | null>(null)
@@ -235,56 +287,91 @@ const DutyListPage: React.FC = () => {
     if (sysHideCompleted)      result = result.filter((d) => d.status !== 3)
     if (!sysShowHeld)          result = result.filter((d) => d.status !== 8)
     if (sysTaskStatus != null) result = result.filter((d) => d.status === sysTaskStatus)
-    if (sysTaskSystem)         result = result.filter((d) => d.system_nm === sysTaskSystem)
-    if (sysTaskReq)            result = result.filter((d) => d.standalone_req_id === sysTaskReq)
     if (sysTaskResponsible)    result = result.filter((d) => (d.responsible ?? []).some((wn) => wn.toLowerCase() === sysTaskResponsible.toLowerCase()))
-    if (sysTaskGroup)          result = result.filter((d) => (d.group ?? t('common.ungrouped')) === sysTaskGroup)
     return result
-  }, [sysTaskList, sysTaskView, workNo, sysHideCompleted, sysShowHeld, sysTaskStatus, sysTaskSystem, sysTaskReq, sysTaskResponsible, sysTaskGroup])
-  const groupedSysTasks = useMemo(() => {
-    const map = new Map<string, TemporaryDuty[]>()
-    displayedSysTasks.forEach((d) => {
-      const g = formatGroupName(d.group) || t('common.ungrouped')
-      if (!map.has(g)) map.set(g, [])
-      map.get(g)!.push(d)
+  }, [sysTaskList, sysTaskView, workNo, sysHideCompleted, sysShowHeld, sysTaskStatus, sysTaskResponsible])
+  // ── 系統任務合併儲存格表格 ─────────────────────────────────────────────────
+  // ── 系統任務合併儲存格表格（支持折疊）───────────────────────────────────────
+  const [dutyCollapsed, setDutyCollapsed] = useState<Set<string>>(new Set())
+  const toggleDutyCollapse = (key: string) => setDutyCollapsed((prev) => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s })
+
+  type MergedDutyRow = TemporaryDuty & {
+    _sysSpan: number; _reqSpan: number; _grpSpan: number
+    _sysNm: string; _reqNm: string; _grpNm: string; _sysKey: string; _reqKey: string; _grpKey: string
+    _isSummary?: 'sys' | 'req' | 'grp'; _summaryProgress?: number; _summaryEndDate?: string; _summaryCount?: number
+  }
+  const mergedDutyRows = useMemo((): MergedDutyRow[] => {
+    const sorted = [...displayedSysTasks].sort((a, b) => {
+      const s = (a.system_nm ?? '').localeCompare(b.system_nm ?? '')
+      if (s !== 0) return s
+      const r = (reqNameMap[a.standalone_req_id ?? ''] ?? '').localeCompare(reqNameMap[b.standalone_req_id ?? ''] ?? '')
+      if (r !== 0) return r
+      const g = (a.group ?? '').localeCompare(b.group ?? '')
+      if (g !== 0) return g
+      return (a.duty_nm ?? '').localeCompare(b.duty_nm ?? '')
     })
-    return [...map.entries()].map(([name, items]) => ({
-      name,
-      items,
-      avgProgress: Math.round(items.reduce((s, d) => s + (d.progress ?? 0), 0) / items.length),
-      overdueCount: items.filter((d) => d.expected_end_date && dayjs(d.expected_end_date).isBefore(dayjs(), 'day') && d.status !== 3).length,
-    }))
-  }, [displayedSysTasks])
+    const all = sorted.map((d) => ({
+      ...d, _sysSpan: 0, _reqSpan: 0, _grpSpan: 0,
+      _sysNm: d.system_nm ?? '', _reqNm: reqNameMap[d.standalone_req_id ?? ''] ?? '', _grpNm: formatGroupName(d.group) || d.group || '',
+      _sysKey: `s::${d.system_id ?? d.system_nm}`, _reqKey: `r::${d.system_id}::${d.standalone_req_id || ''}`, _grpKey: `g::${d.system_id}::${d.standalone_req_id || ''}::${d.group || ''}`,
+    } as MergedDutyRow))
+    const summarize = (rows: MergedDutyRow[]) => ({
+      _summaryProgress: rows.length ? Math.round(rows.reduce((s, r) => s + (r.progress ?? 0), 0) / rows.length) : 0,
+      _summaryEndDate: rows.filter((r) => r.expected_end_date).map((r) => r.expected_end_date!).sort().pop() || '',
+      _summaryCount: rows.length,
+    })
+    const visible: MergedDutyRow[] = []
+    const seen = { sys: new Set<string>(), req: new Set<string>(), grp: new Set<string>() }
+    for (const r of all) {
+      const sysC = dutyCollapsed.has(r._sysKey)
+      const reqC = dutyCollapsed.has(r._reqKey)
+      const grpC = dutyCollapsed.has(r._grpKey)
+      if (sysC && seen.sys.has(r._sysKey)) continue
+      if (reqC && !sysC && seen.req.has(r._reqKey)) continue
+      if (grpC && !sysC && !reqC && seen.grp.has(r._grpKey)) continue
+      const row = { ...r }
+      if (sysC && !seen.sys.has(r._sysKey)) { row._isSummary = 'sys'; Object.assign(row, summarize(all.filter((x) => x._sysKey === r._sysKey))) }
+      else if (reqC && !seen.req.has(r._reqKey)) { row._isSummary = 'req'; Object.assign(row, summarize(all.filter((x) => x._reqKey === r._reqKey))) }
+      else if (grpC && !seen.grp.has(r._grpKey)) { row._isSummary = 'grp'; Object.assign(row, summarize(all.filter((x) => x._grpKey === r._grpKey))) }
+      visible.push(row)
+      seen.sys.add(r._sysKey); seen.req.add(r._reqKey); seen.grp.add(r._grpKey)
+    }
+    for (let i = 0; i < visible.length;) {
+      let sEnd = i + 1
+      while (sEnd < visible.length && visible[sEnd]._sysKey === visible[i]._sysKey) sEnd++
+      visible[i]._sysSpan = sEnd - i
+      for (let j = i; j < sEnd;) {
+        let rEnd = j + 1
+        while (rEnd < sEnd && visible[rEnd]._reqKey === visible[j]._reqKey) rEnd++
+        visible[j]._reqSpan = rEnd - j
+        for (let k = j; k < rEnd;) {
+          let gEnd = k + 1
+          while (gEnd < rEnd && visible[gEnd]._grpKey === visible[k]._grpKey) gEnd++
+          visible[k]._grpSpan = gEnd - k
+          k = gEnd
+        }
+        j = rEnd
+      }
+      i = sEnd
+    }
+    return visible
+  }, [displayedSysTasks, dutyCollapsed, reqNameMap])
   // filter options derived from full sysTaskList
-  const sysSystemOptions = useMemo(
-    () => Array.from(new Set(sysTaskList.map((d) => d.system_nm).filter(Boolean) as string[]))
-      .map((s) => ({ value: s, label: s })),
-    [sysTaskList],
-  )
-  const sysReqOptions = useMemo(
-    () => Array.from(new Set(sysTaskList.map((d) => d.standalone_req_id).filter(Boolean) as string[]))
-      .map((id) => ({ value: id, label: reqNameMap[id] || id })),
-    [sysTaskList, reqNameMap],
-  )
   const sysResponsibleOptions = useMemo(
     () => Array.from(new Set(sysTaskList.flatMap((d) => d.responsible ?? []).filter(Boolean)))
       .map((wn) => ({ value: wn, label: toName(wn) })),
     [sysTaskList, toName],
   )
-  const sysGroupOptions = useMemo(
-    () => Array.from(new Set(sysTaskList.map((d) => d.group || t('common.ungrouped')).filter(Boolean)))
-      .map((g) => ({ value: g, label: formatGroupName(g) || g })),
-    [sysTaskList],
-  )
-
   // Load req names when system tab is active
   useEffect(() => {
     if (activeTab !== 'system') return
     standaloneReqApi.list({ page: 1, size: 500 }).then((res) => {
       const c = res.content as { data_list: StandaloneReq[] }
-      const m: Record<string, string> = {}
-      ;(c.data_list ?? []).forEach((r) => { m[r.id] = r.req_nm })
-      setReqNameMap(m)
+      const nm: Record<string, string> = {}
+      const rp: Record<string, string[]> = {}
+      ;(c.data_list ?? []).forEach((r) => { nm[r.id] = r.req_nm; rp[r.id] = r.responsible ?? [] })
+      setReqNameMap(nm)
+      setReqRespMap(rp)
     }).catch(() => {})
   }, [activeTab])
 
@@ -363,7 +450,7 @@ const DutyListPage: React.FC = () => {
       showToast.success(t('duty.createSuccess'))
       setShowCreate(false); form.resetFields()
       dispatch(fetchDutyListThunk(query))
-    } catch (err: unknown) { showToast.error((err as string) || t('duty.createFailed')) }
+    } catch (err: unknown) { showToast.error((err instanceof Error ? err.message : String(err)) || t('duty.createFailed')) }
   }
 
   // ── AR 快速負責人搜尋 ──────────────────────────────────────────────────────
@@ -413,23 +500,23 @@ const DutyListPage: React.FC = () => {
       },
     },
     {
-      title: t('project.projectName'), dataIndex: 'project_nm', width: 150, ellipsis: true,
+      title: t('project.projectName'), dataIndex: 'project_nm', width: 120, ellipsis: true,
       render: (v: string, r) => (
-        <Button type="link" style={{ padding: 0, fontSize: 12 }} onClick={() => navigate(`/projects/${r.project_id}`)}>
+        <Button type="link" style={{ padding: 0, fontSize: 12 }} onClick={() => window.open(`/projects/${r.project_id}`, '_blank')}>
           {v}
         </Button>
       ),
     },
     {
-      title: t('requirement.name'), dataIndex: 'requirement_nm', width: 150, ellipsis: true,
+      title: t('requirement.name'), dataIndex: 'requirement_nm', width: 120, ellipsis: true,
       render: (v: string, r) => v
-        ? <Button type="link" style={{ padding: 0, fontSize: 12 }} onClick={() => navigate(`/projects/${r.project_id}?tab=requirements&req_id=${r.requirement_id || ''}`)}>
+        ? <Button type="link" style={{ padding: 0, fontSize: 12 }} onClick={() => window.open(`/projects/${r.project_id}?tab=requirements&req_id=${r.requirement_id || ''}`, '_blank')}>
             {v}
           </Button>
         : <span className="text-slate-300 text-xs">—</span>,
     },
     {
-      title: t('function.group'), key: 'group', width: 140, ellipsis: true,
+      title: t('function.group'), key: 'group', width: 110, ellipsis: true,
       render: (_: unknown, r: MyFunction) => (
         <span className="text-slate-600 text-xs">
           {formatGroupName(r.group1) || r.group1}{r.group2 ? ` / ${r.group2}` : ''}
@@ -437,17 +524,17 @@ const DutyListPage: React.FC = () => {
       ),
     },
     {
-      title: t('common.status'), dataIndex: 'status', width: 100,
+      title: t('common.status'), dataIndex: 'status', width: 80,
       render: (v: number) => { const s = FUNCTION_STATUS_MAP[v]; return s ? <Tag color={s.color} style={{ fontSize: 11 }}>{s.label}</Tag> : v },
     },
     {
-      title: t('function.assignee'), dataIndex: 'responsible', width: 120,
+      title: t('function.assignee'), dataIndex: 'responsible', width: 100,
       render: (v: string[]) => (v ?? []).map((wn) => (
         <Tag key={wn} color="purple" style={{ fontSize: 10, marginBottom: 2 }}>{toName(wn)}</Tag>
       )),
     },
     {
-      title: t('common.progress'), dataIndex: 'progress', width: 130,
+      title: t('common.progress'), dataIndex: 'progress', width: 110,
       render: (v: number) => (
         <div className="flex items-center gap-2">
           <Progress percent={v ?? 0} size="small" showInfo={false} style={{ flex: 1 }}
@@ -457,9 +544,34 @@ const DutyListPage: React.FC = () => {
       ),
     },
     {
-      title: t('common.expectedEndDate'), dataIndex: 'expected_end_date', width: 120,
-      render: (v: string, r) => {
-        if (!v || !dayjs(v).isValid()) return <span className="text-slate-300 text-xs">—</span>
+      title: t('common.expectedStartDate'), dataIndex: 'expected_start_date', width: 130,
+      render: (v: string, r: MyFunction) => {
+        if (!v) {
+          const isPm = r.project_pm?.toLowerCase() === workNo.toLowerCase()
+          if (isPm && r.status !== 0 && r.status !== 4 && r.status !== 9) {
+            return <DateInput value="" placeholder={t('projectDetail.clickToSetDate')} onChange={async (d) => {
+              if (!d) return
+              try { await projectApi.updateFunction(r.project_id, r.id, { expected_start_date: d }); showToast.success(t('common.saveSuccess')); loadMyFunctions(1, myFuncPageSize, myFuncStatus, myFuncScope) } catch { /* */ }
+            }} />
+          }
+          return <span className="text-slate-300 text-xs">—</span>
+        }
+        return <span className="text-xs">{v}</span>
+      },
+    },
+    {
+      title: t('common.expectedEndDate'), dataIndex: 'expected_end_date', width: 130,
+      render: (v: string, r: MyFunction) => {
+        if (!v || !dayjs(v).isValid()) {
+          const isPm = r.project_pm?.toLowerCase() === workNo.toLowerCase()
+          if (isPm && r.status !== 0 && r.status !== 4 && r.status !== 9) {
+            return <DateInput value="" placeholder={t('projectDetail.clickToSetDate')} onChange={async (d) => {
+              if (!d) return
+              try { await projectApi.updateFunction(r.project_id, r.id, { expected_end_date: d }); showToast.success(t('common.saveSuccess')); loadMyFunctions(1, myFuncPageSize, myFuncStatus, myFuncScope) } catch { /* */ }
+            }} />
+          }
+          return <span className="text-slate-300 text-xs">—</span>
+        }
         if (r.status === 4) return <span className="days-ok">{v}</span>
         const days = dayjs(v).diff(dayjs(), 'day')
         if (days < 0) return <span className="days-overdue">{t('common.daysOverdue', { days: Math.abs(days) })}</span>
@@ -494,7 +606,7 @@ const DutyListPage: React.FC = () => {
     {
       title: t('system.sysName'), dataIndex: 'system_nm', width: 130, ellipsis: true,
       render: (v: string, r) => v
-        ? <Button type="link" style={{ padding: 0, fontSize: 12 }} onClick={() => r.system_id && navigate(`/systems/${r.system_id}`)}>{v}</Button>
+        ? <Button type="link" style={{ padding: 0, fontSize: 12 }} onClick={() => r.system_id && window.open(`/systems/${r.system_id}`, '_blank')}>{v}</Button>
         : <span className="text-slate-300 text-xs">—</span>,
     },
     {
@@ -628,35 +740,35 @@ const DutyListPage: React.FC = () => {
       },
     },
     {
-      title: t('system.sysName'), dataIndex: 'system_nm', width: 150, ellipsis: true,
+      title: t('system.sysName'), dataIndex: 'system_nm', width: 120, ellipsis: true,
       render: (v: string, r) => v
-        ? <Button type="link" style={{ padding: 0, fontSize: 12 }} onClick={() => navigate(`/systems/${r.system_id}`)}>{v}</Button>
+        ? <Button type="link" style={{ padding: 0, fontSize: 12 }} onClick={() => window.open(`/systems/${r.system_id}`, '_blank')}>{v}</Button>
         : <span className="text-slate-300 text-xs">—</span>,
     },
     {
-      title: t('requirement.name'), dataIndex: 'standalone_req_id', width: 150, ellipsis: true,
+      title: t('requirement.name'), dataIndex: 'standalone_req_id', width: 120, ellipsis: true,
       render: (v: string, r) => v && reqNameMap[v]
-        ? <Button type="link" style={{ padding: 0, fontSize: 12 }} onClick={() => r.system_id && navigate(`/systems/${r.system_id}?req=${v}`)}>
+        ? <Button type="link" style={{ padding: 0, fontSize: 12 }} onClick={() => r.system_id && window.open(`/systems/${r.system_id}?req=${v}`, '_blank')}>
             {reqNameMap[v]}
           </Button>
         : <span className="text-slate-300 text-xs">—</span>,
     },
     {
-      title: t('function.group'), dataIndex: 'group', width: 140, ellipsis: true,
+      title: t('function.group'), dataIndex: 'group', width: 110, ellipsis: true,
       render: (v: string) => <span className="text-slate-600 text-xs">{formatGroupName(v) || v || '—'}</span>,
     },
     {
-      title: t('common.status'), dataIndex: 'status', width: 100,
+      title: t('common.status'), dataIndex: 'status', width: 80,
       render: (v: number) => { const s = DUTY_STATUS_MAP[v]; return s ? <Tag color={s.color} style={{ fontSize: 11 }}>{s.label}</Tag> : v },
     },
     {
-      title: t('function.assignee'), dataIndex: 'responsible', width: 120,
+      title: t('function.assignee'), dataIndex: 'responsible', width: 100,
       render: (v: string[]) => (v ?? []).map((wn) => (
         <Tag key={wn} color="purple" style={{ fontSize: 10, marginBottom: 2 }}>{toName(wn)}</Tag>
       )),
     },
     {
-      title: t('common.progress'), dataIndex: 'progress', width: 130,
+      title: t('common.progress'), dataIndex: 'progress', width: 110,
       render: (v: number) => (
         <div className="flex items-center gap-2">
           <Progress percent={v ?? 0} size="small" showInfo={false} style={{ flex: 1 }}
@@ -666,9 +778,34 @@ const DutyListPage: React.FC = () => {
       ),
     },
     {
-      title: t('common.expectedEndDate'), dataIndex: 'expected_end_date', width: 120,
+      title: t('common.expectedStartDate'), dataIndex: 'expected_start_date', width: 130,
       render: (v: string, r: TemporaryDuty) => {
-        if (!v || !dayjs(v).isValid()) return <span className="text-slate-300 text-xs">—</span>
+        if (!v) {
+          const isReqResp = (reqRespMap[r.standalone_req_id ?? ''] ?? []).some((wn: string) => wn.toLowerCase() === workNo.toLowerCase())
+          if (isReqResp && r.status !== 0 && r.status !== 3 && r.status !== 9) {
+            return <DateInput value="" placeholder={t('projectDetail.clickToSetDate')} onChange={async (d) => {
+              if (!d) return
+              try { await dutyApi.setDates(r.id, { expected_start_date: d }); showToast.success(t('common.saveSuccess')); dispatch(fetchDutyListThunk(query)) } catch { /* */ }
+            }} />
+          }
+          return <span className="text-slate-300 text-xs">—</span>
+        }
+        return <span className="text-xs">{v}</span>
+      },
+    },
+    {
+      title: t('common.expectedEndDate'), dataIndex: 'expected_end_date', width: 130,
+      render: (v: string, r: TemporaryDuty) => {
+        if (!v || !dayjs(v).isValid()) {
+          const isReqResp = (reqRespMap[r.standalone_req_id ?? ''] ?? []).some((wn: string) => wn.toLowerCase() === workNo.toLowerCase())
+          if (isReqResp && r.status !== 0 && r.status !== 3 && r.status !== 9) {
+            return <DateInput value="" placeholder={t('projectDetail.clickToSetDate')} onChange={async (d) => {
+              if (!d) return
+              try { await dutyApi.setDates(r.id, { expected_end_date: d }); showToast.success(t('common.saveSuccess')); dispatch(fetchDutyListThunk(query)) } catch { /* */ }
+            }} />
+          }
+          return <span className="text-slate-300 text-xs">—</span>
+        }
         if (r.status === 3) return <span className="days-ok">{v}</span>
         const days = dayjs(v).diff(dayjs(), 'day')
         if (days < 0) return <span className="days-overdue">{t('common.daysOverdue', { days: Math.abs(days) })}</span>
@@ -687,7 +824,7 @@ const DutyListPage: React.FC = () => {
     },
   ]
   const { mergeColumns: sysColumns } = useResizableColumns(rawSysColumns)
-  const sysGroupedColumns = sysColumns.filter((c) => (c as { dataIndex?: string }).dataIndex !== 'group')
+
 
   return (
     <div className="p-6">
@@ -721,105 +858,102 @@ const DutyListPage: React.FC = () => {
                   ]}
                 />
                 <div className="w-px h-5 bg-slate-200" />
-                <Segmented
-                  size="small"
-                  value={myFuncView}
-                  onChange={(v) => setMyFuncView(v as 'flat' | 'grouped')}
-                  options={[
-                    { label: t('common.flat'), value: 'flat' },
-                    { label: t('common.grouped'), value: 'grouped' },
-                  ]}
-                />
+                <Segmented size="small" value={myFuncView} onChange={(v) => setMyFuncView(v as 'flat' | 'grouped')}
+                  options={[{ label: t('common.flat'), value: 'flat' }, { label: t('common.grouped'), value: 'grouped' }]} />
                 <div className="w-px h-5 bg-slate-200" />
-                <Select
-                  placeholder={t('common.status')} allowClear style={{ width: 120 }}
-                  value={myFuncStatus}
+                <Select placeholder={t('common.status')} allowClear style={{ width: 120 }} value={myFuncStatus}
                   onChange={(v) => { setMyFuncStatus(v); loadMyFunctions(1, myFuncPageSize, v, myFuncScope) }}
-                  options={Object.entries(FUNCTION_STATUS_MAP).map(([k, v]) => ({ value: Number(k), label: v.label }))}
-                />
-                <Select
-                  placeholder={t('project.projectName')} allowClear style={{ width: 160 }}
-                  value={myFuncProject}
-                  onChange={(v) => setMyFuncProject(v)}
-                  options={funcProjectOptions}
-                  showSearch
-                  filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
-                />
-                <Select
-                  placeholder={t('function.group')} allowClear style={{ width: 130 }}
-                  value={myFuncGroup}
-                  onChange={(v) => setMyFuncGroup(v)}
-                  options={funcGroupOptions}
-                />
-                <Select
-                  placeholder={t('function.assignee')} allowClear style={{ width: 120 }}
-                  value={myFuncResponsible}
-                  onChange={(v) => setMyFuncResponsible(v)}
-                  options={funcResponsibleOptions}
-                />
+                  options={Object.entries(FUNCTION_STATUS_MAP).map(([k, v]) => ({ value: Number(k), label: v.label }))} />
+                <Select placeholder={t('function.assignee')} allowClear style={{ width: 120 }} value={myFuncResponsible}
+                  onChange={(v) => setMyFuncResponsible(v)} options={funcResponsibleOptions} />
                 <div className="ml-auto flex items-center gap-4 text-sm text-slate-500">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <Switch size="small" checked={funcShowHeld} onChange={setFuncShowHeld} />
-                    {t('duty.showHeld')}
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <Switch size="small" checked={!hideCompleted} onChange={(v) => setHideCompleted(!v)} />
-                    {t('duty.showCompleted')}
-                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer"><Switch size="small" checked={funcShowHeld} onChange={setFuncShowHeld} />{t('duty.showHeld')}</label>
+                  <label className="flex items-center gap-2 cursor-pointer"><Switch size="small" checked={!hideCompleted} onChange={(v) => setHideCompleted(!v)} />{t('duty.showCompleted')}</label>
                 </div>
               </div>
               {myFuncView === 'flat' ? (
-                <Table
-                  rowKey="id"
-                  columns={funcColumns}
-                  components={tableComponents}
-                  dataSource={filteredMyFunctions}
-                  loading={myFuncLoading}
-                  size="small"
-                  scroll={{ x: 980 }}
-                  pagination={{
-                    pageSize: myFuncPageSize,
-                    showSizeChanger: true,
-                    pageSizeOptions: ['10', '20', '50', '100'],
-                    showTotal: (total) => t('common.total', { count: total }),
-                    onShowSizeChange: (_, size) => setMyFuncPageSize(size),
-                  }}
-                />
+                <Table rowKey="id" columns={funcColumns} components={tableComponents} dataSource={filteredMyFunctions}
+                  loading={myFuncLoading} size="small" scroll={{ x: 980 }}
+                  pagination={{ pageSize: myFuncPageSize, showSizeChanger: true, pageSizeOptions: ['10','20','50','100'],
+                    showTotal: (total) => t('common.total', { count: total }), onShowSizeChange: (_, size) => setMyFuncPageSize(size) }} />
               ) : (
-                <div className="p-4">
-                  {myFuncLoading ? (
-                    <div className="flex justify-center py-12"><Spin size="large" /></div>
-                  ) : groupedMyFunctions.length === 0 ? (
-                    <Empty description={t('duty.noTasks')} className="py-12" />
-                  ) : (
-                    <Collapse
-                      defaultActiveKey={groupedMyFunctions.map((g) => g.name)}
-                      className="bg-transparent border-0"
-                      expandIconPosition="start"
-                    >
-                      {groupedMyFunctions.map((g) => (
-                        <Collapse.Panel
-                          key={g.name}
-                          header={
-                            <div className="flex items-center gap-3">
-                              <FolderIcon className="w-4 h-4 text-blue-500" />
-                              <span className="font-semibold text-slate-700">{g.name}</span>
-                              <Tag color="blue" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>{t('common.itemCount', { count: g.items.length })}</Tag>
-                              <Progress percent={g.avgProgress} size="small" showInfo={false} style={{ width: 80 }} strokeColor="#2563eb" trailColor="#e2e8f0" />
-                              <span className="text-xs text-slate-400">{g.avgProgress}%</span>
-                              {g.overdueCount > 0 && (
-                                <Tag color="error" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>{t('common.overdueCount', { count: g.overdueCount })}</Tag>
-                              )}
-                            </div>
-                          }
-                        >
-                          <Table rowKey="id" columns={funcColumns.filter((c) => (c as { key?: string }).key !== 'group')}
-                            components={tableComponents} dataSource={g.items} pagination={false} size="small" scroll={{ x: 860 }} />
-                        </Collapse.Panel>
-                      ))}
-                    </Collapse>
-                  )}
-                </div>
+                <Table<MergedFuncRow>
+                  rowKey="id"
+                  loading={myFuncLoading}
+                  dataSource={mergedFuncRows}
+                  size="small"
+                  scroll={{ x: 1100 }}
+                  pagination={{ pageSize: 50, showSizeChanger: true, pageSizeOptions: ['20','50','100'], showTotal: (total) => t('common.total', { count: total }) }}
+                  columns={[
+                    {
+                      title: t('project.projectName'), dataIndex: 'project_nm', width: 140, ellipsis: true,
+                      onCell: (r) => ({ rowSpan: r._projSpan }),
+                      render: (v: string, r) => (
+                        <div className="flex items-center gap-1">
+                          <span className={`cursor-pointer text-[10px] select-none ${funcCollapsed.has(r._projKey) ? 'text-slate-400' : 'text-slate-300'}`}
+                            onClick={(e) => { e.stopPropagation(); toggleFuncCollapse(r._projKey) }}>
+                            {funcCollapsed.has(r._projKey) ? '[+]' : '[-]'}
+                          </span>
+                          <span className="font-semibold text-blue-600 hover:underline cursor-pointer text-xs" onClick={() => window.open(`/projects/${r.project_id}`, '_blank')}>{v}</span>
+                        </div>
+                      ),
+                    },
+                    {
+                      title: t('requirement.name'), dataIndex: '_reqNm', width: 120, ellipsis: true,
+                      onCell: (r) => ({ rowSpan: r._reqSpan }),
+                      render: (v: string, r) => {
+                        if (r._isSummary === 'proj') return <span className="text-slate-300 text-xs">—</span>
+                        return v ? (
+                          <div className="flex items-center gap-1">
+                            <span className={`cursor-pointer text-[10px] select-none ${funcCollapsed.has(r._reqKey) ? 'text-slate-400' : 'text-slate-300'}`}
+                              onClick={(e) => { e.stopPropagation(); toggleFuncCollapse(r._reqKey) }}>
+                              {funcCollapsed.has(r._reqKey) ? '[+]' : '[-]'}
+                            </span>
+                            <span className="text-xs text-purple-600">{v}</span>
+                          </div>
+                        ) : <span className="text-slate-300 text-xs">—</span>
+                      },
+                    },
+                    {
+                      title: t('function.group'), dataIndex: '_grpNm', width: 110, ellipsis: true,
+                      onCell: (r) => ({ rowSpan: r._grpSpan }),
+                      render: (v: string, r) => {
+                        if (r._isSummary === 'proj' || r._isSummary === 'req') return <span className="text-slate-300 text-xs">—</span>
+                        return v ? (
+                          <div className="flex items-center gap-1">
+                            <span className={`cursor-pointer text-[10px] select-none ${funcCollapsed.has(r._grpKey) ? 'text-slate-400' : 'text-slate-300'}`}
+                              onClick={(e) => { e.stopPropagation(); toggleFuncCollapse(r._grpKey) }}>
+                              {funcCollapsed.has(r._grpKey) ? '[+]' : '[-]'}
+                            </span>
+                            <span className="text-xs text-slate-600">{v}</span>
+                          </div>
+                        ) : <span className="text-slate-300 text-xs">—</span>
+                      },
+                    },
+                    ...(funcColumns.filter((c) => {
+                      const d = (c as {dataIndex?:string}).dataIndex
+                      const k = (c as {key?:string}).key
+                      return d !== 'project_nm' && d !== 'requirement_nm' && k !== 'group'
+                    }).map((col) => {
+                      const di = (col as {dataIndex?:string}).dataIndex
+                      const origRender = (col as {render?:Function}).render
+                      return {
+                        ...col,
+                        render: (v: unknown, r: MergedFuncRow, idx: number) => {
+                          if (!r._isSummary) return origRender ? origRender(v, r, idx) : v
+                          // Summary row overrides
+                          if (di === 'function_nm') return <span className="text-xs text-slate-400 italic">{t('common.itemCount', { count: r._summaryCount ?? 0 })}</span>
+                          if (di === 'status') return r._isSummary === 'proj' ? <Tag color={PROJECT_STATUS_MAP[r._summaryStatus ?? 0]?.color ?? 'default'} style={{ fontSize: 11 }}>{PROJECT_STATUS_MAP[r._summaryStatus ?? 0]?.label ?? '—'}</Tag> : <span className="text-slate-300 text-xs">—</span>
+                          if (di === 'responsible') return r._isSummary === 'proj' && r._summaryPm ? <Tag color="blue" style={{ fontSize: 10 }}>{toName(r._summaryPm)}</Tag> : <span className="text-slate-300 text-xs">—</span>
+                          if (di === 'progress') return <div className="flex items-center gap-2"><Progress percent={r._summaryProgress ?? 0} size="small" showInfo={false} style={{ flex: 1 }} strokeColor="#2563eb" trailColor="#f1f5f9" /><span className="text-xs text-slate-400">{r._summaryProgress ?? 0}%</span></div>
+                          if (di === 'expected_start_date') return <span className="text-slate-300 text-xs">—</span>
+                          if (di === 'expected_end_date') return r._summaryEndDate ? <span className="text-xs">{r._summaryEndDate}</span> : <span className="text-slate-300 text-xs">—</span>
+                          return <span className="text-slate-300 text-xs">—</span>
+                        },
+                      }
+                    }) as ColumnsType<MergedFuncRow>),
+                  ]}
+                />
               )}
             </Card>
           ),
@@ -839,15 +973,8 @@ const DutyListPage: React.FC = () => {
                   ]}
                 />
                 <div className="w-px h-5 bg-slate-200" />
-                <Segmented
-                  size="small"
-                  value={sysTaskGroupMode}
-                  onChange={(v) => setSysTaskGroupMode(v as 'flat' | 'grouped')}
-                  options={[
-                    { label: t('common.flat'), value: 'flat' },
-                    { label: t('common.grouped'), value: 'grouped' },
-                  ]}
-                />
+                <Segmented size="small" value={sysTaskGroupMode} onChange={(v) => setSysTaskGroupMode(v as 'flat' | 'grouped')}
+                  options={[{ label: t('common.flat'), value: 'flat' }, { label: t('common.grouped'), value: 'grouped' }]} />
                 <div className="w-px h-5 bg-slate-200" />
                 <Select
                   placeholder={t('common.status')} allowClear style={{ width: 120 }}
@@ -855,98 +982,94 @@ const DutyListPage: React.FC = () => {
                   onChange={(v) => setSysTaskStatus(v)}
                   options={Object.entries(DUTY_STATUS_MAP).map(([k, v]) => ({ value: Number(k), label: v.label }))}
                 />
-                <Select
-                  placeholder={t('nav.systemMgmt')} allowClear style={{ width: 140 }}
-                  value={sysTaskSystem}
-                  onChange={(v) => setSysTaskSystem(v)}
-                  options={sysSystemOptions}
-                  showSearch
-                  filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
-                />
-                <Select
-                  placeholder={t('requirement.name')} allowClear style={{ width: 150 }}
-                  value={sysTaskReq}
-                  onChange={(v) => setSysTaskReq(v)}
-                  options={sysReqOptions}
-                  showSearch
-                  filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
-                />
-                <Select
-                  placeholder={t('function.group')} allowClear style={{ width: 120 }}
-                  value={sysTaskGroup}
-                  onChange={(v) => setSysTaskGroup(v)}
-                  options={sysGroupOptions}
-                />
-                <Select
-                  placeholder={t('function.assignee')} allowClear style={{ width: 120 }}
-                  value={sysTaskResponsible}
-                  onChange={(v) => setSysTaskResponsible(v)}
-                  options={sysResponsibleOptions}
-                  showSearch
-                  filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
-                />
+                <Select placeholder={t('function.assignee')} allowClear style={{ width: 120 }} value={sysTaskResponsible}
+                  onChange={(v) => setSysTaskResponsible(v)} options={sysResponsibleOptions} showSearch
+                  filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())} />
                 <div className="ml-auto flex items-center gap-4 text-sm text-slate-500">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <Switch size="small" checked={sysShowHeld} onChange={setSysShowHeld} />
-                    {t('duty.showHeld')}
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <Switch size="small" checked={!sysHideCompleted} onChange={(v) => setSysHideCompleted(!v)} />
-                    {t('duty.showCompleted')}
-                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer"><Switch size="small" checked={sysShowHeld} onChange={setSysShowHeld} />{t('duty.showHeld')}</label>
+                  <label className="flex items-center gap-2 cursor-pointer"><Switch size="small" checked={!sysHideCompleted} onChange={(v) => setSysHideCompleted(!v)} />{t('duty.showCompleted')}</label>
                 </div>
               </div>
               {sysTaskGroupMode === 'flat' ? (
-                <Table
-                  rowKey="id"
-                  columns={sysColumns}
-                  components={tableComponents}
-                  dataSource={displayedSysTasks}
-                  loading={isLoading}
-                  size="small"
-                  scroll={{ x: 980 }}
-                  pagination={{
-                    showSizeChanger: true,
-                    pageSizeOptions: ['10', '20', '50', '100'],
-                    showTotal: (total) => t('common.total', { count: total }),
-                  }}
-                />
+                <Table rowKey="id" columns={sysColumns} components={tableComponents} dataSource={displayedSysTasks}
+                  loading={isLoading} size="small" scroll={{ x: 980 }}
+                  pagination={{ showSizeChanger: true, pageSizeOptions: ['10','20','50','100'], showTotal: (total) => t('common.total', { count: total }) }} />
               ) : (
-                <div className="p-4">
-                  {isLoading ? (
-                    <div className="flex justify-center py-12"><Spin size="large" /></div>
-                  ) : groupedSysTasks.length === 0 ? (
-                    <Empty description={t('duty.noSysTasks')} className="py-12" />
-                  ) : (
-                    <Collapse
-                      activeKey={sysOpenGroups}
-                      onChange={(keys) => setSysOpenGroups(Array.isArray(keys) ? keys : [keys])}
-                      className="bg-transparent border-0"
-                      expandIconPosition="start"
-                    >
-                      {groupedSysTasks.map((g) => (
-                        <Collapse.Panel
-                          key={g.name}
-                          header={
-                            <div className="flex items-center gap-3">
-                              <FolderIcon className="w-4 h-4 text-blue-500" />
-                              <span className="font-semibold text-slate-700">{g.name}</span>
-                              <Tag color="blue" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>{t('common.itemCount', { count: g.items.length })}</Tag>
-                              <Progress percent={g.avgProgress} size="small" showInfo={false} style={{ width: 80 }} strokeColor="#2563eb" trailColor="#e2e8f0" />
-                              <span className="text-xs text-slate-400">{g.avgProgress}%</span>
-                              {g.overdueCount > 0 && (
-                                <Tag color="error" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>{t('common.overdueCount', { count: g.overdueCount })}</Tag>
-                              )}
-                            </div>
-                          }
-                        >
-                          <Table rowKey="id" columns={sysGroupedColumns} components={tableComponents}
-                            dataSource={g.items} pagination={false} size="small" scroll={{ x: 860 }} />
-                        </Collapse.Panel>
-                      ))}
-                    </Collapse>
-                  )}
-                </div>
+                <Table<MergedDutyRow>
+                  rowKey="id"
+                  loading={isLoading}
+                  dataSource={mergedDutyRows}
+                  size="small"
+                  scroll={{ x: 1100 }}
+                  pagination={{ pageSize: 50, showSizeChanger: true, pageSizeOptions: ['20','50','100'], showTotal: (total) => t('common.total', { count: total }) }}
+                  columns={[
+                    {
+                      title: t('system.sysName'), dataIndex: '_sysNm', width: 140, ellipsis: true,
+                      onCell: (r) => ({ rowSpan: r._sysSpan }),
+                      render: (v: string, r) => v ? (
+                        <div className="flex items-center gap-1">
+                          <span className={`cursor-pointer text-[10px] select-none ${dutyCollapsed.has(r._sysKey) ? 'text-slate-400' : 'text-slate-300'}`}
+                            onClick={(e) => { e.stopPropagation(); toggleDutyCollapse(r._sysKey) }}>
+                            {dutyCollapsed.has(r._sysKey) ? '[+]' : '[-]'}
+                          </span>
+                          <span className="font-semibold text-blue-600 hover:underline cursor-pointer text-xs" onClick={() => window.open(`/systems/${r.system_id}`, '_blank')}>{v}</span>
+                        </div>
+                      ) : <span className="text-slate-300 text-xs">—</span>,
+                    },
+                    {
+                      title: t('requirement.name'), dataIndex: '_reqNm', width: 120, ellipsis: true,
+                      onCell: (r) => ({ rowSpan: r._reqSpan }),
+                      render: (v: string, r) => {
+                        if (r._isSummary === 'sys') return <span className="text-slate-300 text-xs">—</span>
+                        return v ? (
+                          <div className="flex items-center gap-1">
+                            <span className={`cursor-pointer text-[10px] select-none ${dutyCollapsed.has(r._reqKey) ? 'text-slate-400' : 'text-slate-300'}`}
+                              onClick={(e) => { e.stopPropagation(); toggleDutyCollapse(r._reqKey) }}>
+                              {dutyCollapsed.has(r._reqKey) ? '[+]' : '[-]'}
+                            </span>
+                            <span className="text-xs text-purple-600">{v}</span>
+                          </div>
+                        ) : <span className="text-slate-300 text-xs">—</span>
+                      },
+                    },
+                    {
+                      title: t('function.group'), dataIndex: '_grpNm', width: 110, ellipsis: true,
+                      onCell: (r) => ({ rowSpan: r._grpSpan }),
+                      render: (v: string, r) => {
+                        if (r._isSummary === 'sys' || r._isSummary === 'req') return <span className="text-slate-300 text-xs">—</span>
+                        return v ? (
+                          <div className="flex items-center gap-1">
+                            <span className={`cursor-pointer text-[10px] select-none ${dutyCollapsed.has(r._grpKey) ? 'text-slate-400' : 'text-slate-300'}`}
+                              onClick={(e) => { e.stopPropagation(); toggleDutyCollapse(r._grpKey) }}>
+                              {dutyCollapsed.has(r._grpKey) ? '[+]' : '[-]'}
+                            </span>
+                            <span className="text-xs text-slate-600">{v}</span>
+                          </div>
+                        ) : <span className="text-slate-300 text-xs">—</span>
+                      },
+                    },
+                    ...(sysColumns.filter((c) => {
+                      const d = (c as {dataIndex?:string}).dataIndex
+                      return d !== 'system_nm' && d !== 'standalone_req_id' && d !== 'group'
+                    }).map((col) => {
+                      const di = (col as {dataIndex?:string}).dataIndex
+                      const origRender = (col as {render?:Function}).render
+                      return {
+                        ...col,
+                        render: (v: unknown, r: MergedDutyRow, idx: number) => {
+                          if (!r._isSummary) return origRender ? origRender(v, r, idx) : v
+                          if (di === 'duty_nm') return <span className="text-xs text-slate-400 italic">{t('common.itemCount', { count: r._summaryCount ?? 0 })}</span>
+                          if (di === 'status') return <span className="text-slate-300 text-xs">—</span>
+                          if (di === 'responsible') return <span className="text-slate-300 text-xs">—</span>
+                          if (di === 'progress') return <div className="flex items-center gap-2"><Progress percent={r._summaryProgress ?? 0} size="small" showInfo={false} style={{ flex: 1 }} strokeColor="#7c3aed" trailColor="#e9d5ff" /><span className="text-xs text-slate-400">{r._summaryProgress ?? 0}%</span></div>
+                          if (di === 'expected_start_date') return <span className="text-slate-300 text-xs">—</span>
+                          if (di === 'expected_end_date') return r._summaryEndDate ? <span className="text-xs">{r._summaryEndDate}</span> : <span className="text-slate-300 text-xs">—</span>
+                          return <span className="text-slate-300 text-xs">—</span>
+                        },
+                      }
+                    }) as ColumnsType<MergedDutyRow>),
+                  ]}
+                />
               )}
             </Card>
           ),

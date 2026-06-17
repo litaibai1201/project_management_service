@@ -20,7 +20,7 @@ class RequirementController:
 
     @staticmethod
     def _sync_project_req_progress(req_id: str):
-        """根据关联任务重算专案需求进度，并自动切换已完結状态"""
+        """根据关联任务重算专案需求进度和预计完成时间，并自动切换已完結状态"""
         req = _dao.find_by_id(req_id)
         if not req or req.req_status in (9,):
             return
@@ -36,7 +36,42 @@ class RequirementController:
             # 只有已通过(2)或已完结(4)的需求才自动切换状态
             if req.req_status in (2, 4):
                 req.req_status = 4 if avg >= 100 else 2
+            # 同步预计完成时间：取所有任务中最晚的日期（优先用延期后的）
+            end_dates = [
+                f.latest_expected_end_date or f.expected_end_date
+                for f in funcs
+                if f.expected_end_date
+            ]
+            if end_dates:
+                req.expected_end_date = max(end_dates)
         req.update_at = CommonTools.get_now()
+
+    def _batch_calc_req_end_dates(self, req_ids: list, project_ids: list) -> dict:
+        """批量计算需求的预计完成时间（取关联任务中最晚的 expected_end_date，优先用延期后的日期）"""
+        from collections import defaultdict
+        if not req_ids:
+            return {}
+        all_proj_ids = list(set(project_ids))
+        req_id_set = set(req_ids)
+        funcs = db.session.query(
+            FunctionDataModel.requirement_id,
+            FunctionDataModel.expected_end_date,
+            FunctionDataModel.latest_expected_end_date,
+        ).filter(
+            FunctionDataModel.project_id.in_(all_proj_ids),
+            FunctionDataModel.function_status != 9,
+            FunctionDataModel.requirement_id.isnot(None),
+        ).all()
+
+        req_dates: dict = defaultdict(list)
+        for f_req_id, f_end, f_latest_end in funcs:
+            if f_req_id not in req_id_set:
+                continue
+            effective_end = f_latest_end or f_end
+            if effective_end:
+                req_dates[f_req_id].append(effective_end)
+
+        return {rid: max(dates) for rid, dates in req_dates.items() if dates}
 
     # ── 列表 ────────────────────────────────────────────────────────────────────
 
@@ -107,11 +142,18 @@ class RequirementController:
         proj_map = _dao.project_name_map(project_ids)
         name_map = _dao.creator_name_map(creator_nos)
 
+        # 批量查询每个需求关联任务的最晚预计完成时间
+        req_end_map = self._batch_calc_req_end_dates([r.id for r in items], [r.project_id for r in items])
+
         data = []
         for r in items:
             d = r.to_dict()
             d["creator_nm"] = name_map.get((r.creator or "").lower(), r.creator or "")
             d["project_nm"] = proj_map.get(r.project_id, "")
+            # 动态覆盖：取关联任务最晚日期
+            calc_end = req_end_map.get(r.id)
+            if calc_end:
+                d["expected_end_date"] = calc_end
             data.append(d)
 
         return {"data_list": data, "total_count": total, "page": page, "size": size}
@@ -123,10 +165,15 @@ class RequirementController:
         creator_nos = {r.creator for r in reqs if r.creator}
         name_map = _dao.creator_name_map(creator_nos)
 
+        req_end_map = self._batch_calc_req_end_dates([r.id for r in reqs], [project_id])
+
         result = []
         for r in reqs:
             d = r.to_dict()
             d["creator_nm"] = name_map.get((r.creator or "").lower(), r.creator or "")
+            calc_end = req_end_map.get(r.id)
+            if calc_end:
+                d["expected_end_date"] = calc_end
             result.append(d)
         return result
 

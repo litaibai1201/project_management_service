@@ -88,6 +88,10 @@ export interface TeamStatistical {
     total: number; in_progress: number; not_started: number
     completed: number; overdue: number; urgent: number
   }
+  team_ar_task?: {
+    total: number; in_progress: number; not_started: number
+    completed: number; overdue: number; suspended: number
+  }
   pending: { review: number; progress_update: number }
   team_size: number
   team_benefit: TeamBenefitGroup[]
@@ -515,6 +519,7 @@ export interface DailyLogEntry {
   function_nm?:    string
   duty_id?:         string
   duty_nm?:         string
+  system_id?:       string
   system_nm?:       string
   requirement_nm?:  string
   bu_unit?:         string
