@@ -79,17 +79,14 @@ export const renderPriority = (priority: number): React.ReactNode => {
 // ─── Group Name ─────────────────────────────────────────────────────────────
 export const STAGE_GROUP = '__stage__'
 
-/** Replace __stage__ marker with translated display name (with emoji) */
+/** Replace __stage__ marker with translated display name (plain text, no emoji) */
 export const formatGroupName = (name: string | null | undefined): string => {
-  if (name === STAGE_GROUP) return i18n.t('common.stageTask')
-  return name ?? ''
-}
-
-/** Replace __stage__ marker with plain translated name (for exports/documents) */
-export const formatGroupNamePlain = (name: string | null | undefined): string => {
   if (name === STAGE_GROUP) return i18n.t('common.stageTaskPlain')
   return name ?? ''
 }
+
+/** Alias for formatGroupName (both now use plain text) */
+export const formatGroupNamePlain = formatGroupName
 
 // ─── Benefit Unit Label ──────────────────────────────────────────────────────
 const BENEFIT_UNIT_KEYS: Record<string, string> = {

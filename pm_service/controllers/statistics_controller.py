@@ -464,7 +464,7 @@ class StatisticsController:
         weekly_map[week_key]["total"]    = round(weekly_map[week_key]["total"]    + hours,    1)
         weekly_map[week_key]["overtime"] = round(weekly_map[week_key]["overtime"] + ot_hours, 1)
 
-    @cache_result(ttl=120, key_prefix="progress_report", key_builder=method_key_builder)
+    @cache_result(ttl=15, key_prefix="progress_report", key_builder=method_key_builder)
     def get_progress_report(self, work_no: str, start_date: str, end_date: str):
         """
         进度报告：按日期范围返回每位成员的工作汇整。

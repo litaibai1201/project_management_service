@@ -1381,8 +1381,13 @@ class ProjectController:
                         from dbs.mysql_db.model_tables import RequirementModel as _RM
                         reqs = db.session.query(_RM).filter(
                             _RM.project_id == r.project_id,
-                            _RM.req_status.in_([0, 2]),  # 草稿或已通过
+                            _RM.req_status.in_([0, 2, 4]),  # 草稿、已通过、已完结（阶段任务完成导致的）
                         ).all()
+                        # 创建新阶段任务后，将已完结的需求恢复为进行中
+                        for req in reqs:
+                            if req.req_status == 4:
+                                req.req_status = 2
+                                req.update_at = now
                         for req in reqs:
                             self._create_stage_task(r.project_id, next_stage, req.id, req.req_nm)
                 elif final_status in (3, 4) and next_fail:

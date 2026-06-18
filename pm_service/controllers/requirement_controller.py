@@ -46,8 +46,8 @@ class RequirementController:
                 req.expected_end_date = max(end_dates)
         req.update_at = CommonTools.get_now()
 
-    def _batch_calc_req_end_dates(self, req_ids: list, project_ids: list) -> dict:
-        """批量计算需求的预计完成时间（取关联任务中最晚的 expected_end_date，优先用延期后的日期）"""
+    def _batch_calc_req_stats(self, req_ids: list, project_ids: list) -> dict:
+        """批量计算需求的进度和预计完成时间"""
         from collections import defaultdict
         if not req_ids:
             return {}
@@ -55,6 +55,7 @@ class RequirementController:
         req_id_set = set(req_ids)
         funcs = db.session.query(
             FunctionDataModel.requirement_id,
+            FunctionDataModel.progress,
             FunctionDataModel.expected_end_date,
             FunctionDataModel.latest_expected_end_date,
         ).filter(
@@ -63,15 +64,25 @@ class RequirementController:
             FunctionDataModel.requirement_id.isnot(None),
         ).all()
 
+        req_progress: dict = defaultdict(list)
         req_dates: dict = defaultdict(list)
-        for f_req_id, f_end, f_latest_end in funcs:
+        for f_req_id, f_prog, f_end, f_latest_end in funcs:
             if f_req_id not in req_id_set:
                 continue
+            req_progress[f_req_id].append(int(f_prog or 0))
             effective_end = f_latest_end or f_end
             if effective_end:
                 req_dates[f_req_id].append(effective_end)
 
-        return {rid: max(dates) for rid, dates in req_dates.items() if dates}
+        result = {}
+        for rid in req_id_set:
+            progs = req_progress.get(rid)
+            dates = req_dates.get(rid)
+            result[rid] = {
+                "progress": round(sum(progs) / len(progs)) if progs else None,
+                "expected_end_date": max(dates) if dates else None,
+            }
+        return result
 
     # ── 列表 ────────────────────────────────────────────────────────────────────
 
@@ -142,18 +153,19 @@ class RequirementController:
         proj_map = _dao.project_name_map(project_ids)
         name_map = _dao.creator_name_map(creator_nos)
 
-        # 批量查询每个需求关联任务的最晚预计完成时间
-        req_end_map = self._batch_calc_req_end_dates([r.id for r in items], [r.project_id for r in items])
+        # 批量动态计算需求进度和预计完成时间
+        req_stats = self._batch_calc_req_stats([r.id for r in items], [r.project_id for r in items])
 
         data = []
         for r in items:
             d = r.to_dict()
             d["creator_nm"] = name_map.get((r.creator or "").lower(), r.creator or "")
             d["project_nm"] = proj_map.get(r.project_id, "")
-            # 动态覆盖：取关联任务最晚日期
-            calc_end = req_end_map.get(r.id)
-            if calc_end:
-                d["expected_end_date"] = calc_end
+            stats = req_stats.get(r.id, {})
+            if stats.get("progress") is not None:
+                d["progress"] = stats["progress"]
+            if stats.get("expected_end_date"):
+                d["expected_end_date"] = stats["expected_end_date"]
             data.append(d)
 
         return {"data_list": data, "total_count": total, "page": page, "size": size}
@@ -165,15 +177,17 @@ class RequirementController:
         creator_nos = {r.creator for r in reqs if r.creator}
         name_map = _dao.creator_name_map(creator_nos)
 
-        req_end_map = self._batch_calc_req_end_dates([r.id for r in reqs], [project_id])
+        req_stats = self._batch_calc_req_stats([r.id for r in reqs], [project_id])
 
         result = []
         for r in reqs:
             d = r.to_dict()
             d["creator_nm"] = name_map.get((r.creator or "").lower(), r.creator or "")
-            calc_end = req_end_map.get(r.id)
-            if calc_end:
-                d["expected_end_date"] = calc_end
+            stats = req_stats.get(r.id, {})
+            if stats.get("progress") is not None:
+                d["progress"] = stats["progress"]
+            if stats.get("expected_end_date"):
+                d["expected_end_date"] = stats["expected_end_date"]
             result.append(d)
         return result
 

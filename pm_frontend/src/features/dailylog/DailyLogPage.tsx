@@ -759,9 +759,10 @@ const DailyLogPage: React.FC = () => {
 
   // Load project list once on mount
   useEffect(() => {
-    projectApi.list({ page: 1, size: 200, status: 5 })  // status=5 → 執行中
+    projectApi.list({ page: 1, size: 200 })
       .then((res) => {
-        const list = (res.content as { project_list?: { id: string; project_nm: string }[] })?.project_list ?? []
+        const list = ((res.content as { project_list?: { id: string; project_nm: string; status?: number }[] })?.project_list ?? [])
+          .filter((p) => p.status !== 7)  // 排除已完結
         setProjectOpts(list.map((p) => ({ id: p.id, name: p.project_nm })))
       })
       .catch(() => {})

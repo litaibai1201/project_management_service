@@ -114,16 +114,21 @@ const DutyListPage: React.FC = () => {
   }
   const mergedFuncRows = useMemo((): MergedFuncRow[] => {
     const sorted = [...filteredMyFunctions].sort((a, b) => {
-      const p = (a.project_nm ?? '').localeCompare(b.project_nm ?? '')
-      if (p !== 0) return p
+      // 先按 project_id 分组（确保同一专案不被拆开），再按名称排序
+      if (a.project_id !== b.project_id) return (a.project_nm ?? '').localeCompare(b.project_nm ?? '')
       const r = (a.requirement_nm ?? '').localeCompare(b.requirement_nm ?? '')
       if (r !== 0) return r
       const g = (a.group1 ?? '').localeCompare(b.group1 ?? '')
       if (g !== 0) return g
       return (a.function_nm ?? '').localeCompare(b.function_nm ?? '')
     })
+    // 确保同一 project_id 的所有行都有 project_nm（取第一个非空值）
+    const projNmMap = new Map<string, string>()
+    sorted.forEach((f) => { if (f.project_nm && !projNmMap.has(f.project_id)) projNmMap.set(f.project_id, f.project_nm) })
     const all = sorted.map((f) => ({
-      ...f, _projSpan: 0, _reqSpan: 0, _grpSpan: 0,
+      ...f,
+      project_nm: f.project_nm || projNmMap.get(f.project_id) || '',
+      _projSpan: 0, _reqSpan: 0, _grpSpan: 0,
       _reqNm: f.requirement_nm || '', _grpNm: formatGroupName(f.group1) || f.group1 || '',
       _projKey: `p::${f.project_id}`, _reqKey: `r::${f.project_id}::${f.requirement_nm || ''}`, _grpKey: `g::${f.project_id}::${f.requirement_nm || ''}::${f.group1 || ''}`,
     } as MergedFuncRow))
