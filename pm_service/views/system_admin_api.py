@@ -78,7 +78,10 @@ class AdminUserStatusApi(MethodView):
         """启用/禁用用户"""
         _require_system_admin()
         payload = request.get_json() or {}
-        ctrl.set_user_status(work_no, int(payload.get("status", 1)))
+        new_status = int(payload.get("status", 1))
+        ctrl.set_user_status(work_no, new_status)
+        from controllers.system_admin_controller import _log_operation
+        _log_operation("system_admin", "启用用户" if new_status == 1 else "禁用用户", detail=f"用户: {work_no}", target_table="user_profile", target_id=work_no)
         return response_result()
 
 
@@ -94,6 +97,8 @@ class AdminUserResetPasswordApi(MethodView):
         if not new_password:
             raise ValidationException(msg="新密码不能为空")
         ctrl.reset_password(work_no, new_password)
+        from controllers.system_admin_controller import _log_operation
+        _log_operation("system_admin", "重置密码", detail=f"用户: {work_no}", target_table="user_profile", target_id=work_no)
         return response_result()
 
 

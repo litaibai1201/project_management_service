@@ -12,7 +12,7 @@ import type { InputRef } from 'antd'
 import { PencilSquareIcon as EditIcon, PencilSquareIcon } from '@heroicons/react/24/outline'
 import type { ColumnsType } from 'antd/es/table'
 import {
-  ArrowLeftIcon, PlusIcon, EyeIcon, TrashIcon, XMarkIcon,
+  ArrowLeftIcon, PlusIcon, EyeIcon, TrashIcon, XMarkIcon, LockClosedIcon,
   CodeBracketIcon, UserCircleIcon, FolderIcon, ArrowsPointingOutIcon,
 } from '@heroicons/react/24/outline'
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
@@ -415,6 +415,7 @@ const ProjectDetailPage: React.FC = () => {
 
   const openDraftReviewModal = async () => {
     setDraftReviewers([])
+    setDefaultReviewerWnos(new Set())
     setDraftReviewSearch('')
     setDraftReviewSearchResults([])
     setShowDraftReview(true)
@@ -423,6 +424,7 @@ const ProjectDetailPage: React.FC = () => {
       const res = await userApi.getSupervisors(workNo)
       const list = (Array.isArray(res.content) ? res.content : []) as UserProfile[]
       setDraftReviewers(list)
+      setDefaultReviewerWnos(new Set(list.map((u) => u.work_no)))
     } catch { /* ignore */ }
     finally { setDraftReviewersLoading(false) }
   }
@@ -2365,7 +2367,18 @@ const ProjectDetailPage: React.FC = () => {
                     <div className="flex items-center gap-1 flex-shrink-0">
                       <Button size="small" type="text" disabled={i === 0} onClick={() => moveDraftReviewer(i, -1)} style={{ padding: '0 4px', fontSize: 12, color: i === 0 ? '#cbd5e1' : '#64748b' }}>↑</Button>
                       <Button size="small" type="text" disabled={i === draftReviewers.length - 1} onClick={() => moveDraftReviewer(i, 1)} style={{ padding: '0 4px', fontSize: 12, color: i === draftReviewers.length - 1 ? '#cbd5e1' : '#64748b' }}>↓</Button>
-                      <Button size="small" type="text" danger icon={<TrashIcon className="w-3.5 h-3.5" />} onClick={() => removeDraftReviewer(r.work_no)} />
+                      {(() => {
+                        const isDefault = defaultReviewerWnos.has(r.work_no)
+                        const defaultCount = draftReviewers.filter((rv) => defaultReviewerWnos.has(rv.work_no)).length
+                        const isLastDefault = isDefault && defaultCount <= 1
+                        return isLastDefault ? (
+                          <Tooltip title={t('projectDetail.defaultReviewer')}>
+                            <LockClosedIcon className="w-3.5 h-3.5 text-slate-300" />
+                          </Tooltip>
+                        ) : (
+                          <Button size="small" type="text" danger icon={<TrashIcon className="w-3.5 h-3.5" />} onClick={() => removeDraftReviewer(r.work_no)} />
+                        )
+                      })()}
                     </div>
                   </div>
                 ))}

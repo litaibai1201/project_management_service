@@ -10,6 +10,23 @@ from dbs.mysql_db.model_tables import (
 )
 
 
+def _log_operation(work_no: str, operation: str, detail: str = "", target_table: str = "", target_id: str = ""):
+    """记录操作日志"""
+    try:
+        log = OperationLogModel(
+            work_no=work_no,
+            operation=operation,
+            target_table=target_table,
+            target_id=target_id,
+            detail=detail,
+            created_at=CommonTools.get_now(),
+        )
+        db.session.add(log)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+
 class SystemAdminController:
 
     # ── 登录 ───────────────────────────────────────────────────────────────────
@@ -45,9 +62,10 @@ class SystemAdminController:
     # ── 仪表盘 ─────────────────────────────────────────────────────────────────
 
     def get_dashboard(self) -> dict:
+        from tables.project_table import ProjectDataModel
         total_users    = db.session.query(UserProfileModel).filter_by(status=1).count()
-        total_projects = db.session.query(FunctionDataModel).filter_by(status=1).count()
-        total_duties   = db.session.query(TemporaryDutyModel).filter_by(status=1).count()
+        total_projects = db.session.query(ProjectDataModel).filter(ProjectDataModel.project_status.notin_([9])).count()
+        total_duties   = db.session.query(TemporaryDutyModel).filter(TemporaryDutyModel.duty_status.notin_([9])).count()
         total_admins   = db.session.query(AdminUserModel).filter_by(status=1).count()
         recent_logs    = (
             db.session.query(OperationLogModel)

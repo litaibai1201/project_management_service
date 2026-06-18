@@ -16,7 +16,11 @@ class CreateSystemSchema(BaseSchema):
     sys_code = fields.Str(load_default="")
     sys_group = fields.Str(load_default="")
     describe = fields.Str(load_default="")
+    description = fields.Str(load_default="")
     maintainers = fields.List(fields.Str(), load_default=[])
+    go_live_date = fields.Str(load_default="")
+    urls = fields.List(fields.Dict(), load_default=[])
+    deploy_info = fields.List(fields.Dict(), load_default=[])
 
 
 class UpdateSystemSchema(BaseSchema):
@@ -24,4 +28,8 @@ class UpdateSystemSchema(BaseSchema):
     sys_code = fields.Str()
     sys_group = fields.Str()
     describe = fields.Str()
+    description = fields.Str()
     maintainers = fields.List(fields.Str())
+    go_live_date = fields.Str()
+    urls = fields.List(fields.Dict())
+    deploy_info = fields.List(fields.Dict())

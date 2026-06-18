@@ -61,9 +61,19 @@ class ProjectDetailApi(MethodView):
     @blp.response(200, RspMsgDictSchema)
     def put(self, project_id):
         """更新项目"""
+        from flask_jwt_extended import get_jwt
         work_no = get_identity()
         payload = request.form.to_dict()
-        proj_ctrl.update_project(project_id, payload, operator=work_no)
+        claims = get_jwt()
+        is_admin = claims.get("role_code") == "system_admin"
+        if not is_admin:
+            from dbs.mysql_db.model_tables import UserRoleModel
+            ur = db.session.query(UserRoleModel).filter_by(work_no=work_no).first()
+            is_admin = bool(ur and ur.role_code == "admin")
+        proj_ctrl.update_project(project_id, payload, operator=work_no, is_admin=is_admin)
+        if is_admin:
+            from controllers.system_admin_controller import _log_operation
+            _log_operation(work_no, "更新专案", detail=f"专案ID: {project_id}", target_table="project_data_form", target_id=project_id)
         return response_result()
 
     @jwt_required()

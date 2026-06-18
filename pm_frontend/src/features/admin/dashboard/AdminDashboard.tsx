@@ -62,7 +62,7 @@ const AdminDashboardPage: React.FC = () => {
         <Col xs={24} sm={12} lg={6}>
           <Card>
             <Statistic
-              title="进行中专案"
+              title="专案数"
               value={data?.total_projects ?? 0}
               prefix={<ProjectOutlined />}
               valueStyle={{ color: '#52c41a' }}
@@ -72,7 +72,7 @@ const AdminDashboardPage: React.FC = () => {
         <Col xs={24} sm={12} lg={6}>
           <Card>
             <Statistic
-              title="AR"
+              title="任务数"
               value={data?.total_duties ?? 0}
               prefix={<FileTextOutlined />}
               valueStyle={{ color: '#faad14' }}

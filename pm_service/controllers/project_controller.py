@@ -236,16 +236,17 @@ class ProjectController:
         db.session.commit()
         return {"project_id": p.id}
 
-    def update_project(self, project_id: str, payload: dict, operator: str = ""):
+    def update_project(self, project_id: str, payload: dict, operator: str = "", is_admin: bool = False):
         from utils.exceptions import PermissionException
         p = _dao.find_active_project(project_id)
         if not p:
             raise ResourceNotFoundException(resource_type="项目")
-        # 只有草稿阶段允许编辑
-        if p.project_status != 1:
+        # is_admin 由调用方传入（管理员页面传 True）
+        # 非管理员：只有草稿阶段允许编辑
+        if not is_admin and p.project_status != 1:
             raise PermissionException(msg="只有草稿阶段的专案可以编辑")
-        # 只有产品PM或其直属上级可以编辑
-        if operator:
+        # 非管理员：只有产品PM或其直属上级可以编辑
+        if not is_admin and operator:
             product_pm = p.product_pm or ""
             if operator != product_pm:
                 from dbs.mysql_db.model_tables import HierarchyModel

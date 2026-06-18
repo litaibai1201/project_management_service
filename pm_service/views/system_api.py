@@ -66,7 +66,10 @@ class SystemCreateApi(MethodView):
     def post(self, payload):
         """创建系统（仅管理员）"""
         _require_admin()
-        return response_result(content=ctrl.create_system(payload))
+        result = ctrl.create_system(payload)
+        from controllers.system_admin_controller import _log_operation
+        _log_operation(get_identity(), "新增系统", detail=f"系统: {payload.get('sys_nm', '')}", target_table="system_form", target_id=result.get("id", ""))
+        return response_result(content=result)
 
 
 @blp.route("/<string:system_id>")
@@ -83,11 +86,17 @@ class SystemDetailApi(MethodView):
     def put(self, payload, system_id):
         """更新系统（仅管理员）"""
         _require_admin()
-        return response_result(content=ctrl.update_system(system_id, payload))
+        result = ctrl.update_system(system_id, payload)
+        from controllers.system_admin_controller import _log_operation
+        _log_operation(get_identity(), "更新系统", detail=f"系统ID: {system_id}", target_table="system_form", target_id=system_id)
+        return response_result(content=result)
 
     @jwt_required()
     @blp.response(200, RspMsgRawSchema)
     def delete(self, system_id):
         """删除系统（仅管理员）"""
         _require_admin()
-        return response_result(content=ctrl.delete_system(system_id))
+        result = ctrl.delete_system(system_id)
+        from controllers.system_admin_controller import _log_operation
+        _log_operation(get_identity(), "删除系统", detail=f"系统ID: {system_id}", target_table="system_form", target_id=system_id)
+        return response_result(content=result)
