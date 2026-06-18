@@ -1,0 +1,82 @@
+# 日志系统配置文件
+#
+# 注意：以下配置支持环境变量覆盖（环境变量优先）
+#   - service_name: 可通过 APP_SERVICE_NAME 环境变量覆盖
+#   - environment:  可通过 APP_ENV 或 FLASK_ENV 环境变量覆盖
+#                   自动映射: development -> dev, production -> prd
+
+# 服务配置（作为默认值，环境变量优先）
+service_name: "AIML_DATASET_SERVICE"
+environment: "prd"  # dev, prd
+
+# 队列处理器配置
+# true: 启用非阻塞日志记录（推荐用于 FastAPI/AsyncIO/高并发应用）
+# false: 使用传统方式（推荐用于多进程应用或低并发场景）
+use_queue_handler: false
+queue_size: -1  # -1 表示无限制
+
+# 日志目录配置
+log_dir: "logs"
+archive_subdir: "archive"
+lock_subdir: ".locks"
+max_backup_count: 7
+
+# 日志处理器配置
+handlers:
+  # 默认应用日志
+  file_handler:
+    formatter: "simple_msg"
+    level: "DEBUG"
+    filename: "myapp.log"
+    when: "D"
+    interval: 1
+    max_bytes: 209715200  # 200MB
+    encoding: "utf-8"
+    use_gzip: false
+
+  # 错误日志
+  error_file_handler:
+    formatter: "basic_format"
+    level: "ERROR"
+    filename: "error.log"
+    when: "D"
+    interval: 1
+    max_bytes: 209715200
+    encoding: "utf-8"
+    use_gzip: false
+
+  # 测试日志
+  test_handler:
+    formatter: "simple_msg"
+    level: "DEBUG"
+    filename: "test.log"
+    when: "D"
+    interval: 1
+    max_bytes: 209715200
+    encoding: "utf-8"
+    use_gzip: false
+
+# 日志记录器配置
+loggers:
+  # 默认 logger
+  "my.custom":
+    handlers:
+      - "file_handler"
+      - "error_file_handler"
+    level: "DEBUG"
+    propagate: false
+
+  # 错误 logger
+  "my.custom.error":
+    handlers:
+      - "error_file_handler"
+    level: "ERROR"
+    propagate: false
+
+  # 测试 logger
+  "test":
+    handlers:
+      - "test_handler"
+      - "error_file_handler"
+    level: "DEBUG"
+    propagate: false
