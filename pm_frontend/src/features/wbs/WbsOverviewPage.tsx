@@ -1067,6 +1067,8 @@ const FunctionModule: React.FC<{
   const overdueCount = func.tasks.filter((t) => !!t.is_overdue).length
   const completedCount = func.tasks.filter((t) => t.status === 'completed').length
   const thisWeekCount = func.tasks.filter((t) => t.week_tag.includes('this_week')).length
+  // 根据当前过滤后的任务重新计算进度（而非后端原始分组进度）
+  const calcProgress = func.tasks.length ? Math.round(func.tasks.reduce((s, t) => s + t.progress, 0) / func.tasks.length) : 0
 
   return (
     <div className="border border-slate-100 rounded-lg overflow-hidden mb-2 last:mb-0">
@@ -1079,15 +1081,19 @@ const FunctionModule: React.FC<{
           : <ChevronRightIcon className="w-3 h-3 text-slate-400 transition-transform" />
         }
         <span className="text-xs font-semibold text-slate-600">{formatGroupName(func.name) || func.name}</span>
-        <Progress
-          percent={func.progress}
-          size="small"
-          strokeColor={func.progress >= 100 ? '#16a34a' : func.progress >= 60 ? '#2563eb' : '#d97706'}
-          trailColor="#e2e8f0"
-          style={{ width: 60, marginBottom: 0 }}
-          format={() => ''}
-        />
-        <span className="text-[10px] font-semibold text-slate-500">{func.progress}%</span>
+        {func.name !== '功能任務' && func.name !== '__nogroup__' && (
+          <>
+            <Progress
+              percent={calcProgress}
+              size="small"
+              strokeColor={calcProgress >= 100 ? '#16a34a' : calcProgress >= 60 ? '#2563eb' : '#d97706'}
+              trailColor="#e2e8f0"
+              style={{ width: 60, marginBottom: 0 }}
+              format={() => ''}
+            />
+            <span className="text-[10px] font-semibold text-slate-500">{calcProgress}%</span>
+          </>
+        )}
         <div className="ml-auto flex items-center gap-1.5">
           <span className="text-[10px] text-slate-400">{t('wbs.doneCount', { done: completedCount, total: func.tasks.length })}</span>
           {thisWeekCount > 0 && (
@@ -2213,10 +2219,14 @@ const DutyFunctionBlock: React.FC<{
       >
         {open ? <ChevronDownIcon className="w-3 h-3 text-slate-400" /> : <ChevronRightIcon className="w-3 h-3 text-slate-400" />}
         <span className="text-xs font-semibold text-slate-600">{formatGroupName(groupNm) || groupNm}</span>
-        <Progress percent={progress} size="small"
-          strokeColor={progress >= 100 ? '#16a34a' : progress >= 60 ? '#2563eb' : '#d97706'}
-          trailColor="#e2e8f0" style={{ width: 60, marginBottom: 0 }} format={() => ''} />
-        <span className="text-[10px] font-semibold text-slate-500">{progress}%</span>
+        {groupNm !== t('common.ungrouped') && groupNm !== '__nogroup__' && groupNm !== '未分組' && groupNm !== '未分组' && (
+          <>
+            <Progress percent={progress} size="small"
+              strokeColor={progress >= 100 ? '#16a34a' : progress >= 60 ? '#2563eb' : '#d97706'}
+              trailColor="#e2e8f0" style={{ width: 60, marginBottom: 0 }} format={() => ''} />
+            <span className="text-[10px] font-semibold text-slate-500">{progress}%</span>
+          </>
+        )}
         <div className="ml-auto flex items-center gap-1.5">
           <span className="text-[10px] text-slate-400">{t('wbs.doneCount', { done: completed, total: duties.length })}</span>
           {thisWeek > 0 && <Tag color="blue" style={{ fontSize: 9, margin: 0, lineHeight: '14px', padding: '0 3px' }}>{t('wbs.thisWeekCountLabel', { count: thisWeek })}</Tag>}

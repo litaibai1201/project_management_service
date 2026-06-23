@@ -602,6 +602,14 @@ const groupedByReq = useMemo(() => {
       render: (v: string) => <span className="font-medium text-slate-800">{v}</span>,
     },
     {
+      title: t('common.status'), dataIndex: 'status', width: 80,
+      render: (v: number) => {
+        const map: Record<number, [string, string]> = { 0: [t('system.reqStatus.draft'), 'default'], 1: [t('system.reqStatus.reviewing'), 'processing'], 2: [t('system.reqStatus.inProgress'), 'blue'], 3: [t('system.reqStatus.rejected'), 'error'], 4: [t('system.reqStatus.completed'), 'success'], 8: [t('system.reqStatus.onHold'), 'warning'] }
+        const [label, color] = map[v] ?? [String(v), 'default']
+        return <Tag color={color} style={{ fontSize: 11 }}>{label}</Tag>
+      },
+    },
+    {
       title: t('system.priority'), dataIndex: 'priority', width: 72,
       render: (v: number) => {
         const p = PRIORITY_MAP[v]
@@ -687,6 +695,21 @@ const groupedByReq = useMemo(() => {
                 {t('system.submitReview')}
               </Button>
             </Space>
+          )
+        }
+        if (r.status === 2 && (r.progress ?? 0) >= 100) {
+          return (
+            <Popconfirm title={t('requirement.confirmComplete')} onConfirm={async () => {
+              try {
+                await standaloneReqApi.update(r.id, { status: 4 })
+                showToast.success(t('requirement.completeSuccess'))
+                loadReqs(reqPage)
+              } catch { showToast.error(t('common.error')) }
+            }} okText={t('common.confirm')} cancelText={t('common.cancel')}>
+              <Button size="small" type="primary" style={{ background: '#16a34a', fontSize: 11 }}>
+                {t('requirement.complete')}
+              </Button>
+            </Popconfirm>
           )
         }
         return null

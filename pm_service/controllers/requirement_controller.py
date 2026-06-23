@@ -33,9 +33,9 @@ class RequirementController:
         else:
             avg = round(sum(int(f.progress or 0) for f in funcs) / len(funcs))
             req.progress = avg
-            # 只有已通过(2)或已完结(4)的需求才自动切换状态
-            if req.req_status in (2, 4):
-                req.req_status = 4 if avg >= 100 else 2
+            # 已完结(4)的需求如果进度不再100%，恢复为进行中(2)
+            if req.req_status == 4 and avg < 100:
+                req.req_status = 2
             # 同步预计完成时间：取所有任务中最晚的日期（优先用延期后的）
             end_dates = [
                 f.latest_expected_end_date or f.expected_end_date
@@ -272,6 +272,12 @@ class RequirementController:
         r = _dao.find_by_id(req_id)
         if not r or r.req_status == 9:
             raise ResourceNotFoundException(resource_type="需求")
+        # 允许将进行中(2)的需求标记为已完结(4)
+        if "status" in payload and int(payload["status"]) == 4 and r.req_status == 2:
+            r.req_status = 4
+            r.update_at = CommonTools.get_now()
+            db.session.commit()
+            return r.to_dict()
         # 只有草稿狀態的需求可以修改，專案必須在草稿或執行中階段
         if r.req_status != 0:
             raise PermissionException(msg="只有草稿狀態的需求可以修改")

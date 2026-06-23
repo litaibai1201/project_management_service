@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react'
 import {
-  Table, Button, Input, Select, Space, Tooltip, Popconfirm,
+  Table, Button, Input, Select, Space, Tooltip, Popconfirm, Switch,
   Modal, Form, Tag, Avatar, Card, Tabs, Progress, Spin, Empty,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
@@ -37,12 +37,22 @@ const DaysLeftBadge: React.FC<{ date?: string }> = ({ date }) => {
   return <span className="days-ok">{date}</span>
 }
 
+const REQ_STATUS_COLORS: Record<number, string> = {
+  0: 'default', 1: 'processing', 2: 'blue', 3: 'error', 4: 'success', 8: 'warning',
+}
+const REQ_STATUS_KEYS: Record<number, string> = {
+  0: 'requirement.statusDraft', 1: 'requirement.statusReviewing', 2: 'requirement.statusInProgress',
+  3: 'requirement.statusRejected', 4: 'requirement.statusCompleted', 8: 'requirement.statusShelved',
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 const RequirementListPage: React.FC = () => {
   const { t } = useTranslation()
   const toName   = useWorkNoToName()
   const [activeTab, setActiveTab] = useState<'project' | 'system'>('system')
+  const [showCompleted, setShowCompleted] = useState(false)
+  const [showShelved, setShowShelved]     = useState(false)
 
   // ── 專案需求 state ────────────────────────────────────────────────────────
   const [projList,     setProjList]     = useState<ProjectReqItem[]>([])
@@ -240,6 +250,18 @@ const RequirementListPage: React.FC = () => {
     setShowForm(true)
   }
 
+  // 客户端过滤已完结/搁置
+  const filteredProjList = projList.filter((r) => {
+    if (!showCompleted && r.status === 4) return false
+    if (!showShelved && r.status === 8) return false
+    return true
+  })
+  const filteredReqList = reqList.filter((r) => {
+    if (!showCompleted && r.status === 4) return false
+    if (!showShelved && r.status === 8) return false
+    return true
+  })
+
   const handleSave = async (values: Record<string, unknown>) => {
     setReqSaving(true)
     try {
@@ -304,6 +326,10 @@ const RequirementListPage: React.FC = () => {
         : <span className="text-slate-300 text-xs">—</span>,
     },
     {
+      title: t('common.status'), dataIndex: 'status', width: 88,
+      render: (v: number) => <Tag color={REQ_STATUS_COLORS[v] ?? 'default'} style={{ fontSize: 11 }}>{REQ_STATUS_KEYS[v] ? t(REQ_STATUS_KEYS[v]) : String(v)}</Tag>,
+    },
+    {
       title: t('common.priority'), dataIndex: 'priority', width: 80,
       render: (v: number) => {
         const p = PRIORITY_MAP[v]
@@ -322,7 +348,7 @@ const RequirementListPage: React.FC = () => {
     },
     {
       title: t('common.expectedEndDate'), dataIndex: 'expected_end_date', width: 120,
-      render: (v: string) => <DaysLeftBadge date={v} />,
+      render: (v: string, r: ProjectReqItem) => [4, 8].includes(r.status) ? <span className="text-slate-300 text-xs">—</span> : <DaysLeftBadge date={v} />,
     },
     {
       title: t('common.createdAt'), dataIndex: 'created_at', width: 105,
@@ -354,6 +380,10 @@ const RequirementListPage: React.FC = () => {
       render: (v: string, r: StandaloneReq) => v
         ? <Button type="link" style={{ padding: 0, fontSize: 12 }} onClick={() => r.system_id && window.open(`/systems/${r.system_id}`, '_blank')}>{v}</Button>
         : <span className="text-slate-300 text-xs">—</span>,
+    },
+    {
+      title: t('common.status'), dataIndex: 'status', width: 88,
+      render: (v: number) => <Tag color={REQ_STATUS_COLORS[v] ?? 'default'} style={{ fontSize: 11 }}>{REQ_STATUS_KEYS[v] ? t(REQ_STATUS_KEYS[v]) : String(v)}</Tag>,
     },
     {
       title: t('common.priority'), dataIndex: 'priority', width: 72,
@@ -407,7 +437,7 @@ const RequirementListPage: React.FC = () => {
     },
     {
       title: t('common.expectedEndDate'), dataIndex: 'expected_end_date', width: 110,
-      render: (v: string) => <DaysLeftBadge date={v} />,
+      render: (v: string, r: StandaloneReq) => [4, 8].includes(r.status) ? <span className="text-slate-300 text-xs">—</span> : <DaysLeftBadge date={v} />,
     },
     {
       title: t('common.creator'), dataIndex: 'creator_nm', width: 90,
@@ -429,23 +459,24 @@ const RequirementListPage: React.FC = () => {
       ),
     },
     {
-      title: t('common.operation'), key: 'action', width: 80, fixed: 'right',
-      render: (_: unknown, r: StandaloneReq) => {
-        if (r.status !== 0) return null
-        return (
-          <Space size={0}>
-            <Tooltip title={t('common.edit')}>
-              <Button type="text" size="small" icon={<PencilSquareIcon className="w-4 h-4" />}
-                onClick={() => openEdit(r)} />
-            </Tooltip>
-            <Popconfirm title={t('common.confirmDelete')} onConfirm={() => handleDelete(r.id)} okText={t('common.delete')} cancelText={t('common.cancel')} okButtonProps={{ danger: true }}>
-              <Tooltip title={t('common.delete')}>
-                <Button type="text" size="small" danger icon={<TrashIcon className="w-4 h-4" />} />
+      title: t('common.operation'), key: 'action', width: 100, fixed: 'right',
+      render: (_: unknown, r: StandaloneReq) => (
+        <Space size={0}>
+          {r.status === 0 && (
+            <>
+              <Tooltip title={t('common.edit')}>
+                <Button type="text" size="small" icon={<PencilSquareIcon className="w-4 h-4" />}
+                  onClick={() => openEdit(r)} />
               </Tooltip>
-            </Popconfirm>
-          </Space>
-        )
-      },
+              <Popconfirm title={t('common.confirmDelete')} onConfirm={() => handleDelete(r.id)} okText={t('common.delete')} cancelText={t('common.cancel')} okButtonProps={{ danger: true }}>
+                <Tooltip title={t('common.delete')}>
+                  <Button type="text" size="small" danger icon={<TrashIcon className="w-4 h-4" />} />
+                </Tooltip>
+              </Popconfirm>
+            </>
+          )}
+        </Space>
+      ),
     },
   ]
 
@@ -533,7 +564,9 @@ const RequirementListPage: React.FC = () => {
                     onChange={(v) => { setReqPriority(v); loadSysReqs(1, reqPageSize, reqKeyword, reqStatus, v) }}
                     options={[{ value: 1, label: t('requirement.priorityLow') }, { value: 2, label: t('requirement.priorityMedium') }, { value: 3, label: t('requirement.priorityHigh') }, { value: 4, label: t('requirement.priorityUrgent') }]}
                   />
-                  <div className="ml-auto">
+                  <div className="ml-auto flex items-center gap-4 text-sm text-slate-500">
+                    <label className="flex items-center gap-2 cursor-pointer"><Switch size="small" checked={showShelved} onChange={setShowShelved} />{t('requirement.showShelved')}</label>
+                    <label className="flex items-center gap-2 cursor-pointer"><Switch size="small" checked={showCompleted} onChange={setShowCompleted} />{t('requirement.showCompleted')}</label>
                     <Button
                       type="primary"
                       icon={<PlusIcon className="w-4 h-4" />}
@@ -547,7 +580,7 @@ const RequirementListPage: React.FC = () => {
                 <Table<StandaloneReq>
                   rowKey="id"
                   loading={reqLoading}
-                  dataSource={reqList}
+                  dataSource={filteredReqList}
                   columns={sysColumns}
                   size="small"
                   pagination={{
@@ -579,11 +612,15 @@ const RequirementListPage: React.FC = () => {
                     onChange={(v) => { setProjPriority(v); loadProjReqs(1, projPageSize, projKeyword, projStatus, v) }}
                     options={[{ value: 1, label: t('requirement.priorityLow') }, { value: 2, label: t('requirement.priorityMedium') }, { value: 3, label: t('requirement.priorityHigh') }, { value: 4, label: t('requirement.priorityUrgent') }]}
                   />
+                  <div className="ml-auto flex items-center gap-4 text-sm text-slate-500">
+                    <label className="flex items-center gap-2 cursor-pointer"><Switch size="small" checked={showShelved} onChange={setShowShelved} />{t('requirement.showShelved')}</label>
+                    <label className="flex items-center gap-2 cursor-pointer"><Switch size="small" checked={showCompleted} onChange={setShowCompleted} />{t('requirement.showCompleted')}</label>
+                  </div>
                 </div>
                 <Table<ProjectReqItem>
                   rowKey="id"
                   loading={projLoading}
-                  dataSource={projList}
+                  dataSource={filteredProjList}
                   columns={projColumns}
                   size="small"
                   pagination={{

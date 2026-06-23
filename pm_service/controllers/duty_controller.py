@@ -27,9 +27,9 @@ class DutyController:
         else:
             avg = round(sum(int(d.progress or 0) for d in duties) / len(duties))
             req.progress = avg
-            # 只有已通过(2)或已完结(4)的需求才自动切换状态
-            if req.req_status in (2, 4):
-                req.req_status = 4 if avg >= 100 else 2
+            # 已完结(4)的需求如果进度不再100%，恢复为进行中(2)
+            if req.req_status == 4 and avg < 100:
+                req.req_status = 2
             # 同步预计完成时间：取所有任务中最晚的 expected_end_date
             end_dates = [
                 d.latest_expected_end_date or d.expected_end_date
@@ -733,7 +733,7 @@ class DutyController:
         if d.duty_status not in (1, 6):
             raise BusinessException("只有進行中或未開始的任務才能更新進度")
         responsible = json.loads(d.responsible) if d.responsible else []
-        if submitter not in responsible:
+        if submitter.lower() not in [w.lower() for w in responsible]:
             raise PermissionException("只有負責人可以更新進度")
         # 未開始 → 進行中（首次更新進度自動啟動）
         if d.duty_status == 6:

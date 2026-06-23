@@ -417,6 +417,11 @@ class DailyLogController:
             if not func:
                 raise ResourceNotFoundException(msg="任务不存在")
             func.progress = progress
+            # 待开始(1) → 进行中(2)
+            if func.function_status == 1:
+                func.function_status = 2
+                if not func.start_time:
+                    func.start_time = _now()[:10]
             db.session.commit()
             # 同步需求进度
             if func.requirement_id:
@@ -428,6 +433,9 @@ class DailyLogController:
             if not duty:
                 raise ResourceNotFoundException(msg="AR不存在")
             duty.progress = progress
+            # 未开始(6)/草稿(0) → 进行中(1)
+            if duty.duty_status in (0, 6):
+                duty.duty_status = 1
             db.session.commit()
             # 同步需求进度
             if duty.standalone_req_id:

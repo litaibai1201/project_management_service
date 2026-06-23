@@ -3,6 +3,7 @@
 import json
 import os
 
+from dbs.mysql_db import db
 from tables.standalone_req_table import StandaloneReqModel
 from tables.review_table import ReviewApplyModel
 from configs.base import BaseConfig
@@ -46,12 +47,43 @@ class StandaloneReqController:
         sys_ids = {r.system_id for r in items if r.system_id}
         sys_map = _dao.system_name_map(sys_ids)
 
+        # 动态计算需求进度和预计完成时间
+        from collections import defaultdict
+        from dbs.mysql_db.model_tables import TemporaryDutyModel
+        req_ids = [r.id for r in items]
+        if req_ids:
+            duties = db.session.query(
+                TemporaryDutyModel.standalone_req_id,
+                TemporaryDutyModel.progress,
+                TemporaryDutyModel.expected_end_date,
+                TemporaryDutyModel.latest_expected_end_date,
+            ).filter(
+                TemporaryDutyModel.standalone_req_id.in_(req_ids),
+                TemporaryDutyModel.duty_status != 9,
+            ).all()
+            prog_map: dict = defaultdict(list)
+            date_map: dict = defaultdict(list)
+            for d_req_id, d_prog, d_end, d_latest in duties:
+                prog_map[d_req_id].append(int(d_prog or 0))
+                eff = d_latest or d_end
+                if eff:
+                    date_map[d_req_id].append(eff)
+        else:
+            prog_map = {}
+            date_map = {}
+
         data = []
         for r in items:
             d = r.to_dict()
             d["creator_nm"]  = name_map.get((r.creator or "").lower(), r.creator or "")
             d["reviewer_nm"] = name_map.get((r.reviewer or "").lower(), r.reviewer or "") if r.reviewer else ""
             d["system_nm"]   = sys_map.get(r.system_id, "")
+            progs = prog_map.get(r.id)
+            if progs:
+                d["progress"] = round(sum(progs) / len(progs))
+            dates = date_map.get(r.id)
+            if dates:
+                d["expected_end_date"] = max(dates)
             data.append(d)
 
         return {"data_list": data, "total_count": total, "page": page, "size": size}

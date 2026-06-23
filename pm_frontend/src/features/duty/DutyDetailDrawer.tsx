@@ -455,6 +455,13 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
                   {t('duty.detail.resumeInProgress')}
                 </Button>
               )}
+              {/* 提交完結：進行中 + 進度100% + 負責人或建立人 */}
+              {duty.status === 1 && (duty.progress ?? 0) >= 100 && canReqHold && (
+                <Button size="small" type="primary" style={{ background: '#16a34a' }}
+                  onClick={() => openSubmitModal()}>
+                  {t('duty.detail.submitCompletion')}
+                </Button>
+              )}
               {/* 更新進度 */}
               {(duty.status === 1 || duty.status === 6) && isResponsible && (
                 <Button type="primary" icon={<PlusIcon className="w-4 h-4" />} size="small"

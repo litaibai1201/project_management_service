@@ -1530,6 +1530,14 @@ const ProjectDetailPage: React.FC = () => {
                       render: (name: string) => <span className="font-medium text-slate-800">{name}</span>,
                     },
                     {
+                      title: t('common.status'), dataIndex: 'status', width: 80,
+                      render: (v: number) => {
+                        const map: Record<number, [string, string]> = { 0: [t('projectDetail.reqStatus.draft'), 'default'], 1: [t('projectDetail.reqStatus.reviewing'), 'processing'], 2: [t('projectDetail.reqStatus.inProgress'), 'blue'], 3: [t('projectDetail.reqStatus.rejected'), 'error'], 4: [t('projectDetail.reqStatus.completed'), 'success'], 8: [t('projectDetail.reqStatus.shelved'), 'warning'] }
+                        const [label, color] = map[v] ?? [String(v), 'default']
+                        return <Tag color={color} style={{ fontSize: 11 }}>{label}</Tag>
+                      },
+                    },
+                    {
                       title: t('common.progress'), dataIndex: 'progress', width: 140,
                       render: (v: number) => (
                         <div className="flex items-center gap-2">
@@ -1610,6 +1618,20 @@ const ProjectDetailPage: React.FC = () => {
                                   <Button size="small" danger icon={<TrashIcon className="w-3.5 h-3.5" />}
                                     onClick={(e) => e.stopPropagation()} />
                                 </Tooltip>
+                              </Popconfirm>
+                            )}
+                            {req.status === 2 && (req.progress ?? 0) >= 100 && (
+                              <Popconfirm title={t('requirement.confirmComplete')} onConfirm={async () => {
+                                try {
+                                  await requirementApi.update(id!, req.id, { status: 4 } as any)
+                                  showToast.success(t('requirement.completeSuccess'))
+                                  if (id) loadRequirements(id)
+                                } catch { showToast.error(t('common.error')) }
+                              }} okText={t('common.confirm')} cancelText={t('common.cancel')} onPopupClick={(e) => e.stopPropagation()}>
+                                <Button size="small" type="primary" style={{ background: '#16a34a', fontSize: 11 }}
+                                  onClick={(e) => e.stopPropagation()}>
+                                  {t('requirement.complete')}
+                                </Button>
                               </Popconfirm>
                             )}
                           </Space>

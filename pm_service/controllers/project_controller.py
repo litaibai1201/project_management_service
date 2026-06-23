@@ -1105,6 +1105,11 @@ class ProjectController:
                     req.req_status = 0
                 req.updated_at = now
             db.session.commit()
+            # 系统需求审批通过后：强制重置进度为0并同步（stage tasks 刚创建，进度一定是0）
+            if req and final_status == 2:
+                req.progress = 0
+                req.req_status = 2
+                db.session.commit()
 
             sys_obj = db.session.query(SystemModel).filter_by(id=r.system_id).first() if r.system_id else None
             sys_nm = sys_obj.sys_nm if sys_obj else ""
@@ -1167,6 +1172,12 @@ class ProjectController:
                         req.req_status = 0
                     req.updated_at = now
             db.session.commit()
+            # 系统需求批量审批通过后：强制重置进度为0（stage tasks 刚创建）
+            if final_status == 2:
+                for req in reqs:
+                    req.progress = 0
+                    req.req_status = 2
+                db.session.commit()
 
             sys_obj = db.session.query(SystemModel).filter_by(id=r.system_id).first() if r.system_id else None
             sys_nm = sys_obj.sys_nm if sys_obj else ""

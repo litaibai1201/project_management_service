@@ -31,6 +31,7 @@ class UpdateReqSchema(BaseSchema):
     req_nm = fields.Str()
     describe = fields.Str()
     priority = fields.Int()
+    status = fields.Int()
     responsible = fields.List(fields.Str())
     expected_start_date = fields.Str()
     expected_end_date = fields.Str()
