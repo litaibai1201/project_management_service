@@ -604,7 +604,7 @@ const groupedByReq = useMemo(() => {
     {
       title: t('common.status'), dataIndex: 'status', width: 80,
       render: (v: number) => {
-        const map: Record<number, [string, string]> = { 0: [t('system.reqStatus.draft'), 'default'], 1: [t('system.reqStatus.reviewing'), 'processing'], 2: [t('system.reqStatus.inProgress'), 'blue'], 3: [t('system.reqStatus.rejected'), 'error'], 4: [t('system.reqStatus.completed'), 'success'], 8: [t('system.reqStatus.onHold'), 'warning'] }
+        const map: Record<number, [string, string]> = { 0: [t('system.reqStatus.draft'), 'default'], 1: [t('system.reqStatus.reviewing'), 'processing'], 2: [t('system.reqStatus.inProgress'), 'success'], 3: [t('system.reqStatus.rejected'), 'error'], 4: [t('system.reqStatus.completed'), 'processing'], 8: [t('system.reqStatus.onHold'), 'warning'] }
         const [label, color] = map[v] ?? [String(v), 'default']
         return <Tag color={color} style={{ fontSize: 11 }}>{label}</Tag>
       },
@@ -618,10 +618,10 @@ const groupedByReq = useMemo(() => {
     },
     {
       title: t('system.progress'), dataIndex: 'progress', width: 140,
-      render: (v: number) => (
+      render: (v: number, r: StandaloneReq) => (
         <div className="flex items-center gap-2">
           <Progress percent={v ?? 0} size="small" showInfo={false} style={{ flex: 1 }}
-            strokeColor={(v ?? 0) >= 100 ? '#16a34a' : '#2563eb'} trailColor="#f1f5f9" />
+            strokeColor={r.status === 4 ? '#2563eb' : '#16a34a'} trailColor="#f1f5f9" />
           <span className="text-xs text-slate-400">{v ?? 0}%</span>
         </div>
       ),
@@ -757,9 +757,9 @@ const groupedByReq = useMemo(() => {
     },
     {
       title: t('system.progress'), dataIndex: 'progress', width: 140,
-      render: (v: number) => (
+      render: (v: number, r: TemporaryDuty) => (
         <div className="flex items-center gap-2">
-          <Progress percent={v ?? 0} size="small" strokeColor="#2563eb" trailColor="#f1f5f9" showInfo={false}
+          <Progress percent={v ?? 0} size="small" strokeColor={r.status === 3 ? '#2563eb' : '#16a34a'} trailColor="#f1f5f9" showInfo={false}
             style={{ marginBottom: 0, flex: 1 }} />
           <span className="text-xs text-slate-400">{v ?? 0}%</span>
         </div>
@@ -1205,7 +1205,7 @@ const groupedByReq = useMemo(() => {
                                 <span className="text-xs text-slate-400">{t('system.expectedEnd')} {g.expectedEndDate}</span>
                               )}
                               <Progress percent={g.avgProgress} size="small" showInfo={false}
-                                style={{ width: 80 }} strokeColor="#7c3aed" trailColor="#e2e8f0" />
+                                style={{ width: 80 }} strokeColor="#16a34a" trailColor="#e2e8f0" />
                               <span className="text-xs text-slate-400">{g.avgProgress}%</span>
                               {g.overdueCount > 0 && (
                                 <Tag color="error" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>{t('system.overdue')} {g.overdueCount}</Tag>

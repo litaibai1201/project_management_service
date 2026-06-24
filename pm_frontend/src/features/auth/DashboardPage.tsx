@@ -37,7 +37,7 @@ import { useTranslation } from 'react-i18next'
 
 // ─── Types for dashboard data ─────────────────────────────────────────────────
 type MonthLogEntry = { hours: number; ot: number; status: 'confirmed' | 'submitted' | 'draft' }
-interface ReqStats { total: number; in_progress: number; completed: number; pending: number }
+interface ReqStats { total: number; draft: number; reviewing: number; in_progress: number; completed: number; suspended: number }
 interface MemberWorkStat {
   work_no: string; name: string; total_hours: number
   completed_tasks: number; in_progress_tasks: number; overdue_tasks: number
@@ -860,12 +860,14 @@ const DashboardPage: React.FC = () => {
       standaloneReqApi.list({ page: 1, size: 2000 })
         .then((res) => {
           const list = (res.content as any).data_list ?? []
-          const active = list.filter((r: any) => r.status !== 9)
+          const active = list.filter((r: any) => r.status !== 0 && r.status !== 9)
           setReqStats({
             total:       active.length,
+            draft:       0,
+            reviewing:   active.filter((r: any) => r.status === 1 || r.status === 5).length,
             in_progress: active.filter((r: any) => r.status === 2).length,
             completed:   active.filter((r: any) => r.status === 4).length,
-            pending:     active.filter((r: any) => r.status === 1 || r.status === 5).length,
+            suspended:   active.filter((r: any) => r.status === 8).length,
           })
         })
         .catch(() => {})
@@ -1026,9 +1028,11 @@ const DashboardPage: React.FC = () => {
                   <span className="text-sm font-semibold text-slate-600">{t('dashboard.teamProjectCard')}</span>
                 </div>
                 <div className="flex divide-x divide-slate-100">
-                  <div className="flex-1 text-center pr-3"><div className="text-2xl font-bold text-slate-700">{teamStat?.team_project.total ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">{t('dashboard.totalCount')}</div></div>
-                  <div className="flex-1 text-center px-3"><div className="text-2xl font-bold text-blue-600">{teamStat?.team_project.in_progress ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">{t('dashboard.inProgress')}</div></div>
-                  <div className="flex-1 text-center pl-3"><div className="text-2xl font-bold text-green-600">{teamStat?.team_project.completed ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">{t('dashboard.completedCount')}</div></div>
+                  <div className="flex-1 text-center pr-1"><div className="text-2xl font-bold text-slate-700">{teamStat?.team_project.total ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">{t('dashboard.totalCount')}</div></div>
+                  <div className="flex-1 text-center px-1"><div className="text-2xl font-bold text-purple-600">{teamStat?.team_project.planning ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">{t('dashboard.planningLabel')}</div></div>
+                  <div className="flex-1 text-center px-1"><div className="text-2xl font-bold text-green-600">{teamStat?.team_project.in_progress ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">{t('dashboard.inProgress')}</div></div>
+                  <div className="flex-1 text-center px-1"><div className="text-2xl font-bold text-blue-600">{teamStat?.team_project.completed ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">{t('dashboard.completedCount')}</div></div>
+                  <div className="flex-1 text-center pl-1"><div className={`text-2xl font-bold ${(teamStat?.team_project.suspended ?? 0) > 0 ? 'text-orange-400' : 'text-slate-400'}`}>{teamStat?.team_project.suspended ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">{t('dashboard.suspendedLabel')}</div></div>
                 </div>
               </Card>
             )
@@ -1040,11 +1044,14 @@ const DashboardPage: React.FC = () => {
                   <span className="text-sm font-semibold text-slate-600">{t('dashboard.teamTaskCard')}</span>
                 </div>
                 <div className="flex divide-x divide-slate-100">
-                  <div className="flex-1 text-center pr-2"><div className="text-xl font-bold text-slate-700">{teamStat?.team_task.total ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">{t('dashboard.totalCount')}</div></div>
-                  <div className="flex-1 text-center px-2"><div className="text-xl font-bold text-blue-600">{teamStat?.team_task.in_progress ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">{t('dashboard.inProgress')}</div></div>
-                  <div className="flex-1 text-center px-2"><div className={`text-xl font-bold ${(teamStat?.team_task.overdue ?? 0) > 0 ? 'text-red-500' : 'text-slate-400'}`}>{teamStat?.team_task.overdue ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">{t('dashboard.overdueTimeLabel')}</div></div>
-                  <div className="flex-1 text-center px-2"><div className={`text-xl font-bold ${(teamStat?.team_task.urgent ?? 0) > 0 ? 'text-orange-500' : 'text-slate-400'}`}>{teamStat?.team_task.urgent ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">{t('dashboard.urgentTimeLabel')}</div></div>
-                  <div className="flex-1 text-center pl-2"><div className="text-xl font-bold text-slate-500">{teamStat?.team_task.not_started ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">{t('dashboard.notStarted')}</div></div>
+                  <div className="flex-1 text-center pr-1"><div className="text-xl font-bold text-slate-700">{teamStat?.team_task.total ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">{t('dashboard.totalCount')}</div></div>
+                  <div className="flex-1 text-center px-1"><div className="text-xl font-bold text-slate-500">{teamStat?.team_task.not_started ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">{t('dashboard.notStarted')}</div></div>
+                  <div className="flex-1 text-center px-1">
+                    <div className="text-xl font-bold text-green-600">{teamStat?.team_task.in_progress ?? 0}<span className="text-red-500 text-sm">({teamStat?.team_task.overdue ?? 0})</span></div>
+                    <div className="text-xs mt-0.5"><span className="text-slate-400">{t('dashboard.inProgress')}</span><span className="text-red-500">({t('dashboard.overdue')})</span></div>
+                  </div>
+                  <div className="flex-1 text-center px-1"><div className="text-xl font-bold text-blue-600">{teamStat?.team_task.completed ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">{t('dashboard.completedCount')}</div></div>
+                  <div className="flex-1 text-center pl-1"><div className={`text-xl font-bold ${(teamStat?.team_task.suspended ?? 0) > 0 ? 'text-orange-400' : 'text-slate-400'}`}>{teamStat?.team_task.suspended ?? 0}</div><div className="text-xs text-slate-400 mt-0.5">{t('dashboard.suspendedLabel')}</div></div>
                 </div>
               </Card>
             )
@@ -1079,21 +1086,25 @@ const DashboardPage: React.FC = () => {
                   <span className="text-sm font-semibold text-slate-600">{t('dashboard.reqOverviewCard')}</span>
                 </div>
                 <div className="flex divide-x divide-slate-100">
-                  <div className="flex-1 text-center pr-2">
+                  <div className="flex-1 text-center pr-1">
                     <div className="text-2xl font-bold text-slate-700">{reqStats?.total ?? 0}</div>
                     <div className="text-xs text-slate-400 mt-0.5">{t('dashboard.totalCount')}</div>
                   </div>
-                  <div className="flex-1 text-center px-2">
-                    <div className="text-2xl font-bold text-blue-600">{reqStats?.in_progress ?? 0}</div>
+                  <div className="flex-1 text-center px-1">
+                    <div className={`text-2xl font-bold ${(reqStats?.reviewing ?? 0) > 0 ? 'text-orange-500' : 'text-slate-400'}`}>{reqStats?.reviewing ?? 0}</div>
+                    <div className="text-xs text-slate-400 mt-0.5">{t('dashboard.reviewingCount')}</div>
+                  </div>
+                  <div className="flex-1 text-center px-1">
+                    <div className="text-2xl font-bold text-green-600">{reqStats?.in_progress ?? 0}</div>
                     <div className="text-xs text-slate-400 mt-0.5">{t('dashboard.inProgress')}</div>
                   </div>
-                  <div className="flex-1 text-center px-2">
-                    <div className="text-2xl font-bold text-green-600">{reqStats?.completed ?? 0}</div>
+                  <div className="flex-1 text-center px-1">
+                    <div className="text-2xl font-bold text-blue-600">{reqStats?.completed ?? 0}</div>
                     <div className="text-xs text-slate-400 mt-0.5">{t('dashboard.completedCount')}</div>
                   </div>
-                  <div className="flex-1 text-center pl-2">
-                    <div className={`text-2xl font-bold ${(reqStats?.pending ?? 0) > 0 ? 'text-orange-500' : 'text-slate-400'}`}>{reqStats?.pending ?? 0}</div>
-                    <div className="text-xs text-slate-400 mt-0.5">{t('dashboard.reviewingCount')}</div>
+                  <div className="flex-1 text-center pl-1">
+                    <div className={`text-2xl font-bold ${(reqStats?.suspended ?? 0) > 0 ? 'text-orange-400' : 'text-slate-400'}`}>{reqStats?.suspended ?? 0}</div>
+                    <div className="text-xs text-slate-400 mt-0.5">{t('dashboard.suspendedLabel')}</div>
                   </div>
                 </div>
               </Card>
@@ -1106,23 +1117,23 @@ const DashboardPage: React.FC = () => {
                   <span className="text-sm font-semibold text-slate-600">{t('dashboard.arTaskCard')}</span>
                 </div>
                 <div className="flex divide-x divide-slate-100">
-                  <div className="flex-1 text-center pr-2">
+                  <div className="flex-1 text-center pr-1">
                     <div className="text-xl font-bold text-slate-700">{teamStat?.team_ar_task?.total ?? 0}</div>
                     <div className="text-xs text-slate-400 mt-0.5">{t('dashboard.totalCount')}</div>
                   </div>
-                  <div className="flex-1 text-center px-2">
-                    <div className="text-xl font-bold text-blue-600">{teamStat?.team_ar_task?.in_progress ?? 0}</div>
-                    <div className="text-xs text-slate-400 mt-0.5">{t('dashboard.inProgress')}</div>
+                  <div className="flex-1 text-center px-1">
+                    <div className="text-xl font-bold text-slate-500">{teamStat?.team_ar_task?.not_started ?? 0}</div>
+                    <div className="text-xs text-slate-400 mt-0.5">{t('dashboard.notStarted')}</div>
                   </div>
-                  <div className="flex-1 text-center px-2">
-                    <div className="text-xl font-bold text-green-600">{teamStat?.team_ar_task?.completed ?? 0}</div>
+                  <div className="flex-1 text-center px-1">
+                    <div className="text-xl font-bold text-green-600">{teamStat?.team_ar_task?.in_progress ?? 0}<span className="text-red-500 text-sm">({teamStat?.team_ar_task?.overdue ?? 0})</span></div>
+                    <div className="text-xs mt-0.5"><span className="text-slate-400">{t('dashboard.inProgress')}</span><span className="text-red-500">({t('dashboard.overdue')})</span></div>
+                  </div>
+                  <div className="flex-1 text-center px-1">
+                    <div className="text-xl font-bold text-blue-600">{teamStat?.team_ar_task?.completed ?? 0}</div>
                     <div className="text-xs text-slate-400 mt-0.5">{t('dashboard.completedCount')}</div>
                   </div>
-                  <div className="flex-1 text-center px-2">
-                    <div className={`text-xl font-bold ${(teamStat?.team_ar_task?.overdue ?? 0) > 0 ? 'text-red-500' : 'text-slate-400'}`}>{teamStat?.team_ar_task?.overdue ?? 0}</div>
-                    <div className="text-xs text-slate-400 mt-0.5">{t('dashboard.overdueColumn')}</div>
-                  </div>
-                  <div className="flex-1 text-center pl-2">
+                  <div className="flex-1 text-center pl-1">
                     <div className={`text-xl font-bold ${(teamStat?.team_ar_task?.suspended ?? 0) > 0 ? 'text-orange-400' : 'text-slate-400'}`}>{teamStat?.team_ar_task?.suspended ?? 0}</div>
                     <div className="text-xs text-slate-400 mt-0.5">{t('dashboard.suspendedLabel')}</div>
                   </div>
@@ -1242,12 +1253,10 @@ const DashboardPage: React.FC = () => {
             case 'team_task_pie': return !isManager ? null : (() => {
               const taskData = teamStat?.team_task
               const data = [
-                { name: t('dashboard.inProgress'),    value: taskData?.in_progress ?? 0, color: '#2563eb' },
-                { name: t('dashboard.notStarted'),    value: taskData?.not_started ?? 0, color: '#94a3b8' },
+                { name: t('dashboard.inProgress'),     value: taskData?.in_progress ?? 0, color: '#2563eb' },
+                { name: t('dashboard.notStarted'),     value: taskData?.not_started ?? 0, color: '#94a3b8' },
                 { name: t('dashboard.completedLabel'), value: taskData?.completed   ?? 0, color: '#16a34a' },
-                { name: t('dashboard.overdueTimeLabel'), value: taskData?.overdue   ?? 0, color: '#dc2626' },
-                { name: t('dashboard.urgentTimeLabel'), value: taskData?.urgent     ?? 0, color: '#f59e0b' },
-                { name: t('dashboard.draftLabel'),    value: (taskData as any)?.draft ?? 0, color: '#d1d5db' },
+                { name: t('dashboard.suspendedLabel'), value: taskData?.suspended   ?? 0, color: '#f59e0b' },
               ].filter((d) => d.value > 0)
               return (
                 <Card className="h-full" style={{ display: 'flex', flexDirection: 'column' }}

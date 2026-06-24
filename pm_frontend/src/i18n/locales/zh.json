@@ -1766,7 +1766,9 @@
     "suspendedLabel": "擱置",
     "totalCount": "總計",
     "completedCount": "已完結",
+    "otherStatus": "其他",
     "reviewingCount": "審核中",
+    "overdueCount": "超時{{count}}",
     "taskDistributionTitle": "任務狀態占比",
     "projectStatusDistTitle": "專案狀態分佈",
     "projectRankingTitle": "專案進度排行（進行中）",
@@ -1806,7 +1808,8 @@
     "normalStatus": "正常",
     "approvalTag": "審批",
     "applicationLabel": "申請",
-    "draftLabel": "草稿"
+    "draftLabel": "草稿",
+    "planningLabel": "規劃中"
   },
   "search": {
     "placeholder": "搜索專案、任務...",

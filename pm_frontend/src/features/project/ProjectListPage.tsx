@@ -66,7 +66,7 @@ const KANBAN_STATUSES = [
   { status: 11, color: '#2563eb' },
   { status: 5,  color: '#16a34a' },
   { status: 6,  color: '#d97706' },
-  { status: 7,  color: '#64748b' },
+  { status: 7,  color: '#2563eb' },
 ]
 
 const KanbanView: React.FC<{
@@ -227,9 +227,9 @@ const ProjectListPage: React.FC = () => {
     },
     {
       title: t('common.progress'), dataIndex: 'progress', width: 130,
-      render: (v: number) => (
+      render: (v: number, row: ProjectListItem) => (
         <div className="flex items-center gap-2">
-          <Progress percent={v ?? 0} size="small" showInfo={false} style={{ flex: 1 }} strokeColor="#2563eb" trailColor="#f1f5f9" />
+          <Progress percent={v ?? 0} size="small" showInfo={false} style={{ flex: 1 }} strokeColor={row.status === 7 ? '#2563eb' : '#16a34a'} trailColor="#f1f5f9" />
           <span className="text-xs text-slate-400 w-7 text-right">{v ?? 0}%</span>
         </div>
       ),

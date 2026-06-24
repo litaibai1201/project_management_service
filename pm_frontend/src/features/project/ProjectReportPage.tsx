@@ -91,9 +91,9 @@ const ProjectProgressTab: React.FC<{ data: ProjectReportStat[] }> = ({ data }) =
     { title: t('projectReport.notStarted'), dataIndex: 'not_started', width: 80, align: 'center',
       render: (v: number) => <span className="text-blue-400">{v}</span> },
     { title: t('projectReport.inProgress'), dataIndex: 'in_progress', width: 80, align: 'center',
-      render: (v: number) => <span className={v > 0 ? 'text-orange-500 font-medium' : 'text-slate-400'}>{v}</span> },
-    { title: t('projectReport.completed'), dataIndex: 'completed', width: 80, align: 'center',
       render: (v: number) => <span className={v > 0 ? 'text-green-600 font-medium' : 'text-slate-400'}>{v}</span> },
+    { title: t('projectReport.completed'), dataIndex: 'completed', width: 80, align: 'center',
+      render: (v: number) => <span className={v > 0 ? 'text-blue-600 font-medium' : 'text-slate-400'}>{v}</span> },
     { title: t('projectReport.shelved'), dataIndex: 'shelved', width: 80, align: 'center',
       render: (v: number) => <span className={v > 0 ? 'text-yellow-500 font-medium' : 'text-slate-400'}>{v}</span> },
     { title: t('projectReport.completionRate'), dataIndex: 'completion_rate', width: 280, align: 'center',
@@ -113,8 +113,8 @@ const ProjectProgressTab: React.FC<{ data: ProjectReportStat[] }> = ({ data }) =
         <StatCard label={t('projectReport.totalTasks')} value={summary.total} />
         <StatCard label={t('projectReport.draft')} value={summary.draft} />
         <StatCard label={t('projectReport.notStarted')} value={summary.not_started} />
-        <StatCard label={t('projectReport.inProgress')} value={summary.in_progress} color="#f59e0b" />
-        <StatCard label={t('projectReport.completed')} value={summary.completed} color="#16a34a" />
+        <StatCard label={t('projectReport.inProgress')} value={summary.in_progress} color="#16a34a" />
+        <StatCard label={t('projectReport.completed')} value={summary.completed} color="#2563eb" />
         <StatCard label={t('projectReport.shelved')} value={summary.shelved} color={summary.shelved > 0 ? '#eab308' : undefined} />
         <div className="flex-1 flex items-center justify-end gap-4 pr-6">
           <GaugeChart rate={rate} label={t('projectReport.completionRate')} color="#16a34a" />
@@ -161,7 +161,7 @@ const ProjectOverdueTab: React.FC<{ data: ProjectReportStat[] }> = ({ data }) =>
     { title: t('projectReport.notStarted'), dataIndex: 'not_started', width: 90, align: 'center',
       render: (v: number) => <span className="text-blue-400">{v}</span> },
     { title: t('projectReport.inProgress'), dataIndex: 'in_progress', width: 90, align: 'center',
-      render: (v: number) => <span className={v > 0 ? 'text-orange-500 font-medium' : 'text-slate-400'}>{v}</span> },
+      render: (v: number) => <span className={v > 0 ? 'text-green-600 font-medium' : 'text-slate-400'}>{v}</span> },
     { title: t('projectReport.overdueIncomplete'), dataIndex: 'overdue_incomplete', width: 110, align: 'center',
       render: (v: number) => <span className={v > 0 ? 'text-red-500 font-semibold' : 'text-slate-400'}>{v}</span> },
     { title: t('projectReport.overdueComplete'), dataIndex: 'overdue_complete', width: 110, align: 'center',
@@ -182,7 +182,7 @@ const ProjectOverdueTab: React.FC<{ data: ProjectReportStat[] }> = ({ data }) =>
         <StatCard label={t('projectReport.project')} value={summary.projects} />
         <StatCard label={t('projectReport.pendingTasks')} value={summary.pending} />
         <StatCard label={t('projectReport.notStarted')} value={summary.not_started} />
-        <StatCard label={t('projectReport.inProgress')} value={summary.in_progress} color="#f59e0b" />
+        <StatCard label={t('projectReport.inProgress')} value={summary.in_progress} color="#16a34a" />
         <StatCard label={t('projectReport.overdueIncomplete')} value={summary.overdue_incomplete} color={summary.overdue_incomplete > 0 ? '#ef4444' : undefined} />
         <div className="flex-1 flex items-center justify-end gap-4 pr-6">
           <GaugeChart rate={overdueRate} label={t('projectReport.overdueRate')} color="#ef4444" />
@@ -234,9 +234,9 @@ const MemberProgressTab: React.FC<{ data: MemberReportStat[] }> = ({ data }) => 
     { title: t('projectReport.notStarted'), dataIndex: 'not_started', width: 80, align: 'center',
       render: (v: number) => <span className="text-blue-400">{v}</span> },
     { title: t('projectReport.inProgress'), dataIndex: 'in_progress', width: 80, align: 'center',
-      render: (v: number) => <span className={v > 0 ? 'text-orange-500 font-medium' : 'text-slate-400'}>{v}</span> },
-    { title: t('projectReport.completed'), dataIndex: 'completed', width: 80, align: 'center',
       render: (v: number) => <span className={v > 0 ? 'text-green-600 font-medium' : 'text-slate-400'}>{v}</span> },
+    { title: t('projectReport.completed'), dataIndex: 'completed', width: 80, align: 'center',
+      render: (v: number) => <span className={v > 0 ? 'text-blue-600 font-medium' : 'text-slate-400'}>{v}</span> },
     { title: t('projectReport.shelved'), dataIndex: 'shelved', width: 80, align: 'center',
       render: (v: number) => <span className={v > 0 ? 'text-yellow-500 font-medium' : 'text-slate-400'}>{v}</span> },
     { title: t('projectReport.completionRate'), dataIndex: 'completion_rate', width: 280, align: 'center',
@@ -256,8 +256,8 @@ const MemberProgressTab: React.FC<{ data: MemberReportStat[] }> = ({ data }) => 
         <StatCard label={t('projectReport.totalTasks')} value={summary.total} />
         <StatCard label={t('projectReport.draft')} value={summary.draft} />
         <StatCard label={t('projectReport.notStarted')} value={summary.not_started} />
-        <StatCard label={t('projectReport.inProgress')} value={summary.in_progress} color="#f59e0b" />
-        <StatCard label={t('projectReport.completed')} value={summary.completed} color="#16a34a" />
+        <StatCard label={t('projectReport.inProgress')} value={summary.in_progress} color="#16a34a" />
+        <StatCard label={t('projectReport.completed')} value={summary.completed} color="#2563eb" />
         <StatCard label={t('projectReport.shelved')} value={summary.shelved} color={summary.shelved > 0 ? '#eab308' : undefined} />
         <div className="flex-1 flex items-center justify-end gap-4 pr-6">
           <GaugeChart rate={rate} label={t('projectReport.completionRate')} color="#16a34a" />
@@ -308,7 +308,7 @@ const MemberOverdueTab: React.FC<{ data: MemberReportStat[] }> = ({ data }) => {
     { title: t('projectReport.notStarted'), dataIndex: 'not_started', width: 90, align: 'center',
       render: (v: number) => <span className="text-blue-400">{v}</span> },
     { title: t('projectReport.inProgress'), dataIndex: 'in_progress', width: 90, align: 'center',
-      render: (v: number) => <span className={v > 0 ? 'text-orange-500 font-medium' : 'text-slate-400'}>{v}</span> },
+      render: (v: number) => <span className={v > 0 ? 'text-green-600 font-medium' : 'text-slate-400'}>{v}</span> },
     { title: t('projectReport.overdueIncomplete'), dataIndex: 'overdue_incomplete', width: 110, align: 'center',
       render: (v: number) => <span className={v > 0 ? 'text-red-500 font-semibold' : 'text-slate-400'}>{v}</span> },
     { title: t('projectReport.overdueComplete'), dataIndex: 'overdue_complete', width: 110, align: 'center',
@@ -329,7 +329,7 @@ const MemberOverdueTab: React.FC<{ data: MemberReportStat[] }> = ({ data }) => {
         <StatCard label={t('projectReport.member')} value={summary.members} />
         <StatCard label={t('projectReport.pendingTasks')} value={summary.pending} />
         <StatCard label={t('projectReport.notStarted')} value={summary.not_started} />
-        <StatCard label={t('projectReport.inProgress')} value={summary.in_progress} color="#f59e0b" />
+        <StatCard label={t('projectReport.inProgress')} value={summary.in_progress} color="#16a34a" />
         <StatCard label={t('projectReport.overdueIncomplete')} value={summary.overdue_incomplete} color={summary.overdue_incomplete > 0 ? '#ef4444' : undefined} />
         <div className="flex-1 flex items-center justify-end gap-4 pr-6">
           <GaugeChart rate={overdueRate} label={t('projectReport.overdueRate')} color="#ef4444" />
@@ -376,9 +376,9 @@ const SystemProgressTab: React.FC<{ data: SystemReportStat[] }> = ({ data }) => 
     { title: t('projectReport.draftShort'), dataIndex: 'task_draft', width: 80, align: 'center',
       render: (v: number) => <span className="text-slate-400">{v}</span> },
     { title: t('projectReport.inProgress'), dataIndex: 'task_in_progress', width: 90, align: 'center',
-      render: (v: number) => <span className={v > 0 ? 'text-orange-500 font-medium' : 'text-slate-400'}>{v}</span> },
-    { title: t('projectReport.completedAlt'), dataIndex: 'task_completed', width: 90, align: 'center',
       render: (v: number) => <span className={v > 0 ? 'text-green-600 font-medium' : 'text-slate-400'}>{v}</span> },
+    { title: t('projectReport.completedAlt'), dataIndex: 'task_completed', width: 90, align: 'center',
+      render: (v: number) => <span className={v > 0 ? 'text-blue-600 font-medium' : 'text-slate-400'}>{v}</span> },
     { title: t('projectReport.shelved'), dataIndex: 'task_shelved', width: 80, align: 'center',
       render: (v: number) => <span className={v > 0 ? 'text-yellow-500' : 'text-slate-400'}>{v}</span> },
     { title: t('projectReport.completionRate'), dataIndex: 'task_completion_rate', width: 240, align: 'center',
@@ -396,10 +396,10 @@ const SystemProgressTab: React.FC<{ data: SystemReportStat[] }> = ({ data }) => 
       <div className="bg-white border border-slate-100 rounded-xl mb-4 flex items-center">
         <StatCard label={t('projectReport.system')} value={summary.systems} />
         <StatCard label={t('projectReport.totalRequirements')} value={summary.req_total} />
-        <StatCard label={t('projectReport.completedRequirements')} value={summary.req_completed} color="#16a34a" />
+        <StatCard label={t('projectReport.completedRequirements')} value={summary.req_completed} color="#2563eb" />
         <StatCard label={t('projectReport.totalTasks')} value={summary.task_total} />
-        <StatCard label={t('projectReport.inProgress')} value={summary.task_in_progress} color="#f59e0b" />
-        <StatCard label={t('projectReport.completedTasks')} value={summary.task_completed} color="#16a34a" />
+        <StatCard label={t('projectReport.inProgress')} value={summary.task_in_progress} color="#16a34a" />
+        <StatCard label={t('projectReport.completedTasks')} value={summary.task_completed} color="#2563eb" />
         <div className="flex-1 flex items-center justify-end gap-4 pr-6">
           <GaugeChart rate={reqRate}  label={t('projectReport.reqCompletionRate')} color="#2563eb" />
           <GaugeChart rate={taskRate} label={t('projectReport.taskCompletionRate')} color="#16a34a" />
@@ -448,7 +448,7 @@ const SystemOverdueTab: React.FC<{ data: SystemReportStat[] }> = ({ data }) => {
     { title: t('projectReport.notStarted'), dataIndex: 'task_not_started', width: 90, align: 'center',
       render: (v: number) => <span className="text-blue-400">{v}</span> },
     { title: t('projectReport.inProgress'), dataIndex: 'task_in_progress', width: 90, align: 'center',
-      render: (v: number) => <span className={v > 0 ? 'text-orange-500 font-medium' : 'text-slate-400'}>{v}</span> },
+      render: (v: number) => <span className={v > 0 ? 'text-green-600 font-medium' : 'text-slate-400'}>{v}</span> },
     { title: t('projectReport.overdueIncomplete'), dataIndex: 'task_overdue_incomplete', width: 110, align: 'center',
       render: (v: number) => <span className={v > 0 ? 'text-red-500 font-semibold' : 'text-slate-400'}>{v}</span> },
     { title: t('projectReport.overdueComplete'), dataIndex: 'task_overdue_complete', width: 110, align: 'center',
@@ -469,7 +469,7 @@ const SystemOverdueTab: React.FC<{ data: SystemReportStat[] }> = ({ data }) => {
         <StatCard label={t('projectReport.system')} value={summary.systems} />
         <StatCard label={t('projectReport.pendingTasks')} value={summary.task_pending} />
         <StatCard label={t('projectReport.notStarted')} value={summary.task_not_started} />
-        <StatCard label={t('projectReport.inProgress')} value={summary.task_in_progress} color="#f59e0b" />
+        <StatCard label={t('projectReport.inProgress')} value={summary.task_in_progress} color="#16a34a" />
         <StatCard label={t('projectReport.overdueIncomplete')} value={summary.task_overdue_incomplete} color={summary.task_overdue_incomplete > 0 ? '#ef4444' : undefined} />
         <StatCard label={t('projectReport.overdueComplete')} value={summary.task_overdue_complete} color={summary.task_overdue_complete > 0 ? '#f59e0b' : undefined} />
         <div className="flex-1 flex items-center justify-end gap-4 pr-6">

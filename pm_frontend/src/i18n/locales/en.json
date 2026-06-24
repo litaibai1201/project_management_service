@@ -1766,7 +1766,9 @@
     "suspendedLabel": "Suspended",
     "totalCount": "Total",
     "completedCount": "Done",
+    "otherStatus": "Other",
     "reviewingCount": "Reviewing",
+    "overdueCount": "Overdue {{count}}",
     "taskDistributionTitle": "Task Status",
     "projectStatusDistTitle": "Project Status Distribution",
     "projectRankingTitle": "Project Progress (In Progress)",
@@ -1806,7 +1808,8 @@
     "normalStatus": "Normal",
     "approvalTag": "Approval",
     "applicationLabel": "Application",
-    "draftLabel": "Draft"
+    "draftLabel": "Draft",
+    "planningLabel": "Planning"
   },
   "search": {
     "placeholder": "Search projects, tasks...",

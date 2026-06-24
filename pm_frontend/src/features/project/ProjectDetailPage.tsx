@@ -1016,9 +1016,9 @@ const ProjectDetailPage: React.FC = () => {
     },
     {
       title: t('common.progress'), dataIndex: 'progress', width: 140,
-      render: (v: number) => (
+      render: (v: number, r: ProjectFunction) => (
         <div className="flex items-center gap-2">
-          <Progress percent={v ?? 0} size="small" showInfo={false} style={{ flex: 1 }} strokeColor="#2563eb" trailColor="#f1f5f9" />
+          <Progress percent={v ?? 0} size="small" showInfo={false} style={{ flex: 1 }} strokeColor={r.status === 4 ? '#2563eb' : '#16a34a'} trailColor="#f1f5f9" />
           <span className="text-xs text-slate-400">{v ?? 0}%</span>
         </div>
       ),
@@ -1382,7 +1382,7 @@ const ProjectDetailPage: React.FC = () => {
         {current.progress != null && (
           <div className="flex items-center gap-3 mt-4">
             <span className="text-xs text-slate-400 w-14">{t('projectDetail.overallProgress')}</span>
-            <Progress percent={current.progress} size="small" strokeColor="#2563eb" trailColor="#f1f5f9" style={{ flex: 1 }} />
+            <Progress percent={current.progress} size="small" strokeColor={current.status === 7 ? '#2563eb' : '#16a34a'} trailColor="#f1f5f9" style={{ flex: 1 }} />
           </div>
         )}
       </Card>
@@ -1532,17 +1532,17 @@ const ProjectDetailPage: React.FC = () => {
                     {
                       title: t('common.status'), dataIndex: 'status', width: 80,
                       render: (v: number) => {
-                        const map: Record<number, [string, string]> = { 0: [t('projectDetail.reqStatus.draft'), 'default'], 1: [t('projectDetail.reqStatus.reviewing'), 'processing'], 2: [t('projectDetail.reqStatus.inProgress'), 'blue'], 3: [t('projectDetail.reqStatus.rejected'), 'error'], 4: [t('projectDetail.reqStatus.completed'), 'success'], 8: [t('projectDetail.reqStatus.shelved'), 'warning'] }
+                        const map: Record<number, [string, string]> = { 0: [t('projectDetail.reqStatus.draft'), 'default'], 1: [t('projectDetail.reqStatus.reviewing'), 'processing'], 2: [t('projectDetail.reqStatus.inProgress'), 'success'], 3: [t('projectDetail.reqStatus.rejected'), 'error'], 4: [t('projectDetail.reqStatus.completed'), 'processing'], 8: [t('projectDetail.reqStatus.shelved'), 'warning'] }
                         const [label, color] = map[v] ?? [String(v), 'default']
                         return <Tag color={color} style={{ fontSize: 11 }}>{label}</Tag>
                       },
                     },
                     {
                       title: t('common.progress'), dataIndex: 'progress', width: 140,
-                      render: (v: number) => (
+                      render: (v: number, r: Requirement) => (
                         <div className="flex items-center gap-2">
                           <Progress percent={v ?? 0} size="small" showInfo={false} style={{ flex: 1 }}
-                            strokeColor={(v ?? 0) >= 100 ? '#16a34a' : '#2563eb'} trailColor="#f1f5f9" />
+                            strokeColor={r.status === 4 ? '#2563eb' : '#16a34a'} trailColor="#f1f5f9" />
                           <span className="text-xs text-slate-400">{v ?? 0}%</span>
                         </div>
                       ),
@@ -1749,7 +1749,7 @@ const ProjectDetailPage: React.FC = () => {
                                     <span className="font-medium text-slate-600 text-xs">{sg.name}</span>
                                     <Tag color="blue" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>{t('common.itemCount', { count: sg.count })}</Tag>
                                     <Progress percent={sg.avgProgress} size="small" showInfo={false}
-                                      style={{ width: 60 }} strokeColor="#2563eb" trailColor="#e2e8f0" />
+                                      style={{ width: 60 }} strokeColor="#16a34a" trailColor="#e2e8f0" />
                                     <span className="text-xs text-slate-400">{sg.avgProgress}%</span>
                                     {sg.overdueCount > 0 && (
                                       <Tag color="error" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>{t('common.overdueCount', { count: sg.overdueCount })}</Tag>
@@ -1779,7 +1779,7 @@ const ProjectDetailPage: React.FC = () => {
                                         <span className="text-xs text-slate-400">{t('projectDetail.expectedComplete')} {g.expectedEndDate}</span>
                                       )}
                                       <Progress percent={g.avgProgress} size="small" showInfo={false}
-                                        style={{ width: 80 }} strokeColor="#7c3aed" trailColor="#e2e8f0" />
+                                        style={{ width: 80 }} strokeColor="#16a34a" trailColor="#e2e8f0" />
                                       <span className="text-xs text-slate-400">{g.avgProgress}%</span>
                                       {g.overdueCount > 0 && (
                                         <Tag color="error" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>{t('common.overdueCount', { count: g.overdueCount })}</Tag>
@@ -1819,7 +1819,7 @@ const ProjectDetailPage: React.FC = () => {
                                 <Tag color="blue" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', margin: 0 }}>{t('common.itemCount', { count: g.count })}</Tag>
                                 <Progress
                                   percent={g.avgProgress} size="small" showInfo={false}
-                                  style={{ width: 80 }} strokeColor="#2563eb" trailColor="#e2e8f0"
+                                  style={{ width: 80 }} strokeColor="#16a34a" trailColor="#e2e8f0"
                                 />
                                 <span className="text-xs text-slate-400">{g.avgProgress}%</span>
                                 {g.overdueCount > 0 && (

@@ -38,7 +38,7 @@ const DaysLeftBadge: React.FC<{ date?: string }> = ({ date }) => {
 }
 
 const REQ_STATUS_COLORS: Record<number, string> = {
-  0: 'default', 1: 'processing', 2: 'blue', 3: 'error', 4: 'success', 8: 'warning',
+  0: 'default', 1: 'processing', 2: 'success', 3: 'error', 4: 'processing', 8: 'warning',
 }
 const REQ_STATUS_KEYS: Record<number, string> = {
   0: 'requirement.statusDraft', 1: 'requirement.statusReviewing', 2: 'requirement.statusInProgress',
@@ -338,10 +338,10 @@ const RequirementListPage: React.FC = () => {
     },
     {
       title: t('common.progress'), dataIndex: 'progress', width: 140,
-      render: (v: number) => (
+      render: (v: number, r: ProjectReqItem) => (
         <div className="flex items-center gap-2">
           <Progress percent={v ?? 0} size="small" showInfo={false} style={{ flex: 1 }}
-            strokeColor={(v ?? 0) >= 100 ? '#16a34a' : '#2563eb'} trailColor="#f1f5f9" />
+            strokeColor={r.status === 4 ? '#2563eb' : '#16a34a'} trailColor="#f1f5f9" />
           <span className="text-xs text-slate-400">{v ?? 0}%</span>
         </div>
       ),
@@ -394,10 +394,10 @@ const RequirementListPage: React.FC = () => {
     },
     {
       title: t('common.progress'), dataIndex: 'progress', width: 140,
-      render: (v: number) => (
+      render: (v: number, r: StandaloneReq) => (
         <div className="flex items-center gap-2">
           <Progress percent={v ?? 0} size="small" showInfo={false} style={{ flex: 1 }}
-            strokeColor={(v ?? 0) >= 100 ? '#16a34a' : '#2563eb'} trailColor="#f1f5f9" />
+            strokeColor={r.status === 4 ? '#2563eb' : '#16a34a'} trailColor="#f1f5f9" />
           <span className="text-xs text-slate-400">{v ?? 0}%</span>
         </div>
       ),

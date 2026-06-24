@@ -536,9 +536,11 @@ class UserController:
         else:
             proj_filter = db.false()
 
-        team_project_total       = db.session.query(ProjectDataModel).filter(proj_filter, ProjectDataModel.project_status.notin_([9])).count()
-        team_project_in_progress = db.session.query(ProjectDataModel).filter(proj_filter, ProjectDataModel.project_status == 5).count()
+        team_project_total       = db.session.query(ProjectDataModel).filter(proj_filter, ProjectDataModel.project_status.notin_([1, 9])).count()
+        team_project_planning    = db.session.query(ProjectDataModel).filter(proj_filter, ProjectDataModel.project_status.in_([2, 3, 4, 10, 11])).count()
+        team_project_in_progress = db.session.query(ProjectDataModel).filter(proj_filter, ProjectDataModel.project_status.in_([5, 6])).count()
         team_project_completed   = db.session.query(ProjectDataModel).filter(proj_filter, ProjectDataModel.project_status == 7).count()
+        team_project_suspended   = db.session.query(ProjectDataModel).filter(proj_filter, ProjectDataModel.project_status == 8).count()
 
         # ── 团队任务统计（主管本人 + 所有下属） ──────────────────────────────────
         if all_members:
@@ -560,21 +562,26 @@ class UserController:
             TemporaryDutyModel.standalone_req_id == '',
         ))
 
-        func_total       = f.filter(func_filter, FunctionDataModel.function_status.notin_([9])).count()
-        # 团队任务中的 duty 只统计系统任务
-        duty_total       = d.filter(sys_duty_filter, TemporaryDutyModel.duty_status.notin_([9])).count()
-        func_draft       = f.filter(func_filter, FunctionDataModel.function_status == 0).count()
-        func_in_prog     = f.filter(func_filter, FunctionDataModel.function_status == 2).count()
-        duty_in_prog     = d.filter(sys_duty_filter, TemporaryDutyModel.duty_status   == 1).count()
+        # 总计排除草稿和删除
+        func_total       = f.filter(func_filter, FunctionDataModel.function_status.notin_([0, 9])).count()
+        duty_total       = d.filter(sys_duty_filter, TemporaryDutyModel.duty_status.notin_([0, 9])).count()
+        # 进行中：包含进行中+完结审核+审核中
+        func_in_prog     = f.filter(func_filter, FunctionDataModel.function_status.in_([2, 3])).count()
+        duty_in_prog     = d.filter(sys_duty_filter, TemporaryDutyModel.duty_status.in_([1, 2, 5])).count()
+        # 未开始
         func_not_start   = f.filter(func_filter, FunctionDataModel.function_status == 1).count()
-        duty_not_start   = d.filter(sys_duty_filter, TemporaryDutyModel.duty_status.in_([0, 6])).count()
+        duty_not_start   = d.filter(sys_duty_filter, TemporaryDutyModel.duty_status == 6).count()
+        # 已完结
         func_completed   = f.filter(func_filter, FunctionDataModel.function_status == 4).count()
-        duty_completed   = d.filter(sys_duty_filter, TemporaryDutyModel.duty_status   == 3).count()
+        duty_completed   = d.filter(sys_duty_filter, TemporaryDutyModel.duty_status == 3).count()
+        # 搁置
+        func_suspended   = f.filter(func_filter, FunctionDataModel.function_status == 8).count()
+        duty_suspended   = d.filter(sys_duty_filter, TemporaryDutyModel.duty_status == 8).count()
 
-        # AR 任务单独统计
-        ar_total       = d.filter(ar_duty_filter, TemporaryDutyModel.duty_status.notin_([9])).count()
-        ar_in_prog     = d.filter(ar_duty_filter, TemporaryDutyModel.duty_status == 1).count()
-        ar_not_start   = d.filter(ar_duty_filter, TemporaryDutyModel.duty_status.in_([0, 6])).count()
+        # AR 任务单独统计（总计排除草稿和删除，进行中包含审核中）
+        ar_total       = d.filter(ar_duty_filter, TemporaryDutyModel.duty_status.notin_([0, 9])).count()
+        ar_in_prog     = d.filter(ar_duty_filter, TemporaryDutyModel.duty_status.in_([1, 2, 5])).count()
+        ar_not_start   = d.filter(ar_duty_filter, TemporaryDutyModel.duty_status == 6).count()
         ar_completed   = d.filter(ar_duty_filter, TemporaryDutyModel.duty_status == 3).count()
         ar_suspended   = d.filter(ar_duty_filter, TemporaryDutyModel.duty_status == 8).count()
 
@@ -762,17 +769,18 @@ class UserController:
         return {
             "team_project": {
                 "total":       team_project_total,
+                "planning":    team_project_planning,
                 "in_progress": team_project_in_progress,
                 "completed":   team_project_completed,
+                "suspended":   team_project_suspended,
             },
             "team_task": {
                 "total":       func_total       + duty_total,
-                "draft":       func_draft,
                 "in_progress": func_in_prog     + duty_in_prog,
                 "not_started": func_not_start   + duty_not_start,
                 "completed":   func_completed   + duty_completed,
+                "suspended":   func_suspended   + duty_suspended,
                 "overdue":     func_overdue     + duty_overdue,
-                "urgent":      func_urgent      + duty_urgent,
             },
             "team_ar_task": {
                 "total":       ar_total,

@@ -1719,7 +1719,9 @@ const ReportPreviewModal: React.FC<{
               </tr>
             </thead>
             <tbody>
-              {projects.map((project, idx) => {
+              {projects.filter((project) => project.functions.some((f) => f.tasks.some((t) =>
+                t.week_tag.length > 0 || (t.is_overdue && t.status !== 'completed') || t.is_suspended
+              ))).map((project, idx) => {
                 const dotClr = `#${_projectDotColor(project)}`
 
                 return (
@@ -1943,7 +1945,7 @@ const ReportPreviewModal: React.FC<{
               })}
               {/* ── System rows ── */}
               {/* ── System rows ── */}
-              {[...systemDutiesMap.entries()].map(([sysId, sysDuties], sysIdx) => {
+              {[...systemDutiesMap.entries()].filter(([, sysDuties]) => sysDuties.some(isDutyVisible)).map(([sysId, sysDuties], sysIdx) => {
                 const sysInfo = systemInfoMap[sysId]
                 const sysNm = sysInfo?.sys_nm ?? (sysDuties[0]?.system_nm ?? sysId)
                 const maintainers = (sysInfo?.maintainers ?? []).length > 0
@@ -1977,7 +1979,7 @@ const ReportPreviewModal: React.FC<{
               })}
 
               {/* ── AR Tasks row ── */}
-              {arDuties.length > 0 && (() => {
+              {arDuties.some(isDutyVisible) && (() => {
                 const creators = [...new Set(arDuties.map((d) => d.creator))]
                   .map((wn) => toName(wn) || wn).join('、') || '—'
                 const responsible = [...new Set(arDuties.flatMap((d) => d.responsible ?? []))]

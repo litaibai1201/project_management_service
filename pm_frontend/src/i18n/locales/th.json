@@ -1742,7 +1742,9 @@
     "suspendedLabel": "หยุดชั่วคราว",
     "totalCount": "ทั้งหมด",
     "completedCount": "เสร็จสิ้น",
+    "otherStatus": "อื่นๆ",
     "reviewingCount": "กำลังรีวิว",
+    "overdueCount": "เกินกำหนด{{count}}",
     "taskDistributionTitle": "สถานะงาน",
     "projectStatusDistTitle": "การกระจายสถานะโครงการ",
     "projectRankingTitle": "ความคืบหน้าโครงการ (กำลังดำเนินการ)",
@@ -1782,7 +1784,8 @@
     "normalStatus": "ปกติ",
     "approvalTag": "อนุมัติ",
     "applicationLabel": "คำขอ",
-    "draftLabel": "ฉบับร่าง"
+    "draftLabel": "ฉบับร่าง",
+    "planningLabel": "วางแผน"
   },
   "search": {
     "placeholder": "ค้นหาโครงการ งาน...",

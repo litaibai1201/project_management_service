@@ -540,10 +540,10 @@ const DutyListPage: React.FC = () => {
     },
     {
       title: t('common.progress'), dataIndex: 'progress', width: 110,
-      render: (v: number) => (
+      render: (v: number, r: MyFunction) => (
         <div className="flex items-center gap-2">
           <Progress percent={v ?? 0} size="small" showInfo={false} style={{ flex: 1 }}
-            strokeColor={v >= 80 ? '#16a34a' : '#2563eb'} trailColor="#f1f5f9" />
+            strokeColor={r.status === 4 ? '#2563eb' : '#16a34a'} trailColor="#f1f5f9" />
           <span className="text-xs text-slate-400">{v ?? 0}%</span>
         </div>
       ),
@@ -687,10 +687,10 @@ const DutyListPage: React.FC = () => {
     },
     {
       title: t('common.progress'), dataIndex: 'progress', width: 140,
-      render: (v: number) => (
+      render: (v: number, r: TemporaryDuty) => (
         <div className="flex items-center gap-2">
           <Progress percent={v ?? 0} size="small" showInfo={false} style={{ flex: 1 }}
-            strokeColor={v >= 80 ? '#16a34a' : v >= 40 ? '#2563eb' : '#94a3b8'} trailColor="#f1f5f9" />
+            strokeColor={r.status === 3 ? '#2563eb' : '#16a34a'} trailColor="#f1f5f9" />
           <span className="text-xs text-slate-400">{v ?? 0}%</span>
         </div>
       ),
@@ -774,10 +774,10 @@ const DutyListPage: React.FC = () => {
     },
     {
       title: t('common.progress'), dataIndex: 'progress', width: 110,
-      render: (v: number) => (
+      render: (v: number, r: TemporaryDuty) => (
         <div className="flex items-center gap-2">
           <Progress percent={v ?? 0} size="small" showInfo={false} style={{ flex: 1 }}
-            strokeColor={v >= 80 ? '#16a34a' : '#2563eb'} trailColor="#f1f5f9" />
+            strokeColor={r.status === 3 ? '#2563eb' : '#16a34a'} trailColor="#f1f5f9" />
           <span className="text-xs text-slate-400">{v ?? 0}%</span>
         </div>
       ),
@@ -950,7 +950,7 @@ const DutyListPage: React.FC = () => {
                           if (di === 'function_nm') return <span className="text-xs text-slate-400 italic">{t('common.itemCount', { count: r._summaryCount ?? 0 })}</span>
                           if (di === 'status') return r._isSummary === 'proj' ? <Tag color={PROJECT_STATUS_MAP[r._summaryStatus ?? 0]?.color ?? 'default'} style={{ fontSize: 11 }}>{PROJECT_STATUS_MAP[r._summaryStatus ?? 0]?.label ?? '—'}</Tag> : <span className="text-slate-300 text-xs">—</span>
                           if (di === 'responsible') return r._isSummary === 'proj' && r._summaryPm ? <Tag color="blue" style={{ fontSize: 10 }}>{toName(r._summaryPm)}</Tag> : <span className="text-slate-300 text-xs">—</span>
-                          if (di === 'progress') return <div className="flex items-center gap-2"><Progress percent={r._summaryProgress ?? 0} size="small" showInfo={false} style={{ flex: 1 }} strokeColor="#2563eb" trailColor="#f1f5f9" /><span className="text-xs text-slate-400">{r._summaryProgress ?? 0}%</span></div>
+                          if (di === 'progress') return <div className="flex items-center gap-2"><Progress percent={r._summaryProgress ?? 0} size="small" showInfo={false} style={{ flex: 1 }} strokeColor="#16a34a" trailColor="#f1f5f9" /><span className="text-xs text-slate-400">{r._summaryProgress ?? 0}%</span></div>
                           if (di === 'expected_start_date') return <span className="text-slate-300 text-xs">—</span>
                           if (di === 'expected_end_date') return r._summaryEndDate ? <span className="text-xs">{r._summaryEndDate}</span> : <span className="text-slate-300 text-xs">—</span>
                           return <span className="text-slate-300 text-xs">—</span>
@@ -1066,7 +1066,7 @@ const DutyListPage: React.FC = () => {
                           if (di === 'duty_nm') return <span className="text-xs text-slate-400 italic">{t('common.itemCount', { count: r._summaryCount ?? 0 })}</span>
                           if (di === 'status') return <span className="text-slate-300 text-xs">—</span>
                           if (di === 'responsible') return <span className="text-slate-300 text-xs">—</span>
-                          if (di === 'progress') return <div className="flex items-center gap-2"><Progress percent={r._summaryProgress ?? 0} size="small" showInfo={false} style={{ flex: 1 }} strokeColor="#7c3aed" trailColor="#e9d5ff" /><span className="text-xs text-slate-400">{r._summaryProgress ?? 0}%</span></div>
+                          if (di === 'progress') return <div className="flex items-center gap-2"><Progress percent={r._summaryProgress ?? 0} size="small" showInfo={false} style={{ flex: 1 }} strokeColor="#16a34a" trailColor="#f1f5f9" /><span className="text-xs text-slate-400">{r._summaryProgress ?? 0}%</span></div>
                           if (di === 'expected_start_date') return <span className="text-slate-300 text-xs">—</span>
                           if (di === 'expected_end_date') return r._summaryEndDate ? <span className="text-xs">{r._summaryEndDate}</span> : <span className="text-slate-300 text-xs">—</span>
                           return <span className="text-slate-300 text-xs">—</span>
@@ -1182,7 +1182,7 @@ const DutyListPage: React.FC = () => {
                                 </Tag>
                                 <Progress
                                   percent={g.avgProgress} size="small" showInfo={false}
-                                  style={{ width: 80 }} strokeColor="#2563eb" trailColor="#e2e8f0"
+                                  style={{ width: 80 }} strokeColor="#16a34a" trailColor="#e2e8f0"
                                 />
                                 <span className="text-xs text-slate-400">{g.avgProgress}%</span>
                                 {g.overdueCount > 0 && (

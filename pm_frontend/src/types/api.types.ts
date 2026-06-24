@@ -83,14 +83,14 @@ export interface TeamBenefitGroup {
 }
 
 export interface TeamStatistical {
-  team_project: { total: number; in_progress: number; completed: number }
+  team_project: { total: number; planning: number; in_progress: number; completed: number; suspended: number }
   team_task: {
     total: number; in_progress: number; not_started: number
-    completed: number; overdue: number; urgent: number
+    completed: number; suspended: number; overdue: number
   }
   team_ar_task?: {
     total: number; in_progress: number; not_started: number
-    completed: number; overdue: number; suspended: number
+    completed: number; suspended: number; overdue: number
   }
   pending: { review: number; progress_update: number }
   team_size: number
