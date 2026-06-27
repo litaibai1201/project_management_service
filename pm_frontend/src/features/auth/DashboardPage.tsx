@@ -395,6 +395,7 @@ const MonthlyAttendanceCard: React.FC = () => {
 
 type LogRow = {
   work_no: string; name: string; period_hours: number; updates_count: number
+  submitted_hours?: number; draft_hours?: number; normal_hours?: number; overtime_hours?: number
   completed: unknown[]; overdue: unknown[]; daily_logs: Array<{ log_date: string; status: number }>
 }
 
@@ -589,9 +590,29 @@ const TeamLogCard: React.FC<TeamLogCardProps> = ({
       ),
     },
     {
-      title: t('dashboard.workHoursColumn'), dataIndex: 'period_hours', key: 'period_hours',
+      title: t('dashboard.totalHoursColumn'), dataIndex: 'period_hours', key: 'period_hours',
       sorter: (a: LogRow, b: LogRow) => a.period_hours - b.period_hours,
       render: (h: number) => <span className="text-xs font-semibold text-blue-600">{Number(h).toFixed(1)}h</span>,
+    },
+    {
+      title: t('dashboard.submittedHoursColumn'), dataIndex: 'submitted_hours', key: 'submitted_hours',
+      sorter: (a: LogRow, b: LogRow) => (a.submitted_hours ?? 0) - (b.submitted_hours ?? 0),
+      render: (h: number) => <span className="text-xs text-green-600">{Number(h ?? 0).toFixed(1)}h</span>,
+    },
+    {
+      title: t('dashboard.draftHoursColumn'), dataIndex: 'draft_hours', key: 'draft_hours',
+      sorter: (a: LogRow, b: LogRow) => (a.draft_hours ?? 0) - (b.draft_hours ?? 0),
+      render: (h: number) => <span className="text-xs text-orange-500">{Number(h ?? 0).toFixed(1)}h</span>,
+    },
+    {
+      title: t('dashboard.normalHoursColumn'), dataIndex: 'normal_hours', key: 'normal_hours',
+      sorter: (a: LogRow, b: LogRow) => (a.normal_hours ?? 0) - (b.normal_hours ?? 0),
+      render: (h: number) => <span className="text-xs text-slate-600">{Number(h ?? 0).toFixed(1)}h</span>,
+    },
+    {
+      title: t('dashboard.overtimeHoursColumn'), dataIndex: 'overtime_hours', key: 'overtime_hours',
+      sorter: (a: LogRow, b: LogRow) => (a.overtime_hours ?? 0) - (b.overtime_hours ?? 0),
+      render: (h: number) => <span className="text-xs text-red-500">{Number(h ?? 0).toFixed(1)}h</span>,
     },
     {
       title: t('dashboard.updateCountColumn'), dataIndex: 'updates_count', key: 'updates_count',
@@ -750,10 +771,7 @@ const DashboardPage: React.FC = () => {
   const [logPeriod,        setLogPeriod]        = useState<'day' | 'yesterday' | 'week' | 'lastWeek' | 'month' | 'lastMonth' | 'quarter'>('day')
   const [notifyingSet,     setNotifyingSet]     = useState<Set<string>>(new Set())
   const [notifyingAll,     setNotifyingAll]     = useState(false)
-  const [logReportData,    setLogReportData]    = useState<Array<{
-    work_no: string; name: string; period_hours: number; updates_count: number
-    completed: unknown[]; overdue: unknown[]; daily_logs: Array<{ log_date: string; status: number }>
-  }>>([])
+  const [logReportData,    setLogReportData]    = useState<LogRow[]>([])
   const [logLoading,       setLogLoading]       = useState(false)
   const [reqStats,         setReqStats]         = useState<ReqStats | null>(null)
 

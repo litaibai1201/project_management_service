@@ -639,6 +639,17 @@ class StatisticsController:
             logs           = logs_by_user[wn.lower()]
 
             period_hours = round(sum(float(lg.get("total_hours") or 0) for lg in logs), 1)
+            submitted_hours = round(sum(float(lg.get("total_hours") or 0) for lg in logs if lg.get("log_status") == 2), 1)
+            draft_hours = round(period_hours - submitted_hours, 1)
+
+            # 计算正常工时与加班工时
+            _overtime_h = 0.0
+            for lg in logs:
+                for item in (lg.get("task_items") or []) + (lg.get("free_items") or []):
+                    if item.get("is_overtime"):
+                        _overtime_h += float(item.get("overtime_hours") or item.get("work_hours") or 0)
+            overtime_hours = round(_overtime_h, 1)
+            normal_hours = round(period_hours - overtime_hours, 1)
 
             # 返回原始日报详情列表（与 daily_log API 的 _to_detail 格式一致）
             daily_logs = []
@@ -869,15 +880,19 @@ class StatisticsController:
                         })
 
             result.append({
-                "work_no":       wn,
-                "name":          user.name,
-                "period_hours":  period_hours,
-                "updates_count": updates_count,
-                "completed":     completed_list,
-                "in_progress":   in_progress_list,
-                "not_started":   not_started_list,
-                "daily_logs":    daily_logs,
-                "overdue":       overdue_list,
+                "work_no":          wn,
+                "name":             user.name,
+                "period_hours":     period_hours,
+                "submitted_hours":  submitted_hours,
+                "draft_hours":      draft_hours,
+                "normal_hours":     normal_hours,
+                "overtime_hours":   overtime_hours,
+                "updates_count":    updates_count,
+                "completed":        completed_list,
+                "in_progress":      in_progress_list,
+                "not_started":      not_started_list,
+                "daily_logs":       daily_logs,
+                "overdue":          overdue_list,
             })
 
         return result

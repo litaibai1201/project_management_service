@@ -4,14 +4,14 @@
  */
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import {
-  Card, Button, Tag, Modal, Form, Select, InputNumber,
+  Card, Button, Tag, Modal, Form, Select, InputNumber, Input, message,
   Switch, Upload, Segmented, Empty, Badge, Popconfirm, Popover,
   AutoComplete, Alert, Spin, DatePicker, Dropdown,
 } from 'antd'
 import type { UploadFile } from 'antd'
 import {
   PlusIcon, PaperClipIcon, ChevronLeftIcon, ChevronRightIcon, ChevronDownIcon,
-  PencilSquareIcon, TrashIcon, ClockIcon, CalendarDaysIcon,
+  PencilSquareIcon, TrashIcon, ClockIcon, CalendarDaysIcon, CheckCircleIcon,
   ArrowUpTrayIcon, ArrowsPointingOutIcon,
   DocumentTextIcon, SunIcon, MoonIcon, BriefcaseIcon,
   AcademicCapIcon, UsersIcon,
@@ -110,6 +110,9 @@ interface CategorySection {
 /** Count all leaf tasks across the whole hierarchy */
 function countTasks(projectGroups: ProjectSubGroup[]): number {
   return projectGroups.flatMap((pg) => pg.requirements.flatMap((r) => r.groups.flatMap((g) => g.tasks))).length
+}
+function countEntries(projectGroups: ProjectSubGroup[]): number {
+  return projectGroups.flatMap((pg) => pg.requirements.flatMap((r) => r.groups.flatMap((g) => g.tasks.flatMap((t) => t.entries)))).length
 }
 
 /** Build Requirement → Group → Task hierarchy from a flat entry list.
@@ -326,6 +329,8 @@ const SelfReportView: React.FC<{
   const totalLeave  = leaveEntries.reduce((s, e) => s + e.hours, 0)
   const totalOT     = workEntries.filter((e) => e.is_overtime).reduce((s, e) => s + (e.overtime_hours ?? e.hours), 0)
   const totalNormal = totalHours - totalOT
+  const submittedHours = workEntries.filter((e) => e.log_status === 'submitted').reduce((s, e) => s + e.hours, 0)
+  const draftHours     = totalHours - submittedHours
   const workedDays  = rangeLogs.length
 
   const catTotals = WORK_CATEGORIES.map((cat) => ({
@@ -358,9 +363,11 @@ const SelfReportView: React.FC<{
   return (
     <div className="space-y-4">
       {/* ── Summary stats ── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
         {[
           { label: t('dailyLog.periodTotalHours'), value: totalHours.toFixed(1),  unit: 'h',  color: '#2563eb', bg: '#eff6ff', icon: <ClockIcon className="w-4 h-4 text-blue-500" /> },
+          { label: t('dailyLog.submittedHours'),   value: submittedHours.toFixed(1), unit: 'h', color: '#16a34a', bg: '#f0fdf4', icon: <CheckCircleIcon className="w-4 h-4 text-green-500" /> },
+          { label: t('dailyLog.draftHours'),       value: draftHours.toFixed(1),  unit: 'h',  color: '#f59e0b', bg: '#fffbeb', icon: <DocumentTextIcon className="w-4 h-4 text-amber-500" /> },
           { label: t('dailyLog.normalHours'),      value: totalNormal.toFixed(1), unit: 'h',  color: '#16a34a', bg: '#f0fdf4', icon: <SunIcon className="w-4 h-4 text-green-500" /> },
           { label: t('dailyLog.overtimeHoursLabel'), value: totalOT.toFixed(1),   unit: 'h',  color: '#d97706', bg: '#fff7ed', icon: <MoonIcon className="w-4 h-4 text-orange-500" /> },
           ...(totalLeave > 0 ? [{ label: t('dailyLog.leaveHoursLabel'), value: totalLeave.toFixed(1), unit: 'h', color: '#10b981', bg: '#ecfdf5', icon: <SunIcon className="w-4 h-4 text-emerald-500" /> }] : []),
@@ -412,6 +419,7 @@ const SelfReportView: React.FC<{
         type RichEntry = DailyLogEntry & { log_date: string; log_status: DailyLog['status'] }
         const richEntries = allEntries as RichEntry[]
         const sections = groupDailyEntries(richEntries as DailyLogEntry[])
+        const totalEntries = sections.reduce((s, cs) => s + countEntries(cs.projectGroups), 0)
         const totalTasks = sections.reduce((s, cs) => s + countTasks(cs.projectGroups), 0)
         const DOW = [t('dailyLog.dowSun'), t('dailyLog.dowMon'), t('dailyLog.dowTue'), t('dailyLog.dowWed'), t('dailyLog.dowThu'), t('dailyLog.dowFri'), t('dailyLog.dowSat')]
 
@@ -421,12 +429,14 @@ const SelfReportView: React.FC<{
             <div className="flex items-center gap-2 px-1">
               <DocumentTextIcon className="w-4 h-4 text-slate-400" />
               <span className="text-sm font-semibold text-slate-700">{t('dailyLog.progressUpdates')}</span>
-              <span className="text-xs text-slate-400 font-normal">{t('dailyLog.recordsAndTasks', { records: allEntries.length, tasks: totalTasks })}</span>
+              <span className="text-xs text-slate-400 font-normal">{t('dailyLog.recordsAndTasks', { records: totalEntries, tasks: totalTasks })}</span>
             </div>
 
             {sections.map((section) => {
               const collapsed = collapsedGroups.has(section.category)
+              const isTaskCategory = ['project', 'system_req', 'duty'].includes(section.category)
               const taskCount = countTasks(section.projectGroups)
+              const entryCount = countEntries(section.projectGroups)
               return (
                 <div key={section.category} className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
                   {/* ── Category header ── */}
@@ -436,7 +446,10 @@ const SelfReportView: React.FC<{
                     <Tag style={{ fontSize: 10, padding: '0 7px', margin: 0, lineHeight: '22px', background: section.color + '22', color: section.color, border: `1px solid ${section.color}55`, fontWeight: 700 }}>
                       {t(CATEGORY_LABEL_KEYS[section.category])}
                     </Tag>
-                    {taskCount > 0 && <span className="text-xs text-slate-400">{t('dailyLog.nTasks', { count: taskCount })}</span>}
+                    {isTaskCategory
+                      ? taskCount > 0 && <span className="text-xs text-slate-400">{t('dailyLog.nTasks', { count: taskCount })}</span>
+                      : entryCount > 0 && <span className="text-xs text-slate-400">{t('dailyLog.nRecords', { count: entryCount })}</span>
+                    }
                     <div className="ml-auto flex items-center gap-1.5">
                       <span className="text-sm font-bold tabular-nums" style={{ color: section.color }}>
                         <ClockIcon className="w-3.5 h-3.5 inline mr-0.5" />{fmtH(section.totalHours)}h
@@ -581,7 +594,7 @@ const SelfReportView: React.FC<{
                                                                       <div className="flex-shrink-0 text-right">
                                                                         <div className="flex items-center gap-0.5 text-xs font-semibold justify-end" style={{ color: entry.is_overtime ? '#d97706' : '#2563eb' }}>
                                                                           <ClockIcon className="w-3.5 h-3.5" />{fmtH(entry.hours)}h
-                                                                          {entry.is_overtime && <Tag color="orange" style={{ fontSize: 9, padding: '0 3px', margin: 0, lineHeight: '14px' }}>{t('dailyLog.overtime')}</Tag>}
+                                                                          {entry.is_overtime && <Tag color="orange" style={{ fontSize: 9, padding: '0 3px', margin: 0, lineHeight: '14px' }}>{t('dailyLog.overtime')}{fmtH(entry.overtime_hours ?? entry.hours)}h</Tag>}
                                                                         </div>
                                                                         <div className="text-[10px] text-slate-400 tabular-nums mt-0.5">{d.format('MM/DD')} {t('dailyLog.weekPrefix')}{DOW[d.day()]}</div>
                                                                         <Tag
@@ -628,7 +641,7 @@ const SelfReportView: React.FC<{
 }
 
 // ─── Main Page ──────────────────────────────────────────────────────────────
-type ViewMode = 'day' | 'week' | 'month' | 'quarter' | 'year'
+type ViewMode = 'day' | 'week' | 'month' | 'quarter' | 'year' | 'text'
 
 // ─── Helpers: map frontend entries ↔ backend payload ────────────────────────
 
@@ -688,6 +701,10 @@ const DailyLogPage: React.FC = () => {
   const [collapsedDayGroups, setCollapsedDayGroups] = useState<Set<string>>(new Set())
   const toggleDayGroup = (key: string) =>
     setCollapsedDayGroups((prev) => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s })
+
+  // ── Text editor state (frontend-only cache) ──
+  const [textEditorContent, setTextEditorContent] = useState<string>('')
+  const [textEditorInited, setTextEditorInited] = useState(false)
 
   const [form] = Form.useForm()
   const watchedCategory   = Form.useWatch('work_category', form) as WorkCategory | undefined
@@ -1001,6 +1018,9 @@ const DailyLogPage: React.FC = () => {
   const overtimeHours = dayWorkEntries.filter((e) => e.is_overtime).reduce((s, e) => s + (e.overtime_hours ?? e.hours), 0)
 
   const sufficiencyPct = Math.round(((totalHours + dayLeaveHours) / STANDARD_DAILY_HOURS) * 100)
+
+  // Reset text editor init flag when date changes
+  useEffect(() => { setTextEditorInited(false) }, [currentDate])
 
   // Navigation
   const navigate = (delta: number) => {
@@ -1636,6 +1656,7 @@ const DailyLogPage: React.FC = () => {
               { label: t('dailyLog.viewMonth'), value: 'month' },
               { label: t('dailyLog.viewQuarter'), value: 'quarter' },
               { label: t('dailyLog.viewYear'), value: 'year' },
+              { label: t('dailyLog.viewText'), value: 'text' },
             ]}
             size="small"
           />
@@ -1812,7 +1833,10 @@ const DailyLogPage: React.FC = () => {
                         }}>
                           {t(CATEGORY_LABEL_KEYS[section.category])}
                         </Tag>
-                        <span className="text-xs text-slate-400">{t('dailyLog.nTasks', { count: countTasks(section.projectGroups) })}</span>
+                        {['project', 'system_req', 'duty'].includes(section.category)
+                          ? <span className="text-xs text-slate-400">{t('dailyLog.nTasks', { count: countTasks(section.projectGroups) })}</span>
+                          : <span className="text-xs text-slate-400">{t('dailyLog.nRecords', { count: countEntries(section.projectGroups) })}</span>
+                        }
                         <div className="ml-auto flex items-center gap-2">
                           <span className="flex items-center gap-1 text-xs font-bold" style={{ color: section.color }}>
                             <ClockIcon className="w-3.5 h-3.5" />{fmtH(section.totalHours)}h
@@ -1984,7 +2008,7 @@ const DailyLogPage: React.FC = () => {
                                                             <span className="flex items-center gap-0.5 text-sm font-semibold" style={{ color: entry.is_overtime ? '#d97706' : section.color }}>
                                                               <ClockIcon className="w-4 h-4" />{fmtH(entry.hours)}h
                                                             </span>
-                                                            {entry.is_overtime && <Tag color="orange" style={{ fontSize: 10, padding: '0 4px', margin: 0, lineHeight: '16px' }}>{t('dailyLog.overtime')}</Tag>}
+                                                            {entry.is_overtime && <Tag color="orange" style={{ fontSize: 10, padding: '0 4px', margin: 0, lineHeight: '16px' }}>{t('dailyLog.overtime')}{fmtH(entry.overtime_hours ?? entry.hours)}h</Tag>}
                                                             <span className="text-xs text-slate-400 tabular-nums">{entry.record_time ?? '—'}</span>
                                                             {entry.source === 'updated' && <Tag color="orange" style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px' }}>{t('dailyLog.sourceUpdated')}</Tag>}
                                                             {entry.source === 'manual' && <Tag color="green" style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px' }}>{t('dailyLog.sourceManual')}</Tag>}
@@ -2093,6 +2117,139 @@ const DailyLogPage: React.FC = () => {
             onPreviewFile={(url, name) => setPreviewFile({ url, name })}
             authToken={tokenStorage.get()}
           />
+        )
+      })()}
+
+      {/* ─── Text Editor View ────────────────────────────────────── */}
+      {viewMode === 'text' && (() => {
+        const cacheKey = `dailylog_text_${currentDate.format('YYYY-MM-DD')}`
+        // Generate text from current day's entries
+        const generateText = () => {
+          const dateStr = currentDate.format('YYYY-MM-DD')
+          const dayLog = logs[dateStr]
+          if (!dayLog || dayLog.entries.length === 0) return `${dateStr}\n\n${t('dailyLog.noEntries')}`
+          const lines: string[] = [`${dateStr}\n`]
+          let idx = 0
+          const entries = dayLog.entries
+          // Group project entries by project
+          const projMap = new Map<string, DailyLogEntry[]>()
+          // Group system entries by system
+          const sysMap = new Map<string, DailyLogEntry[]>()
+          // AR entries
+          const arEntries: DailyLogEntry[] = []
+          // Other category entries
+          const otherEntries: { cat: string; entry: DailyLogEntry }[] = []
+
+          for (const e of entries) {
+            if (e.work_category === 'project') {
+              const key = e.project_nm || '—'
+              if (!projMap.has(key)) projMap.set(key, [])
+              projMap.get(key)!.push(e)
+            } else if (e.work_category === 'system_req') {
+              const key = e.system_nm || '—'
+              if (!sysMap.has(key)) sysMap.set(key, [])
+              sysMap.get(key)!.push(e)
+            } else if (e.work_category === 'duty') {
+              arEntries.push(e)
+            } else if (e.work_category !== 'leave') {
+              otherEntries.push({ cat: e.work_category, entry: e })
+            }
+          }
+
+          const stripHtml = (s: string) => s?.replace(/<[^>]*>/g, '').trim() || ''
+
+          // Project tasks
+          for (const [projNm, pEntries] of projMap) {
+            idx++
+            lines.push(`${idx}. ${projNm}`)
+            for (const e of pEntries) {
+              const parts = [e.requirement_nm, e.function_nm].filter(Boolean)
+              const desc = stripHtml(e.description)
+              lines.push(`   - ${parts.join(' / ')}`)
+              if (desc) lines.push(`     ${desc}`)
+            }
+            lines.push('')
+          }
+
+          // System tasks
+          for (const [sysNm, sEntries] of sysMap) {
+            idx++
+            lines.push(`${idx}. ${sysNm}`)
+            for (const e of sEntries) {
+              const parts = [e.requirement_nm, e.duty_nm].filter(Boolean)
+              const desc = stripHtml(e.description)
+              lines.push(`   - ${parts.join(' / ')}`)
+              if (desc) lines.push(`     ${desc}`)
+            }
+            lines.push('')
+          }
+
+          // AR tasks
+          if (arEntries.length > 0) {
+            idx++
+            lines.push(`${idx}. AR`)
+            for (const e of arEntries) {
+              const desc = stripHtml(e.description)
+              lines.push(`   - ${e.duty_nm || '—'}`)
+              if (desc) lines.push(`     ${desc}`)
+            }
+            lines.push('')
+          }
+
+          // Other categories (training, meeting, other)
+          const otherByCat = new Map<string, DailyLogEntry[]>()
+          for (const { cat, entry } of otherEntries) {
+            if (!otherByCat.has(cat)) otherByCat.set(cat, [])
+            otherByCat.get(cat)!.push(entry)
+          }
+          for (const [cat, catEntries] of otherByCat) {
+            idx++
+            lines.push(`${idx}. ${t(CATEGORY_LABEL_KEYS[cat])}`)
+            for (const e of catEntries) {
+              const desc = stripHtml(e.description)
+              if (desc) lines.push(`   - ${desc}`)
+            }
+            lines.push('')
+          }
+
+          return lines.join('\n')
+        }
+        // Init from cache or generate
+        if (!textEditorInited) {
+          const cached = localStorage.getItem(cacheKey)
+          setTextEditorContent(cached ?? generateText())
+          setTextEditorInited(true)
+        }
+        const handleTextChange = (val: string) => {
+          setTextEditorContent(val)
+          localStorage.setItem(cacheKey, val)
+        }
+        const handleRegenerate = () => {
+          const text = generateText()
+          setTextEditorContent(text)
+          localStorage.setItem(cacheKey, text)
+        }
+        const handleCopy = () => {
+          navigator.clipboard.writeText(textEditorContent).then(() => message.success(t('dailyLog.textCopied')))
+        }
+        return (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold text-slate-600">{t('dailyLog.textEditorTitle')}</span>
+              <div className="flex items-center gap-2">
+                <Button size="small" onClick={handleRegenerate}>{t('dailyLog.textRegenerate')}</Button>
+                <Button size="small" onClick={handleCopy}>{t('dailyLog.textCopy')}</Button>
+              </div>
+            </div>
+            <Input.TextArea
+              value={textEditorContent}
+              onChange={(e) => handleTextChange(e.target.value)}
+              autoSize={{ minRows: 15, maxRows: 40 }}
+              className="font-mono text-sm"
+              style={{ borderRadius: 10, padding: 16 }}
+            />
+            <div className="text-xs text-slate-400">{t('dailyLog.textCacheHint')}</div>
+          </div>
         )
       })()}
 

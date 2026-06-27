@@ -12,7 +12,7 @@ import { useAppSelector } from '@/hooks/redux'
 import {
   Card, Row, Col, Table, Tag, Avatar, DatePicker, Segmented,
   Skeleton, Button, Dropdown, Tabs, Collapse, Badge, Tooltip,
-  Empty, Drawer, Input, Progress,
+  Empty, Drawer, Input, Progress, Select,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import {
@@ -620,9 +620,14 @@ const MemberReportCard: React.FC<{ report: ReportMember; initialExpanded?: boole
 // ─── Progress Report Tab ───────────────────────────────────────────────────────
 const ProgressReportTab: React.FC<{ initialPeriod?: PeriodKey; initialMember?: string }> = ({ initialPeriod = 'week', initialMember }) => {
   const { t } = useTranslation()
-  const [period,      setPeriod]      = useState<PeriodKey>(initialPeriod)
-  const [customRange, setCustomRange] = useState<[Dayjs, Dayjs] | null>(null)
-  const [reports,     setReports]     = useState<ReportMember[]>([])
+  const [period,        setPeriod]        = useState<PeriodKey>(initialPeriod)
+  const [customRange,   setCustomRange]   = useState<[Dayjs, Dayjs] | null>(null)
+  const [allReports,    setAllReports]    = useState<ReportMember[]>([])
+  const [filterMembers, setFilterMembers] = useState<string[]>([])
+
+  const reports = filterMembers.length > 0
+    ? allReports.filter((r) => filterMembers.includes(r.work_no))
+    : allReports
 
   const currentPreset = PERIOD_PRESETS.find((p) => p.key === period)
   const range  = period === 'custom' && customRange ? customRange : (currentPreset?.range() ?? [dayjs().startOf('week'), dayjs().endOf('week')])
@@ -635,10 +640,10 @@ const ProgressReportTab: React.FC<{ initialPeriod?: PeriodKey; initialMember?: s
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ;(projectApi as any).progressReport({ start_date: startStr, end_date: endStr })
       .then((res: { content?: unknown }) => {
-        if (Array.isArray(res.content)) setReports(res.content as ReportMember[])
-        else setReports([])
+        if (Array.isArray(res.content)) setAllReports(res.content as ReportMember[])
+        else setAllReports([])
       })
-      .catch(() => setReports([]))
+      .catch(() => setAllReports([]))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [period, customRange])
 
@@ -649,6 +654,8 @@ const ProgressReportTab: React.FC<{ initialPeriod?: PeriodKey; initialMember?: s
   const atRiskCount   = reports.filter((r) => r.overdue.length > 0 || r.in_progress.some((t) => t.status !== 'normal')).length
 
   const REPORT_PRESETS = [
+    { labelKey: 'statistics.yesterday',   range: () => [dayjs().subtract(1, 'day').startOf('day'), dayjs().subtract(1, 'day').endOf('day')] as [Dayjs, Dayjs] },
+    { labelKey: 'statistics.today',       range: () => [dayjs().startOf('day'), dayjs().endOf('day')] as [Dayjs, Dayjs] },
     { labelKey: 'statistics.lastWeek',    range: () => [dayjs().subtract(1, 'week').startOf('week'), dayjs().subtract(1, 'week').endOf('week')] as [Dayjs, Dayjs] },
     { labelKey: 'statistics.thisWeek',    range: () => [dayjs().startOf('week'), dayjs().endOf('week')] as [Dayjs, Dayjs] },
     { labelKey: 'statistics.thisMonth',   range: () => [dayjs().startOf('month'), dayjs().endOf('month')] as [Dayjs, Dayjs] },
@@ -687,6 +694,22 @@ const ProgressReportTab: React.FC<{ initialPeriod?: PeriodKey; initialMember?: s
           style={{ borderRadius: 8 }}
           value={[range[0], range[1]]}
           onChange={(dates) => { if (dates) { setPeriod('custom'); setCustomRange([dates[0]!, dates[1]!]) } }}
+        />
+
+        <Select
+          mode="multiple"
+          allowClear
+          placeholder={t('statistics.filterMember')}
+          value={filterMembers}
+          onChange={setFilterMembers}
+          style={{ minWidth: 160, maxWidth: 320 }}
+          size="small"
+          maxTagCount={2}
+          options={allReports.map((r) => ({ label: r.name, value: r.work_no }))}
+          filterOption={(input, option) =>
+            (option?.label as string)?.toLowerCase().includes(input.toLowerCase()) ||
+            (option?.value as string)?.toLowerCase().includes(input.toLowerCase())
+          }
         />
 
         <div className="ml-auto flex items-center gap-2">
