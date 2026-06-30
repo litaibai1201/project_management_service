@@ -128,6 +128,14 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
   const [reqReviewSearchLoading,    setReqReviewSearchLoading]    = useState(false)
   const [reqReviewSaving,           setReqReviewSaving]           = useState(false)
 
+  // 需求任務完結審核（多責任人）
+  const [showCompletionReviewModal, setShowCompletionReviewModal] = useState(false)
+  const [completionReviewers,       setCompletionReviewers]       = useState<UserProfile[]>([])
+  const [completionReviewSearch,    setCompletionReviewSearch]    = useState('')
+  const [completionSearchResults,   setCompletionSearchResults]   = useState<UserProfile[]>([])
+  const [completionSearchLoading,   setCompletionSearchLoading]   = useState(false)
+  const [completionSaving,          setCompletionSaving]          = useState(false)
+
   useEffect(() => {
     if (!open || !dutyId) { setDuty(null); setRecords([]); return }
     setLoading(true)
@@ -260,15 +268,31 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
 
   const openSubmitModal = useCallback(async () => {
     if (duty?.standalone_req_id) {
-      // 需求任務：由後端自動決定審核人或直接完結，只需確認
-      setShowReqCompleteConfirm(true)
+      const responsible = duty.responsible ?? []
+      const otherResp = responsible.filter((w) => w.toLowerCase() !== (workNo ?? '').toLowerCase())
+      if (otherResp.length === 0) {
+        // 只有一個責任人（自己）→ 直接完結確認
+        setShowReqCompleteConfirm(true)
+      } else {
+        // 多個責任人 → 打開審核人選擇窗口，預設填入其他責任人
+        setCompletionReviewSearch('')
+        setCompletionSearchResults([])
+        setShowCompletionReviewModal(true)
+        // 查詢其他責任人的 profile
+        try {
+          const res = await userApi.list({ page: 1, size: 2000 })
+          const allUsers = ((res.content as { data_list?: UserProfile[] }).data_list) ?? []
+          const otherSet = new Set(otherResp.map((w) => w.toLowerCase()))
+          setCompletionReviewers(allUsers.filter((u) => otherSet.has(u.work_no.toLowerCase())))
+        } catch { /* ignore */ }
+      }
     } else {
       // AR任務：手動選審核人
       setSelectedReviewers([])
       setShowSubmitModal(true)
       ensureUserOptions()
     }
-  }, [duty?.standalone_req_id, ensureUserOptions])
+  }, [duty, workNo, ensureUserOptions])
 
   const handleReschedule = useCallback(async () => {
     const values = await rescheduleForm.validateFields()
@@ -351,6 +375,30 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
     finally { setReqReviewSaving(false) }
   }, [duty, reqReviewers, reloadDuty])
 
+  const handleCompletionSearchChange = async (keyword: string) => {
+    setCompletionReviewSearch(keyword)
+    if (!keyword.trim()) { setCompletionSearchResults([]); return }
+    setCompletionSearchLoading(true)
+    try {
+      const res = await userApi.list({ keyword, size: 10 })
+      const c = res.content as { data_list?: UserProfile[] }
+      setCompletionSearchResults(c.data_list ?? [])
+    } catch { /* ignore */ }
+    finally { setCompletionSearchLoading(false) }
+  }
+
+  const handleSubmitCompletionReview = useCallback(async () => {
+    if (!duty || completionReviewers.length === 0) return
+    setCompletionSaving(true)
+    try {
+      await dutyApi.submitCompletion(duty.id, completionReviewers.map((r) => r.work_no))
+      showToast.success(t('duty.detail.completionSubmitted'))
+      setShowCompletionReviewModal(false)
+      await reloadDuty()
+    } catch { /* global */ }
+    finally { setCompletionSaving(false) }
+  }, [duty, completionReviewers, reloadDuty])
+
   const loadProgress = async () => {
     if (!dutyId) return
     try {
@@ -390,7 +438,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
       const dutyRes = await dutyApi.get(dutyId)
       setDuty(dutyRes.content as TemporaryDuty)
       if (Number(values.progress) === 100) {
-        setShow100Prompt(true)
+        openSubmitModal()
       }
     } catch { /* global */ }
     finally { setIsSaving(false) }
@@ -436,6 +484,16 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
           const isOverdue = duty.expected_end_date && duty.expected_end_date < new Date().toISOString().slice(0, 10)
           return (
             <div className="flex gap-2">
+              {/* 刪除：草稿狀態 + 建立人或負責人 */}
+              {duty.status === 0 && (isCreator || isResponsible) && (
+                <Popconfirm title={t('duty.detail.confirmDelete')} onConfirm={async () => {
+                  await dutyApi.delete(duty.id)
+                  showToast.success(t('duty.detail.deleteSuccess'))
+                  onClose?.()
+                }} okText={t('common.confirm')} cancelText={t('common.cancel')} okButtonProps={{ danger: true }}>
+                  <Button size="small" danger>{t('common.delete')}</Button>
+                </Popconfirm>
+              )}
               {/* 延期：超時 + 進行中/未開始（非搁置）+ 需求任務需求責任人/普通AR建立人或負責人 */}
               {isOverdue && [1, 6].includes(duty.status) && canReqHold && (
                 <Button size="small" onClick={() => {
@@ -1182,10 +1240,101 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
         </div>
       </Modal>
 
+      {/* 需求任務完結審核人選擇 Modal（多責任人） */}
+      <Modal
+        title={t('duty.detail.submitCompletionTitle')}
+        open={showCompletionReviewModal}
+        onCancel={() => setShowCompletionReviewModal(false)}
+        footer={null} width={520} destroyOnHidden
+      >
+        <div className="mt-4 space-y-4">
+          <div className="text-xs text-slate-400">{t('duty.detail.completionReviewHint')}</div>
+          <div>
+            <div className="text-sm font-medium text-slate-600 mb-2">{t('duty.detail.reviewFlow')}</div>
+            {completionReviewers.length === 0 ? (
+              <div className="border border-dashed border-slate-300 rounded-lg py-5 text-center text-slate-400 text-sm">
+                {t('duty.detail.noReviewerAdded')}
+              </div>
+            ) : (
+              <div className="border border-slate-200 rounded-lg overflow-hidden">
+                {completionReviewers.map((r, i) => (
+                  <div key={r.work_no} className="flex items-center gap-3 px-3 py-2.5 border-b border-slate-100 last:border-b-0 bg-white hover:bg-slate-50 transition-colors">
+                    <div className="w-6 h-6 rounded-full bg-blue-600 text-white text-xs flex items-center justify-center flex-shrink-0 font-semibold">{i + 1}</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-slate-800">{r.name}</div>
+                      <div className="text-xs text-slate-400 truncate">{r.department}{r.position ? ` · ${r.position}` : ''} · {r.work_no}</div>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <Button size="small" type="text" disabled={i === 0}
+                        onClick={() => setCompletionReviewers((prev) => { const a = [...prev]; [a[i], a[i-1]] = [a[i-1], a[i]]; return a })}
+                        style={{ padding: '0 4px', fontSize: 12, color: i === 0 ? '#cbd5e1' : '#64748b' }}>↑</Button>
+                      <Button size="small" type="text" disabled={i === completionReviewers.length - 1}
+                        onClick={() => setCompletionReviewers((prev) => { const a = [...prev]; [a[i], a[i+1]] = [a[i+1], a[i]]; return a })}
+                        style={{ padding: '0 4px', fontSize: 12, color: i === completionReviewers.length - 1 ? '#cbd5e1' : '#64748b' }}>↓</Button>
+                      {completionReviewers.length <= 1
+                        ? <Tooltip title={t('duty.detail.lastReviewerLock')}>
+                            <span className="w-7 h-7 flex items-center justify-center text-slate-300">🔒</span>
+                          </Tooltip>
+                        : <Button size="small" type="text" danger icon={<TrashIcon className="w-3.5 h-3.5" />}
+                            onClick={() => setCompletionReviewers((prev) => prev.filter((u) => u.work_no !== r.work_no))} />
+                      }
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div>
+            <div className="text-sm font-medium text-slate-600 mb-2">{t('duty.detail.addReviewer')}</div>
+            <div className="relative">
+              <Input placeholder={t('duty.detail.searchReviewerPlaceholder')} value={completionReviewSearch}
+                onChange={(e) => handleCompletionSearchChange(e.target.value)}
+                prefix={completionSearchLoading ? <Spin size="small" /> : undefined} allowClear />
+              {completionSearchResults.length > 0 && (
+                <div className="absolute z-50 top-full left-0 right-0 mt-1 border border-slate-200 rounded-lg bg-white shadow-lg overflow-hidden max-h-48 overflow-y-auto">
+                  {completionSearchResults.map((u) => {
+                    const already = completionReviewers.some((r) => r.work_no === u.work_no)
+                    const isSelf = u.work_no.toLowerCase() === (workNo ?? '').toLowerCase()
+                    return (
+                      <div key={u.work_no}
+                        className={`flex items-center gap-3 px-3 py-2 border-b border-slate-50 last:border-b-0 transition-colors ${already || isSelf ? 'opacity-40 cursor-not-allowed' : 'hover:bg-blue-50 cursor-pointer'}`}
+                        onClick={() => {
+                          if (already || isSelf) return
+                          setCompletionReviewers((prev) => [...prev, u])
+                          setCompletionReviewSearch('')
+                          setCompletionSearchResults([])
+                        }}>
+                        <div className="w-7 h-7 rounded-full bg-slate-200 flex items-center justify-center text-xs font-semibold text-slate-600 flex-shrink-0">{u.name.charAt(0)}</div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium text-slate-800">{u.name}</div>
+                          <div className="text-xs text-slate-400">{u.department}{u.position ? ` · ${u.position}` : ''} · {u.work_no}</div>
+                        </div>
+                        {already && <span className="text-xs text-slate-400">{t('duty.alreadyAdded')}</span>}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+          <Divider style={{ margin: '8px 0' }} />
+          <div className="flex justify-end gap-3">
+            <Button onClick={() => setShowCompletionReviewModal(false)}>{t('common.cancel')}</Button>
+            <Button type="primary" loading={completionSaving} disabled={completionReviewers.length === 0}
+              style={{ background: '#16a34a' }}
+              onClick={handleSubmitCompletionReview}>
+              {t('duty.detail.submitCompletionNow')}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
       {/* 進度100%完結提示 Modal */}
       {(() => {
         const isReqTask = !!duty?.standalone_req_id
-        const isReqResp = isReqTask && reqResponsible.some((w) => w.toLowerCase() === (workNo ?? '').toLowerCase())
+        const dutyResp = duty?.responsible ?? []
+        const otherResp = dutyResp.filter((w) => w.toLowerCase() !== (workNo ?? '').toLowerCase())
+        const isSoleResp = isReqTask && otherResp.length === 0
         return (
           <Modal
             title={
@@ -1197,16 +1346,16 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
             open={show100Prompt}
             onOk={() => { setShow100Prompt(false); openSubmitModal() }}
             onCancel={() => setShow100Prompt(false)}
-            okText={isReqResp ? t('duty.detail.confirmComplete') : t('duty.detail.submitCompletionNow')}
+            okText={isSoleResp ? t('duty.detail.confirmComplete') : t('duty.detail.submitCompletionNow')}
             cancelText={t('duty.detail.later')}
             okButtonProps={{ style: { background: '#16a34a' } }}
             width={400}
           >
             <p className="text-sm text-slate-600 mt-2">
               {isReqTask
-                ? isReqResp
+                ? isSoleResp
                   ? t('duty.detail.reqRespDirectComplete')
-                  : t('duty.detail.reqSubmitToResponsible', { names: reqResponsible.map((w) => toName(w) || w).join('、') })
+                  : t('duty.detail.reqSubmitToResponsible', { names: otherResp.map((w) => toName(w) || w).join('、') })
                 : t('duty.detail.submitCompletionPrompt')}
             </p>
           </Modal>

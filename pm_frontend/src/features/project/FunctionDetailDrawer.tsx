@@ -330,6 +330,15 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
       width={560}
       extra={
         <div className="flex gap-2">
+          {isDraft && isProjectPm && (
+            <Popconfirm title={t('function.deleteConfirm')} onConfirm={async () => {
+              await projectApi.deleteFunction(projectId, functionId)
+              showToast.success(t('function.deleteSuccess'))
+              onClose(); onRefresh?.()
+            }} okText={t('common.confirm')} cancelText={t('common.cancel')} okButtonProps={{ danger: true }}>
+              <Button size="small" danger>{t('common.delete')}</Button>
+            </Popconfirm>
+          )}
           {canEdit && (
             <Button icon={<PencilSquareIcon className="w-4 h-4" />} size="small" onClick={handleEditOpen}>
               {t('function.editBtn')}

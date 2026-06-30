@@ -259,9 +259,11 @@ const ProjectListPage: React.FC = () => {
             <Button icon={<EyeIcon className="w-4 h-4" />} size="small" type="text"
               onClick={() => window.open(`/projects/${record.id}`, '_blank')} />
           </Tooltip>
-          <Popconfirm title={t('project.deleteConfirm')} onConfirm={() => handleDelete(record.id)} okText={t('common.confirm')} cancelText={t('common.cancel')}>
-            <Tooltip title={t('common.delete')}><Button icon={<TrashIcon className="w-4 h-4" />} size="small" type="text" danger /></Tooltip>
-          </Popconfirm>
+          {record.status === 1 && (
+            <Popconfirm title={t('project.deleteConfirm')} onConfirm={() => handleDelete(record.id)} okText={t('common.confirm')} cancelText={t('common.cancel')}>
+              <Tooltip title={t('common.delete')}><Button icon={<TrashIcon className="w-4 h-4" />} size="small" type="text" danger /></Tooltip>
+            </Popconfirm>
+          )}
         </Space>
       ),
     },

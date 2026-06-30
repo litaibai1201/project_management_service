@@ -871,13 +871,29 @@ const groupedByReq = useMemo(() => {
       },
     },
     {
-      title: t('system.action'), key: 'action', width: 60, fixed: 'right',
-      render: (_: unknown, r: TemporaryDuty) => (
-        <Tooltip title={t('common.detail')}>
-          <Button type="text" size="small" icon={<EyeIcon className="w-4 h-4 text-slate-400" />}
-            onClick={() => setSelectedDutyId(r.id)} />
-        </Tooltip>
-      ),
+      title: t('system.action'), key: 'action', width: 90, fixed: 'right',
+      render: (_: unknown, r: TemporaryDuty) => {
+        const isCreator = r.creator?.toLowerCase() === workNo.toLowerCase()
+        const isResp = (r.responsible ?? []).some((w) => w.toLowerCase() === workNo.toLowerCase())
+        return (
+          <Space size={0}>
+            <Tooltip title={t('common.detail')}>
+              <Button type="text" size="small" icon={<EyeIcon className="w-4 h-4 text-slate-400" />}
+                onClick={() => setSelectedDutyId(r.id)} />
+            </Tooltip>
+            {r.status === 0 && (isCreator || isResp) && (
+              <Popconfirm title={t('system.confirmDeleteTask')} onConfirm={async () => {
+                await dutyApi.delete(r.id)
+                loadDuties()
+              }} okText={t('common.delete')} cancelText={t('common.cancel')} okButtonProps={{ danger: true }}>
+                <Tooltip title={t('common.delete')}>
+                  <Button type="text" size="small" danger icon={<TrashIcon className="w-4 h-4" />} />
+                </Tooltip>
+              </Popconfirm>
+            )}
+          </Space>
+        )
+      },
     },
   ]
 

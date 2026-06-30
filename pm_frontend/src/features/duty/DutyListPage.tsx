@@ -586,12 +586,30 @@ const DutyListPage: React.FC = () => {
       },
     },
     {
-      title: t('common.operation'), key: 'action', width: 70, fixed: 'right',
-      render: (_: unknown, r) => (
-        <Tooltip title={t('duty.viewDetail')}>
-          <Button icon={<EyeIcon className="w-4 h-4" />} size="small" type="text" onClick={() => setSelectedFid(r.id)} />
-        </Tooltip>
-      ),
+      title: t('common.operation'), key: 'action', width: 90, fixed: 'right',
+      render: (_: unknown, r) => {
+        const isPm = r.project_pm?.toLowerCase() === workNo.toLowerCase()
+        const isResp = (r.responsible ?? []).some((w) => w.toLowerCase() === workNo.toLowerCase())
+        const isDraft = r.status === 0
+        return (
+          <Space size={0}>
+            <Tooltip title={t('duty.viewDetail')}>
+              <Button icon={<EyeIcon className="w-4 h-4" />} size="small" type="text" onClick={() => setSelectedFid(r.id)} />
+            </Tooltip>
+            {isDraft && (isPm || isResp) && (
+              <Popconfirm title={t('duty.deleteConfirm')} onConfirm={async () => {
+                try {
+                  await projectApi.deleteFunction(r.project_id, r.id)
+                  showToast.success(t('common.deleteSuccess'))
+                  loadMyFunctions(1, myFuncPageSize, myFuncStatus, myFuncScope)
+                } catch { showToast.error(t('common.deleteFailed')) }
+              }} okText={t('common.confirm')} cancelText={t('common.cancel')}>
+                <Tooltip title={t('common.delete')}><Button icon={<TrashIcon className="w-4 h-4" />} size="small" type="text" danger /></Tooltip>
+              </Popconfirm>
+            )}
+          </Space>
+        )
+      },
     },
   ]
 
@@ -705,6 +723,7 @@ const DutyListPage: React.FC = () => {
       title: t('common.operation'), key: 'action', width: 80, fixed: 'right',
       render: (_: unknown, record) => {
         const isCreator = record.creator?.toLowerCase() === workNo.toLowerCase()
+        const isResp = (record.responsible ?? []).some((w: string) => w.toLowerCase() === workNo.toLowerCase())
         const isDraft = record.status === 0
         return (
           <Space size={0}>
@@ -712,7 +731,7 @@ const DutyListPage: React.FC = () => {
               <Button icon={<EyeIcon className="w-4 h-4" />} size="small" type="text"
                 onClick={() => setSelectedDutyId(record.id)} />
             </Tooltip>
-            {isCreator && isDraft && (
+            {isDraft && (isCreator || isResp) && (
               <Popconfirm title={t('duty.deleteConfirm')} onConfirm={() => handleDelete(record.id)} okText={t('common.confirm')} cancelText={t('common.cancel')}>
                 <Tooltip title={t('common.delete')}><Button icon={<TrashIcon className="w-4 h-4" />} size="small" type="text" danger /></Tooltip>
               </Popconfirm>
@@ -820,12 +839,24 @@ const DutyListPage: React.FC = () => {
       },
     },
     {
-      title: t('common.operation'), key: 'action', width: 70, fixed: 'right',
-      render: (_: unknown, record) => (
-        <Tooltip title={t('duty.viewDetail')}>
-          <Button icon={<EyeIcon className="w-4 h-4" />} size="small" type="text" onClick={() => setSelectedDutyId(record.id)} />
-        </Tooltip>
-      ),
+      title: t('common.operation'), key: 'action', width: 90, fixed: 'right',
+      render: (_: unknown, record) => {
+        const isCreator = record.creator?.toLowerCase() === workNo.toLowerCase()
+        const isResp = (record.responsible ?? []).some((w: string) => w.toLowerCase() === workNo.toLowerCase())
+        const isDraft = record.status === 0
+        return (
+          <Space size={0}>
+            <Tooltip title={t('duty.viewDetail')}>
+              <Button icon={<EyeIcon className="w-4 h-4" />} size="small" type="text" onClick={() => setSelectedDutyId(record.id)} />
+            </Tooltip>
+            {isDraft && (isCreator || isResp) && (
+              <Popconfirm title={t('duty.deleteConfirm')} onConfirm={() => handleDelete(record.id)} okText={t('common.confirm')} cancelText={t('common.cancel')}>
+                <Tooltip title={t('common.delete')}><Button icon={<TrashIcon className="w-4 h-4" />} size="small" type="text" danger /></Tooltip>
+              </Popconfirm>
+            )}
+          </Space>
+        )
+      },
     },
   ]
   const { mergeColumns: sysColumns } = useResizableColumns(rawSysColumns)

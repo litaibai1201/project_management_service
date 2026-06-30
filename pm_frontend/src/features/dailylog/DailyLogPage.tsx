@@ -795,12 +795,12 @@ const DailyLogPage: React.FC = () => {
       .catch(() => {})
   }, [])
 
-  // Load duty list once on mount — 僅返回當前用戶為責任人、狀態為未開始/進行中的 AR
+  // Load duty list once on mount — 僅返回當前用戶為責任人、狀態為未開始/進行中的純 AR（排除系統需求任務）
   useEffect(() => {
     dutyApi.taskList({ page: 1, size: 200 })
       .then((res) => {
-        const list = (res.content as { data_list?: { id: string; duty_nm: string; system_id?: string; system_nm?: string; requirement_nm?: string; group?: string; expected_start_date?: string; expected_end_date?: string }[] })?.data_list ?? []
-        setDutyOpts(list.map((d) => ({
+        const list = (res.content as { data_list?: { id: string; duty_nm: string; system_id?: string; system_nm?: string; standalone_req_id?: string; requirement_nm?: string; group?: string; expected_start_date?: string; expected_end_date?: string }[] })?.data_list ?? []
+        setDutyOpts(list.filter((d) => !d.standalone_req_id && !d.system_id).map((d) => ({
           id: d.id, name: d.duty_nm,
           system_nm: d.system_nm || undefined,
           requirement_nm: d.requirement_nm || undefined,
@@ -2157,11 +2157,18 @@ const DailyLogPage: React.FC = () => {
           }
 
           const stripHtml = (s: string) => s?.replace(/<[^>]*>/g, '').trim() || ''
+          const hoursSuffix = (items: DailyLogEntry[]) => {
+            const total = items.reduce((s, e) => s + e.hours, 0)
+            const ot = items.filter((e) => e.is_overtime).reduce((s, e) => s + (e.overtime_hours ?? e.hours), 0)
+            return ot > 0
+              ? `(${t('dailyLog.textHours')}${fmtH(total)}h，${t('dailyLog.textOvertime')}${fmtH(ot)}h)`
+              : `(${t('dailyLog.textHours')}${fmtH(total)}h)`
+          }
 
           // Project tasks
           for (const [projNm, pEntries] of projMap) {
             idx++
-            lines.push(`${idx}. ${projNm}`)
+            lines.push(`${idx}. ${projNm}${hoursSuffix(pEntries)}`)
             for (const e of pEntries) {
               const parts = [e.requirement_nm, e.function_nm].filter(Boolean)
               const desc = stripHtml(e.description)
@@ -2174,7 +2181,7 @@ const DailyLogPage: React.FC = () => {
           // System tasks
           for (const [sysNm, sEntries] of sysMap) {
             idx++
-            lines.push(`${idx}. ${sysNm}`)
+            lines.push(`${idx}. ${sysNm}${hoursSuffix(sEntries)}`)
             for (const e of sEntries) {
               const parts = [e.requirement_nm, e.duty_nm].filter(Boolean)
               const desc = stripHtml(e.description)
@@ -2187,7 +2194,7 @@ const DailyLogPage: React.FC = () => {
           // AR tasks
           if (arEntries.length > 0) {
             idx++
-            lines.push(`${idx}. AR`)
+            lines.push(`${idx}. AR${hoursSuffix(arEntries)}`)
             for (const e of arEntries) {
               const desc = stripHtml(e.description)
               lines.push(`   - ${e.duty_nm || '—'}`)
@@ -2204,7 +2211,7 @@ const DailyLogPage: React.FC = () => {
           }
           for (const [cat, catEntries] of otherByCat) {
             idx++
-            lines.push(`${idx}. ${t(CATEGORY_LABEL_KEYS[cat])}`)
+            lines.push(`${idx}. ${t(CATEGORY_LABEL_KEYS[cat])}${hoursSuffix(catEntries)}`)
             for (const e of catEntries) {
               const desc = stripHtml(e.description)
               if (desc) lines.push(`   - ${desc}`)
