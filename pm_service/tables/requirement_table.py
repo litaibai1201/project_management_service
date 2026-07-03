@@ -29,6 +29,7 @@ class RequirementModel(BaseMixinModel):
     files_json            = db.Column(db.Text,       comment="附件列表(JSON数组 [{name,url,size}])")
     expected_end_date     = db.Column(db.String(10), comment="预计结束日期")
     is_addon              = db.Column(db.Boolean, default=False, comment="是否追加需求(效益独立计算)")
+    shelve_reason         = db.Column(db.Text, nullable=True, comment="搁置原因")
 
     def to_dict(self):
         files = []
@@ -61,4 +62,5 @@ class RequirementModel(BaseMixinModel):
             "expected_end_date":    self.expected_end_date or "",
             "created_at":           self.created_at,
             "updated_at":           self.update_at or "",
+            "shelve_reason":        self.shelve_reason or "",
         }

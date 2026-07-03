@@ -585,35 +585,35 @@ class UserController:
         ar_completed   = d.filter(ar_duty_filter, TemporaryDutyModel.duty_status == 3).count()
         ar_suspended   = d.filter(ar_duty_filter, TemporaryDutyModel.duty_status == 8).count()
 
-        # 超时/临期排除草稿（function_status=0）和已完结/删除
+        # 超时/临期排除草稿/已完结/删除/搁置
         func_overdue = f.filter(
-            func_filter, FunctionDataModel.function_status.notin_([0, 4, 9]),
+            func_filter, FunctionDataModel.function_status.notin_([0, 4, 8, 9]),
             FunctionDataModel.expected_end_date.isnot(None),
             FunctionDataModel.expected_end_date != '',
             FunctionDataModel.expected_end_date <  today,
         ).count()
         duty_overdue = d.filter(
-            sys_duty_filter, TemporaryDutyModel.duty_status.notin_([0, 3, 9]),
+            sys_duty_filter, TemporaryDutyModel.duty_status.notin_([0, 3, 8, 9]),
             TemporaryDutyModel.expected_end_date.isnot(None),
             TemporaryDutyModel.expected_end_date != '',
             TemporaryDutyModel.expected_end_date <  today,
         ).count()
         ar_overdue = d.filter(
-            ar_duty_filter, TemporaryDutyModel.duty_status.notin_([0, 3, 9]),
+            ar_duty_filter, TemporaryDutyModel.duty_status.notin_([0, 3, 8, 9]),
             TemporaryDutyModel.expected_end_date.isnot(None),
             TemporaryDutyModel.expected_end_date != '',
             TemporaryDutyModel.expected_end_date <  today,
         ).count()
 
         func_urgent = f.filter(
-            func_filter, FunctionDataModel.function_status.notin_([0, 4, 9]),
+            func_filter, FunctionDataModel.function_status.notin_([0, 4, 8, 9]),
             FunctionDataModel.expected_end_date.isnot(None),
             FunctionDataModel.expected_end_date != '',
             FunctionDataModel.expected_end_date >= today,
             FunctionDataModel.expected_end_date <= today_plus7,
         ).count()
         duty_urgent = d.filter(
-            duty_filter, TemporaryDutyModel.duty_status.notin_([0, 3, 9]),
+            duty_filter, TemporaryDutyModel.duty_status.notin_([0, 3, 8, 9]),
             TemporaryDutyModel.expected_end_date.isnot(None),
             TemporaryDutyModel.expected_end_date != '',
             TemporaryDutyModel.expected_end_date >= today,

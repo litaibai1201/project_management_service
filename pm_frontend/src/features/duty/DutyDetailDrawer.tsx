@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import {
   Drawer, Descriptions, Button, Tag, Progress, Spin, Empty, Avatar, Switch,
-  Typography, Space, Form, Input, InputNumber, Upload, Timeline,
+  Typography, Form, Input, InputNumber, Upload, Timeline,
   Card, Steps, Modal, Select, Popconfirm, AutoComplete, Tooltip, Divider,
 } from 'antd'
 import type { UploadFile } from 'antd'
@@ -23,7 +23,7 @@ import type { TaskLogEntry } from '@/api/daily_log.api'
 import { tokenStorage } from '@/api/httpClient'
 import { DUTY_STATUS_MAP, PRIORITY_MAP, formatGroupName } from '@/utils/status'
 import { showToast } from '@/utils/toast'
-import dayjs from 'dayjs'
+// dayjs removed — no longer used directly
 import DateInput from '@/components/common/DateInput'
 
 const { Text } = Typography
@@ -31,16 +31,6 @@ const { Text } = Typography
 const DUTY_STEP_KEYS = ['status.duty.6', 'status.duty.1', 'status.duty.2', 'status.duty.3'] as const
 const statusToStep = (s: number) => ({ 6: 0, 1: 1, 2: 2, 3: 3 }[s] ?? 0)
 const PRIORITY_COLORS = ['', '#22c55e', '#f59e0b', '#ef4444', '#7c3aed']
-
-const DaysLeftBadge: React.FC<{ date?: string }> = ({ date }) => {
-  const { t } = useTranslation()
-  if (!date) return null
-  const days = dayjs(date).diff(dayjs(), 'day')
-  if (days < 0)  return <span className="days-overdue">{t('duty.detail.overdueDays', { days: Math.abs(days) })}</span>
-  if (days <= 3) return <span className="days-overdue">{t('common.daysLeft', { days })}</span>
-  if (days <= 7) return <span className="days-warning">{t('common.daysLeft', { days })}</span>
-  return <span className="days-ok">{t('common.daysLeft', { days })}</span>
-}
 
 interface Props {
   open: boolean
@@ -135,6 +125,11 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
   const [completionSearchResults,   setCompletionSearchResults]   = useState<UserProfile[]>([])
   const [completionSearchLoading,   setCompletionSearchLoading]   = useState(false)
   const [completionSaving,          setCompletionSaving]          = useState(false)
+
+  // 搁置
+  const [showHoldModal,   setShowHoldModal]   = useState(false)
+  const [holdReason,      setHoldReason]      = useState('')
+  const [holdSaving,      setHoldSaving]      = useState(false)
 
   useEffect(() => {
     if (!open || !dutyId) { setDuty(null); setRecords([]); return }
@@ -446,10 +441,6 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
 
   const priorityColor = PRIORITY_COLORS[duty?.priority ?? 0] ?? '#94a3b8'
   const statusInfo    = duty ? DUTY_STATUS_MAP[duty.status] : null
-  const dotColorMap: Record<string, string> = {
-    default: '#94a3b8', processing: '#2563eb', orange: '#d97706',
-    success: '#16a34a', warning: '#f59e0b', error: '#dc2626',
-  }
 
   return (
     <>
@@ -469,6 +460,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
           <div className="flex items-center gap-2">
             <div className="w-1.5 h-5 rounded-full flex-shrink-0" style={{ background: priorityColor }} />
             <span className="font-bold text-slate-800 text-base leading-tight">{duty.duty_nm}</span>
+            {statusInfo && <Tag color={statusInfo.color} style={{ fontSize: 11, marginLeft: 4 }}>{statusInfo.label}</Tag>}
           </div>
         ) : t('duty.detail.arDetail')
       }
@@ -503,9 +495,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
               )}
               {/* 擱置 */}
               {[1, 6].includes(duty.status) && canReqHold && (
-                <Popconfirm title={t('duty.detail.confirmHold')} onConfirm={() => doAction(() => dutyApi.hold(duty.id))} okText={t('common.confirm')} cancelText={t('common.cancel')}>
-                  <Button size="small" loading={isActing}>{t('duty.detail.hold')}</Button>
-                </Popconfirm>
+                <Button size="small" onClick={() => { setHoldReason(''); setShowHoldModal(true) }}>{t('duty.detail.hold')}</Button>
               )}
               {/* 恢復 */}
               {duty.status === 8 && canReqHold && (
@@ -539,18 +529,6 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
         <Empty description={t('duty.detail.taskNotExist')} className="mt-16" />
       ) : (
         <div className="space-y-4">
-          {/* Status badge row */}
-          <Space wrap>
-            {statusInfo && (
-              <div className="flex items-center gap-1.5">
-                <span className="status-dot" style={{ background: dotColorMap[statusInfo.color] ?? '#94a3b8' }} />
-                <span className="text-sm text-slate-500">{statusInfo.label}</span>
-              </div>
-            )}
-            {(() => { const p = PRIORITY_MAP[duty.priority]; return p ? <Tag color={p.color} style={{ fontSize: 11 }}>{p.label}</Tag> : null })()}
-            <DaysLeftBadge date={duty.expected_end_date} />
-          </Space>
-
           {/* Action buttons — 草稿階段操作 */}
           {(() => {
             const isCreator = workNo?.toLowerCase() === duty.creator?.toLowerCase()
@@ -575,58 +553,67 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
           })()}
 
           {/* Status steps */}
-          {(duty.status === 6 || (duty.status >= 1 && duty.status <= 3)) && (
-            <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: '14px 20px' } }}>
+          {(duty.status === 6 || duty.status === 8 || (duty.status >= 1 && duty.status <= 3)) && (
+            <>
               <Steps size="small" current={statusToStep(duty.status)}
-                items={DUTY_STEP_KEYS.map((k) => ({ title: <span style={{ fontSize: 12 }}>{t(k)}</span> }))} />
-              <div className="flex items-center gap-3 mt-3">
-                <span className="text-xs text-slate-400 w-14">{t('duty.detail.overallProgress')}</span>
+                items={DUTY_STEP_KEYS.map((k) => ({ title: <span style={{ fontSize: 11 }}>{t(k)}</span> }))}
+                className="mb-4" />
+              <div className="flex items-center gap-3 bg-slate-50 rounded-xl p-3 mb-4">
+                <span className="text-xs text-slate-400 flex-shrink-0">{t('duty.detail.overallProgress')}</span>
                 <Progress percent={duty.progress ?? 0} size="small" strokeColor="#2563eb" trailColor="#e2e8f0"
                   style={{ flex: 1, marginBottom: 0 }} />
               </div>
-            </Card>
+            </>
           )}
 
           {/* Info */}
-          <Card variant="borderless" className="shadow-sm" styles={{ body: { padding: 20 } }}>
-            <Descriptions column={2} size="small"
-              styles={{ label: { color: '#94a3b8', fontSize: 12, fontWeight: 500 }, content: { fontSize: 13, color: '#334155' } }}>
-              <Descriptions.Item label={t('duty.detail.creator')}>{toName(duty.creator)}</Descriptions.Item>
-              <Descriptions.Item label={t('duty.assignee')}>
-                {duty.responsible?.length
-                  ? <div className="flex items-center gap-1.5">
-                      <Avatar size={18} style={{ background: '#7c3aed', fontSize: 10, fontWeight: 600 }}>
-                        {duty.responsible[0]?.[0]?.toUpperCase()}
-                      </Avatar>
-                      <span>{duty.responsible.map((wn) => toName(wn)).join(', ')}</span>
-                    </div>
-                  : <span className="text-slate-300">{t('common.notAssigned')}</span>}
-              </Descriptions.Item>
-              <Descriptions.Item label={t('duty.expectedStart')}>{duty.expected_start_date || '—'}</Descriptions.Item>
-              <Descriptions.Item label={t('duty.expectedComplete')}>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span>{duty.expected_end_date || '—'}</span>
-                  {(duty.reschedule_count ?? 0) > 0 && (
-                    <>
-                      <Tag color="orange" style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px' }}>
-                        {t('duty.detail.rescheduledCount', { count: duty.reschedule_count })}
-                      </Tag>
-                      <span className="text-[10px] text-slate-400">{t('duty.detail.original')}: {duty.original_end_date || '—'}</span>
-                    </>
-                  )}
-                </div>
-              </Descriptions.Item>
-              <Descriptions.Item label={t('duty.taskGroup')}>
-                {duty.group ? <Tag color="processing" style={{ fontSize: 11 }}>{formatGroupName(duty.group) || duty.group}</Tag> : '—'}
-              </Descriptions.Item>
+          <Descriptions column={2} size="small" className="mb-4"
+            styles={{ label: { color: '#94a3b8', fontSize: 12, fontWeight: 500 }, content: { fontSize: 13, color: '#334155' } }}>
+            <Descriptions.Item label={t('common.priority')}>
+              {(() => { const p = PRIORITY_MAP[duty.priority]; return p ? <Tag color={p.color} style={{ fontSize: 11 }}>{p.label}</Tag> : duty.priority })()}
+            </Descriptions.Item>
+            <Descriptions.Item label={t('duty.assignee')}>
+              {duty.responsible?.length
+                ? duty.responsible.map((wn) => (
+                    <Tag key={wn} style={{ marginBottom: 2 }} color="purple">{toName(wn)}</Tag>
+                  ))
+                : <span className="text-slate-300">{t('common.notAssigned')}</span>}
+            </Descriptions.Item>
+            <Descriptions.Item label={t('duty.taskGroup')}>
+              {duty.group ? formatGroupName(duty.group) || duty.group : '—'}
+            </Descriptions.Item>
+            <Descriptions.Item label={t('duty.expectedStart')}>{duty.expected_start_date || '—'}</Descriptions.Item>
+            <Descriptions.Item label={t('duty.expectedComplete')}>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span>{duty.expected_end_date || '—'}</span>
+                {(duty.reschedule_count ?? 0) > 0 && (
+                  <>
+                    <Tag color="orange" style={{ fontSize: 9, padding: '0 4px', margin: 0, lineHeight: '16px' }}>
+                      {t('duty.detail.rescheduledCount', { count: duty.reschedule_count })}
+                    </Tag>
+                    <span className="text-[10px] text-slate-400">{t('duty.detail.original')}: {duty.original_end_date || '—'}</span>
+                  </>
+                )}
+              </div>
+            </Descriptions.Item>
+            <Descriptions.Item label={t('common.createdAt')}>{(duty as unknown as { created_at?: string }).created_at ?? '—'}</Descriptions.Item>
+            {duty.system_nm && (
               <Descriptions.Item label={t('duty.linkedSystem')}>
-                {duty.system_nm ? <span className="text-blue-600 text-xs">{duty.system_nm}</span> : '—'}
+                <span className="text-blue-600 text-xs">{duty.system_nm}</span>
               </Descriptions.Item>
-              {duty.describe && (
-                <Descriptions.Item label={t('common.description')} span={2}><RichTextContent html={duty.describe} /></Descriptions.Item>
-              )}
-            </Descriptions>
-          </Card>
+            )}
+            {duty.describe && (
+              <Descriptions.Item label={t('common.description')} span={2}><RichTextContent html={duty.describe} /></Descriptions.Item>
+            )}
+          </Descriptions>
+
+          {/* Shelve reason */}
+          {duty.status === 8 && (duty as unknown as { shelve_reason?: string }).shelve_reason && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+              <p className="text-[11px] font-semibold text-amber-700 mb-1">{t('duty.detail.holdReasonLabel')}</p>
+              <p className="text-sm text-amber-800">{(duty as unknown as { shelve_reason?: string }).shelve_reason}</p>
+            </div>
+          )}
 
           {/* Reschedule history */}
           {(duty.reschedule_history ?? []).length > 0 && (
@@ -1441,6 +1428,40 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
         />
       </Modal>
     </Drawer>
+
+    {/* 搁置原因 Modal */}
+    <Modal
+      title={t('duty.detail.holdTitle')}
+      open={showHoldModal}
+      onCancel={() => setShowHoldModal(false)}
+      onOk={async () => {
+        if (!duty || !holdReason.trim()) return
+        setHoldSaving(true)
+        try {
+          await dutyApi.hold(duty.id, holdReason)
+          showToast.success(t('duty.detail.holdSuccess'))
+          setShowHoldModal(false)
+          await reloadDuty()
+        } catch { /* global */ }
+        finally { setHoldSaving(false) }
+      }}
+      okText={t('duty.detail.confirmHoldBtn')}
+      cancelText={t('common.cancel')}
+      confirmLoading={holdSaving}
+      okButtonProps={{ disabled: !holdReason.trim(), style: { background: '#d97706' } }}
+      destroyOnHidden
+    >
+      <div className="mt-4 space-y-4">
+        <div className="text-sm text-amber-600 bg-amber-50 rounded px-3 py-2">
+          {t('duty.detail.holdHint')}
+        </div>
+        <div>
+          <div className="text-sm font-medium text-slate-600 mb-2">{t('duty.detail.holdReasonLabel')} <span className="text-red-500">*</span></div>
+          <Input.TextArea value={holdReason} onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setHoldReason(e.target.value)}
+            rows={3} placeholder={t('duty.detail.holdReasonPlaceholder')} />
+        </div>
+      </div>
+    </Modal>
     </>
   )
 }

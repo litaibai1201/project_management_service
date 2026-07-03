@@ -326,8 +326,12 @@ const RequirementListPage: React.FC = () => {
         : <span className="text-slate-300 text-xs">—</span>,
     },
     {
-      title: t('common.status'), dataIndex: 'status', width: 88,
-      render: (v: number) => <Tag color={REQ_STATUS_COLORS[v] ?? 'default'} style={{ fontSize: 11 }}>{REQ_STATUS_KEYS[v] ? t(REQ_STATUS_KEYS[v]) : String(v)}</Tag>,
+      title: t('common.status'), dataIndex: 'status', width: 100,
+      render: (v: number, r: ProjectReqItem) => {
+        const reason = (r as unknown as { shelve_reason?: string }).shelve_reason
+        const tag = <Tag color={REQ_STATUS_COLORS[v] ?? 'default'} style={{ fontSize: 11, cursor: v === 8 && reason ? 'pointer' : undefined }}>{REQ_STATUS_KEYS[v] ? t(REQ_STATUS_KEYS[v]) : String(v)}</Tag>
+        return v === 8 && reason ? <Tooltip title={<><div className="font-semibold mb-1">{t('requirement.shelveReason')}</div><div>{reason}</div></>}>{tag}</Tooltip> : tag
+      },
     },
     {
       title: t('common.priority'), dataIndex: 'priority', width: 80,
@@ -382,8 +386,12 @@ const RequirementListPage: React.FC = () => {
         : <span className="text-slate-300 text-xs">—</span>,
     },
     {
-      title: t('common.status'), dataIndex: 'status', width: 88,
-      render: (v: number) => <Tag color={REQ_STATUS_COLORS[v] ?? 'default'} style={{ fontSize: 11 }}>{REQ_STATUS_KEYS[v] ? t(REQ_STATUS_KEYS[v]) : String(v)}</Tag>,
+      title: t('common.status'), dataIndex: 'status', width: 100,
+      render: (v: number, r: StandaloneReq) => {
+        const reason = (r as unknown as { shelve_reason?: string }).shelve_reason
+        const tag = <Tag color={REQ_STATUS_COLORS[v] ?? 'default'} style={{ fontSize: 11, cursor: v === 8 && reason ? 'pointer' : undefined }}>{REQ_STATUS_KEYS[v] ? t(REQ_STATUS_KEYS[v]) : String(v)}</Tag>
+        return v === 8 && reason ? <Tooltip title={<><div className="font-semibold mb-1">{t('requirement.shelveReason')}</div><div>{reason}</div></>}>{tag}</Tooltip> : tag
+      },
     },
     {
       title: t('common.priority'), dataIndex: 'priority', width: 72,

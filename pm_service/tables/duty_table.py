@@ -37,6 +37,8 @@ class TemporaryDutyModel(BaseMixinModel):
     latest_expected_end_date = db.Column(db.String(10))
     revision_count = db.Column(db.Integer, default=0)
     reschedule_log = db.Column(db.Text, comment="延期记录JSON: [{from,to,reason,date,operator}]")
+    pre_shelve_status = db.Column(db.Integer, nullable=True, comment="搁置前的狀態（需求搁置時記錄，恢復時還原）")
+    shelve_reason = db.Column(db.Text, nullable=True, comment="搁置原因")
 
     def to_dict(self):
         resp = []
@@ -64,6 +66,7 @@ class TemporaryDutyModel(BaseMixinModel):
             "reschedule_history": reschedule_history,
             "start_time": self.start_time or "", "end_time": self.end_time or "",
             "created_at": self.created_at,
+            "shelve_reason": self.shelve_reason or "",
         }
 
 

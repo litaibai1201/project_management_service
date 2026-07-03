@@ -12,6 +12,7 @@ class DutyListQuerySchema(BaseSchema):
     priority = fields.Int(load_default=None, allow_none=True)
     responsible = fields.Str(load_default="")
     system_id = fields.Str(load_default="")
+    standalone_req_id = fields.Str(load_default=None, allow_none=True)
 
 
 class CreateDutySchema(BaseSchema):

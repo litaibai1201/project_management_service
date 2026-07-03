@@ -989,6 +989,15 @@ class ProjectController:
                 else:  # requirement_shelve
                     if final_status == 2:         # 通過 → 搁置
                         req.req_status = 8
+                        # 搁置需求下的進行中/未開始任務（記錄原始狀態）
+                        req_funcs = db.session.query(FunctionDataModel).filter(
+                            FunctionDataModel.requirement_id == req.id,
+                            FunctionDataModel.function_status.in_([1, 2]),
+                        ).all()
+                        for fn in req_funcs:
+                            fn.pre_shelve_status = fn.function_status
+                            fn.function_status = 8
+                            fn.update_at = now
                     # 拒絕/退回 → 需求狀態不變（仍是已通過）
                 req.update_at = now
             db.session.commit()
@@ -2373,11 +2382,15 @@ class FunctionController:
         f.update_at = CommonTools.get_now()
         db.session.commit()
 
-    def set_status(self, function_id: str, status: int):
+    def set_status(self, function_id: str, status: int, reason: str = ""):
         f = _dao.find_function_by_id(function_id)
         if not f:
             raise ResourceNotFoundException(resource_type="功能任务")
         f.function_status = status
+        if status == 8:
+            f.shelve_reason = reason or ""
+        elif status == 2 and f.shelve_reason:
+            f.shelve_reason = None
         f.update_at = CommonTools.get_now()
         db.session.commit()
 

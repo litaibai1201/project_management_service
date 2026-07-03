@@ -141,7 +141,9 @@ class DutyHoldApi(MethodView):
     def post(self, duty_id):
         """搁置任务（进行中→搁置）"""
         work_no = get_identity()
-        ctrl.hold_duty(duty_id, work_no)
+        payload = request.get_json(silent=True) or {}
+        reason = payload.get("reason", "")
+        ctrl.hold_duty(duty_id, work_no, reason=reason)
         return response_result()
 
 

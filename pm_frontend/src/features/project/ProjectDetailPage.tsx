@@ -137,7 +137,7 @@ const ProjectDetailPage: React.FC = () => {
   const [showReqShelve,          setShowReqShelve]          = useState(false)
   const [shelveReqId,            setShelveReqId]            = useState<string | null>(null)
   const [reqShelveSaving,        setReqShelveSaving]        = useState(false)
-  const [reqShelveForm]                                     = Form.useForm()
+  const [shelveReason,           setShelveReason]           = useState('')
   const [reqUserOptions,         setReqUserOptions]         = useState<{ value: string; label: string }[]>([])
   const [selectedReqIds,         setSelectedReqIds]         = useState<string[]>([])
   const [showBatchReview,        setShowBatchReview]        = useState(false)
@@ -475,15 +475,15 @@ const ProjectDetailPage: React.FC = () => {
     finally { setDraftReviewSaving(false) }
   }
 
-  const handleSubmitReqShelve = async (values: { reviewer: string[] }) => {
-    if (!id || !shelveReqId) return
+  const handleSubmitReqShelve = async () => {
+    if (!id || !shelveReqId || !shelveReason.trim()) return
     setReqShelveSaving(true)
     try {
-      await requirementApi.submitShelve(id, shelveReqId, values.reviewer)
-      showToast.success(t('projectDetail.shelveSubmitted'))
+      await requirementApi.submitShelve(id, shelveReqId, shelveReason)
+      showToast.success(t('projectDetail.shelveSuccess'))
       setShowReqShelve(false)
       setShelveReqId(null)
-      reqShelveForm.resetFields()
+      setShelveReason('')
       loadRequirements(id)
     } catch { /* global */ }
     finally { setReqShelveSaving(false) }
@@ -1530,11 +1530,16 @@ const ProjectDetailPage: React.FC = () => {
                       render: (name: string) => <span className="font-medium text-slate-800">{name}</span>,
                     },
                     {
-                      title: t('common.status'), dataIndex: 'status', width: 80,
-                      render: (v: number) => {
+                      title: t('common.status'), dataIndex: 'status', width: 100,
+                      render: (v: number, r: Requirement) => {
                         const map: Record<number, [string, string]> = { 0: [t('projectDetail.reqStatus.draft'), 'default'], 1: [t('projectDetail.reqStatus.reviewing'), 'processing'], 2: [t('projectDetail.reqStatus.inProgress'), 'success'], 3: [t('projectDetail.reqStatus.rejected'), 'error'], 4: [t('projectDetail.reqStatus.completed'), 'processing'], 8: [t('projectDetail.reqStatus.shelved'), 'warning'] }
                         const [label, color] = map[v] ?? [String(v), 'default']
-                        return <Tag color={color} style={{ fontSize: 11 }}>{label}</Tag>
+                        const reason = (r as unknown as { shelve_reason?: string }).shelve_reason
+                        return v === 8 && reason ? (
+                          <Tooltip title={<><div className="font-semibold mb-1">{t('projectDetail.shelveReasonLabel')}</div><div>{reason}</div></>}>
+                            <Tag color={color} style={{ fontSize: 11, cursor: 'pointer' }}>{label}</Tag>
+                          </Tooltip>
+                        ) : <Tag color={color} style={{ fontSize: 11 }}>{label}</Tag>
                       },
                     },
                     {
@@ -1607,9 +1612,29 @@ const ProjectDetailPage: React.FC = () => {
                             )}
                             {canShelve && (
                               <Button size="small"
-                                onClick={(e) => { e.stopPropagation(); setShelveReqId(req.id); setShowReqShelve(true) }}>
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setShelveReqId(req.id)
+                                  setShelveReason('')
+                                  setShowReqShelve(true)
+                                }}>
                                 {t('projectDetail.shelve')}
                               </Button>
+                            )}
+                            {isProductPm && req.status === 8 && (
+                              <Popconfirm title={t('projectDetail.confirmResume')} onConfirm={async () => {
+                                try {
+                                  await requirementApi.update(id!, req.id, { status: 2 } as any)
+                                  showToast.success(t('projectDetail.resumeSuccess'))
+                                  if (id) loadRequirements(id)
+                                } catch { /* global */ }
+                              }} okText={t('common.confirm')} cancelText={t('common.cancel')}
+                                onPopupClick={(e) => e.stopPropagation()}>
+                                <Button size="small" type="primary" style={{ background: '#2563eb' }}
+                                  onClick={(e) => e.stopPropagation()}>
+                                  {t('projectDetail.resumeReq')}
+                                </Button>
+                              </Popconfirm>
                             )}
                             {canDelete && (
                               <Popconfirm title={t('projectDetail.confirmDeleteReq')} onConfirm={() => handleDeleteReq(req.id)} okText={t('common.delete')} cancelText={t('common.cancel')}
@@ -2443,25 +2468,32 @@ const ProjectDetailPage: React.FC = () => {
         </div>
       </Modal>
 
-      {/* 需求搁置審核 Modal */}
+      {/* 需求搁置 Modal */}
       <Modal
         title={t('projectDetail.applyShelve')}
         open={showReqShelve}
-        onCancel={() => { setShowReqShelve(false); setShelveReqId(null); reqShelveForm.resetFields() }}
-        onOk={() => reqShelveForm.submit()}
-        okText={t('projectDetail.submitApplication')}
+        onCancel={() => { setShowReqShelve(false); setShelveReqId(null); setShelveReason('') }}
+        onOk={handleSubmitReqShelve}
+        okText={t('projectDetail.confirmShelve')}
         cancelText={t('common.cancel')}
         confirmLoading={reqShelveSaving}
+        okButtonProps={{ disabled: !shelveReason.trim(), style: { background: '#d97706' } }}
         destroyOnHidden
       >
-        <Form form={reqShelveForm} layout="vertical" onFinish={handleSubmitReqShelve} className="mt-4">
-          <div className="text-sm text-amber-600 bg-amber-50 rounded px-3 py-2 mb-4">
+        <div className="mt-4 space-y-4">
+          <div className="text-sm text-amber-600 bg-amber-50 rounded px-3 py-2">
             {t('projectDetail.shelveHint')}
           </div>
-          <Form.Item name="reviewer" label={t('projectDetail.reviewerWorkNo')} rules={[{ required: true, message: t('projectDetail.reviewerAtLeastOne') }]}>
-            <Select mode="tags" placeholder={t('projectDetail.workNoEnterPlaceholder')} tokenSeparators={[',']} />
-          </Form.Item>
-        </Form>
+          <div>
+            <div className="text-sm font-medium text-slate-600 mb-2">{t('projectDetail.shelveReasonLabel')} <span className="text-red-500">*</span></div>
+            <Input.TextArea
+              value={shelveReason}
+              onChange={(e) => setShelveReason(e.target.value)}
+              rows={3}
+              placeholder={t('projectDetail.shelveReasonPlaceholder')}
+            />
+          </div>
+        </div>
       </Modal>
 
       {/* Add Function Modal */}

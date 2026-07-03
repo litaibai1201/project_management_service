@@ -100,8 +100,8 @@ export const dutyApi = {
     post(`/temporary_duty/${id}/activate`, payload ?? {}),
 
   /** POST /api/temporary_duty/:id/hold */
-  hold: (id: string): Promise<ApiResponse<null>> =>
-    post(`/temporary_duty/${id}/hold`, {}),
+  hold: (id: string, reason?: string): Promise<ApiResponse<null>> =>
+    post(`/temporary_duty/${id}/hold`, { reason: reason ?? '' }),
 
   /** POST /api/temporary_duty/:id/resume */
   resume: (id: string): Promise<ApiResponse<null>> =>

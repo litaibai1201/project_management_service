@@ -67,7 +67,7 @@ export const standaloneReqApi = {
   create: (payload: CreateStandaloneReqPayload): Promise<ApiResponse<StandaloneReq>> =>
     post('/standalone_req/create', payload),
 
-  update: (id: string, payload: Partial<CreateStandaloneReqPayload> & { status?: number }): Promise<ApiResponse<StandaloneReq>> =>
+  update: (id: string, payload: Partial<CreateStandaloneReqPayload> & { status?: number; shelve_reason?: string }): Promise<ApiResponse<StandaloneReq>> =>
     put(`/standalone_req/${id}`, payload),
 
   delete: (id: string): Promise<ApiResponse<null>> =>

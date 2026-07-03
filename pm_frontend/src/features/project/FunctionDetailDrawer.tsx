@@ -127,6 +127,11 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
   const [editForm]   = Form.useForm()
   const sentinelRef  = useRef<HTMLDivElement>(null)
 
+  // 搁置
+  const [showHoldModal, setShowHoldModal] = useState(false)
+  const [holdReason,    setHoldReason]    = useState('')
+  const [holdSaving,    setHoldSaving]    = useState(false)
+
   const isHtml    = (v: string) => /<[a-z][\s\S]*>/i.test(v)
   const stripHtml = (html: string) => html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
 
@@ -287,13 +292,14 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
   const isResponsible     = (funcData?.responsible ?? []).map((r) => r.toLowerCase()).includes(workNo.toLowerCase())
   const isStageTask       = funcData?.group1 === STAGE_GROUP
   // 草稿任务不可更新进度；阶段任务在任何非完结阶段都可；普通任务仅执行中阶段
-  const canUpdateProgress = !isDraft && !isCompleted && !isReviewing && isResponsible && (isStageTask || projectStatus === 5)
+  const isShelved         = funcData?.status === 8
+  const canUpdateProgress = !isDraft && !isCompleted && !isReviewing && !isShelved && isResponsible && (isStageTask || projectStatus === 5)
   // 阶段任务不允许编辑全部字段；草稿任务允许编辑
   const canEdit           = isProjectPm && !isCompleted && !isStageTask
   // 设定日期：任务待开始/进行中且日期为空时，仅PM可设定一次
   const canSetDates       = isProjectPm && !isDraft && !isCompleted && !isReviewing
                             && (!funcData?.expected_start_date || !funcData?.expected_end_date)
-  const canHold           = !!projectPm && workNo.toLowerCase() === projectPm.toLowerCase() && projectStatus === 5
+  const canHold           = !!projectPm && workNo.toLowerCase() === projectPm.toLowerCase() && (projectStatus === 5 || isStageTask)
 
   const token = tokenStorage.get()
   const withToken = (url: string) => token ? `${url}?token=${token}` : url
@@ -351,14 +357,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
               currentEnd={funcData.expected_end_date} onSuccess={loadData} />
           )}
           {canHold && funcData && [1, 2].includes(funcData.status) && (
-            <Popconfirm title={t('function.holdConfirm')} onConfirm={async () => {
-              await projectApi.setFunctionStatus(projectId, functionId, 8)
-              showToast.success(t('function.holdSuccess'))
-              loadData()
-              onRefresh?.()
-            }} okText={t('common.confirm')} cancelText={t('common.cancel')}>
-              <Button size="small">{t('function.holdBtn')}</Button>
-            </Popconfirm>
+            <Button size="small" onClick={() => { setHoldReason(''); setShowHoldModal(true) }}>{t('function.holdBtn')}</Button>
           )}
           {canHold && funcData?.status === 8 && (
             <Popconfirm title={t('function.resumeConfirm')} onConfirm={async () => {
@@ -456,6 +455,14 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
             )}
           </Descriptions>
 
+
+          {/* ── Shelve reason ── */}
+          {isShelved && (funcData as unknown as { shelve_reason?: string }).shelve_reason && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4">
+              <p className="text-[11px] font-semibold text-amber-700 mb-1">{t('function.holdReasonLabel')}</p>
+              <p className="text-sm text-amber-800">{(funcData as unknown as { shelve_reason?: string }).shelve_reason}</p>
+            </div>
+          )}
 
           {/* ── Reschedule history timeline ── */}
           {(funcData.reschedule_history ?? []).length > 0 && (
@@ -986,6 +993,40 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
         minHeight={480}
         onImageUpload={handleImageUpload}
       />
+    </Modal>
+
+    {/* 搁置原因 Modal */}
+    <Modal
+      title={t('function.holdTitle')}
+      open={showHoldModal}
+      onCancel={() => setShowHoldModal(false)}
+      onOk={async () => {
+        if (!holdReason.trim()) return
+        setHoldSaving(true)
+        try {
+          await projectApi.setFunctionStatus(projectId, functionId, 8, holdReason)
+          showToast.success(t('function.holdSuccess'))
+          setShowHoldModal(false)
+          loadData(); onRefresh?.()
+        } catch { /* global */ }
+        finally { setHoldSaving(false) }
+      }}
+      okText={t('function.confirmHold')}
+      cancelText={t('common.cancel')}
+      confirmLoading={holdSaving}
+      okButtonProps={{ disabled: !holdReason.trim(), style: { background: '#d97706' } }}
+      destroyOnHidden
+    >
+      <div className="mt-4 space-y-4">
+        <div className="text-sm text-amber-600 bg-amber-50 rounded px-3 py-2">
+          {t('function.holdHint')}
+        </div>
+        <div>
+          <div className="text-sm font-medium text-slate-600 mb-2">{t('function.holdReasonLabel')} <span className="text-red-500">*</span></div>
+          <Input.TextArea value={holdReason} onChange={(e) => setHoldReason(e.target.value)}
+            rows={3} placeholder={t('function.holdReasonPlaceholder')} />
+        </div>
+      </div>
     </Modal>
     </>
   )

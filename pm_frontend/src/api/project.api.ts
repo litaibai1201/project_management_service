@@ -191,8 +191,8 @@ export const projectApi = {
     del(`/project/${pid}/function/${fid}`),
 
   /** PUT /api/project/:pid/function/:fid/set_status */
-  setFunctionStatus: (pid: string, fid: string, status: number): Promise<ApiResponse<null>> =>
-    put(`/project/${pid}/function/${fid}/set_status`, { status }),
+  setFunctionStatus: (pid: string, fid: string, status: number, reason?: string): Promise<ApiResponse<null>> =>
+    put(`/project/${pid}/function/${fid}/set_status`, { status, reason: reason ?? '' }),
 
   /** POST /api/project/:pid/function/:fid/reschedule — 延期任務 */
   rescheduleFunction: (pid: string, fid: string, payload: { new_end_date: string; reason: string }): Promise<ApiResponse<unknown>> =>
@@ -387,8 +387,8 @@ export const requirementApi = {
   batchSubmitReview: (projectId: string, requirementIds: string[], reviewer: string[]): Promise<ApiResponse<unknown>> =>
     post(`/project/${projectId}/requirements/batch_review`, { requirement_ids: requirementIds, reviewer }),
 
-  submitShelve: (projectId: string, reqId: string, reviewer: string[]): Promise<ApiResponse<unknown>> =>
-    post(`/project/${projectId}/requirements/${reqId}/shelve`, { reviewer }),
+  submitShelve: (projectId: string, reqId: string, reason: string): Promise<ApiResponse<unknown>> =>
+    post(`/project/${projectId}/requirements/${reqId}/shelve`, { reason }),
 
   uploadFile: (projectId: string, reqId: string, file: File): Promise<ApiResponse<{ files: { name: string; url: string; size: number }[] }>> => {
     const fd = new FormData()

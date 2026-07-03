@@ -45,6 +45,7 @@ class UpdateProjectSchema(BaseSchema):
 
 class SetStatusSchema(BaseSchema):
     status = fields.Int(required=True)
+    reason = fields.Str(load_default="")
 
 
 class SubmitReviewSchema(BaseSchema):
@@ -78,6 +79,7 @@ class FunctionListQuerySchema(BaseSchema):
     size = fields.Int(load_default=20)
     keyword = fields.Str(load_default="")
     status = fields.Int(load_default=None, allow_none=True)
+    requirement_id = fields.Str(load_default=None, allow_none=True)
 
 
 class FunctionAllocationSchema(BaseSchema):

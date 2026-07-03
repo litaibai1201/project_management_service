@@ -39,6 +39,7 @@ class UpdateReqSchema(BaseSchema):
     benefit_amount = fields.Float(allow_none=True)
     benefit_unit = fields.Str()
     system_id = fields.Str()
+    shelve_reason = fields.Str(load_default=None, allow_none=True)
 
 
 class SubmitReviewSchema(BaseSchema):

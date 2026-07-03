@@ -387,7 +387,7 @@ class FunctionSetStatusApi(MethodView):
     @blp.response(200, RspMsgDictSchema)
     def put(self, payload, project_id, function_id):
         """设置功能任务状态"""
-        func_ctrl.set_status(function_id, payload["status"])
+        func_ctrl.set_status(function_id, payload["status"], reason=payload.get("reason", ""))
         return response_result()
 
 
@@ -693,13 +693,14 @@ class TaskAdditionReviewApi(MethodView):
 @blp.route("/<string:project_id>/requirements/<string:req_id>/shelve")
 class RequirementShelveApi(MethodView):
     @jwt_required()
-    @blp.arguments(RequirementReviewSchema)
     @blp.response(200, RspMsgDictSchema)
-    def post(self, payload, project_id, req_id):
-        """提交需求搁置审核"""
+    def post(self, project_id, req_id):
+        """搁置需求"""
         work_no = get_identity()
+        payload = request.get_json(silent=True) or {}
+        reason = payload.get("reason", "")
         return response_result(content=req_ctrl.submit_shelve(
-            req_id, reviewer=payload.get("reviewer", []), operator=work_no,
+            req_id, reason=reason, operator=work_no,
         ))
 
 

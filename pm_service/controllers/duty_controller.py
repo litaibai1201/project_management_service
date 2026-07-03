@@ -497,7 +497,7 @@ class DutyController:
                 link_id=d.id,
             )
 
-    def hold_duty(self, duty_id: str, work_no: str):
+    def hold_duty(self, duty_id: str, work_no: str, reason: str = ""):
         """進行中/未開始 → 擱置（需求任務：需求責任人；普通AR：建立人或負責人）"""
         d = dao.find_active_by_id(duty_id)
         if not d:
@@ -514,6 +514,7 @@ class DutyController:
         if d.duty_status not in (1, 6):
             raise BusinessException("僅進行中或未開始狀態可擱置")
         d.duty_status = 8
+        d.shelve_reason = reason or ""
         d.update_at = CommonTools.get_now()
         dao.commit()
 
@@ -546,6 +547,7 @@ class DutyController:
         if d.duty_status != 8:
             raise BusinessException("僅擱置狀態可恢復")
         d.duty_status = 1
+        d.shelve_reason = None
         d.update_at = CommonTools.get_now()
         dao.commit()
 

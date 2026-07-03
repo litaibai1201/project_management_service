@@ -94,6 +94,12 @@ const SystemDetailPage: React.FC = () => {
   const [userOptions, setUserOptions] = useState<{ value: string; label: string }[]>([])
   const workNo = useAppSelector((s) => s.auth.workNo) ?? ''
 
+  // 需求搁置
+  const [showShelveModal,  setShowShelveModal]  = useState(false)
+  const [shelveReqId,      setShelveReqId]      = useState<string | null>(null)
+  const [shelveReason,     setShelveReason]     = useState('')
+  const [shelveSaving,     setShelveSaving]     = useState(false)
+
   // 設定需求責任人 Modal
   const [respEditReqId,    setRespEditReqId]    = useState<string | null>(null)
   const [respPersons,      setRespPersons]      = useState<UserProfile[]>([])
@@ -602,11 +608,16 @@ const groupedByReq = useMemo(() => {
       render: (v: string) => <span className="font-medium text-slate-800">{v}</span>,
     },
     {
-      title: t('common.status'), dataIndex: 'status', width: 80,
-      render: (v: number) => {
+      title: t('common.status'), dataIndex: 'status', width: 100,
+      render: (v: number, r: StandaloneReq) => {
         const map: Record<number, [string, string]> = { 0: [t('system.reqStatus.draft'), 'default'], 1: [t('system.reqStatus.reviewing'), 'processing'], 2: [t('system.reqStatus.inProgress'), 'success'], 3: [t('system.reqStatus.rejected'), 'error'], 4: [t('system.reqStatus.completed'), 'processing'], 8: [t('system.reqStatus.onHold'), 'warning'] }
         const [label, color] = map[v] ?? [String(v), 'default']
-        return <Tag color={color} style={{ fontSize: 11 }}>{label}</Tag>
+        const reason = (r as unknown as { shelve_reason?: string }).shelve_reason
+        return v === 8 && reason ? (
+          <Tooltip title={<><div className="font-semibold mb-1">{t('system.shelveReasonLabel')}</div><div>{reason}</div></>}>
+            <Tag color={color} style={{ fontSize: 11, cursor: 'pointer' }}>{label}</Tag>
+          </Tooltip>
+        ) : <Tag color={color} style={{ fontSize: 11 }}>{label}</Tag>
       },
     },
     {
@@ -697,17 +708,43 @@ const groupedByReq = useMemo(() => {
             </Space>
           )
         }
-        if (r.status === 2 && (r.progress ?? 0) >= 100) {
+        if (r.status === 2) {
           return (
-            <Popconfirm title={t('requirement.confirmComplete')} onConfirm={async () => {
+            <Space size={4}>
+              {(r.progress ?? 0) >= 100 && (
+                <Popconfirm title={t('requirement.confirmComplete')} onConfirm={async () => {
+                  try {
+                    await standaloneReqApi.update(r.id, { status: 4 })
+                    showToast.success(t('requirement.completeSuccess'))
+                    loadReqs(reqPage)
+                  } catch { showToast.error(t('common.error')) }
+                }} okText={t('common.confirm')} cancelText={t('common.cancel')}>
+                  <Button size="small" type="primary" style={{ background: '#16a34a', fontSize: 11 }}>
+                    {t('requirement.complete')}
+                  </Button>
+                </Popconfirm>
+              )}
+              <Button size="small" onClick={(e) => {
+                e.stopPropagation()
+                setShelveReqId(r.id)
+                setShelveReason('')
+                setShowShelveModal(true)
+              }}>{t('system.shelve')}</Button>
+            </Space>
+          )
+        }
+        if (r.status === 8) {
+          return (
+            <Popconfirm title={t('system.confirmResume')} onConfirm={async () => {
               try {
-                await standaloneReqApi.update(r.id, { status: 4 })
-                showToast.success(t('requirement.completeSuccess'))
+                await standaloneReqApi.update(r.id, { status: 2 })
+                showToast.success(t('system.resumeSuccess'))
                 loadReqs(reqPage)
+                loadDuties()
               } catch { showToast.error(t('common.error')) }
             }} okText={t('common.confirm')} cancelText={t('common.cancel')}>
-              <Button size="small" type="primary" style={{ background: '#16a34a', fontSize: 11 }}>
-                {t('requirement.complete')}
+              <Button size="small" type="primary" style={{ background: '#2563eb', fontSize: 11 }}>
+                {t('system.resumeReq')}
               </Button>
             </Popconfirm>
           )
@@ -1995,6 +2032,47 @@ const groupedByReq = useMemo(() => {
         dutyId={selectedDutyId}
         onClose={() => setSelectedDutyId(null)}
       />
+
+      {/* 需求搁置 Modal */}
+      <Modal
+        title={t('system.applyShelve')}
+        open={showShelveModal}
+        onCancel={() => { setShowShelveModal(false); setShelveReqId(null); setShelveReason('') }}
+        onOk={async () => {
+          if (!shelveReqId || !shelveReason.trim()) return
+          setShelveSaving(true)
+          try {
+            await standaloneReqApi.update(shelveReqId, { status: 8, shelve_reason: shelveReason })
+            showToast.success(t('system.shelveSuccess'))
+            setShowShelveModal(false)
+            setShelveReqId(null)
+            setShelveReason('')
+            loadReqs(reqPage)
+            loadDuties()
+          } catch { showToast.error(t('common.error')) }
+          finally { setShelveSaving(false) }
+        }}
+        okText={t('system.confirmShelve')}
+        cancelText={t('common.cancel')}
+        confirmLoading={shelveSaving}
+        okButtonProps={{ disabled: !shelveReason.trim(), style: { background: '#d97706' } }}
+        destroyOnHidden
+      >
+        <div className="mt-4 space-y-4">
+          <div className="text-sm text-amber-600 bg-amber-50 rounded px-3 py-2">
+            {t('system.shelveHint')}
+          </div>
+          <div>
+            <div className="text-sm font-medium text-slate-600 mb-2">{t('system.shelveReasonLabel')} <span className="text-red-500">*</span></div>
+            <Input.TextArea
+              value={shelveReason}
+              onChange={(e) => setShelveReason(e.target.value)}
+              rows={3}
+              placeholder={t('system.shelveReasonPlaceholder')}
+            />
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }

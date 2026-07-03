@@ -278,6 +278,24 @@ class RequirementController:
             r.update_at = CommonTools.get_now()
             db.session.commit()
             return r.to_dict()
+        # 允许将搁置(8)的需求恢复为进行中(2)，同时恢复任务
+        if "status" in payload and int(payload["status"]) == 2 and r.req_status == 8:
+            r.req_status = 2
+            r.shelve_reason = None
+            now = CommonTools.get_now()
+            r.update_at = now
+            # 恢復由需求搁置連帶搁置的任務（有 pre_shelve_status 記錄的）
+            shelved_funcs = db.session.query(FunctionDataModel).filter(
+                FunctionDataModel.requirement_id == req_id,
+                FunctionDataModel.function_status == 8,
+                FunctionDataModel.pre_shelve_status.isnot(None),
+            ).all()
+            for fn in shelved_funcs:
+                fn.function_status = fn.pre_shelve_status
+                fn.pre_shelve_status = None
+                fn.update_at = now
+            db.session.commit()
+            return r.to_dict()
         # 只有草稿狀態的需求可以修改，專案必須在草稿或執行中階段
         if r.req_status != 0:
             raise PermissionException(msg="只有草稿狀態的需求可以修改")
@@ -469,79 +487,51 @@ class RequirementController:
         )
         return apply.to_dict()
 
-    # ── 提交搁置审核 ─────────────────────────────────────────────────────────────
+    # ── 搁置需求 ─────────────────────────────────────────────────────────────
 
-    def submit_shelve(self, req_id: str, reviewer: list, operator: str):
+    def submit_shelve(self, req_id: str, reason: str, operator: str):
+        """直接搁置需求（無需審批），同時搁置其下進行中/未開始的任務"""
         r = _dao.find_by_id(req_id)
         if not r or r.req_status == 9:
             raise ResourceNotFoundException(resource_type="需求")
         if r.req_status != 2:
-            raise PermissionException(msg="只有已通過的需求才能申請搁置")
+            raise PermissionException(msg="只有進行中的需求才能搁置")
 
-        # 检查是否已有待审的搁置申请
-        pending = (
-            db.session.query(ReviewApplyModel)
-            .filter_by(requirement_id=req_id, apply_type_code="requirement_shelve")
-            .filter(ReviewApplyModel.status == 1)
-            .first()
-        )
-        if pending:
-            raise PermissionException(msg="已有搁置審核申請待審，請勿重複提交")
+        now = CommonTools.get_now()
+        r.req_status = 8
+        r.shelve_reason = reason or ""
+        r.update_at = now
 
+        # 搁置需求下的進行中/未開始任務（記錄原始狀態以便恢復）
+        shelved_funcs = db.session.query(FunctionDataModel).filter(
+            FunctionDataModel.requirement_id == req_id,
+            FunctionDataModel.function_status.in_([1, 2]),
+        ).all()
+        for fn in shelved_funcs:
+            fn.pre_shelve_status = fn.function_status
+            fn.function_status = 8
+            fn.update_at = now
+
+        db.session.commit()
+
+        # 通知需求相關人員
         p = _dao.find_project(r.project_id)
-        operator = (operator or "").strip().lower()
-        reviewer = [(w or "").strip().lower() for w in reviewer if w]
-
-        all_wks = list({operator} | set(reviewer))
-        wk_user_map = {
-            u.work_no.lower(): u
-            for u in db.session.query(UserProfileModel).filter(
-                db.func.lower(UserProfileModel.work_no).in_([w.lower() for w in all_wks])
-            ).all()
-        }
-        nodes = []
-        for i, wk in enumerate(reviewer):
-            u = wk_user_map.get(wk.lower())
-            nodes.append({
-                "node_id": f"{CommonTools.get_now().replace(' ', '')}_{i}",
-                "order": i + 1,
-                "approver": u.name if u else wk,
-                "approver_work_no": wk,
-                "status": 0,
-                "is_countersign": False,
-                "approved_at": None,
-                "comment": None,
-            })
-
-        submitter_profile = wk_user_map.get(operator.lower())
-        submitter_name = submitter_profile.name if submitter_profile else operator
-
-        apply = ReviewApplyModel(
-            project_id=r.project_id,
-            requirement_id=req_id,
-            apply_type="需求搁置",
-            apply_type_code="requirement_shelve",
-            submitter=operator,
-            submitter_name=submitter_name,
-            reviewer=json.dumps(reviewer),
-            priority=r.priority,
-            description=r.req_nm,
-            approval_nodes_json=json.dumps(nodes, ensure_ascii=False),
-        )
-        _dao.add(apply)
-        r.update_at = CommonTools.get_now()
-        _dao.commit()
-
-        from controllers.notification_controller import push_notification
-        first_reviewers = [n["approver_work_no"] for n in nodes if n.get("order") == 1]
-        push_notification(
-            first_reviewers,
-            title="您有新的需求搁置申請待處理",
-            desc=f"專案「{p.project_nm if p else ''}」的需求「{r.req_nm}」申請搁置，請及時處理。",
-            link_type="review",
-            link_id=apply.id,
-        )
-        return apply.to_dict()
+        resp = []
+        if r.responsible_json:
+            try:
+                resp = json.loads(r.responsible_json)
+            except Exception:
+                pass
+        notif_targets = [w for w in resp if w != operator]
+        if notif_targets:
+            from controllers.notification_controller import push_notification
+            push_notification(
+                notif_targets,
+                title="需求已搁置",
+                desc=f"專案「{p.project_nm if p else ''}」的需求「{r.req_nm}」已搁置。原因：{reason or '未填寫'}",
+                link_type="requirement",
+                link_id=req_id,
+            )
 
     # ── 文件管理 ────────────────────────────────────────────────────────────────
 

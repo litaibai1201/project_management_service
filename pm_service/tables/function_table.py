@@ -37,6 +37,8 @@ class FunctionDataModel(BaseMixinModel):
     group1 = db.Column(db.String(64), comment="功能分组1")
     group2 = db.Column(db.String(64), comment="功能分组2")
     requirement_id = db.Column(db.String(32), db.ForeignKey("requirement_form.id"), nullable=True, index=True, comment="所属需求ID（可选）")
+    pre_shelve_status = db.Column(db.Integer, nullable=True, comment="搁置前的狀態（需求搁置時記錄，恢復時還原）")
+    shelve_reason = db.Column(db.Text, nullable=True, comment="搁置原因")
 
     def to_dict(self):
         reschedule_history = []
@@ -60,6 +62,7 @@ class FunctionDataModel(BaseMixinModel):
             "group1": self.group1 or "", "group2": self.group2 or "",
             "requirement_id": self.requirement_id or "",
             "created_at": self.created_at,
+            "shelve_reason": self.shelve_reason or "",
         }
 
 

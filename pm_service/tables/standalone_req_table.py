@@ -31,6 +31,7 @@ class StandaloneReqModel(BaseMixinModel):
     benefit_amount    = db.Column(db.Float,      comment="预估效益数量")
     benefit_unit      = db.Column(db.String(10), default="元/年", comment="效益单位(元/年|人/年)")
     files_json        = db.Column(db.Text, comment="附件JSON数组")
+    shelve_reason     = db.Column(db.Text, nullable=True, comment="搁置原因")
     created_at        = db.Column(db.String(19), default=CommonTools.get_now, nullable=False)
     updated_at        = db.Column(db.String(19), default=CommonTools.get_now, onupdate=CommonTools.get_now)
 
@@ -63,4 +64,5 @@ class StandaloneReqModel(BaseMixinModel):
             "files":              json.loads(self.files_json) if self.files_json else [],
             "created_at":         self.created_at or "",
             "updated_at":         self.updated_at or "",
+            "shelve_reason":      self.shelve_reason or "",
         }

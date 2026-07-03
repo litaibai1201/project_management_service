@@ -160,7 +160,38 @@ class StandaloneReqController:
             r.benefit_amount = payload["benefit_amount"]
         if "benefit_unit" in payload:
             r.benefit_unit = payload["benefit_unit"]
+        if "shelve_reason" in payload:
+            r.shelve_reason = payload["shelve_reason"]
         r.updated_at = CommonTools.get_now()
+
+        # 需求搁置(8)時記錄原因；恢復時清空
+        new_status = r.req_status
+        if new_status != old_status:
+            if new_status == 8 and "shelve_reason" not in payload:
+                r.shelve_reason = payload.get("shelve_reason", "")
+            elif old_status == 8 and new_status == 2:
+                r.shelve_reason = None
+
+        # 需求搁置(8)時，將其下進行中/未開始的任務也搁置（記錄原始狀態）；恢復時按原始狀態還原
+        if new_status != old_status:
+            from daos.duty_dao import DutyDAO
+            duty_dao = DutyDAO()
+            duties = duty_dao.query_duties_by_req(req_id)
+            if new_status == 8:
+                # 搁置：記錄原始狀態後設為搁置
+                for d in duties:
+                    if d.duty_status in (1, 6):
+                        d.pre_shelve_status = d.duty_status
+                        d.duty_status = 8
+                        d.update_at = r.updated_at
+            elif old_status == 8 and new_status == 2:
+                # 恢復：僅恢復由需求搁置連帶搁置的任務（有 pre_shelve_status 的）
+                for d in duties:
+                    if d.duty_status == 8 and d.pre_shelve_status is not None:
+                        d.duty_status = d.pre_shelve_status
+                        d.pre_shelve_status = None
+                        d.update_at = r.updated_at
+
         _dao.commit()
 
         # 狀態變為進行中(2)或完結(4)時通知負責人
