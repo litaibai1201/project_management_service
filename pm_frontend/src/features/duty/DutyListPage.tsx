@@ -223,7 +223,7 @@ const DutyListPage: React.FC = () => {
   const [arQuickResp,      setArQuickResp]      = useState<{ did: string; persons: UserProfile[] } | null>(null)
   const [arQuickSaving,    setArQuickSaving]    = useState(false)
   const [arRespKw,         setArRespKw]         = useState('')
-  const [arRespResult,     setArRespResult]     = useState<UserProfile | null | false>(null)
+  const [arRespResults,    setArRespResults]    = useState<UserProfile[]>([])
   const [arRespSearching,  setArRespSearching]  = useState(false)
   const [arRespPreloading, setArRespPreloading] = useState(false)
   const arRespRef = useRef<InputRef>(null)
@@ -458,21 +458,22 @@ const DutyListPage: React.FC = () => {
     } catch (err: unknown) { showToast.error((err instanceof Error ? err.message : String(err)) || t('duty.createFailed')) }
   }
 
-  // ── AR 快速負責人搜尋 ──────────────────────────────────────────────────────
+  // ── AR 快速負責人搜尋（支持工號/姓名模糊搜索）─────────────────────────────
   const handleArRespSearch = useCallback(async (kw: string) => {
-    const trimmed = kw.trim().toLowerCase()
-    if (trimmed.length < 4) { setArRespResult(null); return }
-    setArRespSearching(true); setArRespResult(null)
+    const trimmed = kw.trim()
+    if (trimmed.length < 1) { setArRespResults([]); return }
+    setArRespSearching(true); setArRespResults([])
     try {
-      const res = await userApi.getQuiet(trimmed)
-      setArRespResult(res.content ?? false)
-    } catch { setArRespResult(false) }
-    finally { setArRespSearching(false); arRespRef.current?.focus() }
+      const res = await userApi.list({ keyword: trimmed, size: 10 })
+      const list = ((res.content as { data_list?: UserProfile[] }).data_list) ?? []
+      setArRespResults(list)
+    } catch { setArRespResults([]) }
+    finally { setArRespSearching(false) }
   }, [])
 
   useEffect(() => {
-    if (arRespKw.trim().length < 4) { setArRespResult(null); return }
-    const t = setTimeout(() => handleArRespSearch(arRespKw), 600)
+    if (arRespKw.trim().length < 1) { setArRespResults([]); return }
+    const t = setTimeout(() => handleArRespSearch(arRespKw), 400)
     return () => clearTimeout(t)
   }, [arRespKw, handleArRespSearch])
 
@@ -658,7 +659,7 @@ const DutyListPage: React.FC = () => {
         const canEdit = isCreator || isResp
         const COLORS = ['#7c3aed', '#2563eb', '#059669', '#d97706', '#dc2626']
         const openPicker = async () => {
-          setArRespKw(''); setArRespResult(null)
+          setArRespKw(''); setArRespResults([])
           setArQuickResp({ did: record.id, persons: [] })
           if ((v ?? []).length > 0) {
             setArRespPreloading(true)
@@ -1369,46 +1370,41 @@ const DutyListPage: React.FC = () => {
     >
       <div className="py-3 space-y-4">
         <div>
-          <div className="text-sm font-medium text-slate-700 mb-2">{t('duty.searchByWorkNo')}</div>
-          <Input
-            ref={arRespRef}
-            value={arRespKw}
-            onChange={(e) => setArRespKw(e.target.value)}
-            placeholder={t('duty.searchWorkNoPlaceholder')}
-            suffix={arRespSearching ? <Spin size="small" /> : null}
-            autoFocus
-          />
-          {arRespResult === false && (
-            <div className="mt-2 text-xs text-red-500 flex items-center gap-1">
-              <XMarkIcon className="w-3.5 h-3.5" />{t('duty.workNoNotFound')}
-            </div>
-          )}
-          {arRespResult && typeof arRespResult === 'object' && (
-            <div className="mt-2 flex items-center justify-between bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
-              <div className="flex items-center gap-2">
-                <Avatar size={28} style={{ background: '#2563eb', fontSize: 11, fontWeight: 700 }}>
-                  {(arRespResult as UserProfile).name?.[0]?.toUpperCase()}
-                </Avatar>
-                <div>
-                  <div className="text-sm font-medium text-slate-800">{(arRespResult as UserProfile).name}</div>
-                  <div className="text-xs text-slate-400">{(arRespResult as UserProfile).work_no} · {(arRespResult as UserProfile).department}</div>
-                </div>
+          <div className="text-sm font-medium text-slate-700 mb-2">{t('duty.searchPerson')}</div>
+          <div className="relative">
+            <Input
+              ref={arRespRef}
+              value={arRespKw}
+              onChange={(e) => setArRespKw(e.target.value)}
+              placeholder={t('duty.searchPersonPlaceholder')}
+              prefix={arRespSearching ? <Spin size="small" /> : undefined}
+              allowClear
+              autoFocus
+            />
+            {arRespResults.length > 0 && (
+              <div className="absolute z-50 top-full left-0 right-0 mt-1 border border-slate-200 rounded-lg bg-white shadow-lg overflow-hidden max-h-48 overflow-y-auto">
+                {arRespResults.map((u) => {
+                  const already = arQuickResp?.persons.some((p) => p.work_no === u.work_no)
+                  return (
+                    <div key={u.work_no}
+                      className={`flex items-center gap-3 px-3 py-2 border-b border-slate-50 last:border-b-0 transition-colors ${already ? 'opacity-40 cursor-not-allowed' : 'hover:bg-blue-50 cursor-pointer'}`}
+                      onClick={() => {
+                        if (already) return
+                        setArQuickResp((prev) => prev ? { ...prev, persons: [...prev.persons, u] } : null)
+                        setArRespKw(''); setArRespResults([])
+                      }}>
+                      <Avatar size={28} style={{ background: '#2563eb', fontSize: 11, fontWeight: 700 }}>{u.name?.[0]}</Avatar>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-slate-800">{u.name}</div>
+                        <div className="text-xs text-slate-400">{u.work_no} · {u.department}{u.position ? ` · ${u.position}` : ''}</div>
+                      </div>
+                      {already && <span className="text-xs text-slate-400">{t('duty.alreadyAdded')}</span>}
+                    </div>
+                  )
+                })}
               </div>
-              <Button
-                size="small" type="primary" style={{ background: '#2563eb' }}
-                disabled={arQuickResp?.persons.some((p) => p.work_no === (arRespResult as UserProfile).work_no)}
-                onClick={() => {
-                  const person = arRespResult as UserProfile
-                  if (!arQuickResp?.persons.some((p) => p.work_no === person.work_no)) {
-                    setArQuickResp((prev) => prev ? { ...prev, persons: [...prev.persons, person] } : null)
-                  }
-                  setArRespKw(''); setArRespResult(null)
-                }}
-              >
-                {arQuickResp?.persons.some((p) => p.work_no === (arRespResult as UserProfile).work_no) ? t('duty.alreadyAdded') : t('duty.addPerson')}
-              </Button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
         <div>
           <div className="text-sm font-medium text-slate-700 mb-2">

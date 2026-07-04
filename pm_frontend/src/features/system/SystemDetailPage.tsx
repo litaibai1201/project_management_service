@@ -106,14 +106,14 @@ const SystemDetailPage: React.FC = () => {
   const [respSaving,       setRespSaving]       = useState(false)
   const [respSearchKw,     setRespSearchKw]     = useState('')
   const [respSearching,    setRespSearching]    = useState(false)
-  const [respSearchResult, setRespSearchResult] = useState<UserProfile | false | null>(null)
+  const [respSearchResults, setRespSearchResults] = useState<UserProfile[]>([])
   const [respPreloading,   setRespPreloading]   = useState(false)
   const respSearchRef = useRef<InputRef>(null)
 
   const openRespModal = async (r: StandaloneReq) => {
     setRespEditReqId(r.id)
     setRespSearchKw('')
-    setRespSearchResult(null)
+    setRespSearchResults([])
     setRespPreloading(true)
     setRespPersons([])
     // 預載現有責任人
@@ -131,16 +131,15 @@ const SystemDetailPage: React.FC = () => {
   }
 
   useEffect(() => {
-    if (respSearchKw.trim().length < 4) { setRespSearchResult(null); return }
+    if (respSearchKw.trim().length < 1) { setRespSearchResults([]); return }
     const timer = setTimeout(async () => {
-      setRespSearching(true)
-      setRespSearchResult(null)
+      setRespSearching(true); setRespSearchResults([])
       try {
-        const res = await userApi.getQuiet(respSearchKw.trim().toLowerCase())
-        setRespSearchResult(res.content ?? false)
-      } catch { setRespSearchResult(false) }
-      finally { setRespSearching(false); respSearchRef.current?.focus() }
-    }, 600)
+        const res = await userApi.list({ keyword: respSearchKw.trim(), size: 10 })
+        setRespSearchResults(((res.content as { data_list?: UserProfile[] }).data_list) ?? [])
+      } catch { setRespSearchResults([]) }
+      finally { setRespSearching(false) }
+    }, 400)
     return () => clearTimeout(timer)
   }, [respSearchKw])
 
@@ -206,7 +205,7 @@ const SystemDetailPage: React.FC = () => {
   const [quickDutyResp,      setQuickDutyResp]      = useState<{ did: string; persons: UserProfile[] } | null>(null)
   const [quickDutySaving,    setQuickDutySaving]    = useState(false)
   const [dutyRespKw,         setDutyRespKw]         = useState('')
-  const [dutyRespResult,     setDutyRespResult]     = useState<UserProfile | null | false>(null)
+  const [dutyRespResults,    setDutyRespResults]    = useState<UserProfile[]>([])
   const [dutyRespSearching,  setDutyRespSearching]  = useState(false)
   const [dutyRespPreloading, setDutyRespPreloading] = useState(false)
   const dutyRespRef = useRef<InputRef>(null)
@@ -350,24 +349,19 @@ const SystemDetailPage: React.FC = () => {
   }
 
   const handleDutyRespSearch = async (kw: string) => {
-    const trimmed = kw.trim().toLowerCase()
-    if (trimmed.length < 4) { setDutyRespResult(null); return }
-    setDutyRespSearching(true)
-    setDutyRespResult(null)
+    const trimmed = kw.trim()
+    if (trimmed.length < 1) { setDutyRespResults([]); return }
+    setDutyRespSearching(true); setDutyRespResults([])
     try {
-      const res = await userApi.getQuiet(trimmed)
-      setDutyRespResult(res.content ?? false)
-    } catch {
-      setDutyRespResult(false)
-    } finally {
-      setDutyRespSearching(false)
-      dutyRespRef.current?.focus()
-    }
+      const res = await userApi.list({ keyword: trimmed, size: 10 })
+      setDutyRespResults(((res.content as { data_list?: UserProfile[] }).data_list) ?? [])
+    } catch { setDutyRespResults([]) }
+    finally { setDutyRespSearching(false) }
   }
 
   useEffect(() => {
-    if (dutyRespKw.trim().length < 4) { setDutyRespResult(null); return }
-    const t = setTimeout(() => handleDutyRespSearch(dutyRespKw), 600)
+    if (dutyRespKw.trim().length < 1) { setDutyRespResults([]); return }
+    const t = setTimeout(() => handleDutyRespSearch(dutyRespKw), 400)
     return () => clearTimeout(t)
   }, [dutyRespKw])
 
@@ -810,7 +804,7 @@ const groupedByReq = useMemo(() => {
         const list = v ?? []
         const COLORS = ['#7c3aed', '#2563eb', '#059669', '#d97706', '#dc2626']
         const openPicker = async () => {
-          setDutyRespKw(''); setDutyRespResult(null)
+          setDutyRespKw(''); setDutyRespResults([])
           setQuickDutyResp({ did: record.id, persons: [] })
           if (list.length > 0) {
             setDutyRespPreloading(true)
@@ -1859,45 +1853,40 @@ const groupedByReq = useMemo(() => {
       >
         <div className="py-3 space-y-4">
           <div>
-            <div className="text-sm font-medium text-slate-700 mb-2">{t('system.searchByWorkNo')}</div>
-            <Input
-              ref={respSearchRef}
-              value={respSearchKw}
-              onChange={(e) => setRespSearchKw(e.target.value)}
-              placeholder={t('system.workNoSearchPlaceholder')}
-              suffix={respSearching ? <Spin size="small" /> : null}
-              autoFocus
-            />
-            {respSearchResult === false && (
-              <div className="mt-2 text-xs text-red-500 flex items-center gap-1">
-                <XMarkIcon className="w-3.5 h-3.5" />{t('system.workNoNotFound')}
-              </div>
-            )}
-            {respSearchResult && typeof respSearchResult === 'object' && (
-              <div className="mt-2 flex items-center justify-between bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
-                <div className="flex items-center gap-2">
-                  <Avatar size={28} style={{ background: '#2563eb', fontSize: 11, fontWeight: 700 }}>
-                    {respSearchResult.name?.[0]?.toUpperCase()}
-                  </Avatar>
-                  <div>
-                    <div className="text-sm font-medium text-slate-800">{respSearchResult.name}</div>
-                    <div className="text-xs text-slate-400">{respSearchResult.work_no} · {respSearchResult.department}</div>
-                  </div>
+            <div className="text-sm font-medium text-slate-700 mb-2">{t('system.searchPerson')}</div>
+            <div className="relative">
+              <Input
+                ref={respSearchRef}
+                value={respSearchKw}
+                onChange={(e) => setRespSearchKw(e.target.value)}
+                placeholder={t('system.searchPersonPlaceholder')}
+                prefix={respSearching ? <Spin size="small" /> : undefined}
+                allowClear autoFocus
+              />
+              {respSearchResults.length > 0 && (
+                <div className="absolute z-50 top-full left-0 right-0 mt-1 border border-slate-200 rounded-lg bg-white shadow-lg overflow-hidden max-h-48 overflow-y-auto">
+                  {respSearchResults.map((u) => {
+                    const already = respPersons.some((p) => p.work_no === u.work_no)
+                    return (
+                      <div key={u.work_no}
+                        className={`flex items-center gap-3 px-3 py-2 border-b border-slate-50 last:border-b-0 transition-colors ${already ? 'opacity-40 cursor-not-allowed' : 'hover:bg-blue-50 cursor-pointer'}`}
+                        onClick={() => {
+                          if (already) return
+                          setRespPersons((prev) => [...prev, u])
+                          setRespSearchKw(''); setRespSearchResults([])
+                        }}>
+                        <Avatar size={28} style={{ background: '#2563eb', fontSize: 11, fontWeight: 700 }}>{u.name?.[0]}</Avatar>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium text-slate-800">{u.name}</div>
+                          <div className="text-xs text-slate-400">{u.work_no} · {u.department}{u.position ? ` · ${u.position}` : ''}</div>
+                        </div>
+                        {already && <span className="text-xs text-slate-400">{t('system.alreadyAdded')}</span>}
+                      </div>
+                    )
+                  })}
                 </div>
-                <Button
-                  size="small" type="primary" style={{ background: '#2563eb' }}
-                  disabled={respPersons.some((p) => p.work_no === respSearchResult.work_no)}
-                  onClick={() => {
-                    if (!respPersons.some((p) => p.work_no === respSearchResult.work_no)) {
-                      setRespPersons((prev) => [...prev, respSearchResult])
-                    }
-                    setRespSearchKw(''); setRespSearchResult(null)
-                  }}
-                >
-                  {respPersons.some((p) => p.work_no === respSearchResult.work_no) ? t('system.alreadyAdded') : t('system.addPerson')}
-                </Button>
-              </div>
-            )}
+              )}
+            </div>
           </div>
           <div>
             <div className="text-sm font-medium text-slate-700 mb-2">
@@ -1949,46 +1938,40 @@ const groupedByReq = useMemo(() => {
       >
         <div className="py-3 space-y-4">
           <div>
-            <div className="text-sm font-medium text-slate-700 mb-2">{t('system.searchByWorkNo')}</div>
-            <Input
-              ref={dutyRespRef}
-              value={dutyRespKw}
-              onChange={(e) => setDutyRespKw(e.target.value)}
-              placeholder={t('system.workNoSearchPlaceholder')}
-              suffix={dutyRespSearching ? <Spin size="small" /> : null}
-              autoFocus
-            />
-            {dutyRespResult === false && (
-              <div className="mt-2 text-xs text-red-500 flex items-center gap-1">
-                <XMarkIcon className="w-3.5 h-3.5" />{t('system.workNoNotFound')}
-              </div>
-            )}
-            {dutyRespResult && typeof dutyRespResult === 'object' && (
-              <div className="mt-2 flex items-center justify-between bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
-                <div className="flex items-center gap-2">
-                  <Avatar size={28} style={{ background: '#2563eb', fontSize: 11, fontWeight: 700 }}>
-                    {(dutyRespResult as UserProfile).name?.[0]?.toUpperCase()}
-                  </Avatar>
-                  <div>
-                    <div className="text-sm font-medium text-slate-800">{(dutyRespResult as UserProfile).name}</div>
-                    <div className="text-xs text-slate-400">{(dutyRespResult as UserProfile).work_no} · {(dutyRespResult as UserProfile).department}</div>
-                  </div>
+            <div className="text-sm font-medium text-slate-700 mb-2">{t('system.searchPerson')}</div>
+            <div className="relative">
+              <Input
+                ref={dutyRespRef}
+                value={dutyRespKw}
+                onChange={(e) => setDutyRespKw(e.target.value)}
+                placeholder={t('system.searchPersonPlaceholder')}
+                prefix={dutyRespSearching ? <Spin size="small" /> : undefined}
+                allowClear autoFocus
+              />
+              {dutyRespResults.length > 0 && (
+                <div className="absolute z-50 top-full left-0 right-0 mt-1 border border-slate-200 rounded-lg bg-white shadow-lg overflow-hidden max-h-48 overflow-y-auto">
+                  {dutyRespResults.map((u) => {
+                    const already = quickDutyResp?.persons.some((p) => p.work_no === u.work_no)
+                    return (
+                      <div key={u.work_no}
+                        className={`flex items-center gap-3 px-3 py-2 border-b border-slate-50 last:border-b-0 transition-colors ${already ? 'opacity-40 cursor-not-allowed' : 'hover:bg-blue-50 cursor-pointer'}`}
+                        onClick={() => {
+                          if (already) return
+                          setQuickDutyResp((prev) => prev ? { ...prev, persons: [...prev.persons, u] } : null)
+                          setDutyRespKw(''); setDutyRespResults([])
+                        }}>
+                        <Avatar size={28} style={{ background: '#2563eb', fontSize: 11, fontWeight: 700 }}>{u.name?.[0]}</Avatar>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium text-slate-800">{u.name}</div>
+                          <div className="text-xs text-slate-400">{u.work_no} · {u.department}{u.position ? ` · ${u.position}` : ''}</div>
+                        </div>
+                        {already && <span className="text-xs text-slate-400">{t('system.alreadyAdded')}</span>}
+                      </div>
+                    )
+                  })}
                 </div>
-                <Button
-                  size="small" type="primary" style={{ background: '#2563eb' }}
-                  disabled={quickDutyResp?.persons.some((p) => p.work_no === (dutyRespResult as UserProfile).work_no)}
-                  onClick={() => {
-                    const person = dutyRespResult as UserProfile
-                    if (!quickDutyResp?.persons.some((p) => p.work_no === person.work_no)) {
-                      setQuickDutyResp((prev) => prev ? { ...prev, persons: [...prev.persons, person] } : null)
-                    }
-                    setDutyRespKw(''); setDutyRespResult(null)
-                  }}
-                >
-                  {quickDutyResp?.persons.some((p) => p.work_no === (dutyRespResult as UserProfile).work_no) ? t('system.alreadyAdded') : t('system.addPerson')}
-                </Button>
-              </div>
-            )}
+              )}
+            </div>
           </div>
           <div>
             <div className="text-sm font-medium text-slate-700 mb-2">
