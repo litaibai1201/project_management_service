@@ -121,6 +121,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
   // 需求任務完結審核（多責任人）
   const [showCompletionReviewModal, setShowCompletionReviewModal] = useState(false)
   const [completionReviewers,       setCompletionReviewers]       = useState<UserProfile[]>([])
+  const [defaultCompletionWnos,     setDefaultCompletionWnos]     = useState<Set<string>>(new Set())
   const [completionReviewSearch,    setCompletionReviewSearch]    = useState('')
   const [completionSearchResults,   setCompletionSearchResults]   = useState<UserProfile[]>([])
   const [completionSearchLoading,   setCompletionSearchLoading]   = useState(false)
@@ -282,12 +283,28 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
         } catch { /* ignore */ }
       }
     } else {
-      // AR任務：手動選審核人
-      setSelectedReviewers([])
-      setShowSubmitModal(true)
-      ensureUserOptions()
+      // AR任務
+      const creator = duty?.creator ?? ''
+      const isCreator = (workNo ?? '').toLowerCase() === creator.toLowerCase()
+
+      if (isCreator) {
+        // 提交人是創建人 → 直接完結
+        setShowReqCompleteConfirm(true)
+      } else {
+        // 提交人不是創建人 → 彈出審核人選擇窗口，創建人默認鎖定
+        setCompletionReviewSearch('')
+        setCompletionSearchResults([])
+        setShowCompletionReviewModal(true)
+        try {
+          const res = await userApi.list({ page: 1, size: 2000 })
+          const allUsers = ((res.content as { data_list?: UserProfile[] }).data_list) ?? []
+          const creatorUser = allUsers.find((u) => u.work_no.toLowerCase() === creator.toLowerCase())
+          setCompletionReviewers(creatorUser ? [creatorUser] : [])
+          setDefaultCompletionWnos(new Set(creatorUser ? [creatorUser.work_no] : []))
+        } catch { /* ignore */ }
+      }
     }
-  }, [duty, workNo, ensureUserOptions])
+  }, [duty, workNo])
 
   const handleReschedule = useCallback(async () => {
     const values = await rescheduleForm.validateFields()
@@ -1258,13 +1275,19 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
                       <Button size="small" type="text" disabled={i === completionReviewers.length - 1}
                         onClick={() => setCompletionReviewers((prev) => { const a = [...prev]; [a[i], a[i+1]] = [a[i+1], a[i]]; return a })}
                         style={{ padding: '0 4px', fontSize: 12, color: i === completionReviewers.length - 1 ? '#cbd5e1' : '#64748b' }}>↓</Button>
-                      {completionReviewers.length <= 1
-                        ? <Tooltip title={t('duty.detail.lastReviewerLock')}>
+                      {(() => {
+                        const isDefault = defaultCompletionWnos.has(r.work_no)
+                        const defaultCount = completionReviewers.filter((rv) => defaultCompletionWnos.has(rv.work_no)).length
+                        const isLastDefault = isDefault && defaultCount <= 1
+                        return isLastDefault ? (
+                          <Tooltip title={t('duty.detail.lastReviewerLock')}>
                             <span className="w-7 h-7 flex items-center justify-center text-slate-300">🔒</span>
                           </Tooltip>
-                        : <Button size="small" type="text" danger icon={<TrashIcon className="w-3.5 h-3.5" />}
+                        ) : (
+                          <Button size="small" type="text" danger icon={<TrashIcon className="w-3.5 h-3.5" />}
                             onClick={() => setCompletionReviewers((prev) => prev.filter((u) => u.work_no !== r.work_no))} />
-                      }
+                        )
+                      })()}
                     </div>
                   </div>
                 ))}
@@ -1349,29 +1372,22 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
         )
       })()}
 
-      {/* 需求任務完結確認 Modal（非100%觸發，由 openSubmitModal 直接開啟） */}
-      {(() => {
-        const isReqResp = reqResponsible.some((w) => w.toLowerCase() === (workNo ?? '').toLowerCase())
-        return (
-          <Modal
-            title={t('duty.detail.confirmCompleteTitle')}
-            open={showReqCompleteConfirm}
-            onOk={handleReqCompleteConfirm}
-            onCancel={() => setShowReqCompleteConfirm(false)}
-            okText={isReqResp ? t('duty.detail.directComplete') : t('duty.detail.submitReview')}
-            cancelText={t('common.cancel')}
-            confirmLoading={isActing}
-            okButtonProps={{ style: { background: '#16a34a' } }}
-            width={400}
-          >
-            <p className="text-sm text-slate-600 mt-2">
-              {isReqResp
-                ? t('duty.detail.reqRespDirectComplete')
-                : t('duty.detail.reqSubmitToResponsible', { names: reqResponsible.map((w) => toName(w) || w).join('、') })}
-            </p>
-          </Modal>
-        )
-      })()}
+      {/* 直接完結確認 Modal */}
+      <Modal
+        title={t('duty.detail.confirmCompleteTitle')}
+        open={showReqCompleteConfirm}
+        onOk={handleReqCompleteConfirm}
+        onCancel={() => setShowReqCompleteConfirm(false)}
+        okText={t('duty.detail.directComplete')}
+        cancelText={t('common.cancel')}
+        confirmLoading={isActing}
+        okButtonProps={{ style: { background: '#16a34a' } }}
+        width={400}
+      >
+        <p className="text-sm text-slate-600 mt-2">
+          {t('duty.detail.directCompleteHint')}
+        </p>
+      </Modal>
 
       {/* 進度說明展開編輯 Modal */}
       <Modal

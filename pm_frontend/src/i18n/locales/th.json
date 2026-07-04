@@ -503,6 +503,7 @@
       "submitCompletionPrompt": "ส่งตรวจสอบตอนนี้?",
       "confirmCompleteTitle": "ยืนยันเสร็จสิ้นงาน",
       "directComplete": "เสร็จสิ้นโดยตรง",
+      "directCompleteHint": "งานจะถูกทำเครื่องหมายเสร็จสิ้นทันทีโดยไม่ต้องตรวจสอบ",
       "done": "เสร็จ",
       "reschedule": "เลื่อนกำหนด",
       "hold": "ระงับ",

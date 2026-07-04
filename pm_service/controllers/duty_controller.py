@@ -601,7 +601,20 @@ class DutyController:
             apply_type = "需求任務完結審核"
             apply_type_code = "duty_complete"
         else:
-            # AR任務：使用傳入的 reviewer
+            # AR任務
+            is_creator = work_no.lower() == (d.creator or "").lower()
+
+            if is_creator:
+                # 提交人是創建人 → 直接完結
+                d.duty_status = 3
+                d.end_time = now
+                d.update_at = now
+                dao.commit()
+                return {"review_id": "", "direct": True}
+
+            # 提交人不是創建人 → 使用傳入的審核人列表，預設創建人
+            if not reviewer:
+                reviewer = [d.creator] if d.creator else []
             if not reviewer:
                 raise BusinessException("請至少指定一位審核人")
             apply_type = "AR完結審核"

@@ -503,6 +503,7 @@
       "submitCompletionPrompt": "Submit completion review now?",
       "confirmCompleteTitle": "Confirm Task Completion",
       "directComplete": "Complete Directly",
+      "directCompleteHint": "The task will be marked as completed immediately without review.",
       "done": "Done",
       "reschedule": "Reschedule",
       "hold": "Hold",

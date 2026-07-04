@@ -503,6 +503,7 @@
       "submitCompletionPrompt": "是否立即提交完結審核，讓審核人確認任務完成？",
       "confirmCompleteTitle": "確認完結任務",
       "directComplete": "直接完結",
+      "directCompleteHint": "確認後任務將直接標記為「已完結」，無需審核。",
       "done": "完成",
       "reschedule": "延期",
       "hold": "擱置",
