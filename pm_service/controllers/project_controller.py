@@ -1699,12 +1699,14 @@ class ProjectController:
             s = f.function_status or 1
             if s == 4:
                 return "completed"
+            if s == 8:
+                return "suspended"
             if s == 1:
                 return "not_started"
             return "in_progress"
 
         def _compute_is_overdue(f: FunctionDataModel, status: str) -> bool:
-            if status == "completed":
+            if status in ("completed", "suspended"):
                 return False
             end = f.latest_expected_end_date or f.expected_end_date  # 延期後用新日期判斷
             if not end:
@@ -1716,10 +1718,13 @@ class ProjectController:
 
         def _compute_week_tag(f: FunctionDataModel, status: str) -> list:
             tags = []
-            if status == "completed":
-                # 已完成：以實際完成日為準，無實際完成日才回退預計日
+            if status == "suspended":
+                # 搁置：以更新時間（搁置時間）為準
+                date_str = (f.update_at or "")[:10]
+            elif status == "completed":
+                # 已完成：以實際完成日為準，無實際完成日則回退更新時間
                 date_str = (f.end_time or "")[:10] if f.end_time else (
-                    f.latest_expected_end_date or f.expected_end_date or ""
+                    (f.update_at or "")[:10] or f.latest_expected_end_date or f.expected_end_date or ""
                 )
             else:
                 # 未完成：以延期後的預計完成日為準
@@ -1748,6 +1753,9 @@ class ProjectController:
                 RequirementModel.req_status != 9,
             ).all()
             req_map = {r.id: r.req_nm for r in reqs_all}
+            req_status_map = {r.id: r.req_status for r in reqs_all}
+            req_shelve_reason_map = {r.id: (r.shelve_reason or "") for r in reqs_all}
+            req_shelved_at_map = {r.id: (r.update_at or "")[:10] for r in reqs_all if r.req_status == 8}
 
         # ── 按项目 + group1 分组构建 WBS ──────────────────────────────────
         func_by_proj: dict = {}
@@ -1789,7 +1797,7 @@ class ProjectController:
                                 reschedule_reason = log_list[-1].get("reason", "") or ""
                         except (ValueError, TypeError):
                             pass
-                    actual_end = (f.end_time or "")[:10] if f.end_time else None
+                    actual_end = (f.end_time or "")[:10] if f.end_time else ((f.update_at or "")[:10] if status == "completed" else None)
                     days_overdue = None
                     if is_overdue and end_str:
                         try:
@@ -1834,6 +1842,8 @@ class ProjectController:
                         "status":          status,
                         "is_overdue":      is_overdue,
                         "is_suspended":    (f.function_status or 1) == 8,
+                        "shelve_reason":   f.shelve_reason or "",
+                        "shelved_at":      (f.update_at or "")[:10] if (f.function_status or 1) == 8 else "",
                         "expected_end":    end_str,
                         "original_end":    original_end_str,
                         "reschedule_count": reschedule_count,
@@ -1847,6 +1857,9 @@ class ProjectController:
                         "progress_history": history,
                         "requirement_id":  f.requirement_id or None,
                         "requirement_nm":  req_map.get(f.requirement_id, "") if f.requirement_id else "",
+                        "requirement_status": req_status_map.get(f.requirement_id) if f.requirement_id else None,
+                        "requirement_shelve_reason": req_shelve_reason_map.get(f.requirement_id, "") if f.requirement_id else "",
+                        "requirement_shelved_at": req_shelved_at_map.get(f.requirement_id, "") if f.requirement_id else "",
                     })
 
                 group_progress = (

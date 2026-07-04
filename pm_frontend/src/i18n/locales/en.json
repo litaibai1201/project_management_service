@@ -1124,7 +1124,10 @@
     "statusCompleted": "Completed",
     "statusInProgress": "In Progress",
     "statusNotStarted": "Not Started",
-    "statusOverdue": "Overdue"
+    "statusOverdue": "Overdue",
+    "statusSuspended": "Suspended",
+    "suspended": "Suspended",
+    "shelveReasonLabel": "Reason:"
   },
   "statistics": {
     "title": "Statistics",

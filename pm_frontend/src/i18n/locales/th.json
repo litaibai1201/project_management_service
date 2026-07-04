@@ -1124,7 +1124,10 @@
     "statusCompleted": "เสร็จสิ้น",
     "statusInProgress": "กำลังดำเนินการ",
     "statusNotStarted": "ยังไม่เริ่ม",
-    "statusOverdue": "เกินกำหนด"
+    "statusOverdue": "เกินกำหนด",
+    "statusSuspended": "ระงับ",
+    "suspended": "ระงับ",
+    "shelveReasonLabel": "เหตุผล:"
   },
   "statistics": {
     "title": "สถิติและสมาชิก",

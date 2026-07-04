@@ -1124,7 +1124,10 @@
     "statusCompleted": "已完成",
     "statusInProgress": "進行中",
     "statusNotStarted": "未開始",
-    "statusOverdue": "超時"
+    "statusOverdue": "超時",
+    "statusSuspended": "搁置",
+    "suspended": "搁置",
+    "shelveReasonLabel": "擱置原因："
   },
   "statistics": {
     "title": "統計與成員",

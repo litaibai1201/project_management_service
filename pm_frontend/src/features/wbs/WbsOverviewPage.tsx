@@ -52,7 +52,7 @@ const { Panel } = Collapse
 // ─── Types ─────────────────────────────────────────────────────────────────
 
 type WeekTag = 'last_week' | 'this_week' | 'next_week'
-type TaskStatus = 'completed' | 'in_progress' | 'not_started' | 'overdue'
+type TaskStatus = 'completed' | 'in_progress' | 'not_started' | 'overdue' | 'suspended'
 type NoteType = '決策' | '行動項' | '風險' | '待確認'
 type NoteStatus = 'pending' | 'resolved'
 
@@ -138,6 +138,7 @@ const STATUS_CONFIG: Record<TaskStatus, { labelKey: string; color: string; icon:
   in_progress: { labelKey: 'wbs.statusInProgress', color: '#16a34a', icon: <ArrowTrendingUpIcon className="w-3.5 h-3.5 text-green-500" /> },
   not_started: { labelKey: 'wbs.statusNotStarted', color: '#94a3b8', icon: <ClockIcon className="w-3.5 h-3.5 text-slate-400" /> },
   overdue:     { labelKey: 'wbs.statusOverdue',    color: '#dc2626', icon: <ExclamationTriangleIcon className="w-3.5 h-3.5 text-red-500" /> },
+  suspended:   { labelKey: 'wbs.statusSuspended',  color: '#d97706', icon: <ExclamationTriangleIcon className="w-3.5 h-3.5 text-amber-500" /> },
 }
 
 const NOTE_TYPE_CONFIG: Record<NoteType, { antColor: string; bg: string; color: string }> = {
@@ -154,7 +155,7 @@ const NOTE_TYPE_CONFIG: Record<NoteType, { antColor: string; bg: string; color: 
 function exportWbsCSV(projects: WbsProject[], t: (key: string) => string) {
   const bom = '\uFEFF'
   const headers = [t('wbs.csv.projectName'), t('wbs.csv.functionModule'), t('wbs.csv.taskName'), t('wbs.csv.assignee'), t('wbs.csv.status'), t('wbs.csv.progress'), t('wbs.csv.expectedEnd'), t('wbs.csv.actualEnd'), t('wbs.csv.overdueDays'), t('wbs.csv.weekTag'), t('wbs.csv.latestUpdate')]
-  const statusLabel = (s: TaskStatus) => ({ completed: t('wbs.rpt.completed'), in_progress: t('wbs.rpt.inProgress'), not_started: t('wbs.rpt.notStarted'), overdue: t('wbs.rpt.overdue') }[s])
+  const statusLabel = (s: TaskStatus) => ({ completed: t('wbs.rpt.completed'), in_progress: t('wbs.rpt.inProgress'), not_started: t('wbs.rpt.notStarted'), overdue: t('wbs.rpt.overdue'), suspended: t('wbs.rpt.suspended') }[s])
   const weekTagLabel = (wt: WeekTag) => ({ last_week: t('wbs.lastWeek'), this_week: t('wbs.thisWeek'), next_week: t('wbs.nextWeek') }[wt])
   const rows = projects.flatMap((p) =>
     p.functions.flatMap((f) =>
@@ -199,6 +200,13 @@ function _statusRuns(task: WbsTask): PptTextRun[] {
       _run('(', { color: '0070C0' }),
       _run(i18n.t('wbs.rpt.completed'), { bold: true, color: '0070C0' }),
       _run(')', { color: '0070C0' }),
+    ]
+  }
+  if (task.status === 'suspended' || task.is_suspended) {
+    return [
+      _run('(', { color: 'D97706' }),
+      _run(i18n.t('wbs.rpt.suspended'), { bold: true, color: 'D97706' }),
+      _run(')', { color: 'D97706' }),
     ]
   }
   if (task.is_overdue) {
@@ -289,7 +297,21 @@ function buildProgressTextRuns(project: WbsProject): PptTextRun[] {
     if (!first) runs.push({ text: '\n' })
     first = false
     const num = si + 1
-    runs.push(_run(`${num}. ${nameLabel(section.name)}`, { bold: true, color: '002FA7', fontSize: PPT_FONT_SIZE }))
+    if (section.kind === 'req') {
+      const reqStatus = (section.funcs[0]?.tasks[0] as unknown as { requirement_status?: number })?.requirement_status
+      const isReqShelved = reqStatus === 8
+      const reqColor = isReqShelved ? 'D97706' : '002FA7'
+      runs.push(_run(`${num}. ${nameLabel(section.name)}`, { bold: true, color: reqColor, fontSize: PPT_FONT_SIZE }))
+      if (isReqShelved) {
+        runs.push(_run(` [${i18n.t('wbs.rpt.suspended')}]`, { bold: true, color: 'D97706', fontSize: PPT_FONT_SIZE }))
+        const reqShelvedAt = (section.funcs[0]?.tasks[0] as unknown as { requirement_shelved_at?: string })?.requirement_shelved_at || ''
+        const reqShelveReason = (section.funcs[0]?.tasks[0] as unknown as { requirement_shelve_reason?: string })?.requirement_shelve_reason || ''
+        runs.push({ text: '\n' })
+        runs.push(_run(`   ↳ ${reqShelvedAt} ${i18n.t('wbs.shelveReasonLabel')}${reqShelveReason || '—'}`, { color: 'D97706', fontSize: PPT_FONT_SIZE - 1 }))
+      }
+    } else {
+      runs.push(_run(`${num}. ${nameLabel(section.name)}`, { bold: true, color: '002FA7', fontSize: PPT_FONT_SIZE }))
+    }
 
     if (section.kind === 'req') {
       section.funcs.forEach((func) => {
@@ -317,44 +339,63 @@ function buildProgressTextRuns(project: WbsProject): PptTextRun[] {
 
 function _appendTaskDetail(runs: PptTextRun[], task: WbsTask, indent = '') {
   const lineColor = task.status === 'completed' ? '0070C0' : '000000'
-  if (task.is_suspended) runs.push(_run(`[${i18n.t('wbs.rpt.suspended')}] `, { color: '6B7280', bold: true }))
-  runs.push(_run(task.name, { color: lineColor }))
-  const hasReschedule = (task.reschedule_count ?? 0) > 0 && !!task.original_end
-  if (hasReschedule) {
-    runs.push(_run(`(`, { color: lineColor }))
-    runs.push(_run(task.original_end ?? '', { color: 'AAAAAA', strike: true }))
-    runs.push(_run(` ${task.expected_end}`, { color: 'D97706', bold: true }))
-    runs.push(_run(` ${i18n.t('wbs.rpt.rescheduledTimes', { count: task.reschedule_count })}`, { color: 'D97706', fontSize: PPT_FONT_SIZE - 1 }))
-    if (task.assignee && task.assignee !== i18n.t('common.notAssigned')) runs.push(_run(`, ${task.assignee}`, { color: lineColor }))
-    runs.push(_run(`)`, { color: lineColor }))
+  const isShelved = task.is_suspended
+  runs.push(_run(` ${task.name}`, { color: lineColor }))
+  // 責任人（所有任務都顯示）
+  if (task.assignee && task.assignee !== i18n.t('common.notAssigned')) {
+    runs.push(_run(` (${task.assignee})`, { color: '6B7280', fontSize: PPT_FONT_SIZE - 1 }))
+  }
+  // 搁置任務不顯示日期/延期
+  if (!isShelved) {
+    const hasReschedule = (task.reschedule_count ?? 0) > 0 && !!task.original_end
+    if (hasReschedule) {
+      runs.push(_run(` (`, { color: lineColor }))
+      runs.push(_run(task.original_end ?? '', { color: 'AAAAAA', strike: true }))
+      runs.push(_run(` ${task.expected_end}`, { color: 'D97706', bold: true }))
+      runs.push(_run(` ${i18n.t('wbs.rpt.rescheduledTimes', { count: task.reschedule_count })}`, { color: 'D97706', fontSize: PPT_FONT_SIZE - 1 }))
+      runs.push(_run(`)`, { color: lineColor }))
+    } else if (task.status === 'completed') {
+      const dateStr = task.actual_end || task.expected_end
+      if (dateStr) runs.push(_run(` (${dateStr}${i18n.t('wbs.rpt.completed')})`, { color: '6B7280' }))
+    } else if (task.expected_end) {
+      runs.push(_run(` (${i18n.t('wbs.rpt.targetDate', { date: task.expected_end })})`, { color: '6B7280' }))
+    }
+    if (task.week_tag.length > 0) {
+      task.week_tag.forEach((wt) => {
+        const cfg = WEEK_TAG_PPT[wt]
+        runs.push(_run(` [${i18n.t(cfg.labelKey)}]`, { bold: true, color: cfg.color }))
+      })
+    }
+    if (task.is_overdue && task.days_overdue && task.expected_end) {
+      runs.push(_run(` [${i18n.t('wbs.rpt.overdue')}${task.days_overdue}${i18n.t('common.day')}]`, { color: 'FF0000' }))
+    }
+    if (hasReschedule && task.reschedule_reason) {
+      runs.push({ text: '\n' })
+      runs.push(_run(`${indent}  ↳ ${i18n.t('wbs.rpt.rescheduleReason')}${task.reschedule_reason}`, { color: 'D97706', fontSize: PPT_FONT_SIZE - 1 }))
+    }
   } else {
-    const meta: string[] = []
-    if (task.expected_end) meta.push(task.expected_end)
-    if (task.assignee && task.assignee !== i18n.t('common.notAssigned')) meta.push(task.assignee)
-    if (meta.length > 0) runs.push(_run(`(${meta.join(', ')})`, { color: lineColor }))
-  }
-  if (task.week_tag.length > 0) {
-    task.week_tag.forEach((wt) => {
-      const cfg = WEEK_TAG_PPT[wt]
-      runs.push(_run(` [${i18n.t(cfg.labelKey)}]`, { bold: true, color: cfg.color }))
-    })
-  }
-  if (task.is_overdue && task.days_overdue && task.expected_end) {
-    runs.push(_run(` [${i18n.t('wbs.rpt.overdue')}${task.days_overdue}${i18n.t('common.day')}]`, { color: 'FF0000' }))
-  }
-  if (hasReschedule && task.reschedule_reason) {
+    // 搁置任務顯示周標籤（基於搁置時間）+ 搁置原因
+    if (task.week_tag.length > 0) {
+      task.week_tag.forEach((wt) => {
+        const cfg = WEEK_TAG_PPT[wt]
+        runs.push(_run(` [${i18n.t(cfg.labelKey)}]`, { bold: true, color: cfg.color }))
+      })
+    }
+    const shelvedAt = (task as unknown as { shelved_at?: string }).shelved_at || ''
+    const shelveReason = (task as unknown as { shelve_reason?: string }).shelve_reason || ''
     runs.push({ text: '\n' })
-    runs.push(_run(`${indent}  ↳ ${i18n.t('wbs.rpt.rescheduleReason')}${task.reschedule_reason}`, { color: 'D97706', fontSize: PPT_FONT_SIZE - 1 }))
+    runs.push(_run(`${indent}  ↳ ${shelvedAt} ${i18n.t('wbs.shelveReasonLabel')}${shelveReason || '—'}`, { color: 'D97706', fontSize: PPT_FONT_SIZE - 1 }))
   }
-  if (task.latest_update && task.status !== 'completed' && !task.is_suspended) {
+  if (task.latest_update && task.status !== 'completed' && !isShelved) {
     runs.push({ text: '\n' })
     runs.push(_run(`${indent}  ${task.latest_update.replace(/<[^>]*>/g, '')}`, { color: '555555', fontSize: PPT_FONT_SIZE - 1 }))
   }
 }
 
 function _dutyStatusLabel(d: TemporaryDuty, t: (key: string) => string): { label: string; color: string } {
-  const isOverdue = d.status !== 3 && !!d.expected_end_date && dayjs(d.expected_end_date).isBefore(dayjs(), 'day')
   if (d.status === 3) return { label: t('wbs.rpt.completed'), color: RPT_STATUS_COLOR.completed }
+  if (d.status === 8) return { label: t('wbs.rpt.suspended'), color: RPT_STATUS_COLOR.suspended }
+  const isOverdue = !!d.expected_end_date && dayjs(d.expected_end_date).isBefore(dayjs(), 'day')
   if (isOverdue) return { label: 'delay', color: RPT_STATUS_COLOR.overdue }
   if (d.status === 1 || d.status === 2 || d.status === 5) return { label: t('wbs.rpt.inProgress'), color: RPT_STATUS_COLOR.in_progress }
   return { label: t('wbs.rpt.notStarted'), color: RPT_STATUS_COLOR.not_started }
@@ -377,7 +418,142 @@ function _projectDotColor(project: WbsProject): string {
 
 // (行数通过 splitRunsToLines 实际计算，不再需要估算函数)
 
-async function exportWbsPptx(projects: WbsProject[], department = '資訊部') {
+function buildDutyProgressRuns(
+  duties: TemporaryDuty[],
+  reqNameMap: Record<string, string>,
+  reqStatusMap: Record<string, number>,
+  reqShelveReasonMap: Record<string, string>,
+  reqShelvedAtMap: Record<string, string>,
+  toName: (wn: string) => string,
+  isDutyVisible: (d: TemporaryDuty) => boolean,
+): PptTextRun[] {
+  const runs: PptTextRun[] = []
+  const visible = duties.filter(isDutyVisible)
+  if (visible.length === 0) return [_run(i18n.t('wbs.noWeeklyUpdate'), { color: '94A3B8' })]
+
+  // Group by req
+  const byReq = new Map<string, TemporaryDuty[]>()
+  duties.forEach((d) => {
+    const key = d.standalone_req_id || '__none__'
+    if (!byReq.has(key)) byReq.set(key, [])
+    byReq.get(key)!.push(d)
+  })
+  const sorted = [...byReq.entries()].sort(([a], [b]) => {
+    if (a === '__none__') return 1
+    if (b === '__none__') return -1
+    return (reqNameMap[a] ?? a).localeCompare(reqNameMap[b] ?? b, 'zh-TW')
+  })
+
+  let secIdx = 0
+  let first = true
+  for (const [reqKey, reqDuties] of sorted) {
+    const reqVisible = reqDuties.filter(isDutyVisible)
+    if (reqVisible.length === 0) continue
+    const reqNm = reqKey !== '__none__' ? (reqNameMap[reqKey] ?? null) : null
+    secIdx++
+    if (!first) runs.push({ text: '\n' })
+    first = false
+
+    if (reqNm) {
+      const isReqShelved = reqStatusMap[reqKey] === 8
+      runs.push(_run(`${secIdx}. ${reqNm}`, { bold: true, color: isReqShelved ? 'D97706' : '002FA7' }))
+      if (isReqShelved) {
+        runs.push(_run(` [${i18n.t('wbs.rpt.suspended')}]`, { bold: true, color: 'D97706' }))
+        runs.push({ text: '\n' })
+        runs.push(_run(`   ↳ ${reqShelvedAtMap[reqKey] || ''} ${i18n.t('wbs.shelveReasonLabel')}${reqShelveReasonMap[reqKey] || '—'}`, { color: 'D97706', fontSize: PPT_FONT_SIZE - 1 }))
+      }
+    }
+
+    // Group by group within req
+    const byGroup = new Map<string, TemporaryDuty[]>()
+    reqVisible.forEach((d) => {
+      const g = d.group || '__nogroup__'
+      if (!byGroup.has(g)) byGroup.set(g, [])
+      byGroup.get(g)!.push(d)
+    })
+    const sortedGroups = [...byGroup.entries()].sort(([a], [b]) => {
+      if (a === '__nogroup__') return 1
+      if (b === '__nogroup__') return -1
+      return a.localeCompare(b)
+    })
+
+    for (const [grp, grpDuties] of sortedGroups) {
+      if (grp !== '__nogroup__') {
+        runs.push({ text: '\n' })
+        runs.push(_run(`   ▸ ${formatGroupNamePlain(grp) || grp}`, { bold: true, color: '374151' }))
+      }
+      for (const d of grpDuties.sort((a, b) => (a.expected_end_date ?? '').localeCompare(b.expected_end_date ?? ''))) {
+        runs.push({ text: '\n' })
+        const isShelved = d.status === 8
+        // Status
+        if (d.status === 3) {
+          runs.push(_run('   - (', { color: '0070C0' }))
+          runs.push(_run(i18n.t('wbs.rpt.completed'), { bold: true, color: '0070C0' }))
+          runs.push(_run(') ', { color: '0070C0' }))
+        } else if (isShelved) {
+          runs.push(_run('   - (', { color: 'D97706' }))
+          runs.push(_run(i18n.t('wbs.rpt.suspended'), { bold: true, color: 'D97706' }))
+          runs.push(_run(') ', { color: 'D97706' }))
+        } else {
+          const isOverdue = !!d.expected_end_date && dayjs(d.expected_end_date).isBefore(dayjs(), 'day')
+          if (isOverdue) {
+            runs.push(_run('   - (', { color: 'FF0000' }))
+            runs.push(_run('delay', { bold: true, color: 'FF0000' }))
+            runs.push(_run(') ', { color: 'FF0000' }))
+          } else if (d.status === 1 || d.status === 2 || d.status === 5) {
+            runs.push(_run('   - ('))
+            runs.push(_run(i18n.t('wbs.rpt.inProgress'), { bold: true, color: '00B050' }))
+            runs.push(_run(') '))
+          } else {
+            runs.push(_run(`   - (${i18n.t('wbs.rpt.notStarted')}) `, { color: '94A3B8' }))
+          }
+        }
+        // Name + assignee
+        runs.push(_run(d.duty_nm, {}))
+        if (d.responsible?.length) {
+          runs.push(_run(` (${d.responsible.map((wn) => toName(wn) || wn).join(', ')})`, { color: '6B7280', fontSize: PPT_FONT_SIZE - 1 }))
+        }
+        // Date (not for shelved)
+        if (!isShelved) {
+          if (d.status === 3) {
+            const dateStr = d.end_time?.slice(0, 10) || d.expected_end_date
+            if (dateStr) runs.push(_run(` (${dateStr}${i18n.t('wbs.rpt.completed')})`, { color: '6B7280' }))
+          } else if (d.expected_end_date) {
+            runs.push(_run(` (${i18n.t('wbs.rpt.targetDate', { date: d.expected_end_date })})`, { color: '6B7280' }))
+          }
+          // Week tags
+          const weekTags = computeDutyWeekTags(d)
+          weekTags.forEach((wt) => {
+            const cfg = WEEK_TAG_PPT[wt]
+            runs.push(_run(` [${i18n.t(cfg.labelKey)}]`, { bold: true, color: cfg.color }))
+          })
+        }
+        // Shelve reason
+        if (isShelved) {
+          const shelvedAt = ((d as unknown as { updated_at?: string }).updated_at ?? '').slice(0, 10)
+          const reason = (d as unknown as { shelve_reason?: string }).shelve_reason || ''
+          runs.push({ text: '\n' })
+          runs.push(_run(`      ↳ ${shelvedAt} ${i18n.t('wbs.shelveReasonLabel')}${reason || '—'}`, { color: 'D97706', fontSize: PPT_FONT_SIZE - 1 }))
+        }
+      }
+    }
+  }
+  return runs
+}
+
+async function exportWbsPptx(
+  projects: WbsProject[],
+  department: string,
+  duties?: TemporaryDuty[],
+  systemInfoMap?: Record<string, { sys_nm: string; maintainers?: string[] }>,
+  reqNameMap?: Record<string, string>,
+  reqResponsibleMap?: Record<string, string[]>,
+  reqStatusMap?: Record<string, number>,
+  reqShelveReasonMap?: Record<string, string>,
+  reqShelvedAtMap?: Record<string, string>,
+  toName?: (wn: string) => string,
+  isDutyVisible?: (d: TemporaryDuty) => boolean,
+) {
   const PptxGenJS = (await import('pptxgenjs')).default
   const pptx = new PptxGenJS()
   pptx.layout = 'LAYOUT_WIDE' // 13.33 × 7.5 in
@@ -506,6 +682,84 @@ async function exportWbsPptx(projects: WbsProject[], department = '資訊部') {
       }
     }
   })
+
+  // ── System duty rows ──
+  if (duties && isDutyVisible && toName) {
+    const sysMap = new Map<string, TemporaryDuty[]>()
+    const arList: TemporaryDuty[] = []
+    duties.forEach((d) => {
+      if (d.system_id) {
+        if (!sysMap.has(d.system_id)) sysMap.set(d.system_id, [])
+        sysMap.get(d.system_id)!.push(d)
+      } else {
+        arList.push(d)
+      }
+    })
+
+    let sysIdx = projects.length
+    for (const [sysId, sysDuties] of sysMap.entries()) {
+      if (!sysDuties.some(isDutyVisible)) continue
+      sysIdx++
+      const sysInfo = systemInfoMap?.[sysId]
+      const sysNm = sysInfo?.sys_nm ?? sysId
+      const maintainers = (sysInfo?.maintainers ?? []).map((wn) => toName(wn) || wn).join('、') || '—'
+      const reqIds = [...new Set(sysDuties.map((d) => d.standalone_req_id).filter(Boolean) as string[])]
+      const dri = reqIds.length > 0
+        ? [...new Set(reqIds.flatMap((rid) => reqResponsibleMap?.[rid] ?? []))].map((wn) => toName(wn) || wn).join('、') || '—'
+        : [...new Set(sysDuties.flatMap((d) => d.responsible ?? []))].map((wn) => toName(wn) || wn).join('、') || '—'
+      const dotColor = _dutyListDotColor(sysDuties)
+      const progressRuns = buildDutyProgressRuns(sysDuties, reqNameMap ?? {}, reqStatusMap ?? {}, reqShelveReasonMap ?? {}, reqShelvedAtMap ?? {}, toName, isDutyVisible)
+
+      const cells = [
+        { text: '●', options: cellMid({ color: dotColor, fill: { color: 'FFFFFF' } }) },
+        { text: String(sysIdx), options: cellMid() },
+        { text: `${sysNm} [${i18n.t('wbs.rpt.system')}]`, options: cellMid({ align: 'left' as const }) },
+        { text: maintainers, options: cellMid({ align: 'left' as const }) },
+        { text: dri, options: cellMid({ align: 'left' as const }) },
+        { text: '—', options: cellMid() },
+        { text: '—', options: cellMid() },
+        { text: progressRuns, options: { valign: 'top' as const, fontSize: PPT_FONT_SIZE, fontFace: F, color: '000000' } },
+      ]
+      const allLineGroups = splitRunsToLines(progressRuns)
+      const remaining = MAX_LINES - currentLines
+      if (allLineGroups.length <= remaining) {
+        currentPage.push(cells)
+        currentLines += allLineGroups.length
+      } else {
+        if (currentPage.length > 0) pages.push(currentPage)
+        currentPage = [cells]
+        currentLines = allLineGroups.length
+      }
+    }
+
+    // AR standalone
+    if (arList.some(isDutyVisible)) {
+      sysIdx++
+      const dotColor = _dutyListDotColor(arList)
+      const progressRuns = buildDutyProgressRuns(arList, reqNameMap ?? {}, reqStatusMap ?? {}, reqShelveReasonMap ?? {}, reqShelvedAtMap ?? {}, toName, isDutyVisible)
+      const cells = [
+        { text: '●', options: cellMid({ color: dotColor, fill: { color: 'FFFFFF' } }) },
+        { text: String(sysIdx), options: cellMid() },
+        { text: `AR ${i18n.t('wbs.rpt.arTasks')}`, options: cellMid({ align: 'left' as const }) },
+        { text: '—', options: cellMid({ align: 'left' as const }) },
+        { text: [...new Set(arList.flatMap((d) => d.responsible ?? []))].map((wn) => toName(wn) || wn).join('、') || '—', options: cellMid({ align: 'left' as const }) },
+        { text: '—', options: cellMid() },
+        { text: '—', options: cellMid() },
+        { text: progressRuns, options: { valign: 'top' as const, fontSize: PPT_FONT_SIZE, fontFace: F, color: '000000' } },
+      ]
+      const allLineGroups = splitRunsToLines(progressRuns)
+      const remaining = MAX_LINES - currentLines
+      if (allLineGroups.length <= remaining) {
+        currentPage.push(cells)
+        currentLines += allLineGroups.length
+      } else {
+        if (currentPage.length > 0) pages.push(currentPage)
+        currentPage = [cells]
+        currentLines = allLineGroups.length
+      }
+    }
+  }
+
   if (currentPage.length > 0) pages.push(currentPage)
   if (pages.length === 0) pages.push([])
 
@@ -969,7 +1223,21 @@ const TaskRow: React.FC<{
                 {t('wbs.overdueDays', { days: task.days_overdue })}
               </Tag>
             )}
+            {task.is_suspended && (
+              <Tag color="warning" style={{ fontSize: 9, margin: 0, lineHeight: '14px', padding: '0 3px' }}>
+                {t('wbs.suspended')}
+              </Tag>
+            )}
           </div>
+          {/* Shelve reason */}
+          {task.is_suspended && (
+            <div className="text-[10px] mt-1 text-amber-600 bg-amber-50 rounded px-2 py-1">
+              {(task as unknown as { shelved_at?: string }).shelved_at && (
+                <span className="font-semibold mr-1">{(task as unknown as { shelved_at?: string }).shelved_at}</span>
+              )}
+              <span className="font-semibold">{t('wbs.shelveReasonLabel')}</span>{(task as unknown as { shelve_reason?: string }).shelve_reason || '—'}
+            </div>
+          )}
           {/* Latest update for overdue / in_progress */}
           {task.latest_update && (task.is_overdue || task.status === 'in_progress') && (
             <div className={`text-[10px] mt-1 leading-relaxed ${isOverdue ? 'text-red-500' : 'text-slate-400'}`}>
@@ -1141,21 +1409,25 @@ const ReqGroupWrapper: React.FC<{
   progress: number
   taskCount: number
   overdueCount: number
+  isShelved?: boolean
+  shelveReason?: string
+  shelvedAt?: string
   children: React.ReactNode
-}> = ({ name, progress, taskCount, overdueCount, children }) => {
+}> = ({ name, progress, taskCount, overdueCount, isShelved, shelveReason, shelvedAt, children }) => {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
   return (
-    <div className="border border-purple-200 rounded-lg overflow-hidden mb-2 last:mb-0">
+    <div className={`border rounded-lg overflow-hidden mb-2 last:mb-0 ${isShelved ? 'border-amber-300 opacity-70' : 'border-purple-200'}`}>
       <div
-        className="flex items-center gap-2 px-3 py-2 bg-purple-50/80 cursor-pointer hover:bg-purple-100/60 transition-colors select-none"
+        className={`flex items-center gap-2 px-3 py-2 cursor-pointer transition-colors select-none ${isShelved ? 'bg-amber-50/80 hover:bg-amber-100/60' : 'bg-purple-50/80 hover:bg-purple-100/60'}`}
         onClick={() => setExpanded(!expanded)}
       >
         {expanded
-          ? <ChevronDownIcon className="w-3 h-3 text-purple-400 transition-transform" />
-          : <ChevronRightIcon className="w-3 h-3 text-purple-400 transition-transform" />
+          ? <ChevronDownIcon className={`w-3 h-3 transition-transform ${isShelved ? 'text-amber-400' : 'text-purple-400'}`} />
+          : <ChevronRightIcon className={`w-3 h-3 transition-transform ${isShelved ? 'text-amber-400' : 'text-purple-400'}`} />
         }
-        <span className="text-xs font-semibold text-purple-700">{name}</span>
+        <span className={`text-xs font-semibold ${isShelved ? 'text-amber-700' : 'text-purple-700'}`}>{name}</span>
+        {isShelved && <Tag color="warning" style={{ fontSize: 9, margin: 0, lineHeight: '14px', padding: '0 3px' }}>{t('wbs.suspended')}</Tag>}
         <Progress
           percent={progress} size="small"
           strokeColor={progress >= 100 ? '#16a34a' : '#7c3aed'}
@@ -1173,6 +1445,12 @@ const ReqGroupWrapper: React.FC<{
           )}
         </div>
       </div>
+      {isShelved && (
+        <div className="px-3 py-1.5 bg-amber-50 border-t border-amber-200 text-[11px] text-amber-700">
+          {shelvedAt && <span className="font-semibold mr-1">{shelvedAt}</span>}
+          <span className="font-semibold">{t('wbs.shelveReasonLabel')}</span> {shelveReason || '—'}
+        </div>
+      )}
       {expanded && <div className="pl-2 pr-1 py-1">{children}</div>}
     </div>
   )
@@ -1318,10 +1596,11 @@ const ProjectCard: React.FC<{
         {/* Function modules (filtered) */}
         {groupMode === 'by_req' ? (() => {
           const allTasks = project.functions.flatMap((f) => f.tasks)
-          const reqMap = new Map<string, { name: string; tasks: WbsTask[] }>()
+          const reqMap = new Map<string, { name: string; tasks: WbsTask[]; reqStatus?: number; shelveReason?: string; shelvedAt?: string }>()
           allTasks.forEach((t) => {
             const key = t.requirement_id || '__none__'
-            if (!reqMap.has(key)) reqMap.set(key, { name: t.requirement_nm || '', tasks: [] })
+            const ext = t as unknown as { requirement_status?: number; requirement_shelve_reason?: string; requirement_shelved_at?: string }
+            if (!reqMap.has(key)) reqMap.set(key, { name: t.requirement_nm || '', tasks: [], reqStatus: ext.requirement_status, shelveReason: ext.requirement_shelve_reason, shelvedAt: ext.requirement_shelved_at })
             reqMap.get(key)!.tasks.push(t)
           })
 
@@ -1364,8 +1643,8 @@ const ProjectCard: React.FC<{
 
           const reqGroups = [...reqMap.entries()]
             .filter(([key]) => key !== '__none__')
-            .map(([key, { name, tasks }]) => ({
-              key, name, tasks,
+            .map(([key, { name, tasks, reqStatus, shelveReason, shelvedAt }]) => ({
+              key, name, tasks, reqStatus, shelveReason, shelvedAt,
               subFunctions: buildSubFunctions(tasks),
               progress: tasks.length ? Math.round(tasks.reduce((s, t) => s + t.progress, 0) / tasks.length) : 0,
               overdueCount: tasks.filter((t) => !!t.is_overdue).length,
@@ -1377,7 +1656,8 @@ const ProjectCard: React.FC<{
             <>
               {reqGroups.map((g) => (
                 <ReqGroupWrapper key={g.key} name={g.name} progress={g.progress}
-                  taskCount={g.tasks.length} overdueCount={g.overdueCount}>
+                  taskCount={g.tasks.length} overdueCount={g.overdueCount}
+                  isShelved={g.reqStatus === 8} shelveReason={g.shelveReason} shelvedAt={g.shelvedAt}>
                   {/* Single group → show tasks directly; multiple groups → show with group headers */}
                   {g.subFunctions.length === 1
                     ? renderDirectTasks(g.subFunctions[0].tasks, g.name)
@@ -1444,11 +1724,12 @@ const ProjectCard: React.FC<{
 
 // Status → color mapping matching template
 const RPT_STATUS_COLOR: Record<string, string> = {
-  completed: '#0070C0', in_progress: '#00B050', overdue: '#FF0000', not_started: '#94a3b8',
+  completed: '#0070C0', in_progress: '#00B050', overdue: '#FF0000', not_started: '#94a3b8', suspended: '#d97706',
 }
 
 function _taskStatusLabel(task: WbsTask, t: (key: string) => string): { label: string; color: string } {
   if (task.status === 'completed') return { label: t('wbs.rpt.completed'), color: RPT_STATUS_COLOR.completed }
+  if (task.status === 'suspended' || task.is_suspended) return { label: t('wbs.rpt.suspended'), color: RPT_STATUS_COLOR.suspended }
   if (task.is_overdue) return { label: 'delay', color: RPT_STATUS_COLOR.overdue }
   if (task.status === 'in_progress') return { label: t('wbs.rpt.inProgress'), color: RPT_STATUS_COLOR.in_progress }
   return { label: t('wbs.rpt.notStarted'), color: RPT_STATUS_COLOR.not_started }
@@ -1463,11 +1744,14 @@ const ReportPreviewModal: React.FC<{
   systemInfoMap: Record<string, SystemItem>
   reqNameMap: Record<string, string>
   reqResponsibleMap: Record<string, string[]>
+  reqStatusMap: Record<string, number>
+  reqShelveReasonMap: Record<string, string>
+  reqShelvedAtMap: Record<string, string>
   meetingNotes: Record<string, MeetingNote[]>
   dutyNotes: Record<string, MeetingNote[]>
   toName: (wn: string) => string
   onClose: () => void
-}> = ({ open, projects, duties, systemInfoMap, reqNameMap, reqResponsibleMap, meetingNotes, dutyNotes, toName, onClose }) => {
+}> = ({ open, projects, duties, systemInfoMap, reqNameMap, reqResponsibleMap, reqStatusMap, reqShelveReasonMap, reqShelvedAtMap, meetingNotes, dutyNotes, toName, onClose }) => {
   const { t } = useTranslation()
   const [exporting, setExporting] = useState(false)
 
@@ -1497,20 +1781,44 @@ const ReportPreviewModal: React.FC<{
 
   // Only show duties whose expected_end falls within last/this/next week,
   // OR that have pending meeting notes (force-show for accountability — approach A)
-  const isDutyVisible = useCallback((d: TemporaryDuty) =>
-    computeDutyWeekTags(d).length > 0 || getDutyPendingNotes(d).length > 0
-  , [getDutyPendingNotes])
+  const isDutyVisible = useCallback((d: TemporaryDuty) => {
+    if (d.status === 8) {
+      // 搁置的任务按 updated_at 判断是否在上周/本周内
+      const upd = (d as unknown as { updated_at?: string }).updated_at?.slice(0, 10)
+      if (!upd) return false
+      const dt = dayjs(upd)
+      const tw = dayjs().startOf('isoWeek')
+      const nwEnd = tw.add(2, 'week')
+      return !dt.isBefore(tw.subtract(1, 'week')) && dt.isBefore(nwEnd)
+    }
+    return computeDutyWeekTags(d).length > 0 || getDutyPendingNotes(d).length > 0
+  }, [getDutyPendingNotes])
 
   // Render a single duty task line — mirrors renderTaskRow for projects (with reschedule info)
   const renderDutyTask = (d: TemporaryDuty, indent: number) => {
     const { label, color } = _dutyStatusLabel(d, t)
+    const isShelved = d.status === 8
     const lineColor = d.status === 3 ? '#0070C0' : '#000'
-    const hasReschedule = (d.reschedule_count ?? 0) > 0 && !!d.original_end_date
+    const hasReschedule = !isShelved && (d.reschedule_count ?? 0) > 0 && !!d.original_end_date
     const rescheduleReason = d.reschedule_history?.at(-1)?.reason
-    const dateStr = d.status === 3
-      ? t('wbs.rpt.completedOnDate', { date: d.end_time?.slice(0, 10) || d.expected_end_date })
-      : d.expected_end_date ? t('wbs.rpt.targetDate', { date: d.expected_end_date }) : null
-    const weekTags = computeDutyWeekTags(d)
+    const dateStr = isShelved ? null
+      : d.status === 3
+        ? t('wbs.rpt.completedOnDate', { date: d.end_time?.slice(0, 10) || d.expected_end_date })
+        : d.expected_end_date ? t('wbs.rpt.targetDate', { date: d.expected_end_date }) : null
+    // 搁置的任务按 updated_at 计算周标签
+    const weekTags = isShelved
+      ? (() => {
+          const upd = (d as unknown as { updated_at?: string }).updated_at?.slice(0, 10)
+          if (!upd) return []
+          const tags: WeekTag[] = []
+          const dt = dayjs(upd)
+          const tw = dayjs().startOf('isoWeek')
+          const lw = tw.subtract(1, 'week')
+          if (!dt.isBefore(lw) && dt.isBefore(tw)) tags.push('last_week')
+          else if (!dt.isBefore(tw) && dt.isBefore(tw.add(1, 'week'))) tags.push('this_week')
+          return tags
+        })()
+      : computeDutyWeekTags(d)
     const pendingNotes = getDutyPendingNotes(d)
     const isOutsideWindow = weekTags.length === 0
     return (
@@ -1519,6 +1827,7 @@ const ReportPreviewModal: React.FC<{
           <span>- </span>
           <span style={{ color, fontWeight: 700 }}>({label})</span>
           <span> {d.duty_nm}</span>
+          {d.responsible?.length ? <span style={{ color: '#6b7280', fontSize: 11, marginLeft: 4 }}>({d.responsible.map((wn) => toName(wn) || wn).join(', ')})</span> : null}
           {hasReschedule ? (
             <span>
               {' ('}
@@ -1541,6 +1850,11 @@ const ReportPreviewModal: React.FC<{
           {hasReschedule && rescheduleReason && (
             <div style={{ paddingLeft: 20, color: '#d97706', fontSize: 11 }}>
               ↳ {t('wbs.rpt.rescheduleReason')}{rescheduleReason}
+            </div>
+          )}
+          {d.status === 8 && (
+            <div style={{ paddingLeft: 20, color: '#d97706', fontSize: 11 }}>
+              ↳ {((d as unknown as { updated_at?: string }).updated_at ?? '').slice(0, 10)} {t('wbs.shelveReasonLabel')}{(d as unknown as { shelve_reason?: string }).shelve_reason || '—'}
             </div>
           )}
         </div>
@@ -1597,7 +1911,17 @@ const ReportPreviewModal: React.FC<{
 
       return (
         <div key={reqKey} style={{ marginBottom: 4 }}>
-          {reqNm && <div style={{ fontWeight: 700, color: '#002FA7' }}>{num}. {reqNm}</div>}
+          {reqNm && (
+            <div style={{ fontWeight: 700, color: reqStatusMap[reqKey] === 8 ? '#d97706' : '#002FA7' }}>
+              {num}. {reqNm}
+              {reqStatusMap[reqKey] === 8 && <span style={{ color: '#d97706', fontWeight: 700, fontSize: 12 }}> [{t('wbs.rpt.suspended')}]</span>}
+              {reqStatusMap[reqKey] === 8 && (
+                <div style={{ paddingLeft: 20, color: '#d97706', fontSize: 11, fontWeight: 400 }}>
+                  ↳ {reqShelvedAtMap[reqKey] || ''} {t('wbs.shelveReasonLabel')}{reqShelveReasonMap[reqKey] || '—'}
+                </div>
+              )}
+            </div>
+          )}
           {singleUnnamed ? (
             sortedGroups[0][1]
               .sort((a, b) => (a.expected_end_date ?? '').localeCompare(b.expected_end_date ?? ''))
@@ -1625,7 +1949,12 @@ const ReportPreviewModal: React.FC<{
   const handleExportPptx = async () => {
     setExporting(true)
     const department = projects[0]?.department || t('wbs.rpt.defaultDept')
-    try { await exportWbsPptx(projects, department) } finally { setExporting(false) }
+    try {
+      await exportWbsPptx(
+        projects, department, duties, systemInfoMap as Record<string, { sys_nm: string; maintainers?: string[] }>,
+        reqNameMap, reqResponsibleMap, reqStatusMap, reqShelveReasonMap, reqShelvedAtMap, toName, isDutyVisible,
+      )
+    } finally { setExporting(false) }
   }
 
   const handlePrint = () => {
@@ -1788,11 +2117,13 @@ const ReportPreviewModal: React.FC<{
                         // 渲染單一任務行（縮進 + - 開頭）
                         const renderTaskRow = (task: WbsTask, indent: number) => {
                           const { label, color } = _taskStatusLabel(task, t)
+                          const isShelved = task.is_suspended
                           const lineColor = task.status === 'completed' ? '#0070C0' : '#000'
-                          const hasReschedule = (task.reschedule_count ?? 0) > 0 && !!task.original_end
-                          const dateStr = task.status === 'completed'
-                            ? t('wbs.rpt.completedOnDate', { date: task.actual_end || task.expected_end })
-                            : task.expected_end ? t('wbs.rpt.targetDate', { date: task.expected_end }) : null
+                          const hasReschedule = !isShelved && (task.reschedule_count ?? 0) > 0 && !!task.original_end
+                          const dateStr = isShelved ? null
+                            : task.status === 'completed'
+                              ? t('wbs.rpt.completedOnDate', { date: task.actual_end || task.expected_end })
+                              : task.expected_end ? t('wbs.rpt.targetDate', { date: task.expected_end }) : null
                           const taskPendingNotes = getTaskPendingNotes(project.id, task.id)
                           const isOutsideWindow = task.week_tag.length === 0 && !task.is_overdue && !task.is_suspended && !isRecentComplete(task)
                           return (
@@ -1800,8 +2131,8 @@ const ReportPreviewModal: React.FC<{
                               <div style={{ color: isOutsideWindow ? '#6b7280' : lineColor }}>
                                 <span>- </span>
                                 <span style={{ color, fontWeight: 700 }}>({label})</span>
-                                {task.is_suspended && <span style={{ color: '#6b7280', fontWeight: 700 }}> [{t('wbs.rpt.suspended')}]</span>}
                                 <span> {task.name}</span>
+                                <span style={{ color: '#6b7280', fontSize: 11, marginLeft: 4 }}>({task.assignee})</span>
                                 {hasReschedule ? (
                                   <span>
                                     {' ('}
@@ -1820,6 +2151,11 @@ const ReportPreviewModal: React.FC<{
                                 {hasReschedule && task.reschedule_reason && (
                                   <div style={{ paddingLeft: 20, color: '#d97706', fontSize: 11 }}>
                                     ↳ {t('wbs.rpt.rescheduleReason')}{task.reschedule_reason}
+                                  </div>
+                                )}
+                                {task.is_suspended && (
+                                  <div style={{ paddingLeft: 20, color: '#d97706', fontSize: 11 }}>
+                                    ↳ {(task as unknown as { shelved_at?: string }).shelved_at || ''} {t('wbs.shelveReasonLabel')}{(task as unknown as { shelve_reason?: string }).shelve_reason || '—'}
                                   </div>
                                 )}
                               </div>
@@ -1847,8 +2183,8 @@ const ReportPreviewModal: React.FC<{
                             <div key={task.id} style={{ color: lineColor }}>
                               <span>{seq}. </span>
                               <span style={{ color, fontWeight: 700 }}>({label})</span>
-                              {task.is_suspended && <span style={{ color: '#6b7280', fontWeight: 700 }}> [{t('wbs.rpt.suspended')}]</span>}
                               <span> {task.name}</span>
+                              <span style={{ color: '#6b7280', fontSize: 11, marginLeft: 4 }}>({task.assignee})</span>
                               {hasReschedule ? (
                                 <span>
                                   {' ('}
@@ -1864,6 +2200,11 @@ const ReportPreviewModal: React.FC<{
                               {hasReschedule && task.reschedule_reason && (
                                 <div style={{ paddingLeft: 20, color: '#d97706', fontSize: 11 }}>
                                   ↳ {t('wbs.rpt.rescheduleReason')}{task.reschedule_reason}
+                                </div>
+                              )}
+                              {task.is_suspended && (
+                                <div style={{ paddingLeft: 20, color: '#d97706', fontSize: 11 }}>
+                                  ↳ {(task as unknown as { shelved_at?: string }).shelved_at || ''} {t('wbs.shelveReasonLabel')}{(task as unknown as { shelve_reason?: string }).shelve_reason || '—'}
                                 </div>
                               )}
                             </div>
@@ -1918,9 +2259,21 @@ const ReportPreviewModal: React.FC<{
                         return sections.map((section, si) => {
                           const num = si + 1
                           if (section.kind === 'req') {
+                            const reqStatus = (section.funcs[0]?.tasks[0] as unknown as { requirement_status?: number })?.requirement_status
+                            const reqShelveReason = (section.funcs[0]?.tasks[0] as unknown as { requirement_shelve_reason?: string })?.requirement_shelve_reason
+                            const reqShelvedAt = (section.funcs[0]?.tasks[0] as unknown as { requirement_shelved_at?: string })?.requirement_shelved_at
+                            const isReqShelved = reqStatus === 8
                             return (
                               <div key={section.key} style={{ marginBottom: 4 }}>
-                                <div style={{ fontWeight: 700, color: '#002FA7' }}>{num}. {formatGroupNamePlain(section.name) || section.name}</div>
+                                <div style={{ fontWeight: 700, color: isReqShelved ? '#d97706' : '#002FA7' }}>
+                                  {num}. {formatGroupNamePlain(section.name) || section.name}
+                                  {isReqShelved && <span style={{ color: '#d97706', fontWeight: 700, fontSize: 12 }}> [{t('wbs.rpt.suspended')}]</span>}
+                                  {isReqShelved && (
+                                    <div style={{ paddingLeft: 20, color: '#d97706', fontSize: 11, fontWeight: 400 }}>
+                                      ↳ {reqShelvedAt || ''} {t('wbs.shelveReasonLabel')}{reqShelveReason || '—'}
+                                    </div>
+                                  )}
+                                </div>
                                 {section.funcs.map((func) => (
                                   <div key={func.key} style={{ paddingLeft: 12 }}>
                                     <div style={{ fontWeight: 600, color: '#374151' }}>▸ {formatGroupNamePlain(func.name) || func.name}</div>
@@ -2106,7 +2459,8 @@ const DutyTaskRow: React.FC<{
 }> = ({ duty: d, context, onSelect, onWeekTagClick, notes = [], onAddNote, onResolveNote, onDeleteNote }) => {
   const { t } = useTranslation()
   const toName       = useWorkNoToName()
-  const isOverdue    = d.status !== 3 && !!d.expected_end_date && dayjs(d.expected_end_date).isBefore(dayjs(), 'day')
+  const isShelved    = d.status === 8
+  const isOverdue    = !isShelved && d.status !== 3 && !!d.expected_end_date && dayjs(d.expected_end_date).isBefore(dayjs(), 'day')
   const isCompleted  = d.status === 3
   const isInProgress = d.status === 1 || d.status === 2
   const weekTags     = computeDutyWeekTags(d)
@@ -2119,6 +2473,7 @@ const DutyTaskRow: React.FC<{
     <div className={`group flex items-start gap-3 px-4 py-2.5 border-b border-slate-50 last:border-b-0 hover:bg-slate-50/50 transition-colors ${isOverdue ? 'bg-red-50/30' : ''} ${hasPending ? 'border-l-[3px] border-l-blue-400' : ''}`}>
       <div className="mt-0.5 flex-shrink-0">
         {isCompleted  ? <CheckCircleIcon className="w-3.5 h-3.5 text-blue-500" />
+         : isShelved  ? <ExclamationTriangleIcon className="w-3.5 h-3.5 text-amber-500" />
          : isOverdue  ? <ExclamationTriangleIcon className="w-3.5 h-3.5 text-red-500" />
          : isInProgress ? <ArrowTrendingUpIcon className="w-3.5 h-3.5 text-green-500" />
          : <ClockIcon className="w-3.5 h-3.5 text-slate-400" />}
@@ -2142,7 +2497,20 @@ const DutyTaskRow: React.FC<{
             </span>
           ))}
           {isOverdue && <Tag style={{ fontSize: 9, margin: 0, lineHeight: '14px', padding: '0 4px' }} color="error">{t('wbs.overdue')}</Tag>}
+          {isShelved && (
+            <Tooltip title={(d as unknown as { shelve_reason?: string }).shelve_reason || undefined}>
+              <Tag style={{ fontSize: 9, margin: 0, lineHeight: '14px', padding: '0 4px', cursor: 'pointer' }} color="warning">{t('wbs.suspended')}</Tag>
+            </Tooltip>
+          )}
         </div>
+        {isShelved && (
+          <div className="text-[10px] mt-1 text-amber-600 bg-amber-50 rounded px-2 py-1">
+            {(d as unknown as { updated_at?: string }).updated_at && (
+              <span className="font-semibold mr-1">{((d as unknown as { updated_at?: string }).updated_at ?? '').slice(0, 10)}</span>
+            )}
+            <span className="font-semibold">{t('wbs.shelveReasonLabel')}</span>{(d as unknown as { shelve_reason?: string }).shelve_reason || '—'}
+          </div>
+        )}
         {(d.responsible?.length || d.progress > 0) && (
           <div className="flex items-center gap-2 mt-0.5">
             {d.responsible && d.responsible.length > 0 && (
@@ -2270,7 +2638,10 @@ const DutyCard: React.FC<{
   tag?: string
   systemInfo?: SystemItem
   reqNameMap?: Record<string, string>
-}> = ({ title, duties, notes, onSelect, onWeekTagClick, onAddNote, onResolveNote, onDeleteNote, tag, systemInfo, reqNameMap = {} }) => {
+  reqStatusMap?: Record<string, number>
+  reqShelveReasonMap?: Record<string, string>
+  reqShelvedAtMap?: Record<string, string>
+}> = ({ title, duties, notes, onSelect, onWeekTagClick, onAddNote, onResolveNote, onDeleteNote, tag, systemInfo, reqNameMap = {}, reqStatusMap = {}, reqShelveReasonMap = {}, reqShelvedAtMap = {} }) => {
   const { t } = useTranslation()
   const today   = dayjs()
   const twStart = today.startOf('isoWeek')
@@ -2427,7 +2798,8 @@ const DutyCard: React.FC<{
               const overdueCount = allDuties.filter((d) => d.status !== 3 && !!d.expected_end_date && dayjs(d.expected_end_date).isBefore(dayjs(), 'day')).length
               return (
                 <ReqGroupWrapper key={reqKey} name={reqNm} progress={progress}
-                  taskCount={allDuties.length} overdueCount={overdueCount}>
+                  taskCount={allDuties.length} overdueCount={overdueCount}
+                  isShelved={reqStatusMap[reqKey] === 8} shelveReason={reqShelveReasonMap[reqKey]} shelvedAt={reqShelvedAtMap[reqKey]}>
                   {renderGroups(groups, reqNm)}
                 </ReqGroupWrapper>
               )
@@ -2494,6 +2866,9 @@ const WbsOverviewPage: React.FC = () => {
   const [systemInfoMap, setSystemInfoMap] = useState<Record<string, SystemItem>>({})
   const [reqNameMap, setReqNameMap] = useState<Record<string, string>>({})
   const [reqResponsibleMap, setReqResponsibleMap] = useState<Record<string, string[]>>({})
+  const [reqStatusMap, setReqStatusMap] = useState<Record<string, number>>({})
+  const [reqShelveReasonMap, setReqShelveReasonMap] = useState<Record<string, string>>({})
+  const [reqShelvedAtMap, setReqShelvedAtMap] = useState<Record<string, string>>({})
 
   // Load WBS data
   useEffect(() => {
@@ -2527,9 +2902,21 @@ const WbsOverviewPage: React.FC = () => {
         const list = (res.content as any).data_list ?? []
         const nameMap: Record<string, string> = {}
         const respMap: Record<string, string[]> = {}
-        list.forEach((r: any) => { nameMap[r.id] = r.req_nm; respMap[r.id] = r.responsible ?? [] })
+        const statusMap: Record<string, number> = {}
+        const reasonMap: Record<string, string> = {}
+        const shelvedAtMap: Record<string, string> = {}
+        list.forEach((r: any) => {
+          nameMap[r.id] = r.req_nm
+          respMap[r.id] = r.responsible ?? []
+          statusMap[r.id] = r.status ?? 0
+          reasonMap[r.id] = r.shelve_reason ?? ''
+          if (r.status === 8) shelvedAtMap[r.id] = (r.updated_at ?? '').slice(0, 10)
+        })
         setReqNameMap(nameMap)
         setReqResponsibleMap(respMap)
+        setReqStatusMap(statusMap)
+        setReqShelveReasonMap(reasonMap)
+        setReqShelvedAtMap(shelvedAtMap)
       })
       .catch(() => {})
   }, [])
@@ -2678,8 +3065,9 @@ const WbsOverviewPage: React.FC = () => {
       totalTasks:    periodTasks.length + periodDuties.length,
       completed:     periodTasks.filter((t) => t.status === 'completed').length + periodDuties.filter((d) => d.status === 3).length,
       inProgress:    periodTasks.filter((t) => t.status === 'in_progress').length + periodDuties.filter((d) => d.status === 1 || d.status === 2).length,
-      overdue:       allTasks.filter((t) => !!t.is_overdue).length + activeDuties.filter((d) => d.status !== 3 && !!d.expected_end_date && dayjs(d.expected_end_date).isBefore(today, 'day')).length,
+      overdue:       allTasks.filter((t) => !!t.is_overdue).length + activeDuties.filter((d) => d.status !== 3 && d.status !== 8 && !!d.expected_end_date && dayjs(d.expected_end_date).isBefore(today, 'day')).length,
       notStarted:    periodTasks.filter((t) => t.status === 'not_started').length + periodDuties.filter((d) => d.status === 0).length,
+      suspended:     allTasks.filter((t) => t.status === 'suspended').length + activeDuties.filter((d) => d.status === 8).length,
       thisWeek:      allTasks.filter((t) => t.week_tag.includes('this_week')).length + activeDuties.filter((d) => !!d.expected_end_date && !dayjs(d.expected_end_date).isBefore(twStart) && !dayjs(d.expected_end_date).isAfter(twEnd)).length,
       nextWeek:      allTasks.filter((t) => t.week_tag.includes('next_week')).length + activeDuties.filter((d) => !!d.expected_end_date && !dayjs(d.expected_end_date).isBefore(nwStart) && !dayjs(d.expected_end_date).isAfter(nwEnd)).length,
     }
@@ -2737,6 +3125,7 @@ const WbsOverviewPage: React.FC = () => {
       if (statusFilter === 'completed' && d.status !== 3) return false
       if (statusFilter === 'not_started' && d.status !== 0) return false
       if (statusFilter === 'in_progress' && !(d.status === 1 || d.status === 2)) return false
+      if (statusFilter === 'suspended' && d.status !== 8) return false
       if (statusFilter === 'overdue') {
         const isOverdue = d.status !== 3 && !!d.expected_end_date && dayjs(d.expected_end_date).isBefore(today, 'day')
         if (!isOverdue) return false
@@ -2951,6 +3340,7 @@ const WbsOverviewPage: React.FC = () => {
               { label: t('wbs.overdue'), value: 'overdue' },
               { label: t('wbs.completed'), value: 'completed' },
               { label: t('wbs.notStarted'), value: 'not_started' },
+              { label: t('wbs.suspended'), value: 'suspended' },
             ]}
             size="small"
           />
@@ -3048,6 +3438,9 @@ const WbsOverviewPage: React.FC = () => {
                 tag="AR"
                 systemInfo={systemInfoMap[sysId]}
                 reqNameMap={reqNameMap}
+                reqStatusMap={reqStatusMap}
+                reqShelveReasonMap={reqShelveReasonMap}
+                reqShelvedAtMap={reqShelvedAtMap}
               />
             ))}
           </div>
@@ -3081,6 +3474,9 @@ const WbsOverviewPage: React.FC = () => {
         systemInfoMap={systemInfoMap}
         reqNameMap={reqNameMap}
         reqResponsibleMap={reqResponsibleMap}
+        reqStatusMap={reqStatusMap}
+        reqShelveReasonMap={reqShelveReasonMap}
+        reqShelvedAtMap={reqShelvedAtMap}
         meetingNotes={meetingNotes}
         dutyNotes={dutyNotes}
         toName={toName}
