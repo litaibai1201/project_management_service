@@ -199,8 +199,8 @@ export const projectApi = {
     post(`/project/${pid}/function/${fid}/reschedule`, payload),
 
   /** POST /api/project/:pid/function/:fid/submit_completion — 提交任務完結審核 */
-  submitFunctionCompletion: (pid: string, fid: string): Promise<ApiResponse<{ direct_complete: boolean }>> =>
-    post(`/project/${pid}/function/${fid}/submit_completion`, {}),
+  submitFunctionCompletion: (pid: string, fid: string, reviewer?: string[]): Promise<ApiResponse<{ direct_complete: boolean }>> =>
+    post(`/project/${pid}/function/${fid}/submit_completion`, { reviewer: reviewer ?? [] }),
 
   /** PUT /api/project/:pid/function/:fid/allocation */
   allocateFunction: (pid: string, fid: string, payload: FunctionAllocationPayload): Promise<ApiResponse<null>> =>

@@ -3,7 +3,7 @@ import {
   Drawer, Descriptions, Progress, Button, Form, Input, InputNumber, Switch,
   Timeline, Avatar, Typography, Tag, Upload, Spin, Divider, Steps, Select, Modal, Tooltip, Popconfirm,
 } from 'antd'
-import { PlusIcon, PaperClipIcon, PencilSquareIcon, ArrowsPointingOutIcon } from '@heroicons/react/24/outline'
+import { PlusIcon, PaperClipIcon, PencilSquareIcon, ArrowsPointingOutIcon, TrashIcon } from '@heroicons/react/24/outline'
 import RichTextEditor from '@/components/common/RichTextEditor'
 import RichTextContent from '@/components/common/RichTextContent'
 import AttachmentPreview from '@/components/ui/AttachmentPreview'
@@ -132,6 +132,54 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
   const [holdReason,    setHoldReason]    = useState('')
   const [holdSaving,    setHoldSaving]    = useState(false)
 
+  // 完結
+  const [showDirectComplete,       setShowDirectComplete]       = useState(false)
+  const [showCompletionModal,      setShowCompletionModal]      = useState(false)
+  const [completionReviewers,      setCompletionReviewers]      = useState<{ work_no: string; name: string; department?: string; position?: string }[]>([])
+  const [defaultCompletionWnos,    setDefaultCompletionWnos]    = useState<Set<string>>(new Set())
+  const [completionSearch,         setCompletionSearch]         = useState('')
+  const [completionSearchResults,  setCompletionSearchResults]  = useState<{ work_no: string; name: string; department?: string; position?: string }[]>([])
+  const [completionSearchLoading,  setCompletionSearchLoading]  = useState(false)
+  const [completionSaving,         setCompletionSaving]         = useState(false)
+
+  const openCompletionFlow = async () => {
+    const submitterIsPm = !!projectPm && workNo.toLowerCase() === projectPm.toLowerCase()
+    if (submitterIsPm) {
+      // PM（且是責任人）提交 → 直接完結確認
+      setShowDirectComplete(true)
+    } else {
+      // 非 PM → 彈出審核人選擇窗口，PM 默認鎖定
+      setCompletionSearch(''); setCompletionSearchResults([])
+      setShowCompletionModal(true)
+      try {
+        const res = await userApi.list({ page: 1, size: 2000 })
+        const allUsers = ((res.content as { data_list?: { work_no: string; name: string; department?: string; position?: string }[] }).data_list) ?? []
+        const pmUser = projectPm ? allUsers.find((u) => u.work_no.toLowerCase() === projectPm.toLowerCase()) : null
+        setCompletionReviewers(pmUser ? [pmUser] : [])
+        setDefaultCompletionWnos(new Set(pmUser ? [pmUser.work_no] : []))
+      } catch { /* ignore */ }
+    }
+  }
+
+  const handleDirectComplete = async () => {
+    try {
+      const res = await projectApi.submitFunctionCompletion(projectId, functionId)
+      showToast.success((res.content as { direct_complete?: boolean })?.direct_complete ? t('function.taskDirectCompleted') : t('function.reviewSubmitted'))
+      setShowDirectComplete(false); loadData(); onRefresh?.()
+    } catch { /* global */ }
+  }
+
+  const handleSubmitCompletionReview = async () => {
+    if (completionReviewers.length === 0) return
+    setCompletionSaving(true)
+    try {
+      await projectApi.submitFunctionCompletion(projectId, functionId, completionReviewers.map((r) => r.work_no))
+      showToast.success(t('function.reviewSubmitted'))
+      setShowCompletionModal(false); loadData(); onRefresh?.()
+    } catch { /* global */ }
+    finally { setCompletionSaving(false) }
+  }
+
   const isHtml    = (v: string) => /<[a-z][\s\S]*>/i.test(v)
   const stripHtml = (html: string) => html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
 
@@ -228,25 +276,9 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
       setShowForm(false); form.resetFields(); setFileList([])
       loadData(); onRefresh?.()
 
-      // 進度 100% → 詢問是否提交完結審核
+      // 進度 100% → 提交完結
       if ((values.progress as number) === 100) {
-        const submitterIsPm = !!projectPm && workNo.toLowerCase() === projectPm.toLowerCase()
-        Modal.confirm({
-          title: t('function.taskCompletedTitle'),
-          content: submitterIsPm
-            ? t('function.progressAt100ContentPm')
-            : t('function.progressAt100Content', { pm: toName(projectPm ?? '') || (projectPm ?? '') }),
-          okText: t('function.confirmCompleteBtn'),
-          cancelText: t('function.remindLater'),
-          onOk: async () => {
-            try {
-              const res = await projectApi.submitFunctionCompletion(projectId, functionId)
-              const direct = (res.content as { direct_complete?: boolean })?.direct_complete
-              showToast.success(direct ? t('function.taskDirectCompleted') : t('function.reviewSubmitted'))
-              loadData(); onRefresh?.()
-            } catch { /* global */ }
-          },
-        })
+        openCompletionFlow()
       }
     } catch { /* global */ }
     finally { setIsSaving(false) }
@@ -368,6 +400,12 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
             }} okText={t('common.confirm')} cancelText={t('common.cancel')}>
               <Button size="small" type="primary" style={{ background: '#2563eb' }}>{t('function.resumeBtn')}</Button>
             </Popconfirm>
+          )}
+          {funcData && !isShelved && !isCompleted && !isReviewing && isResponsible && (funcData.progress ?? 0) >= 100 && funcData.status === 2 && (
+            <Button size="small" type="primary" style={{ background: '#16a34a' }}
+              onClick={() => openCompletionFlow()}>
+              {t('function.submitCompletion')}
+            </Button>
           )}
           {canUpdateProgress && (
             <Button type="primary" icon={<PlusIcon className="w-4 h-4" />} size="small"
@@ -1025,6 +1063,88 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
           <div className="text-sm font-medium text-slate-600 mb-2">{t('function.holdReasonLabel')} <span className="text-red-500">*</span></div>
           <Input.TextArea value={holdReason} onChange={(e) => setHoldReason(e.target.value)}
             rows={3} placeholder={t('function.holdReasonPlaceholder')} />
+        </div>
+      </div>
+    </Modal>
+
+    {/* 直接完結確認 */}
+    <Modal title={t('function.confirmCompleteTitle')} open={showDirectComplete}
+      onOk={handleDirectComplete} onCancel={() => setShowDirectComplete(false)}
+      okText={t('function.directComplete')} cancelText={t('common.cancel')}
+      okButtonProps={{ style: { background: '#16a34a' } }} width={400}>
+      <p className="text-sm text-slate-600 mt-2">{t('function.directCompleteHint')}</p>
+    </Modal>
+
+    {/* 完結審核人選擇 */}
+    <Modal title={t('function.submitCompletionTitle')} open={showCompletionModal}
+      onCancel={() => setShowCompletionModal(false)} footer={null} width={520} destroyOnHidden>
+      <div className="mt-4 space-y-4">
+        <div className="text-xs text-slate-400">{t('function.completionReviewHint')}</div>
+        <div>
+          <div className="text-sm font-medium text-slate-600 mb-2">{t('function.reviewFlow')}</div>
+          {completionReviewers.length === 0
+            ? <div className="border border-dashed border-slate-300 rounded-lg py-5 text-center text-slate-400 text-sm">{t('function.noReviewerAdded')}</div>
+            : <div className="border border-slate-200 rounded-lg overflow-hidden">
+                {completionReviewers.map((r, i) => (
+                  <div key={r.work_no} className="flex items-center gap-3 px-3 py-2.5 border-b border-slate-100 last:border-b-0 bg-white hover:bg-slate-50">
+                    <div className="w-6 h-6 rounded-full bg-blue-600 text-white text-xs flex items-center justify-center flex-shrink-0 font-semibold">{i + 1}</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-slate-800">{r.name}</div>
+                      <div className="text-xs text-slate-400 truncate">{r.department ?? ''}{r.position ? ` · ${r.position}` : ''} · {r.work_no}</div>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <Button size="small" type="text" disabled={i === 0}
+                        onClick={() => setCompletionReviewers((prev) => { const a = [...prev]; [a[i], a[i-1]] = [a[i-1], a[i]]; return a })}
+                        style={{ padding: '0 4px', fontSize: 12, color: i === 0 ? '#cbd5e1' : '#64748b' }}>↑</Button>
+                      <Button size="small" type="text" disabled={i === completionReviewers.length - 1}
+                        onClick={() => setCompletionReviewers((prev) => { const a = [...prev]; [a[i], a[i+1]] = [a[i+1], a[i]]; return a })}
+                        style={{ padding: '0 4px', fontSize: 12, color: i === completionReviewers.length - 1 ? '#cbd5e1' : '#64748b' }}>↓</Button>
+                      {defaultCompletionWnos.has(r.work_no) && completionReviewers.filter((rv) => defaultCompletionWnos.has(rv.work_no)).length <= 1
+                        ? <Tooltip title={t('function.lastReviewerLock')}><span className="w-7 h-7 flex items-center justify-center text-slate-300">🔒</span></Tooltip>
+                        : <Button size="small" type="text" danger icon={<TrashIcon className="w-3.5 h-3.5" />}
+                            onClick={() => setCompletionReviewers((prev) => prev.filter((u) => u.work_no !== r.work_no))} />}
+                    </div>
+                  </div>
+                ))}
+              </div>}
+        </div>
+        <div>
+          <div className="text-sm font-medium text-slate-600 mb-2">{t('function.addReviewer')}</div>
+          <div className="relative">
+            <Input placeholder={t('function.searchReviewerPlaceholder')} value={completionSearch}
+              onChange={async (e) => {
+                const kw = e.target.value; setCompletionSearch(kw)
+                if (!kw.trim()) { setCompletionSearchResults([]); return }
+                setCompletionSearchLoading(true)
+                try { const res = await userApi.list({ keyword: kw, size: 10 }); setCompletionSearchResults(((res.content as { data_list?: typeof completionReviewers }).data_list) ?? []) }
+                catch { /* */ } finally { setCompletionSearchLoading(false) }
+              }}
+              prefix={completionSearchLoading ? <Spin size="small" /> : undefined} allowClear />
+            {completionSearchResults.length > 0 && (
+              <div className="absolute z-50 top-full left-0 right-0 mt-1 border border-slate-200 rounded-lg bg-white shadow-lg overflow-hidden max-h-48 overflow-y-auto">
+                {completionSearchResults.map((u) => {
+                  const already = completionReviewers.some((rv) => rv.work_no === u.work_no)
+                  const isSelf = u.work_no.toLowerCase() === workNo.toLowerCase()
+                  return (
+                    <div key={u.work_no} className={`flex items-center gap-3 px-3 py-2 border-b border-slate-50 last:border-b-0 ${already || isSelf ? 'opacity-40 cursor-not-allowed' : 'hover:bg-blue-50 cursor-pointer'}`}
+                      onClick={() => { if (already || isSelf) return; setCompletionReviewers((prev) => [...prev, u]); setCompletionSearch(''); setCompletionSearchResults([]) }}>
+                      <div className="w-7 h-7 rounded-full bg-slate-200 flex items-center justify-center text-xs font-semibold text-slate-600 flex-shrink-0">{u.name.charAt(0)}</div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-slate-800">{u.name}</div>
+                        <div className="text-xs text-slate-400">{u.department ?? ''}{u.position ? ` · ${u.position}` : ''} · {u.work_no}</div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+        <Divider style={{ margin: '8px 0' }} />
+        <div className="flex justify-end gap-3">
+          <Button onClick={() => setShowCompletionModal(false)}>{t('common.cancel')}</Button>
+          <Button type="primary" loading={completionSaving} disabled={completionReviewers.length === 0}
+            style={{ background: '#16a34a' }} onClick={handleSubmitCompletionReview}>{t('function.submitCompletionNow')}</Button>
         </div>
       </div>
     </Modal>

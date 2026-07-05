@@ -376,7 +376,9 @@ class FunctionSubmitCompletionApi(MethodView):
     def post(self, project_id, function_id):
         """提交任务完结审核"""
         work_no = get_identity()
-        result = func_ctrl.submit_function_completion(project_id, function_id, submitter=work_no)
+        payload = request.get_json(silent=True) or {}
+        reviewer = payload.get("reviewer", [])
+        result = func_ctrl.submit_function_completion(project_id, function_id, submitter=work_no, reviewer=reviewer)
         return response_result(content=result)
 
 
