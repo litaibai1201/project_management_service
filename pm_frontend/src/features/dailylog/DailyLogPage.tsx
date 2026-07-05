@@ -758,8 +758,14 @@ const DailyLogPage: React.FC = () => {
     let list = systemDutiesMap[selectedSystem ?? ''] ?? []
     if (selectedSysReq) list = list.filter((d) => (d.requirement_nm || '') === selectedSysReq)
     if (selectedSysGrp) list = list.filter((d) => (formatGroupName(d.group) || d.group || '') === selectedSysGrp)
+    // 編輯時確保當前任務始終在列表中
+    if (editingEntry?.duty_id && !list.some((d) => d.id === editingEntry.duty_id)) {
+      const allList = systemDutiesMap[selectedSystem ?? ''] ?? []
+      const current = allList.find((d) => d.id === editingEntry.duty_id)
+      if (current) list = [current, ...list]
+    }
     return list
-  }, [systemDutiesMap, selectedSystem, selectedSysReq, selectedSysGrp])
+  }, [systemDutiesMap, selectedSystem, selectedSysReq, selectedSysGrp, editingEntry])
 
   const sysReqOpts = useMemo(() => {
     const list = systemDutiesMap[selectedSystem ?? ''] ?? []
@@ -1128,16 +1134,31 @@ const DailyLogPage: React.FC = () => {
         restoredSysId = sys?.id ?? null
         if (restoredSysId) {
           setSelectedSystem(restoredSysId)
-          // Ensure the duty is present in the system duties map as a fallback
-          // in case it has a status that was filtered out on initial load
-          if (entry.duty_id && entry.duty_nm) {
-            setSystemDutiesMap((prev) => {
-              const existing = prev[restoredSysId!] ?? []
-              if (existing.some((d) => d.id === entry.duty_id)) return prev
-              return { ...prev, [restoredSysId!]: [...existing, { id: entry.duty_id!, name: entry.duty_nm! }] }
+          // 同步設置需求和分組篩選
+          setSelectedSysReq(entry.requirement_nm || undefined)
+          setSelectedSysGrp(entry.group1 ? (formatGroupName(entry.group1) || entry.group1) : undefined)
+          // 強制重新加載系統任務列表（確保數據完整）
+          dutyApi.list({ page: 1, size: 200, system_id: restoredSysId })
+            .then((res) => {
+              const list = (res.content as { data_list?: { id: string; duty_nm: string; status?: number; requirement_nm?: string; group?: string; expected_start_date?: string; expected_end_date?: string }[] })?.data_list ?? []
+              const mapped = list
+                .filter((d) => d.status != null && (![0, 3, 8, 9].includes(d.status!) || d.id === entry.duty_id))
+                .map((d) => ({
+                  id: d.id, name: d.duty_nm,
+                  requirement_nm: d.requirement_nm || undefined,
+                  group: d.group || undefined,
+                  expected_start_date: d.expected_start_date || undefined,
+                  expected_end_date: d.expected_end_date || undefined,
+                }))
+              setSystemDutiesMap((prev) => ({ ...prev, [restoredSysId!]: mapped }))
             })
-          }
+            .catch(() => {})
         }
+      }
+      // 專案任務同步設置需求和分組篩選
+      if (entry.work_category === 'project' && entry.project_id) {
+        setSelectedFuncReq(entry.requirement_nm || undefined)
+        setSelectedFuncGrp(entry.group1 ? (formatGroupName(entry.group1) || entry.group1) : undefined)
       }
       form.setFieldsValue({
         work_category: entry.work_category,
@@ -2278,13 +2299,16 @@ const DailyLogPage: React.FC = () => {
         width="min(680px, 88vw)"
         destroyOnHidden
       >
+        {(() => {
+          const isTaskSource = !!editingEntry && (editingEntry.source === 'progress' || editingEntry.source === 'updated')
+          return (
         <Form form={form} layout="vertical" onFinish={handleSaveEntry} className="mt-4">
           {(() => {
             const hasTaskLink = (watchedCategory === 'project' && !!watchedFunctionId) || (watchedCategory === 'duty' && !!watchedDutyId) || (watchedCategory === 'system_req' && !!watchedDutyId)
             return (
               <div className={`grid gap-x-3 ${hasTaskLink ? 'grid-cols-3' : 'grid-cols-2'}`}>
                 <Form.Item name="work_category" label={t('dailyLog.workCategory')} rules={[{ required: true, message: t('dailyLog.pleaseSelectCategory') }]}>
-                  <Select placeholder={t('dailyLog.selectCategory')} onChange={(v: WorkCategory) => {
+                  <Select disabled={isTaskSource} placeholder={t('dailyLog.selectCategory')} onChange={(v: WorkCategory) => {
                     if (v !== 'project') {
                       form.setFieldsValue({ project_id: undefined, function_id: undefined })
                       setSelectedProject(null)
@@ -2344,7 +2368,7 @@ const DailyLogPage: React.FC = () => {
             <>
               <div className="grid grid-cols-2 gap-x-3">
                 <Form.Item name="project_id" label={t('dailyLog.relatedProject')} rules={[{ required: true, message: t('dailyLog.pleaseSelectProject') }]}>
-                  <Select placeholder={t('dailyLog.selectProject')} allowClear onChange={(v: string) => {
+                  <Select disabled={isTaskSource} placeholder={t('dailyLog.selectProject')} allowClear onChange={(v: string) => {
                     setSelectedProject(v)
                     setSelectedFuncReq(undefined); setSelectedFuncGrp(undefined)
                     form.setFieldsValue({ function_id: undefined })
@@ -2356,12 +2380,12 @@ const DailyLogPage: React.FC = () => {
                 </Form.Item>
                 <div className="grid grid-cols-2 gap-x-2">
                   <Form.Item label={t('requirement.name')}>
-                    <Select placeholder={t('common.all')} allowClear value={selectedFuncReq} disabled={!selectedProject}
+                    <Select placeholder={t('common.all')} allowClear value={selectedFuncReq} disabled={isTaskSource || !selectedProject}
                       onChange={(v) => { setSelectedFuncReq(v); setSelectedFuncGrp(undefined); form.setFieldsValue({ function_id: undefined }) }}
                       options={funcReqOpts} />
                   </Form.Item>
                   <Form.Item label={t('function.group')}>
-                    <Select placeholder={t('common.all')} allowClear value={selectedFuncGrp} disabled={!selectedProject}
+                    <Select placeholder={t('common.all')} allowClear value={selectedFuncGrp} disabled={isTaskSource || !selectedProject}
                       onChange={(v) => { setSelectedFuncGrp(v); form.setFieldsValue({ function_id: undefined }) }}
                       options={funcGrpOpts} />
                   </Form.Item>
@@ -2369,7 +2393,7 @@ const DailyLogPage: React.FC = () => {
               </div>
               <Form.Item name="function_id" label={t('dailyLog.relatedTask')}>
                 <Select
-                  placeholder={t('dailyLog.selectFunction')} allowClear disabled={!selectedProject}
+                  placeholder={t('dailyLog.selectFunction')} allowClear disabled={isTaskSource || !selectedProject}
                   optionLabelProp="label" showSearch optionFilterProp="label"
                   dropdownStyle={{ minWidth: 320 }}
                 >
@@ -2402,7 +2426,7 @@ const DailyLogPage: React.FC = () => {
           )}
           {watchedCategory === 'duty' && (
             <Form.Item name="duty_id" label={t('dailyLog.relatedAR')} rules={[{ required: true, message: t('dailyLog.pleaseSelectTask') }]}>
-              <Select placeholder={t('dailyLog.selectAR')} allowClear showSearch optionLabelProp="label" dropdownStyle={{ minWidth: 300 }}>
+              <Select disabled={isTaskSource} placeholder={t('dailyLog.selectAR')} allowClear showSearch optionLabelProp="label" dropdownStyle={{ minWidth: 300 }}>
                 {dutyOpts.map((d) => (
                   <Select.Option key={d.id} value={d.id} label={d.name}>
                     <div className="py-0.5">
@@ -2431,6 +2455,7 @@ const DailyLogPage: React.FC = () => {
               <div className="grid grid-cols-2 gap-x-3">
                 <Form.Item name="system_id" label={t('dailyLog.relatedSystem')} rules={[{ required: true, message: t('dailyLog.pleaseSelectSystem') }]}>
                   <Select
+                    disabled={isTaskSource}
                     placeholder={t('dailyLog.selectSystem')} allowClear showSearch optionFilterProp="children"
                     onChange={(v: string) => {
                       setSelectedSystem(v ?? null)
@@ -2445,12 +2470,12 @@ const DailyLogPage: React.FC = () => {
                 </Form.Item>
                 <div className="grid grid-cols-2 gap-x-2">
                   <Form.Item label={t('requirement.name')}>
-                    <Select placeholder={t('common.all')} allowClear value={selectedSysReq} disabled={!selectedSystem}
+                    <Select placeholder={t('common.all')} allowClear value={selectedSysReq} disabled={isTaskSource || !selectedSystem}
                       onChange={(v) => { setSelectedSysReq(v); setSelectedSysGrp(undefined); form.setFieldsValue({ duty_id: undefined }) }}
                       options={sysReqOpts} />
                   </Form.Item>
                   <Form.Item label={t('function.group')}>
-                    <Select placeholder={t('common.all')} allowClear value={selectedSysGrp} disabled={!selectedSystem}
+                    <Select placeholder={t('common.all')} allowClear value={selectedSysGrp} disabled={isTaskSource || !selectedSystem}
                       onChange={(v) => { setSelectedSysGrp(v); form.setFieldsValue({ duty_id: undefined }) }}
                       options={sysGrpOpts} />
                   </Form.Item>
@@ -2459,7 +2484,7 @@ const DailyLogPage: React.FC = () => {
               <Form.Item name="duty_id" label={t('dailyLog.relatedTask')} rules={[{ required: true, message: t('dailyLog.pleaseSelectTask') }]}>
                 <Select
                   placeholder={selectedSystem ? t('dailyLog.selectTask') : t('dailyLog.pleaseSelectSystemFirst')}
-                  allowClear showSearch disabled={!selectedSystem}
+                  allowClear showSearch disabled={isTaskSource || !selectedSystem}
                   optionLabelProp="label"
                   dropdownStyle={{ minWidth: 280 }}
                 >
@@ -2688,6 +2713,8 @@ const DailyLogPage: React.FC = () => {
             </Button>
           </div>
         </Form>
+          )
+        })()}
       </Modal>
 
       {/* ─── Description Expand Modal ──────────────────────────────── */}

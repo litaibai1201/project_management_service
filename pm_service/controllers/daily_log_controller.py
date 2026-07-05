@@ -422,6 +422,10 @@ class DailyLogController:
                 func.function_status = 2
                 if not func.start_time:
                     func.start_time = _now()[:10]
+            # 進度 < 100 且已完結(4)/完結審核(3) → 恢復為進行中(2)
+            if progress < 100 and func.function_status in (3, 4):
+                func.function_status = 2
+                func.end_time = None
             db.session.commit()
             # 同步需求进度
             if func.requirement_id:
@@ -436,6 +440,10 @@ class DailyLogController:
             # 未开始(6)/草稿(0) → 进行中(1)
             if duty.duty_status in (0, 6):
                 duty.duty_status = 1
+            # 進度 < 100 且已完結(3)/完結審核(2) → 恢復為進行中(1)
+            if progress < 100 and duty.duty_status in (2, 3):
+                duty.duty_status = 1
+                duty.end_time = None
             db.session.commit()
             # 同步需求进度
             if duty.standalone_req_id:
