@@ -264,22 +264,52 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
 
   const openSubmitModal = useCallback(async () => {
     if (duty?.standalone_req_id) {
-      const responsible = duty.responsible ?? []
-      const otherResp = responsible.filter((w) => w.toLowerCase() !== (workNo ?? '').toLowerCase())
-      if (otherResp.length === 0) {
-        // 只有一個責任人（自己）→ 直接完結確認
+      // 系統任務：實時獲取需求責任人（避免狀態延遲）
+      let freshReqResp: string[] = []
+      try {
+        const reqRes = await standaloneReqApi.get(duty.standalone_req_id)
+        freshReqResp = (reqRes.content as { responsible?: string[] }).responsible ?? []
+      } catch { /* ignore */ }
+
+      const otherReqResp = freshReqResp.filter((w) => w.toLowerCase() !== (workNo ?? '').toLowerCase())
+
+      const taskResp = duty.responsible ?? []
+      const submitterInReqResp = freshReqResp.some((w) => w.toLowerCase() === (workNo ?? '').toLowerCase())
+
+      if (
+        // 需求只有1個責任人且就是提交者
+        (freshReqResp.length === 1 && otherReqResp.length === 0) ||
+        // 需求多責任人 + 任務只有1個責任人 + 該人在需求責任人中
+        (freshReqResp.length > 1 && taskResp.length === 1 && submitterInReqResp)
+      ) {
         setShowReqCompleteConfirm(true)
       } else {
-        // 多個責任人 → 打開審核人選擇窗口，預設填入其他責任人
+        // 需要審批 → 彈出審核人選擇窗口
         setCompletionReviewSearch('')
         setCompletionSearchResults([])
         setShowCompletionReviewModal(true)
-        // 查詢其他責任人的 profile
         try {
           const res = await userApi.list({ page: 1, size: 2000 })
           const allUsers = ((res.content as { data_list?: UserProfile[] }).data_list) ?? []
-          const otherSet = new Set(otherResp.map((w) => w.toLowerCase()))
-          setCompletionReviewers(allUsers.filter((u) => otherSet.has(u.work_no.toLowerCase())))
+
+          if (freshReqResp.length === 0) {
+            // 需求沒有設置責任人 → 回退到任務創建人
+            const creator = duty?.creator ?? ''
+            const creatorUser = allUsers.find((u) => u.work_no.toLowerCase() === creator.toLowerCase())
+            setCompletionReviewers(creatorUser ? [creatorUser] : [])
+            setDefaultCompletionWnos(new Set(creatorUser ? [creatorUser.work_no] : []))
+          } else if (freshReqResp.length === 1) {
+            // 需求只有1個責任人但提交者不是 → 該責任人鎖定
+            const respUser = allUsers.find((u) => u.work_no.toLowerCase() === freshReqResp[0].toLowerCase())
+            setCompletionReviewers(respUser ? [respUser] : [])
+            setDefaultCompletionWnos(new Set(respUser ? [respUser.work_no] : []))
+          } else {
+            // 需求有多個責任人 → 填入所有需求責任人（排除提交者）
+            const otherSet = new Set(otherReqResp.map((w) => w.toLowerCase()))
+            const otherUsers = allUsers.filter((u) => otherSet.has(u.work_no.toLowerCase()))
+            setCompletionReviewers(otherUsers)
+            setDefaultCompletionWnos(new Set(otherUsers.map((u) => u.work_no)))
+          }
         } catch { /* ignore */ }
       }
     } else {
@@ -520,8 +550,8 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
                   {t('duty.detail.resumeInProgress')}
                 </Button>
               )}
-              {/* 提交完結：進行中 + 進度100% + 負責人或建立人 */}
-              {duty.status === 1 && (duty.progress ?? 0) >= 100 && canReqHold && (
+              {/* 提交完結：進行中 + 進度100% + 任務責任人 */}
+              {duty.status === 1 && (duty.progress ?? 0) >= 100 && isResponsible && (
                 <Button size="small" type="primary" style={{ background: '#16a34a' }}
                   onClick={() => openSubmitModal()}>
                   {t('duty.detail.submitCompletion')}

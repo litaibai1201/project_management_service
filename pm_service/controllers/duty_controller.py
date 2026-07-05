@@ -581,11 +581,21 @@ class DutyController:
         now = CommonTools.get_now()
 
         if d.standalone_req_id:
-            # 需求任務：根據任務責任人數量決定
-            other_responsible = [wn for wn in responsible if wn.lower() != work_no.lower()]
+            # 系統任務：審批人為需求責任人
+            req = dao.get_req_by_id(d.standalone_req_id)
+            req_responsible = json.loads(req.responsible) if req and req.responsible else []
+            other_req_resp = [wn for wn in req_responsible if wn.lower() != work_no.lower()]
 
-            if len(other_responsible) == 0:
-                # 任務只有一個責任人（就是提交人自己）→ 直接完結
+            submitter_in_req = work_no.lower() in [wn.lower() for wn in req_responsible]
+            task_resp_count = len(responsible)
+
+            if (
+                # 需求只有1個責任人且就是提交者
+                (len(req_responsible) == 1 and len(other_req_resp) == 0)
+                # 需求多責任人 + 任務只有1個責任人 + 該人在需求責任人中
+                or (len(req_responsible) > 1 and task_resp_count == 1 and submitter_in_req)
+            ):
+                # 直接完結
                 d.duty_status = 3
                 d.end_time = now
                 d.update_at = now
@@ -593,9 +603,11 @@ class DutyController:
                 DutyController._sync_req_progress(d.standalone_req_id)
                 return {"review_id": "", "direct": True}
 
-            # 任務有多個責任人 → 使用前端傳入的審核人列表，若為空則預設其他責任人
+            # 需要審批 → 使用前端傳入的審核人列表，若為空則預設需求責任人（排除提交者），再回退創建人
             if not reviewer:
-                reviewer = other_responsible
+                reviewer = other_req_resp if other_req_resp else req_responsible
+            if not reviewer:
+                reviewer = [d.creator] if d.creator else []
             if not reviewer:
                 raise BusinessException("請至少指定一位審核人")
             apply_type = "需求任務完結審核"
