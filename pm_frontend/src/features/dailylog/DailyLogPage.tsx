@@ -266,8 +266,9 @@ interface FunctionOpt {
   requirement_nm?: string
   group1?: string; group2?: string
   expected_start_date?: string; expected_end_date?: string
+  progress?: number
 }
-interface DutyOpt     { id: string; name: string; requirement_nm?: string; group?: string; system_nm?: string; expected_start_date?: string; expected_end_date?: string }
+interface DutyOpt     { id: string; name: string; requirement_nm?: string; group?: string; system_nm?: string; expected_start_date?: string; expected_end_date?: string; progress?: number }
 // ─── CSV Export ──────────────────────────────────────────────────────────────
 function exportDailyLogCSV(logs: DailyLog[], rangeLabel: string) {
   const bom = '\uFEFF'
@@ -805,7 +806,7 @@ const DailyLogPage: React.FC = () => {
   useEffect(() => {
     dutyApi.taskList({ page: 1, size: 200 })
       .then((res) => {
-        const list = (res.content as { data_list?: { id: string; duty_nm: string; system_id?: string; system_nm?: string; standalone_req_id?: string; requirement_nm?: string; group?: string; expected_start_date?: string; expected_end_date?: string }[] })?.data_list ?? []
+        const list = (res.content as { data_list?: { id: string; duty_nm: string; progress?: number; system_id?: string; system_nm?: string; standalone_req_id?: string; requirement_nm?: string; group?: string; expected_start_date?: string; expected_end_date?: string }[] })?.data_list ?? []
         setDutyOpts(list.filter((d) => !d.standalone_req_id && !d.system_id).map((d) => ({
           id: d.id, name: d.duty_nm,
           system_nm: d.system_nm || undefined,
@@ -813,6 +814,7 @@ const DailyLogPage: React.FC = () => {
           group: d.group || undefined,
           expected_start_date: d.expected_start_date || undefined,
           expected_end_date: d.expected_end_date || undefined,
+          progress: d.progress ?? 0,
         })))
       })
       .catch(() => {})
@@ -834,7 +836,7 @@ const DailyLogPage: React.FC = () => {
     if (functionsMap[selectedProject]) return  // already cached
     projectApi.functionList(selectedProject, { page: 1, size: 200 })
       .then((res) => {
-        type RawFunc = { id: string; function_nm: string; status?: number; requirement_nm?: string; group1?: string; group2?: string; expected_start_date?: string; expected_end_date?: string }
+        type RawFunc = { id: string; function_nm: string; status?: number; progress?: number; requirement_nm?: string; group1?: string; group2?: string; expected_start_date?: string; expected_end_date?: string }
         const list = (res.content as { data_list?: RawFunc[] })?.data_list ?? []
         setFunctionsMap((prev) => ({
           ...prev,
@@ -846,6 +848,7 @@ const DailyLogPage: React.FC = () => {
               group1: f.group1, group2: f.group2,
               expected_start_date: f.expected_start_date,
               expected_end_date: f.expected_end_date,
+              progress: f.progress ?? 0,
             })),
         }))
       })
@@ -858,7 +861,7 @@ const DailyLogPage: React.FC = () => {
     if (systemDutiesMap[selectedSystem]) return
     dutyApi.list({ page: 1, size: 200, system_id: selectedSystem })
       .then((res) => {
-        const list = (res.content as { data_list?: { id: string; duty_nm: string; status?: number; requirement_nm?: string; group?: string; expected_start_date?: string; expected_end_date?: string }[] })?.data_list ?? []
+        const list = (res.content as { data_list?: { id: string; duty_nm: string; status?: number; progress?: number; requirement_nm?: string; group?: string; expected_start_date?: string; expected_end_date?: string }[] })?.data_list ?? []
         setSystemDutiesMap((prev) => ({
           ...prev,
           [selectedSystem]: list
@@ -869,6 +872,7 @@ const DailyLogPage: React.FC = () => {
               group: d.group || undefined,
               expected_start_date: d.expected_start_date || undefined,
               expected_end_date: d.expected_end_date || undefined,
+              progress: d.progress ?? 0,
             })),
         }))
       })
@@ -1098,7 +1102,7 @@ const DailyLogPage: React.FC = () => {
       if (projId && !functionsMap[projId]) {
         projectApi.functionList(projId, { page: 1, size: 200 })
           .then((res) => {
-            type RawFunc = { id: string; function_nm: string; status?: number; end_time?: string; group1?: string; group2?: string; expected_start_date?: string; expected_end_date?: string }
+            type RawFunc = { id: string; function_nm: string; status?: number; progress?: number; end_time?: string; group1?: string; group2?: string; expected_start_date?: string; expected_end_date?: string }
             const list = (res.content as { data_list?: RawFunc[] })?.data_list ?? []
             setFunctionsMap((prev) => ({
               ...prev,
@@ -1140,7 +1144,7 @@ const DailyLogPage: React.FC = () => {
           // 強制重新加載系統任務列表（確保數據完整）
           dutyApi.list({ page: 1, size: 200, system_id: restoredSysId })
             .then((res) => {
-              const list = (res.content as { data_list?: { id: string; duty_nm: string; status?: number; requirement_nm?: string; group?: string; expected_start_date?: string; expected_end_date?: string }[] })?.data_list ?? []
+              const list = (res.content as { data_list?: { id: string; duty_nm: string; status?: number; progress?: number; requirement_nm?: string; group?: string; expected_start_date?: string; expected_end_date?: string }[] })?.data_list ?? []
               const mapped = list
                 .filter((d) => d.status != null && (![0, 3, 8, 9].includes(d.status!) || d.id === entry.duty_id))
                 .map((d) => ({
@@ -1149,6 +1153,7 @@ const DailyLogPage: React.FC = () => {
                   group: d.group || undefined,
                   expected_start_date: d.expected_start_date || undefined,
                   expected_end_date: d.expected_end_date || undefined,
+                  progress: d.progress ?? 0,
                 }))
               setSystemDutiesMap((prev) => ({ ...prev, [restoredSysId!]: mapped }))
             })
@@ -1396,7 +1401,11 @@ const DailyLogPage: React.FC = () => {
           task_items: backendPayload.task_items,
           free_items: backendPayload.free_items,
         })
-      } catch { /* best-effort */ }
+        // 標記為已保存
+        setSavedEntryIds((prev) => new Set([...prev, newEntry.entry_id]))
+      } catch {
+        showToast.error(t('common.saveFailed'))
+      }
     }
 
     // 同步任務進度：僅當用戶勾選且進度值確實改變時才調用
@@ -2411,6 +2420,9 @@ const DailyLogPage: React.FC = () => {
                             <span className="text-[10px] bg-slate-100 text-slate-400 rounded px-1.5 py-px leading-none flex-shrink-0">{f.group2}</span>
                           )}
                           <span className="text-sm text-slate-800 font-medium">{f.name}</span>
+                          {typeof f.progress === 'number' && (
+                            <span className={`text-[10px] font-semibold px-1.5 py-px rounded leading-none flex-shrink-0 ${f.progress >= 100 ? 'bg-blue-100 text-blue-600' : f.progress > 0 ? 'bg-green-100 text-green-600' : 'bg-slate-100 text-slate-400'}`}>{f.progress}%</span>
+                          )}
                         </div>
                         {(f.expected_start_date || f.expected_end_date) && (
                           <div className="text-[11px] text-slate-400 tabular-nums mt-0.5">
@@ -2438,6 +2450,9 @@ const DailyLogPage: React.FC = () => {
                           <span className="text-[10px] bg-slate-100 text-slate-500 rounded px-1.5 py-px leading-none flex-shrink-0">{formatGroupName(d.group) || d.group}</span>
                         )}
                         <span className="text-sm text-slate-800 font-medium">{d.name}</span>
+                        {typeof d.progress === 'number' && (
+                          <span className={`text-[10px] font-semibold px-1.5 py-px rounded leading-none flex-shrink-0 ${d.progress >= 100 ? 'bg-blue-100 text-blue-600' : d.progress > 0 ? 'bg-green-100 text-green-600' : 'bg-slate-100 text-slate-400'}`}>{d.progress}%</span>
+                        )}
                       </div>
                       {(d.expected_start_date || d.expected_end_date) && (
                         <div className="text-[11px] text-slate-400 tabular-nums mt-0.5">
@@ -2502,6 +2517,9 @@ const DailyLogPage: React.FC = () => {
                             <span className="text-[10px] bg-slate-100 text-slate-500 rounded px-1.5 py-px leading-none flex-shrink-0">{formatGroupName(d.group) || d.group}</span>
                           )}
                           <span className="text-sm text-slate-800 font-medium">{d.name}</span>
+                          {typeof d.progress === 'number' && (
+                            <span className={`text-[10px] font-semibold px-1.5 py-px rounded leading-none flex-shrink-0 ${d.progress >= 100 ? 'bg-blue-100 text-blue-600' : d.progress > 0 ? 'bg-green-100 text-green-600' : 'bg-slate-100 text-slate-400'}`}>{d.progress}%</span>
+                          )}
                         </div>
                         {(d.expected_start_date || d.expected_end_date) && (
                           <div className="text-[11px] text-slate-400 tabular-nums mt-0.5">
