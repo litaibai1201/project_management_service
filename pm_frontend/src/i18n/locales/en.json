@@ -904,6 +904,7 @@
     "selectSystem": "Select system",
     "selectTask": "Select task",
     "pleaseSelectSystemFirst": "Please select a system first",
+    "includesArTasks": "(includes AR tasks)",
     "buUnit": "BU / Department (Requester)",
     "buPlaceholder": "Enter or select BU",
     "buManufacturing": "Manufacturing",

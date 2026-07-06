@@ -2438,7 +2438,7 @@ const DailyLogPage: React.FC = () => {
           )}
           {watchedCategory === 'duty' && (
             <Form.Item name="duty_id" label={t('dailyLog.relatedAR')} rules={[{ required: true, message: t('dailyLog.pleaseSelectTask') }]}>
-              <Select disabled={isTaskSource} placeholder={t('dailyLog.selectAR')} allowClear showSearch optionLabelProp="label" dropdownStyle={{ minWidth: 300 }}>
+              <Select disabled={isTaskSource} placeholder={t('dailyLog.selectAR')} allowClear showSearch optionLabelProp="label" optionFilterProp="label" dropdownStyle={{ minWidth: 300 }}>
                 {dutyOpts.map((d) => (
                   <Select.Option key={d.id} value={d.id} label={d.name}>
                     <div className="py-0.5">
@@ -2496,11 +2496,11 @@ const DailyLogPage: React.FC = () => {
                   </Form.Item>
                 </div>
               </div>
-              <Form.Item name="duty_id" label={t('dailyLog.relatedTask')} rules={[{ required: true, message: t('dailyLog.pleaseSelectTask') }]}>
+              <Form.Item name="duty_id" label={<>{t('dailyLog.relatedTask')}{selectedSystem && <span className="text-amber-500 font-normal ml-2">{t('dailyLog.includesArTasks')}</span>}</>} rules={[{ required: true, message: t('dailyLog.pleaseSelectTask') }]}>
                 <Select
                   placeholder={selectedSystem ? t('dailyLog.selectTask') : t('dailyLog.pleaseSelectSystemFirst')}
                   allowClear showSearch disabled={isTaskSource || !selectedSystem}
-                  optionLabelProp="label"
+                  optionLabelProp="label" optionFilterProp="label"
                   dropdownStyle={{ minWidth: 280 }}
                 >
                   {filteredSysDutyOpts.map((d) => (

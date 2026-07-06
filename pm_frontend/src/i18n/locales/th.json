@@ -902,6 +902,7 @@
     "selectSystem": "เลือกระบบ",
     "selectTask": "เลือกงาน",
     "pleaseSelectSystemFirst": "กรุณาเลือกระบบก่อน",
+    "includesArTasks": "(รวมงาน AR)",
     "buUnit": "BU / หน่วยงาน (ผู้ร้องขอ)",
     "buPlaceholder": "พิมพ์หรือเลือก BU",
     "buManufacturing": "ฝ่ายผลิต",

@@ -904,6 +904,7 @@
     "selectSystem": "選擇系統",
     "selectTask": "選擇任務",
     "pleaseSelectSystemFirst": "請先選擇系統",
+    "includesArTasks": "（包含AR任務）",
     "buUnit": "BU / 單位（需求方）",
     "buPlaceholder": "輸入或選擇 BU",
     "buManufacturing": "製造部",
