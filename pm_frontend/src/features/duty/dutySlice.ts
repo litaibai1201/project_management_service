@@ -82,6 +82,12 @@ const dutySlice = createSlice({
     clearCurrentDuty(state) {
       state.current = null
     },
+    silentUpdateList(state, action: PayloadAction<PaginatedContent<TemporaryDuty>>) {
+      const content = action.payload
+      state.list       = (Array.isArray(content?.data_list) ? content.data_list : []) as TemporaryDuty[]
+      state.totalCount = content?.total_count ?? 0
+      state.totalPage  = content?.total_page ?? 0
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -114,5 +120,5 @@ const dutySlice = createSlice({
   },
 })
 
-export const { setDutyQuery, clearCurrentDuty } = dutySlice.actions
+export const { setDutyQuery, clearCurrentDuty, silentUpdateList } = dutySlice.actions
 export default dutySlice.reducer

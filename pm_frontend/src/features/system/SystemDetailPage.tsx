@@ -220,26 +220,26 @@ const SystemDetailPage: React.FC = () => {
     } catch { /* global */ } finally { setSysLoading(false) }
   }, [id])
 
-  const loadReqs = useCallback(async (page = 1, size = reqPageSize) => {
+  const loadReqs = useCallback(async (page = 1, size = reqPageSize, silent = false) => {
     if (!id) return
-    setReqLoading(true)
+    if (!silent) setReqLoading(true)
     try {
       const res = await standaloneReqApi.list({ page, size, system_id: id })
       const c = res.content as { data_list: StandaloneReq[]; total_count: number }
       setReqList(c.data_list ?? [])
       setReqTotal(c.total_count ?? 0)
       setReqPage(page)
-    } catch { /* global */ } finally { setReqLoading(false) }
+    } catch { /* global */ } finally { if (!silent) setReqLoading(false) }
   }, [id, reqPageSize])
 
-  const loadDuties = useCallback(async () => {
+  const loadDuties = useCallback(async (silent = false) => {
     if (!id) return
-    setDutiesLoading(true)
+    if (!silent) setDutiesLoading(true)
     try {
       const res = await dutyApi.list({ page: 1, size: 100, system_id: id })
       const c = res.content as { data_list?: TemporaryDuty[] }
       setDuties(c.data_list ?? [])
-    } catch { /* global */ } finally { setDutiesLoading(false) }
+    } catch { /* global */ } finally { if (!silent) setDutiesLoading(false) }
   }, [id])
 
   useEffect(() => {
@@ -2064,6 +2064,7 @@ const groupedByReq = useMemo(() => {
         open={!!selectedDutyId}
         dutyId={selectedDutyId}
         onClose={() => setSelectedDutyId(null)}
+        onRefresh={() => { loadReqs(reqPage, reqPageSize, true); loadDuties(true) }}
       />
 
       {/* 需求搁置 Modal */}

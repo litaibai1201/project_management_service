@@ -10,7 +10,7 @@ import type { InputRef } from 'antd'
 import { useResizableColumns, tableComponents } from '@/hooks/useResizableColumns'
 import { PlusIcon, TrashIcon, EyeIcon, FolderIcon, ArrowsPointingOutIcon, PencilSquareIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import { useAppDispatch, useAppSelector } from '@/hooks/redux'
-import { fetchDutyListThunk, deleteDutyThunk, setDutyQuery, createDutyThunk } from './dutySlice'
+import { fetchDutyListThunk, deleteDutyThunk, setDutyQuery, createDutyThunk, silentUpdateList } from './dutySlice'
 import { TemporaryDuty, ProjectFunction, UserProfile } from '@/types/api.types'
 import { DUTY_STATUS_MAP, PRIORITY_MAP, FUNCTION_STATUS_MAP, PROJECT_STATUS_MAP, formatGroupName, STAGE_GROUP } from '@/utils/status'
 import { showToast } from '@/utils/toast'
@@ -194,9 +194,9 @@ const DutyListPage: React.FC = () => {
   }, [filteredMyFunctions, funcCollapsed])
 
   const loadMyFunctions = useCallback(async (
-    page = myFuncPage, size = myFuncPageSize, status = myFuncStatus, scope = myFuncScope,
+    page = myFuncPage, size = myFuncPageSize, status = myFuncStatus, scope = myFuncScope, silent = false,
   ) => {
-    setMyFuncLoading(true)
+    if (!silent) setMyFuncLoading(true)
     try {
       const res = await projectApi.myFunctions({ page, size, status, scope })
       const c = res.content as { total_count: number; data_list: MyFunction[] }
@@ -204,7 +204,7 @@ const DutyListPage: React.FC = () => {
       setMyFuncTotal(c.total_count ?? 0)
       setMyFuncPage(page)
     } catch { /* global */ }
-    finally { setMyFuncLoading(false) }
+    finally { if (!silent) setMyFuncLoading(false) }
   }, [myFuncPage, myFuncPageSize, myFuncStatus, myFuncScope])
 
   useEffect(() => { loadMyFunctions(1, myFuncPageSize, myFuncStatus, myFuncScope) }, [isManagerView]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -430,6 +430,14 @@ const DutyListPage: React.FC = () => {
   }, [dispatch, arScope])
 
   useEffect(() => { dispatch(fetchDutyListThunk(query)) }, [dispatch, query])
+
+  const silentRefreshAll = useCallback(async () => {
+    try {
+      const res = await dutyApi.list(query)
+      dispatch(silentUpdateList(res.content))
+    } catch { /* ignore */ }
+    loadMyFunctions(myFuncPage, myFuncPageSize, myFuncStatus, myFuncScope, true)
+  }, [dispatch, query, loadMyFunctions, myFuncPage, myFuncPageSize, myFuncStatus, myFuncScope])
 
   const handleDelete = async (id: string) => {
     try {
@@ -1447,6 +1455,7 @@ const DutyListPage: React.FC = () => {
       open={!!selectedDutyId}
       dutyId={selectedDutyId}
       onClose={() => setSelectedDutyId(null)}
+      onRefresh={silentRefreshAll}
     />
     <FunctionDetailDrawer
       open={!!selectedFid && !!selectedFunc}
@@ -1456,6 +1465,7 @@ const DutyListPage: React.FC = () => {
       projectStatus={selectedFunc?.project_status ?? 0}
       projectPm={selectedFunc?.project_pm ?? ''}
       onClose={() => setSelectedFid(null)}
+      onRefresh={silentRefreshAll}
     />
   </div>
 )

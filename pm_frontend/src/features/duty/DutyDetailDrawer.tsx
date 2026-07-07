@@ -36,6 +36,7 @@ interface Props {
   open: boolean
   dutyId: string | null
   onClose: () => void
+  onRefresh?: () => void
 }
 
 const normalizeCooperator = (c: unknown): string[] => {
@@ -45,7 +46,7 @@ const normalizeCooperator = (c: unknown): string[] => {
   return []
 }
 
-const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
+const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose, onRefresh }) => {
   const { t } = useTranslation()
   const workNo = useAppSelector((s) => s.auth.workNo)
   const toName = useWorkNoToName()
@@ -179,10 +180,10 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
 
   const doAction = useCallback(async (action: () => Promise<unknown>) => {
     setIsActing(true)
-    try { await action(); await reloadDuty() }
+    try { await action(); await reloadDuty(); onRefresh?.() }
     catch { /* global toast */ }
     finally { setIsActing(false) }
-  }, [reloadDuty])
+  }, [reloadDuty, onRefresh])
 
   const ensureUserOptions = useCallback(() => {
     if (userOptions.length > 0) return
@@ -232,10 +233,10 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
       })
       showToast.success(t('duty.detail.taskInfoUpdated'))
       setShowEditModal(false)
-      await reloadDuty()
+      await reloadDuty(); onRefresh?.()
     } catch { /* global */ }
     finally { setIsActing(false) }
-  }, [duty, editForm, reloadDuty])
+  }, [duty, editForm, reloadDuty, onRefresh])
 
   const openActivateModal = useCallback(() => {
     const responsible = duty?.responsible ?? []
@@ -263,10 +264,10 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
       showToast.success(t('duty.detail.taskActivated'))
       setShowActivateModal(false)
       activateForm.resetFields()
-      await reloadDuty()
+      await reloadDuty(); onRefresh?.()
     } catch { /* global */ }
     finally { setIsActing(false) }
-  }, [duty, activateForm, reloadDuty])
+  }, [duty, activateForm, reloadDuty, onRefresh])
 
   const openSubmitModal = useCallback(async () => {
     if (duty?.standalone_req_id) {
@@ -351,10 +352,10 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
       showToast.success(t('duty.detail.rescheduleSuccess'))
       setShowRescheduleModal(false)
       rescheduleForm.resetFields()
-      await reloadDuty()
+      await reloadDuty(); onRefresh?.()
     } catch { /* global */ }
     finally { setIsRescheduling(false) }
-  }, [duty, rescheduleForm, reloadDuty])
+  }, [duty, rescheduleForm, reloadDuty, onRefresh])
 
   const handleSubmitCompletion = useCallback(async () => {
     if (!dutyId || selectedReviewers.length === 0) return
@@ -363,10 +364,10 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
       await dutyApi.submitCompletion(dutyId, selectedReviewers)
       showToast.success(t('duty.detail.completionSubmitted'))
       setShowSubmitModal(false)
-      await reloadDuty()
+      await reloadDuty(); onRefresh?.()
     } catch { /* global */ }
     finally { setIsActing(false) }
-  }, [dutyId, selectedReviewers, reloadDuty])
+  }, [dutyId, selectedReviewers, reloadDuty, onRefresh])
 
   const handleReqCompleteConfirm = useCallback(async () => {
     if (!dutyId) return
@@ -376,10 +377,10 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
       const c = res.content as { direct?: boolean }
       showToast.success(c.direct ? t('duty.detail.taskDirectCompleted') : t('duty.detail.completionWaitingReview'))
       setShowReqCompleteConfirm(false)
-      await reloadDuty()
+      await reloadDuty(); onRefresh?.()
     } catch { /* global */ }
     finally { setIsActing(false) }
-  }, [dutyId, reloadDuty])
+  }, [dutyId, reloadDuty, onRefresh])
 
   const openReqReviewModal = useCallback(async () => {
     setReqReviewers([])
@@ -418,10 +419,10 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
       })
       showToast.success(t('duty.detail.reviewSubmitted'))
       setShowReqReviewModal(false)
-      await reloadDuty()
+      await reloadDuty(); onRefresh?.()
     } catch { /* global */ }
     finally { setReqReviewSaving(false) }
-  }, [duty, reqReviewers, reloadDuty])
+  }, [duty, reqReviewers, reloadDuty, onRefresh])
 
   const handleCompletionSearchChange = async (keyword: string) => {
     setCompletionReviewSearch(keyword)
@@ -442,10 +443,10 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
       await dutyApi.submitCompletion(duty.id, completionReviewers.map((r) => r.work_no))
       showToast.success(t('duty.detail.completionSubmitted'))
       setShowCompletionReviewModal(false)
-      await reloadDuty()
+      await reloadDuty(); onRefresh?.()
     } catch { /* global */ }
     finally { setCompletionSaving(false) }
-  }, [duty, completionReviewers, reloadDuty])
+  }, [duty, completionReviewers, reloadDuty, onRefresh])
 
   const loadProgress = async () => {
     if (!dutyId) return
@@ -479,7 +480,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
       }
       showToast.success(t('common.saveSuccess'))
       setPreCheckType(null); setPreCheckDate(''); setPreCheckReason('')
-      reloadDuty()
+      reloadDuty(); onRefresh?.()
     } catch { /* global */ }
     finally { setPreCheckSaving(false) }
   }
@@ -518,6 +519,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
       loadProgress()
       const dutyRes = await dutyApi.get(dutyId)
       setDuty(dutyRes.content as TemporaryDuty)
+      onRefresh?.()
       if (Number(values.progress) === 100) {
         openSubmitModal()
       }
@@ -1526,7 +1528,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
           await dutyApi.hold(duty.id, holdReason)
           showToast.success(t('duty.detail.holdSuccess'))
           setShowHoldModal(false)
-          await reloadDuty()
+          await reloadDuty(); onRefresh?.()
         } catch { /* global */ }
         finally { setHoldSaving(false) }
       }}
