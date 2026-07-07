@@ -127,6 +127,12 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
   const [editForm]   = Form.useForm()
   const sentinelRef  = useRef<HTMLDivElement>(null)
 
+  // 更新进度前置检查
+  const [preCheckType, setPreCheckType] = useState<'start' | 'end' | 'overdue' | null>(null)
+  const [preCheckDate, setPreCheckDate] = useState('')
+  const [preCheckReason, setPreCheckReason] = useState('')
+  const [preCheckSaving, setPreCheckSaving] = useState(false)
+
   // 搁置
   const [showHoldModal, setShowHoldModal] = useState(false)
   const [holdReason,    setHoldReason]    = useState('')
@@ -253,6 +259,38 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
     return () => observer.disconnect()
   }, [loadMoreProgress])
 
+  const handlePreCheckSubmit = async () => {
+    if (!preCheckDate) { showToast.warning(t('function.pleaseSelectDate')); return }
+    setPreCheckSaving(true)
+    try {
+      if (preCheckType === 'start') {
+        await projectApi.updateFunction(projectId, functionId, { expected_start_date: preCheckDate })
+      } else if (preCheckType === 'end') {
+        await projectApi.updateFunction(projectId, functionId, { expected_end_date: preCheckDate })
+      } else if (preCheckType === 'overdue') {
+        await projectApi.rescheduleFunction(projectId, functionId, { new_end_date: preCheckDate, reason: preCheckReason || '' })
+      }
+      showToast.success(t('common.saveSuccess'))
+      setPreCheckType(null); setPreCheckDate(''); setPreCheckReason('')
+      loadData(); onRefresh?.()
+    } catch { /* global */ }
+    finally { setPreCheckSaving(false) }
+  }
+
+  const tryOpenProgressForm = () => {
+    if (!funcData) return
+    if (!funcData.expected_start_date) {
+      setPreCheckType('start'); setPreCheckDate(''); return
+    }
+    if (!funcData.expected_end_date) {
+      setPreCheckType('end'); setPreCheckDate(''); return
+    }
+    if (funcData.expected_end_date < new Date().toISOString().slice(0, 10)) {
+      setPreCheckType('overdue'); setPreCheckDate(''); setPreCheckReason(''); return
+    }
+    setShowForm((v) => !v)
+  }
+
   const handleImageUpload = React.useCallback(async (file: File): Promise<string> => {
     const { dutyApi } = await import('@/api/duty.api')
     const result = await dutyApi.uploadInlineImage(file)
@@ -328,8 +366,8 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
   const canUpdateProgress = !isDraft && !isCompleted && !isReviewing && !isShelved && isResponsible && (isStageTask || projectStatus === 5)
   // 阶段任务不允许编辑全部字段；草稿任务允许编辑
   const canEdit           = isProjectPm && !isCompleted && !isStageTask
-  // 设定日期：任务待开始/进行中且日期为空时，仅PM可设定一次
-  const canSetDates       = isProjectPm && !isDraft && !isCompleted && !isReviewing
+  // 设定日期：任务待开始/进行中且日期为空时，PM或负责人可设定
+  const canSetDates       = (isProjectPm || isResponsible) && !isDraft && !isCompleted && !isReviewing
                             && (!funcData?.expected_start_date || !funcData?.expected_end_date)
   const canHold           = !!projectPm && workNo.toLowerCase() === projectPm.toLowerCase() && (projectStatus === 5 || isStageTask)
 
@@ -382,11 +420,11 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
               {t('function.editBtn')}
             </Button>
           )}
-          {!canEdit && !!projectPm && workNo.toLowerCase() === projectPm.toLowerCase() &&
-            funcData && funcData.status !== 0 && funcData.status !== 4 && funcData.status !== 8 && funcData.status !== 9 &&
+          {funcData && (isProjectPm || isResponsible) &&
+            funcData.status !== 0 && funcData.status !== 4 && funcData.status !== 8 && funcData.status !== 9 &&
             funcData.expected_end_date && funcData.expected_end_date < new Date().toISOString().slice(0, 10) && (
             <RescheduleButton projectId={projectId} functionId={functionId}
-              currentEnd={funcData.expected_end_date} onSuccess={loadData} />
+              currentEnd={funcData.expected_end_date} onSuccess={() => { loadData(); onRefresh?.() }} />
           )}
           {canHold && funcData && [1, 2].includes(funcData.status) && (
             <Button size="small" onClick={() => { setHoldReason(''); setShowHoldModal(true) }}>{t('function.holdBtn')}</Button>
@@ -409,7 +447,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
           )}
           {canUpdateProgress && (
             <Button type="primary" icon={<PlusIcon className="w-4 h-4" />} size="small"
-              style={{ background: '#2563eb' }} onClick={() => setShowForm((v) => !v)}>
+              style={{ background: '#2563eb' }} onClick={tryOpenProgressForm}>
               {t('function.updateProgressBtn')}
             </Button>
           )}
@@ -1146,6 +1184,43 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
           <Button type="primary" loading={completionSaving} disabled={completionReviewers.length === 0}
             style={{ background: '#16a34a' }} onClick={handleSubmitCompletionReview}>{t('function.submitCompletionNow')}</Button>
         </div>
+      </div>
+    </Modal>
+
+    {/* ── 更新進度前置檢查 Modal ─────────────────────────────────────────── */}
+    <Modal
+      open={!!preCheckType}
+      title={preCheckType === 'overdue' ? t('function.needExtendDateTitle') : preCheckType === 'start' ? t('function.needStartDateTitle') : t('function.needEndDateTitle')}
+      onCancel={() => { setPreCheckType(null); setPreCheckDate(''); setPreCheckReason('') }}
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button onClick={() => { setPreCheckType(null); setPreCheckDate(''); setPreCheckReason('') }}>{t('common.cancel')}</Button>
+          <Button type="primary" loading={preCheckSaving} disabled={!preCheckDate} style={{ background: '#2563eb' }} onClick={handlePreCheckSubmit}>
+            {t('common.confirm')}
+          </Button>
+        </div>
+      }
+      width={420} destroyOnHidden
+    >
+      <div className="py-2 space-y-3">
+        <p className="text-sm text-slate-500">
+          {preCheckType === 'overdue' ? t('function.needExtendDate') : preCheckType === 'start' ? t('function.needStartDate') : t('function.needEndDate')}
+        </p>
+        {preCheckType === 'overdue' && funcData?.expected_end_date && (
+          <p className="text-xs text-slate-400">{t('function.currentDeadline', { date: funcData.expected_end_date })}</p>
+        )}
+        <div>
+          <div className="text-sm font-medium text-slate-700 mb-1">
+            {preCheckType === 'overdue' ? t('function.newExpectedEnd') : preCheckType === 'start' ? t('function.expectedStart') : t('function.expectedEnd')}
+          </div>
+          <DateInput value={preCheckDate} onChange={(v) => setPreCheckDate(v)} />
+        </div>
+        {preCheckType === 'overdue' && (
+          <div>
+            <div className="text-sm font-medium text-slate-700 mb-1">{t('function.rescheduleReason')}</div>
+            <Input.TextArea rows={2} value={preCheckReason} onChange={(e) => setPreCheckReason(e.target.value)} placeholder={t('function.rescheduleReasonPlaceholder')} />
+          </div>
+        )}
       </div>
     </Modal>
     </>

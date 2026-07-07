@@ -2634,7 +2634,7 @@ const ProjectDetailPage: React.FC = () => {
       {selectedFid && id && (
         <FunctionDetailDrawer projectId={id} functionId={selectedFid}
           open={!!selectedFid} onClose={() => setSelectedFid(null)}
-          onRefresh={() => loadFunctions(id)}
+          onRefresh={() => { loadFunctions(id); loadRequirements(id) }}
           isProjectPm={isPm && [3, 10].includes(current?.status ?? 0) && !isProjectLocked}
           projectStatus={current?.status}
           projectPm={current?.project_pm} />
