@@ -1879,6 +1879,8 @@
     "noProjects": "暫無相關專案",
     "myTaskTitle": "我負責的任務",
     "myTaskSubtitle": "全部 · {{count}} 個任務",
+    "taskTypeProject": "專案",
+    "taskTypeSystem": "系統",
     "noTasks": "暫無相關任務",
     "myPendingReviewTitle": "待我審批",
     "noPendingItems": "暫無待審批項目",

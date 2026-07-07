@@ -1853,6 +1853,8 @@
     "noProjects": "ไม่มีโครงการ",
     "myTaskTitle": "งานของฉัน",
     "myTaskSubtitle": "ทั้งหมด · {{count}} งาน",
+    "taskTypeProject": "โปรเจกต์",
+    "taskTypeSystem": "ระบบ",
     "noTasks": "ไม่มีงาน",
     "myPendingReviewTitle": "รออนุมัติจากฉัน",
     "noPendingItems": "ไม่มีรายการรอดำเนินการ",

@@ -1878,6 +1878,8 @@
     "noProjects": "暂无相关专案",
     "myTaskTitle": "我负责的任务",
     "myTaskSubtitle": "全部 · {{count}} 个任务",
+    "taskTypeProject": "专案",
+    "taskTypeSystem": "系统",
     "noTasks": "暂无相关任务",
     "myPendingReviewTitle": "待我审批",
     "noPendingItems": "暂无待审批项目",

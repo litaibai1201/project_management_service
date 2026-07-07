@@ -23,9 +23,10 @@ import { projectApi } from '@/api/project.api'
 import { authApi, type AlertTask, type WeeklyActivityItem, type NewsItem } from '@/api/auth.api'
 import { dailyLogApi, type BackendDailyLogSummary } from '@/api/daily_log.api'
 import { standaloneReqApi } from '@/api/standalone_req.api'
+import { dutyApi } from '@/api/duty.api'
 import { notificationApi } from '@/api/notification.api'
-import type { ProjectListItem, UserStatistical, TeamStatistical, TeamBenefitGroup, ApplyRecord, ProjectFunction } from '@/types/api.types'
-import { FUNCTION_STATUS_MAP, benefitUnitLabel } from '@/utils/status'
+import type { ProjectListItem, UserStatistical, TeamStatistical, TeamBenefitGroup, ApplyRecord, ProjectFunction, TemporaryDuty } from '@/types/api.types'
+import { FUNCTION_STATUS_MAP, DUTY_STATUS_MAP, benefitUnitLabel } from '@/utils/status'
 import { useWorkNoToName } from '@/hooks/useWorkNoToName'
 import { useDashboardConfig } from '@/hooks/useDashboardConfig'
 import {
@@ -760,6 +761,7 @@ const DashboardPage: React.FC = () => {
   const [myProjects,       setMyProjects]       = useState<ProjectListItem[]>([])
   const [teamProjects,     setTeamProjects]     = useState<ProjectListItem[]>([])
   const [myFuncTasks,      setMyFuncTasks]      = useState<(ProjectFunction & { project_nm: string })[]>([])
+  const [myDutyTasks,      setMyDutyTasks]      = useState<TemporaryDuty[]>([])
   const [pendingReviews,   setPendingReviews]   = useState<ApplyRecord[]>([])
   const [allPendingReviews, setAllPendingReviews] = useState<ApplyRecord[]>([])
   const [todayLog,         setTodayLog]         = useState<BackendDailyLogSummary | null>(null)
@@ -818,6 +820,13 @@ const DashboardPage: React.FC = () => {
           const c = res.content as { data_list?: (ProjectFunction & { project_nm: string })[] }
           const all = c.data_list ?? []
           setMyFuncTasks(all.filter((f) => f.status !== 4))
+        })
+        .catch(() => {})
+      dutyApi.list({ page: 1, size: 200, scope: 'mine' })
+        .then((res) => {
+          const c = res.content as { data_list?: TemporaryDuty[] }
+          const all = c.data_list ?? []
+          setMyDutyTasks(all.filter((d) => ![4, 5, 9].includes(d.status)))
         })
         .catch(() => {})
     }
@@ -1554,42 +1563,65 @@ const DashboardPage: React.FC = () => {
               </Card>
             )
 
-            case 'my_tasks': return isManager ? null : (
-              <Card
-                className="h-full"
-                styles={{ body: { padding: 0, overflow: 'auto', height: '100%' } }}
-                title={
-                  <div>
-                    <div className="text-sm font-semibold text-slate-700">{t('dashboard.myTaskTitle')}</div>
-                    <div className="text-xs text-slate-400 font-normal mt-0.5">{t('dashboard.myTaskSubtitle', { count: myFuncTasks.length })}</div>
-                  </div>
-                }
-              >
-                {myFuncTasks.length === 0
-                  ? <Empty description={t('dashboard.noTasks')} className="py-6" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-                  : myFuncTasks.map((f) => {
-                    const st = FUNCTION_STATUS_MAP[f.status]
-                    return (
-                      <div
-                        key={f.id}
-                        className="flex items-center gap-3 px-5 py-3 border-b border-slate-100 last:border-0 hover:bg-slate-50 cursor-pointer transition-colors"
-                        onClick={() => window.open(`/projects/${f.project_id}?fid=${f.id}`, '_blank')}
-                      >
-                        <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: st?.dot ?? '#94a3b8' }} />
-                        <span className="flex-1 text-sm text-slate-700 truncate">{f.function_nm}</span>
-                        {st && <Tag color={st.color} style={{ fontSize: 11, padding: '0 6px', margin: 0 }}>{st.label}</Tag>}
-                        <span className="text-xs text-slate-300 w-14 text-right flex-shrink-0">
-                          {f.expected_end_date ? dayjs(f.expected_end_date).format('MM/DD') : '-'}
-                        </span>
-                        <span className="text-xs text-slate-400 w-20 text-right flex-shrink-0 truncate">
-                          {f.project_nm || '-'}
-                        </span>
-                      </div>
-                    )
-                  })
-                }
-              </Card>
-            )
+            case 'my_tasks': return isManager ? null : (() => {
+              type UnifiedTask = { id: string; name: string; type: 'project' | 'system' | 'ar'; status: number; expectedEnd?: string; source: string; url: string }
+              const allTasks: UnifiedTask[] = [
+                ...myFuncTasks.map((f) => ({
+                  id: f.id, name: f.function_nm, type: 'project' as const, status: f.status,
+                  expectedEnd: f.expected_end_date, source: f.project_nm || '-',
+                  url: `/projects/${f.project_id}?fid=${f.id}`,
+                })),
+                ...myDutyTasks.filter((d) => !!d.standalone_req_id).map((d) => ({
+                  id: d.id, name: d.duty_nm, type: 'system' as const, status: d.status,
+                  expectedEnd: d.expected_end_date, source: d.system_nm || '-',
+                  url: `/systems/${d.system_id}?did=${d.id}`,
+                })),
+                ...myDutyTasks.filter((d) => !d.standalone_req_id).map((d) => ({
+                  id: d.id, name: d.duty_nm, type: 'ar' as const, status: d.status,
+                  expectedEnd: d.expected_end_date, source: d.system_nm || '-',
+                  url: `/tasks?tab=ar&did=${d.id}`,
+                })),
+              ]
+              const typeLabel = { project: t('dashboard.taskTypeProject'), system: t('dashboard.taskTypeSystem'), ar: 'AR' }
+              const typeColor = { project: '#2563eb', system: '#7c3aed', ar: '#0891b2' }
+              return (
+                <Card
+                  className="h-full"
+                  styles={{ body: { padding: 0, overflow: 'auto', height: '100%' } }}
+                  title={
+                    <div>
+                      <div className="text-sm font-semibold text-slate-700">{t('dashboard.myTaskTitle')}</div>
+                      <div className="text-xs text-slate-400 font-normal mt-0.5">{t('dashboard.myTaskSubtitle', { count: allTasks.length })}</div>
+                    </div>
+                  }
+                >
+                  {allTasks.length === 0
+                    ? <Empty description={t('dashboard.noTasks')} className="py-6" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                    : allTasks.map((task) => {
+                      const st = task.type === 'project' ? FUNCTION_STATUS_MAP[task.status] : DUTY_STATUS_MAP[task.status]
+                      return (
+                        <div
+                          key={`${task.type}-${task.id}`}
+                          className="flex items-center gap-3 px-5 py-3 border-b border-slate-100 last:border-0 hover:bg-slate-50 cursor-pointer transition-colors"
+                          onClick={() => window.open(task.url, '_blank')}
+                        >
+                          <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: st?.dot ?? '#94a3b8' }} />
+                          <Tag color={typeColor[task.type]} style={{ fontSize: 10, padding: '0 4px', margin: 0, lineHeight: '16px' }}>{typeLabel[task.type]}</Tag>
+                          <span className="flex-1 text-sm text-slate-700 truncate">{task.name}</span>
+                          {st && <Tag color={st.color} style={{ fontSize: 11, padding: '0 6px', margin: 0 }}>{st.label}</Tag>}
+                          <span className="text-xs text-slate-300 w-14 text-right flex-shrink-0">
+                            {task.expectedEnd ? dayjs(task.expectedEnd).format('MM/DD') : '-'}
+                          </span>
+                          <span className="text-xs text-slate-400 w-20 text-right flex-shrink-0 truncate">
+                            {task.source}
+                          </span>
+                        </div>
+                      )
+                    })
+                  }
+                </Card>
+              )
+            })()
 
             case 'my_pending_review': return isManager ? null : (
               <Card

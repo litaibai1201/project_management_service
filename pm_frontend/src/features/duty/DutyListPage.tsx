@@ -500,7 +500,7 @@ const DutyListPage: React.FC = () => {
   // ── 專案任務 columns ──────────────────────────────────────────────────────
   const rawFuncColumns: ColumnsType<MyFunction> = [
     {
-      title: t('duty.taskName'), dataIndex: 'function_nm', ellipsis: true,
+      title: t('duty.taskName'), dataIndex: 'function_nm', ellipsis: true, width: 200, fixed: 'left',
       render: (name: string, r) => {
         const p = PRIORITY_MAP[r.priority]
         return (
@@ -624,7 +624,7 @@ const DutyListPage: React.FC = () => {
 
   const rawColumns: ColumnsType<TemporaryDuty> = [
     {
-      title: t('duty.taskName'), dataIndex: 'duty_nm', ellipsis: true,
+      title: t('duty.taskName'), dataIndex: 'duty_nm', ellipsis: true, width: 200, fixed: 'left',
       render: (name: string, record) => (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ width: 3, height: 24, borderRadius: 2, flexShrink: 0, background: PRIORITY_COLORS[record.priority] }} />
@@ -759,7 +759,7 @@ const DutyListPage: React.FC = () => {
   // ── 系統任務 columns ──────────────────────────────────────────────────────
   const rawSysColumns: ColumnsType<TemporaryDuty> = [
     {
-      title: t('duty.taskName'), dataIndex: 'duty_nm', ellipsis: true,
+      title: t('duty.taskName'), dataIndex: 'duty_nm', ellipsis: true, width: 200, fixed: 'left',
       render: (name: string, r) => {
         const p = PRIORITY_MAP[r.priority]
         return (
@@ -918,7 +918,7 @@ const DutyListPage: React.FC = () => {
               </div>
               {myFuncView === 'flat' ? (
                 <Table rowKey="id" columns={funcColumns} components={tableComponents} dataSource={filteredMyFunctions}
-                  loading={myFuncLoading} size="small" scroll={{ x: 980 }}
+                  loading={myFuncLoading} size="small" scroll={{ x: 1200 }}
                   pagination={{ pageSize: myFuncPageSize, showSizeChanger: true, pageSizeOptions: ['10','20','50','100'],
                     showTotal: (total) => t('common.total', { count: total }), onShowSizeChange: (_, size) => setMyFuncPageSize(size) }} />
               ) : (
@@ -927,7 +927,7 @@ const DutyListPage: React.FC = () => {
                   loading={myFuncLoading}
                   dataSource={mergedFuncRows}
                   size="small"
-                  scroll={{ x: 1100 }}
+                  scroll={{ x: 1200 }}
                   pagination={{ pageSize: 50, showSizeChanger: true, pageSizeOptions: ['20','50','100'], showTotal: (total) => t('common.total', { count: total }) }}
                   columns={[
                     {
@@ -1037,7 +1037,7 @@ const DutyListPage: React.FC = () => {
               </div>
               {sysTaskGroupMode === 'flat' ? (
                 <Table rowKey="id" columns={sysColumns} components={tableComponents} dataSource={displayedSysTasks}
-                  loading={isLoading} size="small" scroll={{ x: 980 }}
+                  loading={isLoading} size="small" scroll={{ x: 1200 }}
                   pagination={{ showSizeChanger: true, pageSizeOptions: ['10','20','50','100'], showTotal: (total) => t('common.total', { count: total }) }} />
               ) : (
                 <Table<MergedDutyRow>
@@ -1045,7 +1045,7 @@ const DutyListPage: React.FC = () => {
                   loading={isLoading}
                   dataSource={mergedDutyRows}
                   size="small"
-                  scroll={{ x: 1100 }}
+                  scroll={{ x: 1200 }}
                   pagination={{ pageSize: 50, showSizeChanger: true, pageSizeOptions: ['20','50','100'], showTotal: (total) => t('common.total', { count: total }) }}
                   columns={[
                     {
@@ -1195,7 +1195,7 @@ const DutyListPage: React.FC = () => {
                       showSizeChanger: true, showTotal: (total) => t('common.total', { count: total }),
                       onChange: (page, size) => dispatch(setDutyQuery({ page, size })),
                     }}
-                    scroll={{ x: 920 }} size="small"
+                    scroll={{ x: 1200 }} size="small"
                   />
                 ) : (
                   <div className="p-4">
@@ -1234,7 +1234,7 @@ const DutyListPage: React.FC = () => {
                             }
                           >
                             <Table rowKey="id" columns={groupedColumns} components={tableComponents} dataSource={g.items}
-                              pagination={false} size="small" scroll={{ x: 820 }} />
+                              pagination={false} size="small" scroll={{ x: 1100 }} />
                           </Collapse.Panel>
                         ))}
                       </Collapse>

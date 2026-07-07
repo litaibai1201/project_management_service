@@ -1879,6 +1879,8 @@
     "noProjects": "No projects",
     "myTaskTitle": "My Tasks",
     "myTaskSubtitle": "All · {{count}} tasks",
+    "taskTypeProject": "Project",
+    "taskTypeSystem": "System",
     "noTasks": "No tasks",
     "myPendingReviewTitle": "Pending My Approval",
     "noPendingItems": "No pending items",
