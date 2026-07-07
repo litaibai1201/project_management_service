@@ -788,6 +788,7 @@
     "addPerson": "加入",
     "selectedResponsible": "已選負責人",
     "personsCountSaveHint": "（共 {{count}} 人，儲存後生效）",
+    "personsCount": "共 {{count}} 人",
     "noPersonYet": "尚未加入任何人員",
     "relatedReqRequired": "請選擇關聯需求",
     "selectRelatedReq": "選擇關聯的需求",

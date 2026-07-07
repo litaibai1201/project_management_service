@@ -786,6 +786,7 @@
     "addPerson": "เพิ่ม",
     "selectedResponsible": "ผู้รับผิดชอบที่เลือก",
     "personsCountSaveHint": "(เลือก {{count}} คน มีผลหลังบันทึก)",
+    "personsCount": "{{count}} คน",
     "noPersonYet": "ยังไม่ได้เพิ่มบุคคล",
     "relatedReqRequired": "กรุณาเลือกความต้องการ",
     "selectRelatedReq": "เลือกความต้องการ",

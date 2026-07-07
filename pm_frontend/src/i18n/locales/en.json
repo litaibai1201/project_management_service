@@ -788,6 +788,7 @@
     "addPerson": "Add",
     "selectedResponsible": "Selected Assignees",
     "personsCountSaveHint": "({{count}} selected, effective after save)",
+    "personsCount": "{{count}} selected",
     "noPersonYet": "No person added yet",
     "relatedReqRequired": "Please select a requirement",
     "selectRelatedReq": "Select requirement",
