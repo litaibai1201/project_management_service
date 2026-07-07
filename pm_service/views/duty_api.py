@@ -59,7 +59,9 @@ class DutyDetailApi(MethodView):
         """更新AR"""
         work_no = get_identity()
         payload = request.form.to_dict()
-        payload["responsible"] = request.form.getlist("responsible")
+        resp_list = request.form.getlist("responsible")
+        if resp_list:
+            payload["responsible"] = resp_list
         ctrl.update_duty(duty_id, payload, work_no=work_no)
         return response_result()
 

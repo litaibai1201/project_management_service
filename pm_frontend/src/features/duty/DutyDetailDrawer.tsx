@@ -91,6 +91,12 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
   const [rescheduleForm]                              = Form.useForm()
   const [isRescheduling, setIsRescheduling]           = useState(false)
 
+  // 更新進度前置檢查
+  const [preCheckType, setPreCheckType] = useState<'start' | 'end' | 'overdue' | null>(null)
+  const [preCheckDate, setPreCheckDate] = useState('')
+  const [preCheckReason, setPreCheckReason] = useState('')
+  const [preCheckSaving, setPreCheckSaving] = useState(false)
+
   // 進度說明展開編輯
   const [expandOpen,  setExpandOpen]  = useState(false)
   const [expandDraft, setExpandDraft] = useState('')
@@ -459,6 +465,39 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
     return result.url
   }, [])
 
+  const handlePreCheckSubmit = async () => {
+    if (!preCheckDate) { showToast.warning(t('function.pleaseSelectDate')); return }
+    if (!duty) return
+    setPreCheckSaving(true)
+    try {
+      if (preCheckType === 'start') {
+        await dutyApi.update(duty.id, { expected_start_date: preCheckDate })
+      } else if (preCheckType === 'end') {
+        await dutyApi.update(duty.id, { expected_end_date: preCheckDate })
+      } else if (preCheckType === 'overdue') {
+        await dutyApi.reschedule(duty.id, preCheckDate, preCheckReason || '')
+      }
+      showToast.success(t('common.saveSuccess'))
+      setPreCheckType(null); setPreCheckDate(''); setPreCheckReason('')
+      reloadDuty()
+    } catch { /* global */ }
+    finally { setPreCheckSaving(false) }
+  }
+
+  const tryOpenProgressForm = () => {
+    if (!duty) return
+    if (!duty.expected_start_date) {
+      setPreCheckType('start'); setPreCheckDate(''); return
+    }
+    if (!duty.expected_end_date) {
+      setPreCheckType('end'); setPreCheckDate(''); return
+    }
+    if (duty.expected_end_date < new Date().toISOString().slice(0, 10)) {
+      setPreCheckType('overdue'); setPreCheckDate(''); setPreCheckReason(''); return
+    }
+    setShowForm((v) => !v); ensureUserOptions()
+  }
+
   const handleSubmit = async (values: Record<string, unknown>) => {
     if (!dutyId) return
     setIsSaving(true)
@@ -560,7 +599,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
               {/* 更新進度 */}
               {(duty.status === 1 || duty.status === 6) && isResponsible && (
                 <Button type="primary" icon={<PlusIcon className="w-4 h-4" />} size="small"
-                  style={{ background: '#2563eb' }} onClick={() => { setShowForm((v) => !v); ensureUserOptions() }}>
+                  style={{ background: '#2563eb' }} onClick={tryOpenProgressForm}>
                   {t('duty.addProgress')}
                 </Button>
               )}
@@ -1506,6 +1545,43 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose }) => {
           <Input.TextArea value={holdReason} onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setHoldReason(e.target.value)}
             rows={3} placeholder={t('duty.detail.holdReasonPlaceholder')} />
         </div>
+      </div>
+    </Modal>
+
+    {/* ── 更新進度前置檢查 Modal ─────────────────────────────────────────── */}
+    <Modal
+      open={!!preCheckType}
+      title={preCheckType === 'overdue' ? t('function.needExtendDateTitle') : preCheckType === 'start' ? t('function.needStartDateTitle') : t('function.needEndDateTitle')}
+      onCancel={() => { setPreCheckType(null); setPreCheckDate(''); setPreCheckReason('') }}
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button onClick={() => { setPreCheckType(null); setPreCheckDate(''); setPreCheckReason('') }}>{t('common.cancel')}</Button>
+          <Button type="primary" loading={preCheckSaving} disabled={!preCheckDate} style={{ background: '#2563eb' }} onClick={handlePreCheckSubmit}>
+            {t('common.confirm')}
+          </Button>
+        </div>
+      }
+      width={420} destroyOnHidden
+    >
+      <div className="py-2 space-y-3">
+        <p className="text-sm text-slate-500">
+          {preCheckType === 'overdue' ? t('function.needExtendDate') : preCheckType === 'start' ? t('function.needStartDate') : t('function.needEndDate')}
+        </p>
+        {preCheckType === 'overdue' && duty?.expected_end_date && (
+          <p className="text-xs text-slate-400">{t('function.currentDeadline', { date: duty.expected_end_date })}</p>
+        )}
+        <div>
+          <div className="text-sm font-medium text-slate-700 mb-1">
+            {preCheckType === 'overdue' ? t('function.newExpectedEnd') : preCheckType === 'start' ? t('function.expectedStart') : t('function.expectedEnd')}
+          </div>
+          <DateInput value={preCheckDate} onChange={(v) => setPreCheckDate(v)} />
+        </div>
+        {preCheckType === 'overdue' && (
+          <div>
+            <div className="text-sm font-medium text-slate-700 mb-1">{t('function.rescheduleReason')}</div>
+            <Input.TextArea rows={2} value={preCheckReason} onChange={(e) => setPreCheckReason(e.target.value)} placeholder={t('function.rescheduleReasonPlaceholder')} />
+          </div>
+        )}
       </div>
     </Modal>
     </>
