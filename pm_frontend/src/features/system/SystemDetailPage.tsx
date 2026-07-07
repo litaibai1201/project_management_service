@@ -319,6 +319,10 @@ const SystemDetailPage: React.FC = () => {
       expected_benefit:  r.expected_benefit,
       benefit_amount:    r.benefit_amount,
       benefit_unit:      r.benefit_unit ?? '元/年',
+      region:            (r as unknown as { region?: string }).region ?? '',
+      campus:            (r as unknown as { campus?: string }).campus ?? '',
+      process:           (r as unknown as { process?: string }).process ?? '',
+      factory:           (r as unknown as { factory?: string }).factory ?? '',
     })
     loadUsers(); loadSystemOptions()
     setShowEditReq(true)
@@ -1422,6 +1426,22 @@ const groupedByReq = useMemo(() => {
           <Form.Item name="expected_benefit" label={t('system.benefitDesc')}>
             <Input.TextArea placeholder={t('system.optional')} autoSize={{ minRows: 2, maxRows: 6 }} style={{ resize: 'vertical' }} />
           </Form.Item>
+          <div className="grid grid-cols-2 gap-x-4">
+            <Form.Item name="region" label={t('project.region')}>
+              <Input placeholder={t('project.regionPlaceholder')} />
+            </Form.Item>
+            <Form.Item name="campus" label={t('project.campus')}>
+              <Input placeholder={t('project.campusPlaceholder')} />
+            </Form.Item>
+          </div>
+          <div className="grid grid-cols-2 gap-x-4">
+            <Form.Item name="process" label={t('project.process')}>
+              <Input placeholder={t('project.processPlaceholder')} />
+            </Form.Item>
+            <Form.Item name="factory" label={t('project.factory')}>
+              <Input placeholder={t('project.factoryPlaceholder')} />
+            </Form.Item>
+          </div>
           <Form.Item name="responsible" label={t('system.responsible')}>
             <Select mode="multiple" placeholder={t('system.selectResponsible')} options={userOptions} showSearch allowClear
               filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
@@ -1499,6 +1519,22 @@ const groupedByReq = useMemo(() => {
           <Form.Item name="expected_benefit" label={t('system.benefitDesc')}>
             <Input.TextArea placeholder={t('system.optional')} autoSize={{ minRows: 2, maxRows: 6 }} style={{ resize: 'vertical' }} />
           </Form.Item>
+          <div className="grid grid-cols-2 gap-x-4">
+            <Form.Item name="region" label={t('project.region')}>
+              <Input placeholder={t('project.regionPlaceholder')} />
+            </Form.Item>
+            <Form.Item name="campus" label={t('project.campus')}>
+              <Input placeholder={t('project.campusPlaceholder')} />
+            </Form.Item>
+          </div>
+          <div className="grid grid-cols-2 gap-x-4">
+            <Form.Item name="process" label={t('project.process')}>
+              <Input placeholder={t('project.processPlaceholder')} />
+            </Form.Item>
+            <Form.Item name="factory" label={t('project.factory')}>
+              <Input placeholder={t('project.factoryPlaceholder')} />
+            </Form.Item>
+          </div>
           <Form.Item name="responsible" label={t('system.responsible')}>
             <Select
               mode="multiple" placeholder={t('system.selectResponsible')}

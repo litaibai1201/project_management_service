@@ -30,10 +30,6 @@ class RequirementModel(BaseMixinModel):
     expected_end_date     = db.Column(db.String(10), comment="预计结束日期")
     is_addon              = db.Column(db.Boolean, default=False, comment="是否追加需求(效益独立计算)")
     shelve_reason         = db.Column(db.Text, nullable=True, comment="搁置原因")
-    region   = db.Column(db.String(64), comment="地区")
-    campus   = db.Column(db.String(64), comment="园区")
-    process  = db.Column(db.String(64), comment="制程")
-    factory  = db.Column(db.String(64), comment="厂区")
 
     def to_dict(self):
         files = []
@@ -67,6 +63,4 @@ class RequirementModel(BaseMixinModel):
             "created_at":           self.created_at,
             "updated_at":           self.update_at or "",
             "shelve_reason":        self.shelve_reason or "",
-            "region": self.region or "", "campus": self.campus or "",
-            "process": self.process or "", "factory": self.factory or "",
         }

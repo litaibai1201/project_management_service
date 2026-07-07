@@ -2218,7 +2218,22 @@ const DailyLogPage: React.FC = () => {
             }
           }
 
-          const stripHtml = (s: string) => s?.replace(/<[^>]*>/g, '').trim() || ''
+          // HTML → 純文本，保留列表換行
+          const htmlToText = (s: string) => {
+            if (!s) return ''
+            return s
+              .replace(/<br\s*\/?>/gi, '\n')
+              .replace(/<\/li>/gi, '\n')
+              .replace(/<li[^>]*>/gi, '  · ')
+              .replace(/<\/p>/gi, '\n')
+              .replace(/<[^>]*>/g, '')
+              .replace(/&nbsp;/gi, ' ')
+              .replace(/&amp;/gi, '&')
+              .replace(/&lt;/gi, '<')
+              .replace(/&gt;/gi, '>')
+              .replace(/\n{3,}/g, '\n\n')
+              .trim()
+          }
           const hoursSuffix = (items: DailyLogEntry[]) => {
             const total = items.reduce((s, e) => s + e.hours, 0)
             const ot = items.filter((e) => e.is_overtime).reduce((s, e) => s + (e.overtime_hours ?? e.hours), 0)
@@ -2226,29 +2241,74 @@ const DailyLogPage: React.FC = () => {
               ? `(${t('dailyLog.textHours')}${fmtH(total)}h，${t('dailyLog.textOvertime')}${fmtH(ot)}h)`
               : `(${t('dailyLog.textHours')}${fmtH(total)}h)`
           }
+          // 按縮進添加描述（每行前加指定縮進）
+          const appendDesc = (desc: string, indent: string) => {
+            if (!desc) return
+            for (const line of desc.split('\n')) {
+              if (line.trim()) lines.push(`${indent}${line}`)
+            }
+          }
 
-          // Project tasks
+          // Project tasks — 按需求→分組→任務層級
           for (const [projNm, pEntries] of projMap) {
             idx++
             lines.push(`${idx}. ${projNm}${hoursSuffix(pEntries)}`)
+            // 按需求分組
+            const reqMap = new Map<string, DailyLogEntry[]>()
             for (const e of pEntries) {
-              const parts = [e.requirement_nm, e.function_nm].filter(Boolean)
-              const desc = stripHtml(e.description)
-              lines.push(`   - ${parts.join(' / ')}`)
-              if (desc) lines.push(`     ${desc}`)
+              const rk = e.requirement_nm || ''
+              if (!reqMap.has(rk)) reqMap.set(rk, [])
+              reqMap.get(rk)!.push(e)
+            }
+            for (const [reqNm, reqEntries] of reqMap) {
+              // 按分組
+              const grpMap = new Map<string, DailyLogEntry[]>()
+              for (const e of reqEntries) {
+                const gk = e.group1 ? (formatGroupName(e.group1) || e.group1) : ''
+                if (!grpMap.has(gk)) grpMap.set(gk, [])
+                grpMap.get(gk)!.push(e)
+              }
+              for (const [grpNm, grpEntries] of grpMap) {
+                const path = [reqNm, grpNm].filter(Boolean).join(' / ')
+                if (path) lines.push(`   - ${path}`)
+                for (const e of grpEntries) {
+                  const taskNm = e.function_nm || ''
+                  const desc = htmlToText(e.description)
+                  if (taskNm) lines.push(`     - ${taskNm}`)
+                  appendDesc(desc, taskNm ? '       ' : '     ')
+                }
+              }
             }
             lines.push('')
           }
 
-          // System tasks
+          // System tasks — 按需求→分組→任務層級
           for (const [sysNm, sEntries] of sysMap) {
             idx++
             lines.push(`${idx}. ${sysNm}${hoursSuffix(sEntries)}`)
+            const reqMap = new Map<string, DailyLogEntry[]>()
             for (const e of sEntries) {
-              const parts = [e.requirement_nm, e.duty_nm].filter(Boolean)
-              const desc = stripHtml(e.description)
-              lines.push(`   - ${parts.join(' / ')}`)
-              if (desc) lines.push(`     ${desc}`)
+              const rk = e.requirement_nm || ''
+              if (!reqMap.has(rk)) reqMap.set(rk, [])
+              reqMap.get(rk)!.push(e)
+            }
+            for (const [reqNm, reqEntries] of reqMap) {
+              const grpMap = new Map<string, DailyLogEntry[]>()
+              for (const e of reqEntries) {
+                const gk = e.group1 ? (formatGroupName(e.group1) || e.group1) : ''
+                if (!grpMap.has(gk)) grpMap.set(gk, [])
+                grpMap.get(gk)!.push(e)
+              }
+              for (const [grpNm, grpEntries] of grpMap) {
+                const path = [reqNm, grpNm].filter(Boolean).join(' / ')
+                if (path) lines.push(`   - ${path}`)
+                for (const e of grpEntries) {
+                  const taskNm = e.duty_nm || ''
+                  const desc = htmlToText(e.description)
+                  if (taskNm) lines.push(`     - ${taskNm}`)
+                  appendDesc(desc, taskNm ? '       ' : '     ')
+                }
+              }
             }
             lines.push('')
           }
@@ -2258,9 +2318,9 @@ const DailyLogPage: React.FC = () => {
             idx++
             lines.push(`${idx}. AR${hoursSuffix(arEntries)}`)
             for (const e of arEntries) {
-              const desc = stripHtml(e.description)
+              const desc = htmlToText(e.description)
               lines.push(`   - ${e.duty_nm || '—'}`)
-              if (desc) lines.push(`     ${desc}`)
+              appendDesc(desc, '     ')
             }
             lines.push('')
           }
@@ -2275,8 +2335,8 @@ const DailyLogPage: React.FC = () => {
             idx++
             lines.push(`${idx}. ${t(CATEGORY_LABEL_KEYS[cat])}${hoursSuffix(catEntries)}`)
             for (const e of catEntries) {
-              const desc = stripHtml(e.description)
-              if (desc) lines.push(`   - ${desc}`)
+              const desc = htmlToText(e.description)
+              if (desc) appendDesc(desc, '   - ')
             }
             lines.push('')
           }

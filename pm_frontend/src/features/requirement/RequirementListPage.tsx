@@ -245,6 +245,10 @@ const RequirementListPage: React.FC = () => {
       expected_benefit:  r.expected_benefit,
       benefit_amount:    r.benefit_amount,
       benefit_unit:      r.benefit_unit ?? '元/年',
+      region:            (r as unknown as { region?: string }).region ?? '',
+      campus:            (r as unknown as { campus?: string }).campus ?? '',
+      process:           (r as unknown as { process?: string }).process ?? '',
+      factory:           (r as unknown as { factory?: string }).factory ?? '',
     })
     loadUsers(); loadSystems()
     setShowForm(true)
@@ -275,6 +279,10 @@ const RequirementListPage: React.FC = () => {
         expected_benefit:  values.expected_benefit as string | undefined,
         benefit_amount:    values.benefit_amount as number | null | undefined,
         benefit_unit:      values.benefit_unit as string | undefined,
+        region:            values.region as string | undefined,
+        campus:            values.campus as string | undefined,
+        process:           values.process as string | undefined,
+        factory:           values.factory as string | undefined,
       }
       if (editTarget) {
         await standaloneReqApi.update(editTarget.id, payload)
@@ -686,6 +694,22 @@ const RequirementListPage: React.FC = () => {
           <Form.Item name="expected_benefit" label={t('requirement.benefitDescription')}>
             <Input.TextArea placeholder={t('common.optional')} autoSize={{ minRows: 2, maxRows: 6 }} style={{ resize: 'vertical' }} />
           </Form.Item>
+          <div className="grid grid-cols-2 gap-x-4">
+            <Form.Item name="region" label={t('project.region')}>
+              <Input placeholder={t('project.regionPlaceholder')} />
+            </Form.Item>
+            <Form.Item name="campus" label={t('project.campus')}>
+              <Input placeholder={t('project.campusPlaceholder')} />
+            </Form.Item>
+          </div>
+          <div className="grid grid-cols-2 gap-x-4">
+            <Form.Item name="process" label={t('project.process')}>
+              <Input placeholder={t('project.processPlaceholder')} />
+            </Form.Item>
+            <Form.Item name="factory" label={t('project.factory')}>
+              <Input placeholder={t('project.factoryPlaceholder')} />
+            </Form.Item>
+          </div>
           <Form.Item name="responsible" label={t('requirement.responsible')}>
             <Select
               mode="multiple" placeholder={t('requirement.responsiblePlaceholder')}
