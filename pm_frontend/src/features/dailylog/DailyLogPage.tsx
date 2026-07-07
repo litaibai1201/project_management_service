@@ -109,10 +109,13 @@ interface CategorySection {
 
 /** Count all leaf tasks across the whole hierarchy */
 function countTasks(projectGroups: ProjectSubGroup[]): number {
-  return projectGroups.flatMap((pg) => pg.requirements.flatMap((r) => r.groups.flatMap((g) => g.tasks))).length
+  return projectGroups.flatMap((pg) => pg.requirements.filter((r) => r.reqKey !== '__phase__').flatMap((r) => r.groups.flatMap((g) => g.tasks))).length
 }
 function countEntries(projectGroups: ProjectSubGroup[]): number {
   return projectGroups.flatMap((pg) => pg.requirements.flatMap((r) => r.groups.flatMap((g) => g.tasks.flatMap((t) => t.entries)))).length
+}
+function countPhaseEntries(projectGroups: ProjectSubGroup[]): number {
+  return projectGroups.flatMap((pg) => pg.requirements.filter((r) => r.reqKey === '__phase__').flatMap((r) => r.groups.flatMap((g) => g.tasks.flatMap((t) => t.entries)))).length
 }
 
 /** Build Requirement → Group → Task hierarchy from a flat entry list.
@@ -208,10 +211,31 @@ function groupDailyEntries(entries: DailyLogEntry[]): CategorySection[] {
         projMap.get(k)!.list.push(e)
       }
       for (const [projKey, pg] of projMap) {
+        // 分離有任務的條目和僅有階段的條目
+        const taskEntries = pg.list.filter((e) => !!e.function_id)
+        const phaseEntries = pg.list.filter((e) => !e.function_id)
+        const reqs = buildRequirements(taskEntries, (e) => e.function_id ?? e.entry_id, (e) => e.function_nm ?? '')
+        // 階段條目作為扁平任務（不按 group 分組），用描述作為任務名，group1(階段)作為標籤
+        if (phaseEntries.length > 0) {
+          reqs.push({
+            reqKey: '__phase__', reqNm: '',
+            totalHours: phaseEntries.reduce((s, e) => s + e.hours, 0),
+            groups: [{
+              groupKey: '__phase__', groupNm: '',
+              totalHours: phaseEntries.reduce((s, e) => s + e.hours, 0),
+              tasks: phaseEntries.map((e) => ({
+                taskKey: e.entry_id,
+                taskNm: e.group1 ? `[${e.group1}]` : '',
+                entries: [e],
+                totalHours: e.hours,
+              })),
+            }],
+          })
+        }
         projectGroups.push({
           projKey, projNm: pg.nm,
           linkUrl: projKey !== '__no_proj__' ? `/projects/${projKey}` : undefined,
-          requirements: buildRequirements(pg.list, (e) => e.function_id ?? e.entry_id, (e) => e.function_nm ?? ''),
+          requirements: reqs,
           totalHours: pg.list.reduce((s, e) => s + e.hours, 0),
         })
       }
@@ -438,6 +462,7 @@ const SelfReportView: React.FC<{
               const isTaskCategory = ['project', 'system_req', 'duty'].includes(section.category)
               const taskCount = countTasks(section.projectGroups)
               const entryCount = countEntries(section.projectGroups)
+              const phaseCount = countPhaseEntries(section.projectGroups)
               return (
                 <div key={section.category} className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
                   {/* ── Category header ── */}
@@ -447,10 +472,15 @@ const SelfReportView: React.FC<{
                     <Tag style={{ fontSize: 10, padding: '0 7px', margin: 0, lineHeight: '22px', background: section.color + '22', color: section.color, border: `1px solid ${section.color}55`, fontWeight: 700 }}>
                       {t(CATEGORY_LABEL_KEYS[section.category])}
                     </Tag>
-                    {isTaskCategory
-                      ? taskCount > 0 && <span className="text-xs text-slate-400">{t('dailyLog.nTasks', { count: taskCount })}</span>
-                      : entryCount > 0 && <span className="text-xs text-slate-400">{t('dailyLog.nRecords', { count: entryCount })}</span>
-                    }
+                    {isTaskCategory ? (
+                      <span className="text-xs text-slate-400">
+                        {taskCount > 0 && t('dailyLog.nTasks', { count: taskCount })}
+                        {taskCount > 0 && phaseCount > 0 && ' + '}
+                        {phaseCount > 0 && t('dailyLog.nRecords', { count: phaseCount })}
+                      </span>
+                    ) : (
+                      entryCount > 0 && <span className="text-xs text-slate-400">{t('dailyLog.nRecords', { count: entryCount })}</span>
+                    )}
                     <div className="ml-auto flex items-center gap-1.5">
                       <span className="text-sm font-bold tabular-nums" style={{ color: section.color }}>
                         <ClockIcon className="w-3.5 h-3.5 inline mr-0.5" />{fmtH(section.totalHours)}h
@@ -713,6 +743,7 @@ const DailyLogPage: React.FC = () => {
   const watchedDutyId     = Form.useWatch('duty_id',       form) as string | undefined
   const watchedProgress   = Form.useWatch('progress',      form) as number | null | undefined
   const watchedIsOvertime = Form.useWatch('is_overtime',   form) as boolean | undefined
+  const watchedPhase      = Form.useWatch('project_phase', form) as string | undefined
   const watchedHours      = Form.useWatch('hours',         form) as number | undefined
   const [syncProgress, setSyncProgress] = useState(true)
   const [fileList, setFileList] = useState<UploadFile[]>([])
@@ -1170,6 +1201,7 @@ const DailyLogPage: React.FC = () => {
         system_id: restoredSysId,
         project_id: entry.project_id,
         function_id: entry.function_id,
+        project_phase: (!entry.function_id && entry.work_category === 'project') ? entry.group1 : undefined,
         duty_id: entry.duty_id,
         bu_unit: entry.bu_unit,
         description: entry.description,
@@ -1295,7 +1327,7 @@ const DailyLogPage: React.FC = () => {
         project_id: projId,
         project_nm: projectOpts.find((p) => p.id === projId)?.name,
         function_id: funcId, function_nm: selectedFunc?.name,
-        group1: selectedFunc?.group1 ?? (cat !== 'project' ? (dutyOpts.find((d) => d.id === dutyId) ?? Object.values(systemDutiesMap).flat().find((d) => d.id === dutyId))?.group : undefined) ?? editingEntry?.group1,
+        group1: selectedFunc?.group1 ?? (cat === 'project' ? (values.project_phase as string | undefined) : (dutyOpts.find((d) => d.id === dutyId) ?? Object.values(systemDutiesMap).flat().find((d) => d.id === dutyId))?.group) ?? editingEntry?.group1,
         group2: selectedFunc?.group2 ?? editingEntry?.group2,
         duty_id: dutyId, duty_nm: dutyOpts.find((d) => d.id === dutyId)?.name ?? Object.values(systemDutiesMap).flat().find((d) => d.id === dutyId)?.name ?? editingEntry?.duty_nm,
         system_nm: cat === 'system_req' ? (systemOpts.find((s) => s.id === selectedSystem)?.name ?? editingEntry?.system_nm) : undefined,
@@ -1349,7 +1381,7 @@ const DailyLogPage: React.FC = () => {
       project_id: projId,
       project_nm: projectOpts.find((p) => p.id === projId)?.name,
       function_id: funcId, function_nm: selectedFunc?.name,
-      group1: selectedFunc?.group1 ?? (cat !== 'project' ? (dutyOpts.find((d) => d.id === dutyId) ?? Object.values(systemDutiesMap).flat().find((d) => d.id === dutyId))?.group : undefined) ?? editingEntry?.group1,
+      group1: selectedFunc?.group1 ?? (cat === 'project' ? (values.project_phase as string | undefined) : (dutyOpts.find((d) => d.id === dutyId) ?? Object.values(systemDutiesMap).flat().find((d) => d.id === dutyId))?.group) ?? editingEntry?.group1,
       group2: selectedFunc?.group2 ?? editingEntry?.group2,
       duty_id: dutyId, duty_nm: dutyOpts.find((d) => d.id === dutyId)?.name ?? Object.values(systemDutiesMap).flat().find((d) => d.id === dutyId)?.name ?? editingEntry?.duty_nm,
       system_nm: cat === 'system_req' ? (systemOpts.find((s) => s.id === selectedSystem)?.name ?? editingEntry?.system_nm) : undefined,
@@ -2380,60 +2412,69 @@ const DailyLogPage: React.FC = () => {
                   <Select disabled={isTaskSource} placeholder={t('dailyLog.selectProject')} allowClear onChange={(v: string) => {
                     setSelectedProject(v)
                     setSelectedFuncReq(undefined); setSelectedFuncGrp(undefined)
-                    form.setFieldsValue({ function_id: undefined })
+                    form.setFieldsValue({ function_id: undefined, project_phase: undefined })
                   }}>
                     {projectOpts.map((p) => (
                       <Select.Option key={p.id} value={p.id}>{p.name}</Select.Option>
                     ))}
                   </Select>
                 </Form.Item>
-                <div className="grid grid-cols-2 gap-x-2">
-                  <Form.Item label={t('requirement.name')}>
-                    <Select placeholder={t('common.all')} allowClear value={selectedFuncReq} disabled={isTaskSource || !selectedProject}
-                      onChange={(v) => { setSelectedFuncReq(v); setSelectedFuncGrp(undefined); form.setFieldsValue({ function_id: undefined }) }}
-                      options={funcReqOpts} />
-                  </Form.Item>
-                  <Form.Item label={t('function.group')}>
-                    <Select placeholder={t('common.all')} allowClear value={selectedFuncGrp} disabled={isTaskSource || !selectedProject}
-                      onChange={(v) => { setSelectedFuncGrp(v); form.setFieldsValue({ function_id: undefined }) }}
-                      options={funcGrpOpts} />
-                  </Form.Item>
-                </div>
+                <Form.Item name="project_phase" label={<>{t('dailyLog.projectPhase')}<span className="text-xs text-slate-400 font-normal ml-1">{t('dailyLog.optional')}</span></>}>
+                  <Select placeholder={t('dailyLog.selectPhase')} allowClear disabled={isTaskSource || !selectedProject}
+                    onChange={(v) => { if (v) { setSelectedFuncReq(undefined); setSelectedFuncGrp(undefined); form.setFieldsValue({ function_id: undefined }) } }}>
+                    <Select.Option value="需求评估">{t('dailyLog.phaseReqAssess')}</Select.Option>
+                    <Select.Option value="方案设计">{t('dailyLog.phaseSolutionDesign')}</Select.Option>
+                    <Select.Option value="排程制定">{t('dailyLog.phaseScheduling')}</Select.Option>
+                    <Select.Option value="开发实施">{t('dailyLog.phaseDevelopment')}</Select.Option>
+                    <Select.Option value="测试验证">{t('dailyLog.phaseTesting')}</Select.Option>
+                    <Select.Option value="上线部署">{t('dailyLog.phaseDeployment')}</Select.Option>
+                    <Select.Option value="验收结案">{t('dailyLog.phaseAcceptance')}</Select.Option>
+                  </Select>
+                </Form.Item>
               </div>
-              <Form.Item name="function_id" label={t('dailyLog.relatedTask')}>
-                <Select
-                  placeholder={t('dailyLog.selectFunction')} allowClear disabled={isTaskSource || !selectedProject}
-                  optionLabelProp="label" showSearch optionFilterProp="label"
-                  dropdownStyle={{ minWidth: 320 }}
-                >
-                  {filteredFuncOpts.map((f) => (
-                    <Select.Option key={f.id} value={f.id} label={f.name}>
-                      <div className="py-0.5">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          {f.requirement_nm && (
-                            <span className="text-[10px] bg-blue-50 text-blue-600 border border-blue-200 rounded px-1.5 py-px leading-none flex-shrink-0">{f.requirement_nm}</span>
-                          )}
-                          {f.group1 && (
-                            <span className="text-[10px] bg-slate-100 text-slate-500 rounded px-1.5 py-px leading-none flex-shrink-0">{formatGroupName(f.group1) || f.group1}</span>
-                          )}
-                          {f.group2 && (
-                            <span className="text-[10px] bg-slate-100 text-slate-400 rounded px-1.5 py-px leading-none flex-shrink-0">{f.group2}</span>
-                          )}
-                          <span className="text-sm text-slate-800 font-medium">{f.name}</span>
-                          {typeof f.progress === 'number' && (
-                            <span className={`text-[10px] font-semibold px-1.5 py-px rounded leading-none flex-shrink-0 ${f.progress >= 100 ? 'bg-blue-100 text-blue-600' : f.progress > 0 ? 'bg-green-100 text-green-600' : 'bg-slate-100 text-slate-400'}`}>{f.progress}%</span>
+              <div className="grid grid-cols-3 gap-x-3">
+                <Form.Item label={t('requirement.name')}>
+                  <Select placeholder={t('common.all')} allowClear value={selectedFuncReq} disabled={isTaskSource || !selectedProject || !!watchedPhase}
+                    onChange={(v) => { setSelectedFuncReq(v); setSelectedFuncGrp(undefined); form.setFieldsValue({ function_id: undefined, project_phase: undefined }) }}
+                    options={funcReqOpts} />
+                </Form.Item>
+                <Form.Item label={t('function.group')}>
+                  <Select placeholder={t('common.all')} allowClear value={selectedFuncGrp} disabled={isTaskSource || !selectedProject || !!watchedPhase}
+                    onChange={(v) => { setSelectedFuncGrp(v); form.setFieldsValue({ function_id: undefined, project_phase: undefined }) }}
+                    options={funcGrpOpts} />
+                </Form.Item>
+                <Form.Item name="function_id" label={<>{t('dailyLog.relatedTask')}<span className="text-xs text-slate-400 font-normal ml-1">{t('dailyLog.optional')}</span></>}>
+                  <Select
+                    placeholder={t('dailyLog.selectFunction')} allowClear disabled={isTaskSource || !selectedProject || !!watchedPhase}
+                    optionLabelProp="label" showSearch optionFilterProp="label"
+                    onChange={(v) => { if (v) form.setFieldsValue({ project_phase: undefined }) }}
+                  >
+                    {filteredFuncOpts.map((f) => (
+                      <Select.Option key={f.id} value={f.id} label={f.name}>
+                        <div className="py-0.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {f.requirement_nm && (
+                              <span className="text-[10px] bg-blue-50 text-blue-600 border border-blue-200 rounded px-1.5 py-px leading-none flex-shrink-0">{f.requirement_nm}</span>
+                            )}
+                            {f.group1 && (
+                              <span className="text-[10px] bg-slate-100 text-slate-500 rounded px-1.5 py-px leading-none flex-shrink-0">{formatGroupName(f.group1) || f.group1}</span>
+                            )}
+                            <span className="text-sm text-slate-800 font-medium">{f.name}</span>
+                            {typeof f.progress === 'number' && (
+                              <span className={`text-[10px] font-semibold px-1.5 py-px rounded leading-none flex-shrink-0 ${f.progress >= 100 ? 'bg-blue-100 text-blue-600' : f.progress > 0 ? 'bg-green-100 text-green-600' : 'bg-slate-100 text-slate-400'}`}>{f.progress}%</span>
+                            )}
+                          </div>
+                          {(f.expected_start_date || f.expected_end_date) && (
+                            <div className="text-[11px] text-slate-400 tabular-nums mt-0.5">
+                              {f.expected_start_date ?? '—'} ~ {f.expected_end_date ?? '—'}
+                            </div>
                           )}
                         </div>
-                        {(f.expected_start_date || f.expected_end_date) && (
-                          <div className="text-[11px] text-slate-400 tabular-nums mt-0.5">
-                            {f.expected_start_date ?? '—'} ~ {f.expected_end_date ?? '—'}
-                          </div>
-                        )}
-                      </div>
-                    </Select.Option>
-                  ))}
-                </Select>
-              </Form.Item>
+                      </Select.Option>
+                    ))}
+                  </Select>
+                </Form.Item>
+              </div>
             </>
           )}
           {watchedCategory === 'duty' && (
