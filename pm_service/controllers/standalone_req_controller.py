@@ -106,6 +106,10 @@ class StandaloneReqController:
             expected_benefit=payload.get("expected_benefit", ""),
             benefit_amount=payload.get("benefit_amount"),
             benefit_unit=payload.get("benefit_unit", "元/年"),
+            region=payload.get("region", ""),
+            campus=payload.get("campus", ""),
+            process=payload.get("process", ""),
+            factory=payload.get("factory", ""),
         )
         _dao.add(r)
         _dao.commit()
@@ -160,6 +164,9 @@ class StandaloneReqController:
             r.benefit_amount = payload["benefit_amount"]
         if "benefit_unit" in payload:
             r.benefit_unit = payload["benefit_unit"]
+        for loc_field in ("region", "campus", "process", "factory"):
+            if loc_field in payload and payload[loc_field] is not None:
+                setattr(r, loc_field, payload[loc_field])
         if "shelve_reason" in payload:
             r.shelve_reason = payload["shelve_reason"]
         r.updated_at = CommonTools.get_now()

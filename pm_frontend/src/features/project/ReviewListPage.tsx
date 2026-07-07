@@ -611,6 +611,19 @@ const ReviewDetailDrawer: React.FC<{
                         : project.expected_benefit || '—'}
                     </td>
                   </tr>
+                  {((project as unknown as { region?: string }).region || (project as unknown as { campus?: string }).campus || (project as unknown as { process?: string }).process || (project as unknown as { factory?: string }).factory) && (
+                    <tr>
+                      <td className="bg-slate-50 px-3 py-2.5 border border-slate-200 font-medium text-slate-500 whitespace-nowrap">{t('review.location')}</td>
+                      <td className="px-3 py-2.5 border border-slate-200 text-slate-700" colSpan={3}>
+                        <div className="flex items-center gap-4 flex-wrap text-xs">
+                          {(project as unknown as { region?: string }).region && <span>{t('project.region')}：{(project as unknown as { region?: string }).region}</span>}
+                          {(project as unknown as { campus?: string }).campus && <span>{t('project.campus')}：{(project as unknown as { campus?: string }).campus}</span>}
+                          {(project as unknown as { process?: string }).process && <span>{t('project.process')}：{(project as unknown as { process?: string }).process}</span>}
+                          {(project as unknown as { factory?: string }).factory && <span>{t('project.factory')}：{(project as unknown as { factory?: string }).factory}</span>}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             ) : (

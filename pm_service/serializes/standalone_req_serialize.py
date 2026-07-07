@@ -25,6 +25,10 @@ class CreateReqSchema(BaseSchema):
     expected_benefit = fields.Str(load_default="")
     benefit_amount = fields.Float(load_default=None, allow_none=True)
     benefit_unit = fields.Str(load_default="元/年")
+    region = fields.Str(load_default="")
+    campus = fields.Str(load_default="")
+    process = fields.Str(load_default="")
+    factory = fields.Str(load_default="")
 
 
 class UpdateReqSchema(BaseSchema):
@@ -39,6 +43,10 @@ class UpdateReqSchema(BaseSchema):
     benefit_amount = fields.Float(allow_none=True)
     benefit_unit = fields.Str()
     system_id = fields.Str()
+    region = fields.Str()
+    campus = fields.Str()
+    process = fields.Str()
+    factory = fields.Str()
     shelve_reason = fields.Str(load_default=None, allow_none=True)
 
 

@@ -44,6 +44,10 @@ class ProjectDataModel(BaseMixinModel):
     benefit_unit           = db.Column(db.String(10), default="元/年", comment="效益单位(元/年|人/年)")
     actual_benefit_amount  = db.Column(db.Float,      comment="实际效益金额/数量（与benefit_unit同单位）")
     progress = db.Column(db.Integer, default=0, comment="完成进度(0-100)")
+    region   = db.Column(db.String(64), comment="地区")
+    campus   = db.Column(db.String(64), comment="园区")
+    process  = db.Column(db.String(64), comment="制程")
+    factory  = db.Column(db.String(64), comment="厂区")
 
     def to_dict(self):
         return {
@@ -59,6 +63,8 @@ class ProjectDataModel(BaseMixinModel):
             "benefit_unit": self.benefit_unit or "元/年",
             "actual_benefit_amount": self.actual_benefit_amount,
             "progress": self.progress,
+            "region": self.region or "", "campus": self.campus or "",
+            "process": self.process or "", "factory": self.factory or "",
             "created_at": self.created_at, "updated_at": self.update_at or "",
         }
 

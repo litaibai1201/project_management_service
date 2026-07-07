@@ -28,6 +28,10 @@ class CreateProjectSchema(BaseSchema):
     code_url = fields.Str(load_default="")
     expected_benefit = fields.Str(load_default="")
     reviewer = fields.List(fields.Str(), load_default=[])
+    region = fields.Str(load_default="")
+    campus = fields.Str(load_default="")
+    process = fields.Str(load_default="")
+    factory = fields.Str(load_default="")
 
 
 class UpdateProjectSchema(BaseSchema):
@@ -41,6 +45,10 @@ class UpdateProjectSchema(BaseSchema):
     group_id = fields.Str()
     code_url = fields.Str()
     expected_benefit = fields.Str()
+    region = fields.Str()
+    campus = fields.Str()
+    process = fields.Str()
+    factory = fields.Str()
 
 
 class SetStatusSchema(BaseSchema):

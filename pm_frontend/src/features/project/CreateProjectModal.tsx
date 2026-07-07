@@ -29,6 +29,10 @@ const schema = z.object({
   expected_benefit:   z.string().optional(),
   benefit_amount:     z.number().min(0).optional(),
   benefit_unit:       z.enum(['元/年', '人/年', '工時/年']).optional(),
+  region:             z.string().optional(),
+  campus:             z.string().optional(),
+  process:            z.string().optional(),
+  factory:            z.string().optional(),
 })
 
 type FormValues = z.infer<typeof schema>
@@ -399,6 +403,24 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ open, onClose, 
               control={control}
               render={({ field }) => <Input {...field} placeholder="https://..." />}
             />
+          </Form.Item>
+
+          {/* 地區/園區/製程/廠區 */}
+          <Form.Item label={t('project.region')}>
+            <Controller name="region" control={control}
+              render={({ field }) => <Input {...field} placeholder={t('project.regionPlaceholder')} />} />
+          </Form.Item>
+          <Form.Item label={t('project.campus')}>
+            <Controller name="campus" control={control}
+              render={({ field }) => <Input {...field} placeholder={t('project.campusPlaceholder')} />} />
+          </Form.Item>
+          <Form.Item label={t('project.process')}>
+            <Controller name="process" control={control}
+              render={({ field }) => <Input {...field} placeholder={t('project.processPlaceholder')} />} />
+          </Form.Item>
+          <Form.Item label={t('project.factory')}>
+            <Controller name="factory" control={control}
+              render={({ field }) => <Input {...field} placeholder={t('project.factoryPlaceholder')} />} />
           </Form.Item>
 
           {/* 預估效益 */}

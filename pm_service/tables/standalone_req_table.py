@@ -32,6 +32,10 @@ class StandaloneReqModel(BaseMixinModel):
     benefit_unit      = db.Column(db.String(10), default="元/年", comment="效益单位(元/年|人/年)")
     files_json        = db.Column(db.Text, comment="附件JSON数组")
     shelve_reason     = db.Column(db.Text, nullable=True, comment="搁置原因")
+    region   = db.Column(db.String(64), comment="地区")
+    campus   = db.Column(db.String(64), comment="园区")
+    process  = db.Column(db.String(64), comment="制程")
+    factory  = db.Column(db.String(64), comment="厂区")
     created_at        = db.Column(db.String(19), default=CommonTools.get_now, nullable=False)
     updated_at        = db.Column(db.String(19), default=CommonTools.get_now, onupdate=CommonTools.get_now)
 
@@ -65,4 +69,6 @@ class StandaloneReqModel(BaseMixinModel):
             "created_at":         self.created_at or "",
             "updated_at":         self.updated_at or "",
             "shelve_reason":      self.shelve_reason or "",
+            "region": self.region or "", "campus": self.campus or "",
+            "process": self.process or "", "factory": self.factory or "",
         }

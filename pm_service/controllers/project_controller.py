@@ -229,6 +229,10 @@ class ProjectController:
             expected_benefit=payload.get("expected_benefit", ""),
             benefit_amount=payload.get("benefit_amount"),
             benefit_unit=payload.get("benefit_unit", "元/年"),
+            region=payload.get("region", ""),
+            campus=payload.get("campus", ""),
+            process=payload.get("process", ""),
+            factory=payload.get("factory", ""),
         )
         db.session.add(p)
         db.session.flush()  # get p.id before commit
@@ -259,7 +263,8 @@ class ProjectController:
         WN_FIELDS = {"product_pm", "project_pm"}
         fields = ("project_nm", "describe", "department", "product_pm", "project_pm",
                   "expected_start_date", "expected_end_date", "priority", "group_id", "code_url",
-                  "expected_benefit", "benefit_amount", "benefit_unit", "actual_benefit_amount")
+                  "expected_benefit", "benefit_amount", "benefit_unit", "actual_benefit_amount",
+                  "region", "campus", "process", "factory")
         for f in fields:
             if f in payload and payload[f] is not None:
                 v = (payload[f] or "").strip().lower() if f in WN_FIELDS else payload[f]

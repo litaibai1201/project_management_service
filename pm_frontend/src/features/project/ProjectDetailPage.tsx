@@ -682,6 +682,10 @@ const ProjectDetailPage: React.FC = () => {
       expected_benefit:       current.expected_benefit,
       benefit_amount:         current.benefit_amount,
       benefit_unit:           current.benefit_unit ?? '元/年',
+      region:            (current as unknown as { region?: string }).region ?? '',
+      campus:            (current as unknown as { campus?: string }).campus ?? '',
+      process:           (current as unknown as { process?: string }).process ?? '',
+      factory:           (current as unknown as { factory?: string }).factory ?? '',
       describe:          current.describe,
     })
     setNewGroupName('')
@@ -1320,6 +1324,14 @@ const ProjectDetailPage: React.FC = () => {
                 className="flex items-center gap-1 text-xs text-blue-500 hover:underline">
                 <CodeBracketIcon className="w-3.5 h-3.5" /> {t('projectDetail.codeRepo')}
               </a>
+            )}
+            {((current as unknown as { region?: string }).region || (current as unknown as { campus?: string }).campus || (current as unknown as { process?: string }).process || (current as unknown as { factory?: string }).factory) && (
+              <div className="flex items-center gap-3 text-xs text-slate-500 flex-wrap">
+                {(current as unknown as { region?: string }).region && <span>{t('project.region')}：{(current as unknown as { region?: string }).region}</span>}
+                {(current as unknown as { campus?: string }).campus && <span>{t('project.campus')}：{(current as unknown as { campus?: string }).campus}</span>}
+                {(current as unknown as { process?: string }).process && <span>{t('project.process')}：{(current as unknown as { process?: string }).process}</span>}
+                {(current as unknown as { factory?: string }).factory && <span>{t('project.factory')}：{(current as unknown as { factory?: string }).factory}</span>}
+              </div>
             )}
           </div>
         </div>
@@ -2721,6 +2733,19 @@ const ProjectDetailPage: React.FC = () => {
 
             <Form.Item name="code_url" label={t('project.codeUrl')} className="col-span-2">
               <Input placeholder="https://..." />
+            </Form.Item>
+
+            <Form.Item name="region" label={t('project.region')}>
+              <Input placeholder={t('project.regionPlaceholder')} />
+            </Form.Item>
+            <Form.Item name="campus" label={t('project.campus')}>
+              <Input placeholder={t('project.campusPlaceholder')} />
+            </Form.Item>
+            <Form.Item name="process" label={t('project.process')}>
+              <Input placeholder={t('project.processPlaceholder')} />
+            </Form.Item>
+            <Form.Item name="factory" label={t('project.factory')}>
+              <Input placeholder={t('project.factoryPlaceholder')} />
             </Form.Item>
 
             <Form.Item label={t('project.benefitAmount')} style={{ marginBottom: 0 }}>
