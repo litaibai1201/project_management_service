@@ -482,6 +482,7 @@ export interface Requirement {
   benefit_amount?: number | null
   benefit_unit?: string
   is_addon?: boolean
+  create_stage_tasks?: boolean
   files?: FileInfo[]
   expected_end_date?: string
   created_at: string
@@ -497,6 +498,7 @@ export interface CreateRequirementPayload {
   benefit_amount?: number
   benefit_unit?: string
   is_addon?: boolean
+  create_stage_tasks?: boolean
   expected_end_date?: string
 }
 

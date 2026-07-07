@@ -238,12 +238,13 @@ class RequirementController:
             is_addon=bool(payload.get("is_addon", False)),
             files_json=json.dumps(payload.get("files", []), ensure_ascii=False),
             expected_end_date=payload.get("expected_end_date", ""),
+            create_stage_tasks=bool(payload.get("create_stage_tasks", False)),
         )
         _dao.add(req)
         _dao.flush()
 
         # 立案前的需求：自动创建「需求评估与立案」阶段任务
-        if p.project_status == 1:  # 草稿阶段
+        if p.project_status == 1 and req.create_stage_tasks:  # 草稿阶段 + 开启阶段任务
             from controllers.project_controller import ProjectController
             proj_ctrl = ProjectController()
             proj_ctrl._create_stage_task(project_id, "initiate", req.id, req.req_nm)
@@ -309,6 +310,8 @@ class RequirementController:
                 setattr(r, field, payload[field])
         if "is_addon" in payload:
             r.is_addon = bool(payload["is_addon"])
+        if "create_stage_tasks" in payload:
+            r.create_stage_tasks = bool(payload["create_stage_tasks"])
         if "files" in payload:
             r.files_json = json.dumps(payload["files"], ensure_ascii=False)
         if "responsible" in payload:

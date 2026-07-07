@@ -1604,6 +1604,7 @@ const ProjectDetailPage: React.FC = () => {
                                       benefit_amount:   req.benefit_amount,
                                       benefit_unit:     req.benefit_unit ?? '元/年',
                                       is_addon:         req.is_addon ?? false,
+                                      create_stage_tasks: req.create_stage_tasks ?? false,
                                       expected_end_date: req.expected_end_date,
                                     })
                                     if (reqUserOptions.length === 0) {
@@ -2206,6 +2207,10 @@ const ProjectDetailPage: React.FC = () => {
             <Switch checkedChildren={t('projectDetail.addonReq')} unCheckedChildren={t('projectDetail.initReq')} />
           </Form.Item>
           <div className="text-xs text-slate-400 -mt-3 mb-3 ml-1">{t('projectDetail.reqTypeHint')}</div>
+          <Form.Item name="create_stage_tasks" valuePropName="checked" initialValue={false}>
+            <Switch size="small" />
+          </Form.Item>
+          <div className="-mt-3 mb-3 text-xs text-slate-500">{t('system.createStageTasks')}</div>
           {/* 附件上傳（僅編輯已存在需求時顯示） */}
           {editReq && (
             <div className="mt-1">
@@ -2285,7 +2290,11 @@ const ProjectDetailPage: React.FC = () => {
                     <div className="flex items-center gap-1 flex-shrink-0">
                       <Button size="small" type="text" disabled={i === 0} onClick={() => moveReqReviewer(i, -1)} style={{ padding: '0 4px', fontSize: 12, color: i === 0 ? '#cbd5e1' : '#64748b' }}>↑</Button>
                       <Button size="small" type="text" disabled={i === reqModalReviewers.length - 1} onClick={() => moveReqReviewer(i, 1)} style={{ padding: '0 4px', fontSize: 12, color: i === reqModalReviewers.length - 1 ? '#cbd5e1' : '#64748b' }}>↓</Button>
-                      <Button size="small" type="text" danger icon={<TrashIcon className="w-3.5 h-3.5" />} onClick={() => removeReqReviewer(r.work_no)} />
+                      {reqModalReviewers.length <= 1 ? (
+                        <span className="text-base">🔒</span>
+                      ) : (
+                        <Button size="small" type="text" danger icon={<TrashIcon className="w-3.5 h-3.5" />} onClick={() => removeReqReviewer(r.work_no)} />
+                      )}
                     </div>
                   </div>
                 ))}
@@ -2352,7 +2361,11 @@ const ProjectDetailPage: React.FC = () => {
                     <div className="flex items-center gap-1 flex-shrink-0">
                       <Button size="small" type="text" disabled={i === 0} onClick={() => moveReqReviewer(i, -1)} style={{ padding: '0 4px', fontSize: 12, color: i === 0 ? '#cbd5e1' : '#64748b' }}>↑</Button>
                       <Button size="small" type="text" disabled={i === reqModalReviewers.length - 1} onClick={() => moveReqReviewer(i, 1)} style={{ padding: '0 4px', fontSize: 12, color: i === reqModalReviewers.length - 1 ? '#cbd5e1' : '#64748b' }}>↓</Button>
-                      <Button size="small" type="text" danger icon={<TrashIcon className="w-3.5 h-3.5" />} onClick={() => removeReqReviewer(r.work_no)} />
+                      {reqModalReviewers.length <= 1 ? (
+                        <span className="text-base">🔒</span>
+                      ) : (
+                        <Button size="small" type="text" danger icon={<TrashIcon className="w-3.5 h-3.5" />} onClick={() => removeReqReviewer(r.work_no)} />
+                      )}
                     </div>
                   </div>
                 ))}

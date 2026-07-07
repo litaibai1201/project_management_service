@@ -987,8 +987,9 @@ class ProjectController:
                 if r.apply_type_code == 'requirement_review':
                     if final_status == 2:         # 通過 → 已通過
                         req.req_status = 2
-                        # 追加需求审核通过 → 一次性创建3个阶段任务
-                        self._create_all_stage_tasks(r.project_id, req.id, req.req_nm)
+                        # 追加需求审核通过 → 根据标记决定是否创建阶段任务
+                        if getattr(req, 'create_stage_tasks', False):
+                            self._create_all_stage_tasks(r.project_id, req.id, req.req_nm)
                     elif final_status in (3, 4):  # 拒絕/退回 → 草稿
                         req.req_status = 0
                 else:  # requirement_shelve
@@ -1059,6 +1060,9 @@ class ProjectController:
                 for req in reqs:
                     if final_status == 2:
                         req.req_status = 2
+                        # 批量需求审核通过 → 根据标记决定是否创建阶段任务
+                        if getattr(req, 'create_stage_tasks', False):
+                            self._create_all_stage_tasks(r.project_id, req.id, req.req_nm)
                     elif final_status in (3, 4):
                         req.req_status = 0
                     req.update_at = now
@@ -1417,7 +1421,8 @@ class ProjectController:
                                 req.req_status = 2
                                 req.update_at = now
                         for req in reqs:
-                            self._create_stage_task(r.project_id, next_stage, req.id, req.req_nm)
+                            if getattr(req, 'create_stage_tasks', False):
+                                self._create_stage_task(r.project_id, next_stage, req.id, req.req_nm)
                 elif final_status in (3, 4) and next_fail:
                     p.project_status = next_fail
                 p.update_at = now
