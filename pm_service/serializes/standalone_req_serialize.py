@@ -29,6 +29,7 @@ class CreateReqSchema(BaseSchema):
     campus = fields.Str(load_default="")
     process = fields.Str(load_default="")
     factory = fields.Str(load_default="")
+    create_stage_tasks = fields.Bool(load_default=False)
 
 
 class UpdateReqSchema(BaseSchema):
@@ -48,6 +49,7 @@ class UpdateReqSchema(BaseSchema):
     process = fields.Str()
     factory = fields.Str()
     shelve_reason = fields.Str(load_default=None, allow_none=True)
+    create_stage_tasks = fields.Bool(load_default=None, allow_none=True)
 
 
 class SubmitReviewSchema(BaseSchema):

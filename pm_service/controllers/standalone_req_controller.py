@@ -110,6 +110,7 @@ class StandaloneReqController:
             campus=payload.get("campus", ""),
             process=payload.get("process", ""),
             factory=payload.get("factory", ""),
+            create_stage_tasks=bool(payload.get("create_stage_tasks", False)),
         )
         _dao.add(r)
         _dao.commit()
@@ -167,6 +168,8 @@ class StandaloneReqController:
         for loc_field in ("region", "campus", "process", "factory"):
             if loc_field in payload and payload[loc_field] is not None:
                 setattr(r, loc_field, payload[loc_field])
+        if "create_stage_tasks" in payload:
+            r.create_stage_tasks = bool(payload["create_stage_tasks"])
         if "shelve_reason" in payload:
             r.shelve_reason = payload["shelve_reason"]
         r.updated_at = CommonTools.get_now()

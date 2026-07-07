@@ -3,7 +3,7 @@ import { useParams, useNavigate, useSearchParams, useLocation } from 'react-rout
 import {
   Button, Tag, Spin, Empty, Table, Space, Tooltip, Popconfirm,
   Modal, Form, Input, Select, AutoComplete, Avatar, Descriptions,
-  Typography, Progress, Card, Tabs, Divider, Segmented, Collapse,
+  Typography, Progress, Card, Tabs, Divider, Segmented, Collapse, Switch,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import {
@@ -28,6 +28,7 @@ import RichTextContent from '@/components/common/RichTextContent'
 import type { TemporaryDuty } from '@/types/api.types'
 import DutyDetailDrawer from '@/features/duty/DutyDetailDrawer'
 import DateInput from '@/components/common/DateInput'
+import StandaloneReqFormModal from '@/components/common/StandaloneReqFormModal'
 
 const { Link } = Typography
 
@@ -277,7 +278,12 @@ const SystemDetailPage: React.FC = () => {
         expected_benefit:  values.expected_benefit as string | undefined,
         benefit_amount:    values.benefit_amount as number | undefined,
         benefit_unit:      values.benefit_unit as string | undefined,
-      })
+        region:            values.region as string | undefined,
+        campus:            values.campus as string | undefined,
+        process:           values.process as string | undefined,
+        factory:           values.factory as string | undefined,
+        create_stage_tasks: values.create_stage_tasks as boolean | undefined,
+      } as any)
       showToast.success(t('system.reqCreateSuccess'))
       setShowCreate(false)
       createForm.resetFields()
@@ -323,6 +329,7 @@ const SystemDetailPage: React.FC = () => {
       campus:            (r as unknown as { campus?: string }).campus ?? '',
       process:           (r as unknown as { process?: string }).process ?? '',
       factory:           (r as unknown as { factory?: string }).factory ?? '',
+      create_stage_tasks: (r as unknown as { create_stage_tasks?: boolean }).create_stage_tasks ?? false,
     })
     loadUsers(); loadSystemOptions()
     setShowEditReq(true)
@@ -343,7 +350,12 @@ const SystemDetailPage: React.FC = () => {
         expected_benefit:  values.expected_benefit as string | undefined,
         benefit_amount:    values.benefit_amount as number | undefined,
         benefit_unit:      values.benefit_unit as string | undefined,
-      })
+        region:            values.region as string | undefined,
+        campus:            values.campus as string | undefined,
+        process:           values.process as string | undefined,
+        factory:           values.factory as string | undefined,
+        create_stage_tasks: values.create_stage_tasks as boolean | undefined,
+      } as any)
       showToast.success(t('system.updated'))
       setShowEditReq(false)
       editForm.resetFields()
@@ -1390,14 +1402,8 @@ const groupedByReq = useMemo(() => {
       {/* Hidden file input for attachment upload */}
       <input ref={fileInputRef} type="file" style={{ display: 'none' }} onChange={handleFileUpload} />
 
-      {/* Edit Requirement Modal */}
-      <Modal
-        title={editTarget ? `${t('system.editReq')} — ${editTarget.req_nm}` : t('system.editReq')}
-        open={showEditReq}
-        onCancel={() => { setShowEditReq(false); editForm.resetFields() }}
-        footer={null} width="min(600px, 88vw)" destroyOnHidden
-      >
-        <Form form={editForm} layout="vertical" onFinish={handleEditReq} className="mt-4">
+      {/* Edit modal replaced by StandaloneReqFormModal — keep hidden */}
+      <Modal open={false}><Form form={editForm} layout="vertical" onFinish={handleEditReq} className="mt-4">
           <Form.Item name="req_nm" label={t('system.reqName')} rules={[{ required: true }]}>
             <Input />
           </Form.Item>
@@ -1468,6 +1474,10 @@ const groupedByReq = useMemo(() => {
               <p className="text-xs text-blue-500 mt-1">{t('system.richTextApplied')}</p>
             )}
           </Form.Item>
+          <Form.Item name="create_stage_tasks" valuePropName="checked">
+            <Switch size="small" />
+          </Form.Item>
+          <div className="-mt-3 mb-3 text-xs text-slate-500">{t('system.createStageTasks')}</div>
           <div className="flex justify-end gap-3">
             <Button onClick={() => { setShowEditReq(false); editForm.resetFields() }}>{t('common.cancel')}</Button>
             <Button type="primary" htmlType="submit" loading={editSaving} style={{ background: '#2563eb' }}>{t('common.save')}</Button>
@@ -1484,10 +1494,10 @@ const groupedByReq = useMemo(() => {
         <RichTextEditor value={editExpandDraft} onChange={setEditExpandDraft} placeholder={t('system.reqDescPlaceholder')} minHeight={480} />
       </Modal>
 
-      {/* Create Requirement Modal */}
+      {/* Create modal replaced by StandaloneReqFormModal — keep hidden */}
       <Modal
         title={t('system.addReq')}
-        open={showCreate}
+        open={false}
         onCancel={() => { setShowCreate(false); createForm.resetFields() }}
         footer={null}
         width="min(600px, 88vw)"
@@ -1565,6 +1575,10 @@ const groupedByReq = useMemo(() => {
               <p className="text-xs text-blue-500 mt-1">{t('system.richTextApplied')}</p>
             )}
           </Form.Item>
+          <Form.Item name="create_stage_tasks" valuePropName="checked" initialValue={false}>
+            <Switch size="small" />
+          </Form.Item>
+          <div className="-mt-3 mb-3 text-xs text-slate-500">{t('system.createStageTasks')}</div>
           <div className="flex justify-end gap-3">
             <Button onClick={() => { setShowCreate(false); createForm.resetFields() }}>{t('common.cancel')}</Button>
             <Button type="primary" htmlType="submit" loading={createSaving} style={{ background: '#2563eb' }}>{t('system.createBtn')}</Button>
@@ -2092,6 +2106,16 @@ const groupedByReq = useMemo(() => {
           </div>
         </div>
       </Modal>
+
+      {/* 系統需求 新增/編輯 共用表單 */}
+      <StandaloneReqFormModal
+        open={showCreate || showEditReq}
+        onClose={() => { setShowCreate(false); setShowEditReq(false); setEditTarget(null) }}
+        onSuccess={() => { loadReqs(reqPage); loadDuties() }}
+        editTarget={showEditReq ? editTarget : null}
+        fixedSystemId={id}
+        fixedSystemName={system?.sys_nm}
+      />
     </div>
   )
 }

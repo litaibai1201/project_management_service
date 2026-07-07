@@ -36,6 +36,7 @@ class StandaloneReqModel(BaseMixinModel):
     campus   = db.Column(db.String(64), comment="园区")
     process  = db.Column(db.String(64), comment="制程")
     factory  = db.Column(db.String(64), comment="厂区")
+    create_stage_tasks = db.Column(db.Boolean, default=False, comment="审核通过后是否建立阶段任务")
     created_at        = db.Column(db.String(19), default=CommonTools.get_now, nullable=False)
     updated_at        = db.Column(db.String(19), default=CommonTools.get_now, onupdate=CommonTools.get_now)
 
@@ -71,4 +72,5 @@ class StandaloneReqModel(BaseMixinModel):
             "shelve_reason":      self.shelve_reason or "",
             "region": self.region or "", "campus": self.campus or "",
             "process": self.process or "", "factory": self.factory or "",
+            "create_stage_tasks": bool(self.create_stage_tasks) if self.create_stage_tasks else False,
         }

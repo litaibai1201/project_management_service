@@ -1106,15 +1106,16 @@ class ProjectController:
             if req:
                 if final_status == 2:
                     req.req_status = 2
-                    # 系统需求审核通过 → 创建3个评估与规划任务
+                    # 系统需求审核通过 → 根据标记决定是否创建阶段任务
                     if req.responsible:
                         try:
                             responsible = json.loads(req.responsible)
                         except Exception:
                             pass
-                    self._create_standalone_req_stage_duties(
-                        req.id, r.system_id or "", req.req_nm, responsible
-                    )
+                    if getattr(req, 'create_stage_tasks', True):
+                        self._create_standalone_req_stage_duties(
+                            req.id, r.system_id or "", req.req_nm, responsible
+                        )
                 elif final_status in (3, 4):
                     req.req_status = 0
                 req.updated_at = now
@@ -1172,16 +1173,17 @@ class ProjectController:
                 for req in reqs:
                     if final_status == 2:
                         req.req_status = 2
-                        # 系统需求审核通过 → 创建3个评估与规划任务
+                        # 系统需求审核通过 → 根据标记决定是否创建阶段任务
                         resp_list = []
                         if req.responsible:
                             try:
                                 resp_list = json.loads(req.responsible)
                             except Exception:
                                 pass
-                        self._create_standalone_req_stage_duties(
-                            req.id, r.system_id or "", req.req_nm, resp_list
-                        )
+                        if getattr(req, 'create_stage_tasks', True):
+                            self._create_standalone_req_stage_duties(
+                                req.id, r.system_id or "", req.req_nm, resp_list
+                            )
                     elif final_status in (3, 4):
                         req.req_status = 0
                     req.updated_at = now

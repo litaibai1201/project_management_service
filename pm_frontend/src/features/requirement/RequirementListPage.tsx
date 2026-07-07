@@ -16,6 +16,7 @@ import DutyWbsTable from '@/components/common/DutyWbsTable'
 import { userApi } from '@/api/user.api'
 import { systemApi, type SystemItem } from '@/api/system.api'
 import { PRIORITY_MAP } from '@/utils/status'
+import StandaloneReqFormModal from '@/components/common/StandaloneReqFormModal'
 import { showToast } from '@/utils/toast'
 import { useWorkNoToName } from '@/hooks/useWorkNoToName'
 import dayjs from 'dayjs'
@@ -249,6 +250,7 @@ const RequirementListPage: React.FC = () => {
       campus:            (r as unknown as { campus?: string }).campus ?? '',
       process:           (r as unknown as { process?: string }).process ?? '',
       factory:           (r as unknown as { factory?: string }).factory ?? '',
+      create_stage_tasks: (r as unknown as { create_stage_tasks?: boolean }).create_stage_tasks ?? false,
     })
     loadUsers(); loadSystems()
     setShowForm(true)
@@ -283,7 +285,8 @@ const RequirementListPage: React.FC = () => {
         campus:            values.campus as string | undefined,
         process:           values.process as string | undefined,
         factory:           values.factory as string | undefined,
-      }
+        create_stage_tasks: values.create_stage_tasks as boolean | undefined,
+      } as any
       if (editTarget) {
         await standaloneReqApi.update(editTarget.id, payload)
         showToast.success(t('requirement.updated'))
@@ -653,10 +656,18 @@ const RequirementListPage: React.FC = () => {
         ]}
       />
 
-      {/* 系統需求 建立 / 編輯 Modal */}
+      {/* 系統需求 建立 / 編輯 — 使用共用組件 */}
+      <StandaloneReqFormModal
+        open={showForm}
+        onClose={() => { setShowForm(false); setEditTarget(null) }}
+        onSuccess={() => loadSysReqs(editTarget ? reqPage : 1)}
+        editTarget={editTarget}
+      />
+
+      {/* OLD Modal — replaced by StandaloneReqFormModal, keep hidden */}
       <Modal
         title={editTarget ? `${t('requirement.editReq')} — ${editTarget.req_nm}` : t('requirement.createSysReq')}
-        open={showForm}
+        open={false}
         onCancel={() => { setShowForm(false); form.resetFields() }}
         footer={null}
         width="min(600px, 88vw)"
@@ -745,6 +756,10 @@ const RequirementListPage: React.FC = () => {
               <p className="text-xs text-blue-500 mt-1">{t('requirement.richTextApplied')}</p>
             )}
           </Form.Item>
+          <Form.Item name="create_stage_tasks" valuePropName="checked" initialValue={false}>
+            <Switch size="small" />
+          </Form.Item>
+          <div className="-mt-3 mb-3 text-xs text-slate-500">{t('system.createStageTasks')}</div>
           <div className="flex justify-end gap-3">
             <Button onClick={() => { setShowForm(false); form.resetFields() }}>{t('common.cancel')}</Button>
             <Button type="primary" htmlType="submit" loading={reqSaving} style={{ background: '#2563eb' }}>
