@@ -182,8 +182,8 @@ class DailyLogController:
             db.session.query(ProgressRecordDataModel)
             .filter(
                 or_(
-                    ProgressRecordDataModel.submitter == work_no,
-                    ProgressRecordDataModel.cooperator.like(f'%"{work_no}"%'),
+                    db.func.lower(ProgressRecordDataModel.submitter) == work_no.lower(),
+                    db.func.lower(ProgressRecordDataModel.cooperator).like(f'%"{work_no.lower()}"%'),
                 ),
                 ProgressRecordDataModel.created_at.like(f"{date}%"),
             ).order_by(ProgressRecordDataModel.created_at.asc()).all()
@@ -237,8 +237,8 @@ class DailyLogController:
             db.session.query(DutyProgressRecordModel)
             .filter(
                 or_(
-                    DutyProgressRecordModel.submitter == work_no,
-                    DutyProgressRecordModel.cooperator.like(f'%"{work_no}"%'),
+                    db.func.lower(DutyProgressRecordModel.submitter) == work_no.lower(),
+                    db.func.lower(DutyProgressRecordModel.cooperator).like(f'%"{work_no.lower()}"%'),
                 ),
                 DutyProgressRecordModel.created_at.like(f"{date}%"),
             ).order_by(DutyProgressRecordModel.created_at.asc()).all()

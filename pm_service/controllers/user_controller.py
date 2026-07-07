@@ -626,7 +626,7 @@ class UserController:
         _pending_rows = db.session.query(ReviewApplyModel.approval_nodes_json).filter(
             _or(
                 db.func.lower(ReviewApplyModel.reviewer).like(f"%{work_no.lower()}%"),
-                ReviewApplyModel.approval_nodes_json.like(f"%{work_no.lower()}%"),
+                db.func.lower(ReviewApplyModel.approval_nodes_json).like(f"%{work_no.lower()}%"),
             ),
             ReviewApplyModel.apply_status == 1,
         ).all()
@@ -879,8 +879,8 @@ class UserController:
             db.session.query(ProgressRecordDataModel)
             .filter(
                 db.or_(
-                    ProgressRecordDataModel.submitter == work_no,
-                    ProgressRecordDataModel.cooperator.like(f'%"{work_no}"%'),
+                    db.func.lower(ProgressRecordDataModel.submitter) == work_no.lower(),
+                    db.func.lower(ProgressRecordDataModel.cooperator).like(f'%"{work_no.lower()}"%'),
                 ),
                 ProgressRecordDataModel.created_at >= week_start,
                 ProgressRecordDataModel.created_at <= week_end + " 23:59:59",
@@ -891,8 +891,8 @@ class UserController:
             db.session.query(DutyProgressRecordModel)
             .filter(
                 db.or_(
-                    DutyProgressRecordModel.submitter == work_no,
-                    DutyProgressRecordModel.cooperator.like(f'%"{work_no}"%'),
+                    db.func.lower(DutyProgressRecordModel.submitter) == work_no.lower(),
+                    db.func.lower(DutyProgressRecordModel.cooperator).like(f'%"{work_no.lower()}"%'),
                 ),
                 DutyProgressRecordModel.created_at >= week_start,
                 DutyProgressRecordModel.created_at <= week_end + " 23:59:59",
@@ -940,7 +940,7 @@ class UserController:
         # ── 功能任务进度更新（该用户提交的）─────────────────────────────────
         proj_recs = (
             db.session.query(ProgressRecordDataModel)
-            .filter(ProgressRecordDataModel.submitter == work_no)
+            .filter(db.func.lower(ProgressRecordDataModel.submitter) == work_no.lower())
             .order_by(ProgressRecordDataModel.created_at.desc())
             .limit(20).all()
         )
@@ -961,7 +961,7 @@ class UserController:
         # ── AR进度更新（该用户提交的）─────────────────────────────────
         duty_recs = (
             db.session.query(DutyProgressRecordModel)
-            .filter(DutyProgressRecordModel.submitter == work_no)
+            .filter(db.func.lower(DutyProgressRecordModel.submitter) == work_no.lower())
             .order_by(DutyProgressRecordModel.created_at.desc())
             .limit(20).all()
         )
@@ -982,7 +982,7 @@ class UserController:
         # ── 审核申请（该用户提交的）─────────────────────────────────────────
         reviews = (
             db.session.query(ReviewApplyModel)
-            .filter(ReviewApplyModel.submitter == work_no)
+            .filter(db.func.lower(ReviewApplyModel.submitter) == work_no.lower())
             .order_by(ReviewApplyModel.created_at.desc())
             .limit(20).all()
         )

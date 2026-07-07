@@ -776,17 +776,18 @@ class ProjectController:
         )
         is_sup = self._is_supervisor(work_no) if work_no else False
         if work_no:
+            wn_lower = work_no.lower()
             if is_sup:
                 # 主管可以看到：（1）自己是审核人的记录，（2）所有专案完结申请
                 q = q.filter(or_(
-                    ReviewApplyModel.reviewer.like(f"%{work_no}%"),
-                    ReviewApplyModel.approval_nodes_json.like(f"%{work_no}%"),
+                    db.func.lower(ReviewApplyModel.reviewer).like(f"%{wn_lower}%"),
+                    db.func.lower(ReviewApplyModel.approval_nodes_json).like(f"%{wn_lower}%"),
                     ReviewApplyModel.apply_type_code == "project_complete",
                 ))
             else:
                 q = q.filter(or_(
-                    ReviewApplyModel.reviewer.like(f"%{work_no}%"),
-                    ReviewApplyModel.approval_nodes_json.like(f"%{work_no}%"),
+                    db.func.lower(ReviewApplyModel.reviewer).like(f"%{wn_lower}%"),
+                    db.func.lower(ReviewApplyModel.approval_nodes_json).like(f"%{wn_lower}%"),
                 ))
         total = q.count()
         records = q.order_by(ReviewApplyModel.created_at.desc()).offset((page-1)*size).limit(size).all()
@@ -803,7 +804,7 @@ class ProjectController:
         """返回当前用户作为提交人的所有审核记录"""
         q = db.session.query(ReviewApplyModel)
         if work_no:
-            q = q.filter(ReviewApplyModel.submitter == work_no)
+            q = q.filter(db.func.lower(ReviewApplyModel.submitter) == work_no.lower())
         total = q.count()
         records = q.order_by(ReviewApplyModel.created_at.desc()).offset((page-1)*size).limit(size).all()
         return {
@@ -820,16 +821,17 @@ class ProjectController:
         q = db.session.query(ReviewApplyModel).filter(ReviewApplyModel.apply_status == 1)
         is_sup = self._is_supervisor(work_no) if work_no else False
         if work_no:
+            wn_lower = work_no.lower()
             if is_sup:
                 q = q.filter(or_(
-                    ReviewApplyModel.reviewer.like(f"%{work_no}%"),
-                    ReviewApplyModel.approval_nodes_json.like(f"%{work_no}%"),
+                    db.func.lower(ReviewApplyModel.reviewer).like(f"%{wn_lower}%"),
+                    db.func.lower(ReviewApplyModel.approval_nodes_json).like(f"%{wn_lower}%"),
                     ReviewApplyModel.apply_type_code == "project_complete",
                 ))
             else:
                 q = q.filter(or_(
-                    ReviewApplyModel.reviewer.like(f"%{work_no}%"),
-                    ReviewApplyModel.approval_nodes_json.like(f"%{work_no}%"),
+                    db.func.lower(ReviewApplyModel.reviewer).like(f"%{wn_lower}%"),
+                    db.func.lower(ReviewApplyModel.approval_nodes_json).like(f"%{wn_lower}%"),
                 ))
         enriched = [
             self._enrich_review(r, viewer_work_no=work_no or "", viewer_is_supervisor=is_sup)

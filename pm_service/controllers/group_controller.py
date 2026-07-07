@@ -32,8 +32,8 @@ class GroupController:
         pm_ids = set(
             r.id for r in db.session.query(ProjectDataModel.id).filter(
                 db.or_(
-                    ProjectDataModel.project_pm == work_no,
-                    ProjectDataModel.product_pm == work_no,
+                    db.func.lower(ProjectDataModel.project_pm) == work_no.lower(),
+                    db.func.lower(ProjectDataModel.product_pm) == work_no.lower(),
                 ),
                 ProjectDataModel.project_status != 9,
             ).all()
@@ -42,7 +42,7 @@ class GroupController:
         func_proj_ids = set(
             r.project_id for r in db.session.query(FunctionDataModel.project_id).filter(
                 FunctionDataModel.status == 1,
-                FunctionDataModel.responsible.like(f'%"{work_no}"%'),
+                db.func.lower(FunctionDataModel.responsible).like(f'%"{work_no.lower()}"%'),
             ).distinct().all()
         )
         all_ids = list(pm_ids | func_proj_ids)
@@ -62,7 +62,7 @@ class GroupController:
 
     def get_member_duties(self, work_no: str, page=1, size=20):
         q = db.session.query(TemporaryDutyModel).filter(
-            TemporaryDutyModel.responsible.like(f"%{work_no}%"),
+            db.func.lower(TemporaryDutyModel.responsible).like(f"%{work_no.lower()}%"),
             TemporaryDutyModel.duty_status != 9,
         )
         total = q.count()
@@ -77,7 +77,7 @@ class GroupController:
         proj_hours = (
             db.session.query(db.func.sum(ProgressRecordDataModel.time_consum))
             .filter(
-                ProgressRecordDataModel.submitter == work_no,
+                db.func.lower(ProgressRecordDataModel.submitter) == work_no.lower(),
                 ProgressRecordDataModel.created_at >= start_date,
                 ProgressRecordDataModel.created_at <= end_date + " 23:59:59",
             ).scalar()
@@ -85,7 +85,7 @@ class GroupController:
         duty_hours = (
             db.session.query(db.func.sum(DutyProgressRecordModel.time_consum))
             .filter(
-                DutyProgressRecordModel.submitter == work_no,
+                db.func.lower(DutyProgressRecordModel.submitter) == work_no.lower(),
                 DutyProgressRecordModel.start_time >= start_date,
                 DutyProgressRecordModel.start_time <= end_date,
             ).scalar()
@@ -94,7 +94,7 @@ class GroupController:
         completed = (
             db.session.query(FunctionDataModel)
             .filter(
-                FunctionDataModel.responsible.like(f'%"{work_no}"%'),
+                db.func.lower(FunctionDataModel.responsible).like(f'%"{work_no.lower()}"%'),
                 FunctionDataModel.function_status == 4,
             ).count()
         )
@@ -163,11 +163,11 @@ class GroupController:
 
         all_funcs = db.session.query(FunctionDataModel).filter(
             FunctionDataModel.status == 1,
-            FunctionDataModel.responsible.like(f'%"{work_no}"%'),
+            db.func.lower(FunctionDataModel.responsible).like(f'%"{work_no.lower()}"%'),
         ).all()
         for f in all_funcs:
-            resp = json.loads(f.responsible) if f.responsible else []
-            if work_no not in resp:
+            resp = [r.lower() for r in (json.loads(f.responsible) if f.responsible else [])]
+            if work_no.lower() not in resp:
                 continue
             s = f.function_status or 0
             if s == 4:
@@ -184,7 +184,7 @@ class GroupController:
 
         all_duties = db.session.query(TemporaryDutyModel).filter(
             TemporaryDutyModel.status == 1,
-            TemporaryDutyModel.responsible.like(f"%{work_no}%"),
+            db.func.lower(TemporaryDutyModel.responsible).like(f"%{work_no.lower()}%"),
         ).all()
         for d in all_duties:
             resp = json.loads(d.responsible) if d.responsible else []
@@ -215,7 +215,7 @@ class GroupController:
 
     def get_schedule(self, work_no: str, start_date: str = "", end_date: str = ""):
         q = db.session.query(ProgressRecordDataModel).filter(
-            ProgressRecordDataModel.submitter == work_no
+            db.func.lower(ProgressRecordDataModel.submitter) == work_no.lower()
         )
         if start_date:
             q = q.filter(ProgressRecordDataModel.created_at >= start_date)
