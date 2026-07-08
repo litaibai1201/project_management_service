@@ -332,6 +332,187 @@ class DailyLogController:
                     })
         return result
 
+    # ─── 聚合日志工时 ────────────────────────────────────────────────────────
+    @staticmethod
+    def aggregate_cooperator_hours(task_type: str, suggest_ids: list) -> dict:
+        """
+        从 MongoDB daily_logs 聚合合作人对进度记录的更新工时。
+        返回 {suggest_id: {work_no: work_hours}}
+        """
+        if not suggest_ids:
+            return {}
+        pipeline = [
+            {"$match": {"status": 1, "task_items.task_type": task_type,
+                         "task_items.suggest_id": {"$in": suggest_ids},
+                         "task_items.source": {"$in": ["updated"]}}},
+            {"$unwind": "$task_items"},
+            {"$match": {"task_items.task_type": task_type,
+                         "task_items.suggest_id": {"$in": suggest_ids},
+                         "task_items.source": "updated"}},
+            {"$group": {
+                "_id": {"suggest_id": "$task_items.suggest_id", "work_no": "$work_no"},
+                "hours": {"$sum": {"$ifNull": ["$task_items.work_hours", 0]}},
+                "overtime": {"$sum": {"$cond": [
+                    {"$eq": [{"$ifNull": ["$task_items.is_overtime", False]}, True]},
+                    {"$ifNull": ["$task_items.overtime_hours", 0]}, 0
+                ]}},
+            }},
+        ]
+        result: dict = {}
+        for doc in _col().aggregate(pipeline):
+            sid = doc["_id"]["suggest_id"]
+            wn = (doc["_id"]["work_no"] or "").strip().lower()
+            if sid not in result:
+                result[sid] = {}
+            result[sid][wn] = {
+                "hours": round(float(doc.get("hours", 0)), 1),
+                "overtime": round(float(doc.get("overtime", 0)), 1),
+            }
+        return result
+
+    @staticmethod
+    def aggregate_log_hours_by_member(task_type: str, task_ids: list) -> list:
+        """
+        从 MongoDB daily_logs 按成员聚合 manual 条目工时。
+        不包含 "updated"（合作人更新），因为那些已在 compute_total_hours_with_cooperators 中统计。
+        返回 [(work_no, hours, overtime_hours), ...]
+        """
+        if not task_ids:
+            return []
+        pipeline = [
+            {"$match": {"status": 1, "task_items.task_type": task_type,
+                         "task_items.task_id": {"$in": task_ids}}},
+            {"$unwind": "$task_items"},
+            {"$match": {"task_items.task_type": task_type,
+                         "task_items.task_id": {"$in": task_ids},
+                         "task_items.source": "manual"}},
+            {"$group": {
+                "_id": "$work_no",
+                "hours": {"$sum": {"$ifNull": ["$task_items.work_hours", 0]}},
+                "overtime": {"$sum": {"$cond": [
+                    {"$eq": [{"$ifNull": ["$task_items.is_overtime", False]}, True]},
+                    {"$ifNull": ["$task_items.overtime_hours", 0]}, 0
+                ]}},
+            }},
+        ]
+        result = []
+        for doc in _col().aggregate(pipeline):
+            wn = (doc["_id"] or "").strip().lower()
+            if wn:
+                result.append((wn, round(float(doc.get("hours", 0)), 1),
+                               round(float(doc.get("overtime", 0)), 1)))
+        return result
+
+    @staticmethod
+    def compute_total_hours_with_cooperators(records, task_type: str) -> tuple:
+        """
+        计算含合作人的总工时。
+        records: list of progress record objects (需有 id/progress_id, time_consum, overtime_hours, cooperator, submitter)
+        返回 (task_hours_map, task_overtime_map, member_hours_map, member_overtime_map)
+        """
+        import json as _json
+
+        # 收集有合作人的记录
+        records_with_coop = []
+        suggest_ids = []
+        for r in records:
+            rec_id = getattr(r, 'progress_id', None) or getattr(r, 'id', None) or ''
+            coop_raw = getattr(r, 'cooperator', None) or ''
+            coops = []
+            if coop_raw:
+                try:
+                    coops = _json.loads(coop_raw) if isinstance(coop_raw, str) else coop_raw
+                except Exception:
+                    coops = []
+            if coops:
+                records_with_coop.append((r, rec_id, coops))
+                suggest_ids.append(rec_id)
+
+        # 查询合作人的日志更新工时
+        coop_hours_map = DailyLogController.aggregate_cooperator_hours(task_type, suggest_ids) if suggest_ids else {}
+
+        # 获取任务ID的字段名
+        task_id_field = 'function_id' if task_type == 'project' else 'duty_id'
+
+        task_hours: dict = {}
+        task_overtime: dict = {}
+        member_hours: dict = {}
+        member_overtime: dict = {}
+
+        for r in records:
+            rec_id = getattr(r, 'progress_id', None) or getattr(r, 'id', None) or ''
+            tid = getattr(r, task_id_field, '')
+            tc = float(getattr(r, 'time_consum', 0) or 0)
+            oh = float(getattr(r, 'overtime_hours', 0) or 0)
+            submitter = (getattr(r, 'submitter', '') or '').strip().lower()
+
+            # 提交人工时
+            task_hours[tid] = task_hours.get(tid, 0) + tc
+            task_overtime[tid] = task_overtime.get(tid, 0) + oh
+            if submitter:
+                member_hours[submitter] = member_hours.get(submitter, 0) + tc
+                member_overtime[submitter] = member_overtime.get(submitter, 0) + oh
+
+            # 合作人工时
+            coop_raw = getattr(r, 'cooperator', None) or ''
+            coops = []
+            if coop_raw:
+                try:
+                    coops = _json.loads(coop_raw) if isinstance(coop_raw, str) else coop_raw
+                except Exception:
+                    coops = []
+            for cwn in coops:
+                cwn_lower = cwn.strip().lower()
+                coop_entry = coop_hours_map.get(rec_id, {}).get(cwn_lower)
+                if coop_entry:
+                    # 合作人有自己的更新工时
+                    ch = coop_entry.get("hours", 0)
+                    coh = coop_entry.get("overtime", 0)
+                else:
+                    # 合作人未更新，使用提交人的工时
+                    ch = tc
+                    coh = oh
+                task_hours[tid] = task_hours.get(tid, 0) + ch
+                task_overtime[tid] = task_overtime.get(tid, 0) + coh
+                if cwn_lower:
+                    member_hours[cwn_lower] = member_hours.get(cwn_lower, 0) + ch
+                    member_overtime[cwn_lower] = member_overtime.get(cwn_lower, 0) + coh
+
+        return task_hours, task_overtime, member_hours, member_overtime
+
+    @staticmethod
+    def aggregate_log_hours(task_type: str, task_ids: list) -> dict:
+        """
+        从 MongoDB daily_logs 聚合 manual 条目的 work_hours。
+        注意：不包含 "updated"（合作人更新），因为那些已在 compute_total_hours_with_cooperators 中统计。
+        返回 {task_id: {"hours": float, "overtime": float}}
+        """
+        if not task_ids:
+            return {}
+        pipeline = [
+            {"$match": {"status": 1, "task_items.task_type": task_type,
+                         "task_items.task_id": {"$in": task_ids}}},
+            {"$unwind": "$task_items"},
+            {"$match": {"task_items.task_type": task_type,
+                         "task_items.task_id": {"$in": task_ids},
+                         "task_items.source": "manual"}},
+            {"$group": {
+                "_id": "$task_items.task_id",
+                "hours": {"$sum": {"$ifNull": ["$task_items.work_hours", 0]}},
+                "overtime": {"$sum": {"$cond": [
+                    {"$eq": [{"$ifNull": ["$task_items.is_overtime", False]}, True]},
+                    {"$ifNull": ["$task_items.overtime_hours", 0]}, 0
+                ]}},
+            }},
+        ]
+        result: dict = {}
+        for doc in _col().aggregate(pipeline):
+            result[doc["_id"]] = {
+                "hours": round(float(doc.get("hours", 0)), 1),
+                "overtime": round(float(doc.get("overtime", 0)), 1),
+            }
+        return result
+
     # ─── 回滚任务进度（删除日志条目后调用）──────────────────────────────────
     def revert_task_progress(self, task_type: str, task_id: str):
         """

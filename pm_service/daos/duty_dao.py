@@ -211,15 +211,34 @@ class DutyDAO(BaseDAO):
         db.session.commit()
 
     def enrich_duty_list(self, duties: list) -> list:
-        """为AR列表项补充 system_nm / requirement_nm"""
+        """为AR列表项补充 system_nm / requirement_nm / total_hours"""
         sys_ids = list({d.system_id for d in duties if d.system_id})
         sys_map = self.get_system_name_map(sys_ids)
         req_ids = list({d.standalone_req_id for d in duties if d.standalone_req_id})
         req_nm_map = self.get_req_name_map(req_ids)
+        # 批量聚合工时 (含合作人 + 日志)
+        duty_ids = [d.id for d in duties]
+        hours_map: dict = {}
+        overtime_map: dict = {}
+        if duty_ids:
+            from controllers.daily_log_controller import DailyLogController
+            prog_recs = db.session.query(DutyProgressRecordModel).filter(
+                DutyProgressRecordModel.duty_id.in_(duty_ids)).all()
+            hours_map, overtime_map, _, _ = DailyLogController.compute_total_hours_with_cooperators(prog_recs, "duty")
+            # 四舍五入
+            hours_map = {k: round(v, 1) for k, v in hours_map.items()}
+            overtime_map = {k: round(v, 1) for k, v in overtime_map.items()}
+            # 加上日志条目工时
+            log_agg = DailyLogController.aggregate_log_hours("duty", duty_ids)
+            for did, la in log_agg.items():
+                hours_map[did] = round(hours_map.get(did, 0) + la.get("hours", 0), 1)
+                overtime_map[did] = round(overtime_map.get(did, 0) + la.get("overtime", 0), 1)
         result = []
         for d in duties:
             r = d.to_dict()
             r['system_nm'] = sys_map.get(d.system_id, '') if d.system_id else ''
             r['requirement_nm'] = req_nm_map.get(d.standalone_req_id, '') if d.standalone_req_id else ''
+            r['total_hours'] = hours_map.get(d.id, 0)
+            r['overtime_hours'] = overtime_map.get(d.id, 0)
             result.append(r)
         return result

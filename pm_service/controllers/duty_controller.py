@@ -60,6 +60,16 @@ class DutyController:
             raise ResourceNotFoundException(resource_type="AR")
         result = d.to_dict()
         result['system_nm'] = dao.get_system_name(d.system_id)
+        # 聚合已投入工时 (进度记录含合作人 + 日志)
+        from controllers.daily_log_controller import DailyLogController
+        prog_recs = db.session.query(DutyProgressRecordModel).filter_by(duty_id=duty_id).all()
+        task_h, task_ot, _, _ = DailyLogController.compute_total_hours_with_cooperators(prog_recs, "duty")
+        prog_h = round(task_h.get(duty_id, 0), 1)
+        prog_ot = round(task_ot.get(duty_id, 0), 1)
+        log_agg = DailyLogController.aggregate_log_hours("duty", [duty_id])
+        log_h = log_agg.get(duty_id, {})
+        result["total_hours"] = round(prog_h + log_h.get("hours", 0), 1)
+        result["overtime_hours"] = round(prog_ot + log_h.get("overtime", 0), 1)
         return result
 
     def create_duty(self, payload: dict, creator: str):

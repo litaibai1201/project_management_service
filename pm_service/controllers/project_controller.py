@@ -504,34 +504,26 @@ class ProjectController:
                 "requirements": [], "functions": [], "members": [],
             }
 
-        # 查询所有进度记录的工时
-        records = (
-            db.session.query(
-                ProgressRecordDataModel.function_id,
-                ProgressRecordDataModel.submitter,
-                ProgressRecordDataModel.time_consum,
-                ProgressRecordDataModel.overtime_hours,
-            )
-            .filter(ProgressRecordDataModel.function_id.in_(func_ids))
-            .all()
-        )
+        # 查询所有进度记录（含合作人工时）
+        from controllers.daily_log_controller import DailyLogController
+        prog_recs = db.session.query(ProgressRecordDataModel).filter(
+            ProgressRecordDataModel.function_id.in_(func_ids)).all()
 
-        # ── 任务维度 ────────────────────────────────
+        # ── 任务维度（含合作人） ─────────────────────────
         func_map = {f.id: f for f in funcs}
-        func_hours: dict = {}
-        func_overtime: dict = {}
-        member_hours: dict = {}
-        member_overtime: dict = {}
+        func_hours, func_overtime, member_hours, member_overtime = \
+            DailyLogController.compute_total_hours_with_cooperators(prog_recs, "project")
 
-        for fid, submitter, tc, oh in records:
-            tc = float(tc or 0)
-            oh = float(oh or 0)
-            func_hours[fid] = func_hours.get(fid, 0) + tc
-            func_overtime[fid] = func_overtime.get(fid, 0) + oh
-            s = (submitter or "").strip().lower()
-            if s:
-                member_hours[s] = member_hours.get(s, 0) + tc
-                member_overtime[s] = member_overtime.get(s, 0) + oh
+        # 加上日志条目工时
+        log_agg = DailyLogController.aggregate_log_hours("project", func_ids)
+        for fid, la in log_agg.items():
+            func_hours[fid] = func_hours.get(fid, 0) + la.get("hours", 0)
+            func_overtime[fid] = func_overtime.get(fid, 0) + la.get("overtime", 0)
+        # 日志条目的成员工时需要单独聚合
+        log_member_pipeline = DailyLogController.aggregate_log_hours_by_member("project", func_ids)
+        for wn, h, oh in log_member_pipeline:
+            member_hours[wn] = member_hours.get(wn, 0) + h
+            member_overtime[wn] = member_overtime.get(wn, 0) + oh
 
         project_total = round(sum(func_hours.values()), 1)
         project_overtime = round(sum(func_overtime.values()), 1)
@@ -2255,12 +2247,16 @@ class FunctionController:
         if not f:
             raise ResourceNotFoundException(resource_type="功能任务")
         d = f.to_dict()
-        row = db.session.query(
-            db.func.sum(ProgressRecordDataModel.time_consum),
-            db.func.sum(ProgressRecordDataModel.overtime_hours),
-        ).filter_by(function_id=function_id).first()
-        d["total_hours"] = round(float(row[0] or 0), 1) if row else 0
-        d["overtime_hours"] = round(float(row[1] or 0), 1) if row else 0
+        # 聚合已投入工时 (含合作人 + 日志)
+        from controllers.daily_log_controller import DailyLogController
+        prog_recs = db.session.query(ProgressRecordDataModel).filter_by(function_id=function_id).all()
+        task_h, task_ot, _, _ = DailyLogController.compute_total_hours_with_cooperators(prog_recs, "project")
+        prog_h = round(task_h.get(function_id, 0), 1)
+        prog_ot = round(task_ot.get(function_id, 0), 1)
+        log_agg = DailyLogController.aggregate_log_hours("project", [function_id])
+        log_h = log_agg.get(function_id, {})
+        d["total_hours"] = round(prog_h + log_h.get("hours", 0), 1)
+        d["overtime_hours"] = round(prog_ot + log_h.get("overtime", 0), 1)
         return d
 
     def add_function(self, project_id: str, payload: dict, creator: str):
@@ -2815,21 +2811,22 @@ class FunctionController:
             reqs = db.session.query(RequirementModel).filter(RequirementModel.id.in_(req_ids)).all()
             req_nm_map = {r.id: r.req_nm for r in reqs}
 
-        # Batch-load hours per function
+        # Batch-load hours per function (含合作人 + 日志)
         func_ids = [f.id for f in funcs]
         hours_map: dict = {}
         overtime_map: dict = {}
         if func_ids:
-            hrs_rows = db.session.query(
-                ProgressRecordDataModel.function_id,
-                db.func.sum(ProgressRecordDataModel.time_consum),
-                db.func.sum(ProgressRecordDataModel.overtime_hours),
-            ).filter(
-                ProgressRecordDataModel.function_id.in_(func_ids)
-            ).group_by(ProgressRecordDataModel.function_id).all()
-            for fid, h, oh in hrs_rows:
-                hours_map[fid] = round(float(h or 0), 1)
-                overtime_map[fid] = round(float(oh or 0), 1)
+            from controllers.daily_log_controller import DailyLogController
+            prog_recs = db.session.query(ProgressRecordDataModel).filter(
+                ProgressRecordDataModel.function_id.in_(func_ids)).all()
+            hours_map, overtime_map, _, _ = DailyLogController.compute_total_hours_with_cooperators(prog_recs, "project")
+            hours_map = {k: round(v, 1) for k, v in hours_map.items()}
+            overtime_map = {k: round(v, 1) for k, v in overtime_map.items()}
+            # 加上日志条目工时
+            log_agg = DailyLogController.aggregate_log_hours("project", func_ids)
+            for fid, la in log_agg.items():
+                hours_map[fid] = round(hours_map.get(fid, 0) + la.get("hours", 0), 1)
+                overtime_map[fid] = round(overtime_map.get(fid, 0) + la.get("overtime", 0), 1)
 
         result = []
         for f in funcs:

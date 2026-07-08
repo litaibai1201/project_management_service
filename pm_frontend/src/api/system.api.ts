@@ -99,4 +99,7 @@ export const systemApi = {
 
   delete: (id: string): Promise<ApiResponse<null>> =>
     del(`/system/${id}`),
+
+  hoursSummary: (id: string): Promise<ApiResponse<import('@/api/project.api').HoursSummary>> =>
+    get(`/system/${id}/hours_summary`),
 }

@@ -57,6 +57,80 @@ class SystemController:
         ]
         return d
 
+    def get_hours_summary(self, system_id: str):
+        """系统工时汇总：按需求、任务、成员维度"""
+        from tables.duty_table import TemporaryDutyModel, DutyProgressRecordModel
+        from tables.standalone_req_table import StandaloneReqModel
+        from tables.user_table import UserProfileModel
+
+        duties = db.session.query(TemporaryDutyModel).filter(
+            TemporaryDutyModel.system_id == system_id,
+            TemporaryDutyModel.duty_status != 9,
+        ).all()
+        duty_ids = [d.id for d in duties]
+        if not duty_ids:
+            return {"project_total_hours": 0, "project_overtime_hours": 0,
+                    "requirements": [], "functions": [], "members": []}
+
+        # 聚合工时（含合作人）
+        from controllers.daily_log_controller import DailyLogController
+        prog_recs = db.session.query(DutyProgressRecordModel).filter(
+            DutyProgressRecordModel.duty_id.in_(duty_ids)).all()
+
+        duty_map = {d.id: d for d in duties}
+        duty_hours, duty_overtime, member_hours, member_overtime = \
+            DailyLogController.compute_total_hours_with_cooperators(prog_recs, "duty")
+
+        # 加上日志条目工时
+        log_agg = DailyLogController.aggregate_log_hours("duty", duty_ids)
+        for did, la in log_agg.items():
+            duty_hours[did] = duty_hours.get(did, 0) + la.get("hours", 0)
+            duty_overtime[did] = duty_overtime.get(did, 0) + la.get("overtime", 0)
+        log_members = DailyLogController.aggregate_log_hours_by_member("duty", duty_ids)
+        for wn, h, oh in log_members:
+            member_hours[wn] = member_hours.get(wn, 0) + h
+            member_overtime[wn] = member_overtime.get(wn, 0) + oh
+
+        total = round(sum(duty_hours.values()), 1)
+        total_ot = round(sum(duty_overtime.values()), 1)
+
+        # 需求维度
+        req_ids = list({d.standalone_req_id for d in duties if d.standalone_req_id})
+        req_nm_map = {}
+        if req_ids:
+            reqs = db.session.query(StandaloneReqModel).filter(StandaloneReqModel.id.in_(req_ids)).all()
+            req_nm_map = {r.id: r.req_nm for r in reqs}
+        req_agg: dict = {}
+        req_ot_agg: dict = {}
+        for d in duties:
+            rid = d.standalone_req_id or "__no_req__"
+            req_agg[rid] = req_agg.get(rid, 0) + duty_hours.get(d.id, 0)
+            req_ot_agg[rid] = req_ot_agg.get(rid, 0) + duty_overtime.get(d.id, 0)
+        req_list = [{"req_id": rid if rid != "__no_req__" else "", "req_nm": req_nm_map.get(rid, ""),
+                      "total_hours": round(h, 1), "overtime_hours": round(req_ot_agg.get(rid, 0), 1)}
+                     for rid, h in sorted(req_agg.items(), key=lambda x: -x[1])]
+
+        # 任务维度
+        func_list = [{"func_id": d.id, "func_nm": d.duty_nm, "req_id": d.standalone_req_id or "",
+                       "group1": d.group or "", "total_hours": round(duty_hours.get(d.id, 0), 1),
+                       "overtime_hours": round(duty_overtime.get(d.id, 0), 1)}
+                      for d in duties if duty_hours.get(d.id, 0) > 0]
+        func_list.sort(key=lambda x: -x["total_hours"])
+
+        # 成员维度
+        work_nos = list(member_hours.keys())
+        name_map = {}
+        if work_nos:
+            profiles = db.session.query(UserProfileModel).filter(
+                db.func.lower(UserProfileModel.work_no).in_(work_nos)).all()
+            name_map = {p.work_no.lower(): p.name for p in profiles}
+        member_list = [{"work_no": wn, "name": name_map.get(wn, wn),
+                         "total_hours": round(h, 1), "overtime_hours": round(member_overtime.get(wn, 0), 1)}
+                        for wn, h in sorted(member_hours.items(), key=lambda x: -x[1])]
+
+        return {"project_total_hours": total, "project_overtime_hours": total_ot,
+                "requirements": req_list, "functions": func_list, "members": member_list}
+
     def get_report_stats(self):
         """按系统维度统计需求与任务数据（进度+延期）"""
         from datetime import date as _date

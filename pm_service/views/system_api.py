@@ -100,3 +100,12 @@ class SystemDetailApi(MethodView):
         from controllers.system_admin_controller import _log_operation
         _log_operation(get_identity(), "删除系统", detail=f"系统ID: {system_id}", target_table="system_form", target_id=system_id)
         return response_result(content=result)
+
+
+@blp.route("/<string:system_id>/hours_summary")
+class SystemHoursSummaryApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def get(self, system_id):
+        """系统工时汇总（需求/任务/成员维度）"""
+        return response_result(content=ctrl.get_hours_summary(system_id))
