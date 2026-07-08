@@ -150,6 +150,7 @@ class SystemController:
                 "group1": d.group or "", "status": d.duty_status, "progress": d.progress or 0,
                 "expected_end_date": (d.latest_expected_end_date if hasattr(d, 'latest_expected_end_date') else d.expected_end_date) or "",
                 "end_time": d.end_time or "",
+                "responsible": json.loads(d.responsible) if d.responsible else [],
                 "total_hours": round(duty_hours.get(d.id, 0), 1),
                 "overtime_hours": round(duty_overtime.get(d.id, 0), 1),
             })

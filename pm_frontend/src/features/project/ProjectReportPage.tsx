@@ -63,19 +63,8 @@ function downloadXlsx(sheetName: string, headers: string[], rows: (string | numb
 const ProjectProgressTab: React.FC<{
   data: ProjectReportStat[]
   hoursMap: Record<string, import('@/api/project.api').HoursSummary>
-  onHoursMapChange: React.Dispatch<React.SetStateAction<Record<string, import('@/api/project.api').HoursSummary>>>
-}> = ({ data, hoursMap, onHoursMapChange }) => {
+}> = ({ data, hoursMap }) => {
   const { t } = useTranslation()
-
-  // 页面加载时批量获取所有专案工时
-  useEffect(() => {
-    if (data.length === 0) return
-    for (const p of data) {
-      projectApi.hoursSummary(p.project_id)
-        .then((res) => { if (res.content) onHoursMapChange((prev) => ({ ...prev, [p.project_id]: res.content! })) })
-        .catch(() => {})
-    }
-  }, [data])
 
   const summary = useMemo(() => ({
     projects:    data.length,
@@ -96,15 +85,6 @@ const ProjectProgressTab: React.FC<{
     rows.push([t('projectReport.subtotal'), '', summary.total, summary.draft, summary.not_started, summary.in_progress, summary.completed, summary.shelved, rate, ''])
     downloadXlsx(t('projectReport.projectProgressReport'), [t('projectReport.project'), t('projectReport.projectStatus'), t('projectReport.totalTasks'), t('projectReport.draft'), t('projectReport.notStarted'), t('projectReport.inProgress'), t('projectReport.completed'), t('projectReport.shelved'), t('projectReport.completionRatePct'), t('projectDetail.totalHours')],
       rows, t('projectReport.projectProgressReport'), [20, 12, 10, 10, 10, 10, 10, 8, 12, 10])
-  }
-
-  // 展开时加载工时
-  const onExpand = async (expanded: boolean, record: ProjectReportStat) => {
-    if (!expanded || !record || hoursMap[record.project_id]) return
-    try {
-      const res = await projectApi.hoursSummary(record.project_id)
-      if (res.content) onHoursMapChange((prev) => ({ ...prev, [record.project_id]: res.content! }))
-    } catch { /* ignore */ }
   }
 
   // 构建树形数据：专案 → 需求 → 任务
@@ -219,11 +199,7 @@ const ProjectProgressTab: React.FC<{
           size="middle"
           scroll={{ x: 'max-content' }}
           indentSize={20}
-          expandable={{
-            onExpand: (expanded, record) => {
-              if (record._type === 'project') onExpand(expanded, data.find((p) => p.project_id === record._key.replace('proj-', ''))!)
-            },
-          }}
+          expandable={{}}
         />
       </div>
     </>
@@ -383,7 +359,11 @@ const ProjectOverdueTab: React.FC<{ data: ProjectReportStat[]; hoursMap: Record<
 
 // ─── Member: Progress Tab ─────────────────────────────────────────────────────
 
-const MemberProgressTab: React.FC<{ data: MemberReportStat[] }> = ({ data }) => {
+const MemberProgressTab: React.FC<{
+  data: MemberReportStat[]
+  projectHoursMap: Record<string, import('@/api/project.api').HoursSummary>
+  systemHoursMap: Record<string, import('@/api/project.api').HoursSummary>
+}> = ({ data, projectHoursMap, systemHoursMap }) => {
   const { t } = useTranslation()
   const summary = useMemo(() => ({
     members:     data.length,
@@ -397,37 +377,175 @@ const MemberProgressTab: React.FC<{ data: MemberReportStat[] }> = ({ data }) => 
 
   const rate = summary.total > 0 ? Math.round(summary.completed / summary.total * 1000) / 10 : 0
 
-  const onExport = () => {
-    const rows = data.map((r) => [r.name, r.total, r.draft || 0, r.not_started, r.in_progress, r.completed, r.shelved, r.completion_rate])
-    rows.push([t('projectReport.subtotal'), summary.total, summary.draft, summary.not_started, summary.in_progress, summary.completed, summary.shelved, rate])
-    downloadXlsx(t('projectReport.memberProgressReport'), [t('projectReport.member'), t('projectReport.totalTasks'), t('projectReport.draft'), t('projectReport.notStarted'), t('projectReport.inProgress'), t('projectReport.completed'), t('projectReport.shelved'), t('projectReport.completionRatePct')],
-      rows, t('projectReport.memberProgressReport'), [16, 10, 8, 10, 10, 10, 8, 12])
+  // 从 hoursMap + AR tasks 计算每个成员的总工时
+  const memberHoursLookup = useMemo(() => {
+    const result: Record<string, number> = {}
+    for (const hs of Object.values(projectHoursMap))
+      for (const m of hs.members) result[m.work_no.toLowerCase()] = (result[m.work_no.toLowerCase()] || 0) + m.total_hours
+    for (const hs of Object.values(systemHoursMap))
+      for (const m of hs.members) result[m.work_no.toLowerCase()] = (result[m.work_no.toLowerCase()] || 0) + m.total_hours
+    // AR 工时
+    for (const m of data) {
+      const arSrc = (m.sources ?? []).find((s) => s.type === 'ar')
+      if (arSrc?.tasks) {
+        const wn = m.work_no.toLowerCase()
+        const arH = arSrc.tasks.reduce((sum, tk) => sum + (tk.total_hours || 0), 0)
+        if (arH > 0) result[wn] = (result[wn] || 0) + arH
+      }
+    }
+    return result
+  }, [projectHoursMap, systemHoursMap, data])
+
+  // 树形数据：成员 → 来源（专案/系统/AR） → 需求 → 任务
+  type MemTreeRow = {
+    _key: string; _type: 'member' | 'source' | 'req' | 'func'
+    name: string; source_type?: string; status?: number
+    total: number; draft: number; not_started: number; in_progress: number; completed: number; shelved: number
+    total_hours: number; completion_rate: number; children?: MemTreeRow[]
   }
 
-  const rawColumns: ColumnsType<MemberReportStat> = [
-    { title: t('projectReport.member'), dataIndex: 'name', width: 160,
-      render: (name: string) => (
-        <div className="flex items-center gap-2">
-          <Avatar size={28} style={{ background: '#2563eb', fontSize: 12, flexShrink: 0 }}>{name?.[0]?.toUpperCase()}</Avatar>
-          <span className="text-sm text-slate-700">{name}</span>
-        </div>
-      ) },
-    { title: t('projectReport.totalTasks'), dataIndex: 'total', width: 100, align: 'center',
-      render: (v: number) => <span className="text-blue-500 font-medium">{v}</span> },
-    { title: t('projectReport.draft'), dataIndex: 'draft', width: 80, align: 'center',
-      render: (v: number) => <span className={v > 0 ? 'text-slate-500' : 'text-slate-400'}>{v || 0}</span> },
-    { title: t('projectReport.notStarted'), dataIndex: 'not_started', width: 80, align: 'center',
-      render: (v: number) => <span className="text-blue-400">{v}</span> },
-    { title: t('projectReport.inProgress'), dataIndex: 'in_progress', width: 80, align: 'center',
-      render: (v: number) => <span className={v > 0 ? 'text-green-600 font-medium' : 'text-slate-400'}>{v}</span> },
-    { title: t('projectReport.completed'), dataIndex: 'completed', width: 80, align: 'center',
-      render: (v: number) => <span className={v > 0 ? 'text-blue-600 font-medium' : 'text-slate-400'}>{v}</span> },
-    { title: t('projectReport.shelved'), dataIndex: 'shelved', width: 80, align: 'center',
-      render: (v: number) => <span className={v > 0 ? 'text-yellow-500 font-medium' : 'text-slate-400'}>{v}</span> },
-    { title: t('projectReport.completionRate'), dataIndex: 'completion_rate', width: 280, align: 'center',
+  const buildReqTaskTree = (hs: import('@/api/project.api').HoursSummary, wn: string, srcKey: string): MemTreeRow[] => {
+    const wnLower = wn.toLowerCase()
+    // 过滤出该成员参与的任务
+    const myFuncs = hs.functions.filter((f) => (f.responsible ?? []).some((r) => r.toLowerCase() === wnLower))
+    if (myFuncs.length === 0) return []
+    // 按需求分组
+    const reqMap = new Map<string, typeof myFuncs>()
+    for (const f of myFuncs) {
+      const rid = f.req_id || '__none__'
+      if (!reqMap.has(rid)) reqMap.set(rid, [])
+      reqMap.get(rid)!.push(f)
+    }
+    const reqRows: MemTreeRow[] = []
+    for (const [rid, funcs] of reqMap) {
+      const reqInfo = hs.requirements.find((r) => (r.req_id || '__none__') === rid)
+      const funcChildren: MemTreeRow[] = funcs.map((f) => ({
+        _key: `${srcKey}-func-${f.func_id}`, _type: 'func' as const,
+        name: f.func_nm, status: f.status,
+        total: 0, draft: 0, not_started: 0, in_progress: 0, completed: 0, shelved: 0,
+        total_hours: f.total_hours, completion_rate: f.progress,
+      }))
+      reqRows.push({
+        _key: `${srcKey}-req-${rid}`, _type: 'req' as const,
+        name: reqInfo?.req_nm || t('projectReport.noRequirement'), status: reqInfo?.req_status,
+        total: funcs.length, draft: 0, not_started: 0, in_progress: 0, completed: 0, shelved: 0,
+        total_hours: round1(funcs.reduce((s, f) => s + f.total_hours, 0)),
+        completion_rate: funcs.length > 0 ? round1(funcs.reduce((s, f) => s + f.progress, 0) / funcs.length) : 0,
+        children: funcChildren,
+      })
+    }
+    return reqRows
+  }
+
+  const treeData: MemTreeRow[] = useMemo(() => data.map((m) => {
+    const sources = m.sources ?? []
+    const wn = m.work_no.toLowerCase()
+    const children: MemTreeRow[] = sources.map((s, i) => {
+      const srcKey = `src-${m.work_no}-${i}`
+      let srcHours = 0
+      let reqTaskChildren: MemTreeRow[] | undefined
+      if (s.type === 'project') {
+        const hs = projectHoursMap[s.id]
+        srcHours = hs?.members.find((mm) => mm.work_no.toLowerCase() === wn)?.total_hours ?? 0
+        if (hs) reqTaskChildren = buildReqTaskTree(hs, m.work_no, srcKey)
+      } else if (s.type === 'system') {
+        const hs = systemHoursMap[s.id]
+        srcHours = hs?.members.find((mm) => mm.work_no.toLowerCase() === wn)?.total_hours ?? 0
+        if (hs) reqTaskChildren = buildReqTaskTree(hs, m.work_no, srcKey)
+      } else if (s.type === 'ar' && s.tasks && s.tasks.length > 0) {
+        srcHours = round1(s.tasks.reduce((sum, tk) => sum + (tk.total_hours || 0), 0))
+        reqTaskChildren = s.tasks.map((tk) => ({
+          _key: `${srcKey}-func-${tk.task_id}`, _type: 'func' as const,
+          name: tk.task_nm, status: tk.status,
+          total: 0, draft: 0, not_started: 0, in_progress: 0, completed: 0, shelved: 0,
+          total_hours: tk.total_hours || 0, completion_rate: tk.progress,
+        }))
+      }
+      return {
+        _key: srcKey, _type: 'source' as const,
+        name: s.name, source_type: s.type,
+        total: s.total, draft: s.draft, not_started: s.not_started,
+        in_progress: s.in_progress, completed: s.completed, shelved: s.shelved,
+        total_hours: srcHours, completion_rate: s.completion_rate,
+        children: reqTaskChildren && reqTaskChildren.length > 0 ? reqTaskChildren : undefined,
+      }
+    })
+    return {
+      _key: m.work_no, _type: 'member' as const,
+      name: m.name,
+      total: m.total, draft: m.draft || 0, not_started: m.not_started,
+      in_progress: m.in_progress, completed: m.completed, shelved: m.shelved,
+      total_hours: round1(memberHoursLookup[m.work_no.toLowerCase()] ?? 0),
+      completion_rate: m.completion_rate,
+      children: children.length > 0 ? children : undefined,
+    }
+  }), [data, memberHoursLookup, projectHoursMap, systemHoursMap, t]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const onExport = () => {
+    const rows = data.map((r) => [r.name, r.total, r.draft || 0, r.not_started, r.in_progress, r.completed, r.shelved,
+      round1(memberHoursLookup[r.work_no.toLowerCase()] ?? 0) || '', r.completion_rate])
+    rows.push([t('projectReport.subtotal'), summary.total, summary.draft, summary.not_started, summary.in_progress, summary.completed, summary.shelved, '', rate])
+    downloadXlsx(t('projectReport.memberProgressReport'), [t('projectReport.member'), t('projectReport.totalTasks'), t('projectReport.draft'), t('projectReport.notStarted'), t('projectReport.inProgress'), t('projectReport.completed'), t('projectReport.shelved'), t('projectDetail.totalHours'), t('projectReport.completionRatePct')],
+      rows, t('projectReport.memberProgressReport'), [16, 10, 8, 10, 10, 10, 8, 10, 12])
+  }
+
+  const rawColumns: ColumnsType<MemTreeRow> = [
+    { title: t('projectReport.member'), dataIndex: 'name', width: 240, ellipsis: true,
+      render: (name: string, r) => {
+        if (r._type === 'member') return (
+          <div className="flex items-center gap-2">
+            <Avatar size={28} style={{ background: '#2563eb', fontSize: 12, flexShrink: 0 }}>{name?.[0]?.toUpperCase()}</Avatar>
+            <span className="text-sm text-slate-700">{name}</span>
+          </div>
+        )
+        if (r._type === 'req') return <span className="font-medium text-purple-600 text-xs">{name}</span>
+        if (r._type === 'func') return <span className="text-slate-600 text-xs">{name}</span>
+        const colorMap: Record<string, string> = { project: 'blue', system: 'cyan', ar: 'orange' }
+        const labelMap: Record<string, string> = { project: t('projectReport.tabProject'), system: t('projectReport.tabSystem'), ar: 'AR' }
+        return (
+          <span className="text-xs text-slate-600">
+            <Tag color={colorMap[r.source_type ?? ''] ?? 'default'} style={{ fontSize: 9, padding: '0 4px', marginRight: 4 }}>
+              {labelMap[r.source_type ?? ''] ?? r.source_type}
+            </Tag>
+            {name}
+          </span>
+        )
+      },
+    },
+    { title: t('common.status'), dataIndex: 'status', width: 90, align: 'center',
+      render: (s: number | undefined, r) => {
+        if (s == null || r._type === 'member' || r._type === 'source') return null
+        if (r._type === 'req') {
+          const RST: Record<number, [string, string]> = { 0: [t('projectDetail.reqStatus.draft'), 'default'], 2: [t('projectDetail.reqStatus.inProgress'), 'success'], 4: [t('projectDetail.reqStatus.completed'), 'blue'], 8: [t('projectDetail.reqStatus.shelved'), 'warning'] }
+          const [label, color] = RST[s] ?? [String(s), 'default']
+          return <Tag color={color} style={{ fontSize: 10 }}>{label}</Tag>
+        }
+        const FST: Record<number, [string, string]> = { 0: [t('projectReport.draft'), 'default'], 1: [t('projectReport.inProgress'), 'green'], 2: [t('projectReport.inProgress'), 'green'], 3: [t('projectReport.completed'), 'blue'], 4: [t('projectReport.completed'), 'blue'], 6: [t('projectReport.notStarted'), 'blue'], 8: [t('projectReport.shelved'), 'orange'] }
+        const [label, color] = FST[s] ?? [String(s), 'default']
+        return <Tag color={color} style={{ fontSize: 10 }}>{label}</Tag>
+      },
+    },
+    { title: t('projectReport.totalTasks'), dataIndex: 'total', width: 70, align: 'center',
+      render: (v: number, r) => r._type === 'func' ? null : <span className={r._type === 'member' ? 'text-blue-500 font-medium' : 'text-blue-500 text-xs'}>{v}</span> },
+    { title: t('projectReport.draft'), dataIndex: 'draft', width: 60, align: 'center',
+      render: (v: number, r) => r._type === 'func' ? null : <span className="text-slate-400 text-xs">{v}</span> },
+    { title: t('projectReport.notStarted'), dataIndex: 'not_started', width: 60, align: 'center',
+      render: (v: number, r) => r._type === 'func' ? null : <span className="text-blue-400 text-xs">{v}</span> },
+    { title: t('projectReport.inProgress'), dataIndex: 'in_progress', width: 60, align: 'center',
+      render: (v: number, r) => r._type === 'func' ? null : <span className={v > 0 ? 'text-green-600 text-xs font-medium' : 'text-slate-400 text-xs'}>{v}</span> },
+    { title: t('projectReport.completed'), dataIndex: 'completed', width: 60, align: 'center',
+      render: (v: number, r) => r._type === 'func' ? null : <span className={v > 0 ? 'text-blue-600 text-xs font-medium' : 'text-slate-400 text-xs'}>{v}</span> },
+    { title: t('projectReport.shelved'), dataIndex: 'shelved', width: 60, align: 'center',
+      render: (v: number, r) => r._type === 'func' ? null : <span className={v > 0 ? 'text-yellow-500 text-xs' : 'text-slate-400 text-xs'}>{v}</span> },
+    { title: t('projectDetail.colTotalHours'), dataIndex: 'total_hours', width: 100, align: 'center',
+      render: (v: number, r) => v > 0
+        ? <span className={r._type === 'member' ? 'font-semibold text-blue-600 tabular-nums' : 'text-xs font-medium text-blue-600 tabular-nums'}>{v}h</span>
+        : <span className="text-slate-300">—</span>,
+    },
+    { title: t('projectReport.completionRate'), dataIndex: 'completion_rate', width: 200, align: 'center',
       render: (r: number) => (
         <div className="flex items-center gap-2 justify-center">
-          <Progress percent={r} size="small" showInfo={false} strokeColor="#16a34a" trailColor="#e2e8f0" style={{ width: 180, marginBottom: 0 }} />
+          <Progress percent={r} size="small" showInfo={false} strokeColor="#16a34a" trailColor="#e2e8f0" style={{ width: 120, marginBottom: 0 }} />
           <span className="text-xs text-slate-500 w-10 text-center">{r}%</span>
         </div>
       ) },
@@ -436,7 +554,7 @@ const MemberProgressTab: React.FC<{ data: MemberReportStat[] }> = ({ data }) => 
 
   return (
     <>
-      <div className="bg-white border border-slate-100 rounded-xl mb-4 flex items-center">
+      <div className="bg-white border border-slate-100 rounded-xl mb-4 flex items-center flex-wrap">
         <StatCard label={t('projectReport.member')} value={summary.members} />
         <StatCard label={t('projectReport.totalTasks')} value={summary.total} />
         <StatCard label={t('projectReport.draft')} value={summary.draft} />
@@ -450,7 +568,11 @@ const MemberProgressTab: React.FC<{ data: MemberReportStat[] }> = ({ data }) => 
         </div>
       </div>
       <div className="bg-white border border-slate-100 rounded-xl overflow-hidden">
-        <Table rowKey="work_no" columns={columns} components={tableComponents} dataSource={data} pagination={false} size="middle" scroll={{ x: 'max-content' }} />
+        <Table<MemTreeRow>
+          rowKey="_key" columns={columns} components={tableComponents}
+          dataSource={treeData} pagination={false} size="middle"
+          scroll={{ x: 'max-content' }} indentSize={20}
+        />
       </div>
     </>
   )
@@ -533,19 +655,10 @@ const MemberOverdueTab: React.FC<{ data: MemberReportStat[] }> = ({ data }) => {
 const SystemProgressTab: React.FC<{
   data: SystemReportStat[]
   hoursMap: Record<string, import('@/api/project.api').HoursSummary>
-  onHoursMapChange: React.Dispatch<React.SetStateAction<Record<string, import('@/api/project.api').HoursSummary>>>
-}> = ({ data, hoursMap, onHoursMapChange }) => {
+}> = ({ data, hoursMap }) => {
   const { t } = useTranslation()
 
-  // 页面加载时批量获取所有系统工时
-  useEffect(() => {
-    if (data.length === 0) return
-    for (const s of data) {
-      systemApi.hoursSummary(s.system_id)
-        .then((res) => { if (res.content) onHoursMapChange((prev) => ({ ...prev, [s.system_id]: res.content! })) })
-        .catch(() => {})
-    }
-  }, [data]) // eslint-disable-line react-hooks/exhaustive-deps
+
 
   const summary = useMemo(() => ({
     systems:          data.length,
@@ -860,9 +973,19 @@ const ProjectReportPage: React.FC = () => {
 
   useEffect(() => {
     Promise.all([
-      projectApi.reportStats().then((r) => { if (Array.isArray(r.content)) setProjectData(r.content) }),
+      projectApi.reportStats().then((r) => {
+        if (Array.isArray(r.content)) {
+          setProjectData(r.content)
+          for (const p of r.content) projectApi.hoursSummary(p.project_id).then((hr) => { if (hr.content) setProjectHoursMap((prev) => ({ ...prev, [p.project_id]: hr.content! })) }).catch(() => {})
+        }
+      }),
       projectApi.memberReportStats().then((r) => { if (Array.isArray(r.content)) setMemberData(r.content) }),
-      systemApi.reportStats().then((r) => { if (Array.isArray(r.content)) setSystemData(r.content) }),
+      systemApi.reportStats().then((r) => {
+        if (Array.isArray(r.content)) {
+          setSystemData(r.content)
+          for (const s of r.content) systemApi.hoursSummary(s.system_id).then((hr) => { if (hr.content) setSystemHoursMap((prev) => ({ ...prev, [s.system_id]: hr.content! })) }).catch(() => {})
+        }
+      }),
     ]).finally(() => setLoading(false))
   }, [])
 
@@ -872,7 +995,7 @@ const ProjectReportPage: React.FC = () => {
       label: t('projectReport.tabProject'),
       children: (
         <Tabs items={[
-          { key: 'progress', label: t('projectReport.projectProgressReport'), children: loading ? null : <ProjectProgressTab data={projectData} hoursMap={projectHoursMap} onHoursMapChange={setProjectHoursMap} /> },
+          { key: 'progress', label: t('projectReport.projectProgressReport'), children: loading ? null : <ProjectProgressTab data={projectData} hoursMap={projectHoursMap} /> },
           { key: 'overdue',  label: t('projectReport.projectOverdueReport'), children: loading ? null : <ProjectOverdueTab  data={projectData} hoursMap={projectHoursMap} /> },
         ]} />
       ),
@@ -882,7 +1005,7 @@ const ProjectReportPage: React.FC = () => {
       label: t('projectReport.tabSystem'),
       children: (
         <Tabs items={[
-          { key: 'progress', label: t('projectReport.systemProgressReport'), children: loading ? null : <SystemProgressTab data={systemData} hoursMap={systemHoursMap} onHoursMapChange={setSystemHoursMap} /> },
+          { key: 'progress', label: t('projectReport.systemProgressReport'), children: loading ? null : <SystemProgressTab data={systemData} hoursMap={systemHoursMap} /> },
           { key: 'overdue',  label: t('projectReport.systemOverdueReport'), children: loading ? null : <SystemOverdueTab  data={systemData} hoursMap={systemHoursMap} /> },
         ]} />
       ),
@@ -892,7 +1015,7 @@ const ProjectReportPage: React.FC = () => {
       label: t('projectReport.tabMember'),
       children: (
         <Tabs items={[
-          { key: 'progress', label: t('projectReport.memberProgressReport'), children: loading ? null : <MemberProgressTab data={memberData} /> },
+          { key: 'progress', label: t('projectReport.memberProgressReport'), children: loading ? null : <MemberProgressTab data={memberData} projectHoursMap={projectHoursMap} systemHoursMap={systemHoursMap} /> },
           { key: 'overdue',  label: t('projectReport.memberOverdueReport'), children: loading ? null : <MemberOverdueTab  data={memberData} /> },
         ]} />
       ),

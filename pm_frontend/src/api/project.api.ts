@@ -32,7 +32,7 @@ export interface HoursSummaryReq {
 export interface HoursSummaryFunc {
   func_id: string; func_nm: string; req_id: string; group1: string
   status: number; progress: number; expected_end_date?: string; end_time?: string
-  total_hours: number; overtime_hours: number
+  responsible?: string[]; total_hours: number; overtime_hours: number
 }
 export interface HoursSummary {
   project_total_hours: number
@@ -56,6 +56,7 @@ export interface MemberReportStat {
   overdue_complete:   number
   completion_rate:    number
   overdue_rate:       number
+  sources?: { type: string; id: string; name: string; total: number; draft: number; not_started: number; in_progress: number; completed: number; shelved: number; overdue_incomplete: number; overdue_complete: number; completion_rate: number; tasks?: { task_id: string; task_nm: string; status: number; progress: number; total_hours: number }[] }[]
 }
 
 export interface ProjectReportStat {

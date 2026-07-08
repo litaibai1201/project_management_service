@@ -603,6 +603,7 @@ class ProjectController:
                 "progress": f.progress or 0,
                 "expected_end_date": (f.latest_expected_end_date or f.expected_end_date or ""),
                 "end_time": f.end_time or "",
+                "responsible": json.loads(f.responsible) if f.responsible else [],
                 "total_hours": round(func_hours.get(f.id, 0), 1),
                 "overtime_hours": round(func_overtime.get(f.id, 0), 1),
             })
@@ -2182,12 +2183,23 @@ class ProjectController:
             TemporaryDutyModel.status == 1,
         ).all()
 
-        stats_map: dict = defaultdict(lambda: {
-            "total": 0, "draft": 0, "not_started": 0, "in_progress": 0, "completed": 0,
-            "shelved": 0, "overdue_incomplete": 0, "overdue_complete": 0,
-        })
+        _empty = lambda: {"total": 0, "draft": 0, "not_started": 0, "in_progress": 0, "completed": 0,
+            "shelved": 0, "overdue_incomplete": 0, "overdue_complete": 0, "progress_sum": 0}
+        stats_map: dict = defaultdict(_empty)
+        # sources_map: wn -> {source_key -> stats}
+        sources_map: dict = defaultdict(lambda: defaultdict(_empty))
+        # ar_tasks_map: wn -> [task_detail, ...]  仅用于 AR 独立任务
+        ar_tasks_map: dict = defaultdict(list)
 
         all_work_nos: set = set()
+
+        # 专案名称映射
+        proj_nm_map = {p.id: p.project_nm for p in db.session.query(ProjectDataModel).filter(
+            ProjectDataModel.id.in_(active_project_ids)).all()} if active_project_ids else {}
+        # 系统名称映射
+        from tables.system_table import SystemModel as _SM
+        sys_ids = list({d.system_id for d in duties if d.system_id})
+        sys_nm_map = {s.id: s.sys_nm for s in db.session.query(_SM).filter(_SM.id.in_(sys_ids)).all()} if sys_ids else {}
 
         def _parse_responsible(raw) -> list:
             if not raw:
@@ -2197,6 +2209,34 @@ class ProjectController:
             except (ValueError, TypeError):
                 return []
 
+        def _accum(s, status_val, is_func, is_past_due, orig_end, progress):
+            s["total"] += 1
+            s["progress_sum"] += (progress or 0)
+            if is_func:
+                if status_val == 0: s["draft"] += 1
+                elif status_val == 4:
+                    s["completed"] += 1
+                    if orig_end and orig_end < today: s["overdue_complete"] += 1
+                elif status_val in (2, 3):
+                    s["in_progress"] += 1
+                    if is_past_due: s["overdue_incomplete"] += 1
+                elif status_val == 8: s["shelved"] += 1
+                else:
+                    s["not_started"] += 1
+                    if is_past_due: s["overdue_incomplete"] += 1
+            else:
+                if status_val == 0: s["draft"] += 1
+                elif status_val == 3:
+                    s["completed"] += 1
+                    if orig_end and orig_end < today: s["overdue_complete"] += 1
+                elif status_val in (1, 2):
+                    s["in_progress"] += 1
+                    if is_past_due: s["overdue_incomplete"] += 1
+                elif status_val == 8: s["shelved"] += 1
+                else:
+                    s["not_started"] += 1
+                    if is_past_due: s["overdue_incomplete"] += 1
+
         # 統計專案任務
         for f in functions:
             responsible = _parse_responsible(f.responsible)
@@ -2205,26 +2245,11 @@ class ProjectController:
             end = f.latest_expected_end_date or f.expected_end_date
             is_past_due = bool(end and end < today)
             orig_end = f.expected_end_date
+            src_key = f"project::{f.project_id}"
             for wn in responsible:
                 all_work_nos.add(wn)
-                s = stats_map[wn]
-                s["total"] += 1
-                if f.function_status == 0:
-                    s["draft"] += 1
-                elif f.function_status == 4:
-                    s["completed"] += 1
-                    if orig_end and orig_end < today:
-                        s["overdue_complete"] += 1
-                elif f.function_status in (2, 3):
-                    s["in_progress"] += 1
-                    if is_past_due:
-                        s["overdue_incomplete"] += 1
-                elif f.function_status == 8:
-                    s["shelved"] += 1
-                else:
-                    s["not_started"] += 1
-                    if is_past_due:
-                        s["overdue_incomplete"] += 1
+                _accum(stats_map[wn], f.function_status, True, is_past_due, orig_end, f.progress)
+                _accum(sources_map[wn][src_key], f.function_status, True, is_past_due, orig_end, f.progress)
 
         # 統計系統任務 + AR任務
         for d in duties:
@@ -2234,26 +2259,33 @@ class ProjectController:
             end = d.latest_expected_end_date or d.expected_end_date
             is_past_due = bool(end and end < today)
             orig_end = d.expected_end_date
+            src_key = f"system::{d.system_id}" if d.system_id else "ar::standalone"
             for wn in responsible:
                 all_work_nos.add(wn)
-                s = stats_map[wn]
-                s["total"] += 1
-                if d.duty_status == 0:
-                    s["draft"] += 1
-                elif d.duty_status == 3:
-                    s["completed"] += 1
-                    if orig_end and orig_end < today:
-                        s["overdue_complete"] += 1
-                elif d.duty_status in (1, 2):
-                    s["in_progress"] += 1
-                    if is_past_due:
-                        s["overdue_incomplete"] += 1
-                elif d.duty_status == 8:
-                    s["shelved"] += 1
-                else:
-                    s["not_started"] += 1
-                    if is_past_due:
-                        s["overdue_incomplete"] += 1
+                _accum(stats_map[wn], d.duty_status, False, is_past_due, orig_end, d.progress)
+                _accum(sources_map[wn][src_key], d.duty_status, False, is_past_due, orig_end, d.progress)
+                if not d.system_id:
+                    ar_tasks_map[wn].append({
+                        "task_id": d.id, "task_nm": d.duty_nm,
+                        "status": d.duty_status, "progress": d.progress or 0,
+                    })
+
+        # 查询 AR 任务工时
+        all_ar_ids = list({t["task_id"] for tasks in ar_tasks_map.values() for t in tasks})
+        ar_hours_map: dict = {}
+        if all_ar_ids:
+            from tables.duty_table import DutyProgressRecordModel
+            from controllers.daily_log_controller import DailyLogController
+            ar_prog_recs = db.session.query(DutyProgressRecordModel).filter(
+                DutyProgressRecordModel.duty_id.in_(all_ar_ids)).all()
+            ar_task_h, _, _, _ = DailyLogController.compute_total_hours_with_cooperators(ar_prog_recs, "duty")
+            log_agg = DailyLogController.aggregate_log_hours("duty", all_ar_ids)
+            for aid in all_ar_ids:
+                h = ar_task_h.get(aid, 0) + log_agg.get(aid, {}).get("hours", 0)
+                ar_hours_map[aid] = round(h, 1)
+        for tasks in ar_tasks_map.values():
+            for t in tasks:
+                t["total_hours"] = ar_hours_map.get(t["task_id"], 0)
 
         # 查詢姓名
         name_map: dict = _dao.name_map(all_work_nos)
@@ -2264,6 +2296,33 @@ class ProjectController:
             completed = st["completed"]
             pending = st["not_started"] + st["in_progress"]
             overdue_total = st["overdue_incomplete"] + st["overdue_complete"]
+            # 构建来源明细
+            sources = []
+            for src_key, src_st in sources_map[wn].items():
+                parts = src_key.split("::", 1)
+                src_type = parts[0]
+                src_id = parts[1] if len(parts) > 1 else ""
+                if src_type == "project":
+                    src_nm = proj_nm_map.get(src_id, src_id)
+                elif src_type == "system":
+                    src_nm = sys_nm_map.get(src_id, src_id)
+                else:
+                    src_nm = "AR"
+                    src_type = "ar"
+                src_total = src_st["total"]
+                src_completed = src_st["completed"]
+                src_item: dict = {
+                    "type": src_type, "id": src_id, "name": src_nm,
+                    "total": src_total, "draft": src_st["draft"],
+                    "not_started": src_st["not_started"], "in_progress": src_st["in_progress"],
+                    "completed": src_completed, "shelved": src_st["shelved"],
+                    "overdue_incomplete": src_st["overdue_incomplete"], "overdue_complete": src_st["overdue_complete"],
+                    "completion_rate": round(src_st["progress_sum"] / src_total, 1) if src_total > 0 else 0,
+                }
+                if src_type == "ar":
+                    src_item["tasks"] = ar_tasks_map.get(wn, [])
+                sources.append(src_item)
+            sources.sort(key=lambda x: -x["total"])
             result.append({
                 "work_no":           wn,
                 "name":              name_map.get(wn.lower(), wn),
@@ -2278,6 +2337,7 @@ class ProjectController:
                 "overdue_complete":  st["overdue_complete"],
                 "completion_rate":   round(completed / total * 100, 1) if total > 0 else 0.0,
                 "overdue_rate":      round(overdue_total / total * 100, 1) if total > 0 else 0.0,
+                "sources":           sources,
             })
         result.sort(key=lambda x: x["total"], reverse=True)
         return result
