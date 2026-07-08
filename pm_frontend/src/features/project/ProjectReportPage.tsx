@@ -60,6 +60,18 @@ function downloadXlsx(sheetName: string, headers: string[], rows: (string | numb
 
 const ProjectProgressTab: React.FC<{ data: ProjectReportStat[] }> = ({ data }) => {
   const { t } = useTranslation()
+  const [hoursMap, setHoursMap] = useState<Record<string, import('@/api/project.api').HoursSummary>>({})
+
+  // 页面加载时批量获取所有专案工时
+  useEffect(() => {
+    if (data.length === 0) return
+    for (const p of data) {
+      projectApi.hoursSummary(p.project_id)
+        .then((res) => { if (res.content) setHoursMap((prev) => ({ ...prev, [p.project_id]: res.content! })) })
+        .catch(() => {})
+    }
+  }, [data])
+
   const summary = useMemo(() => ({
     projects:    data.length,
     total:       data.reduce((s, r) => s + r.total, 0),
@@ -74,32 +86,103 @@ const ProjectProgressTab: React.FC<{ data: ProjectReportStat[] }> = ({ data }) =
 
   const onExport = () => {
     const rows = data.map((r) => [r.project_nm, PROJECT_STATUS_MAP[r.status]?.label ?? r.status,
-      r.total, r.draft, r.not_started, r.in_progress, r.completed, r.shelved, r.completion_rate])
-    rows.push([t('projectReport.subtotal'), '', summary.total, summary.draft, summary.not_started, summary.in_progress, summary.completed, summary.shelved, rate])
-    downloadXlsx(t('projectReport.projectProgressReport'), [t('projectReport.project'), t('projectReport.projectStatus'), t('projectReport.totalTasks'), t('projectReport.draft'), t('projectReport.notStarted'), t('projectReport.inProgress'), t('projectReport.completed'), t('projectReport.shelved'), t('projectReport.completionRatePct')],
-      rows, t('projectReport.projectProgressReport'), [20, 12, 10, 10, 10, 10, 10, 8, 12])
+      r.total, r.draft, r.not_started, r.in_progress, r.completed, r.shelved, r.completion_rate,
+      hoursMap[r.project_id]?.project_total_hours ?? ''])
+    rows.push([t('projectReport.subtotal'), '', summary.total, summary.draft, summary.not_started, summary.in_progress, summary.completed, summary.shelved, rate, ''])
+    downloadXlsx(t('projectReport.projectProgressReport'), [t('projectReport.project'), t('projectReport.projectStatus'), t('projectReport.totalTasks'), t('projectReport.draft'), t('projectReport.notStarted'), t('projectReport.inProgress'), t('projectReport.completed'), t('projectReport.shelved'), t('projectReport.completionRatePct'), t('projectDetail.totalHours')],
+      rows, t('projectReport.projectProgressReport'), [20, 12, 10, 10, 10, 10, 10, 8, 12, 10])
   }
 
-  const rawColumns: ColumnsType<ProjectReportStat> = [
-    { title: t('projectReport.project'), dataIndex: 'project_nm', width: 160, ellipsis: true },
-    { title: t('projectReport.projectStatus'), dataIndex: 'status', width: 110,
-      render: (s: number) => { const m = PROJECT_STATUS_MAP[s]; return m ? <Tag color={m.color}>{m.label}</Tag> : <Tag>{s}</Tag> } },
-    { title: t('projectReport.totalTasks'), dataIndex: 'total', width: 90, align: 'center',
-      render: (v: number) => <span className="text-blue-500 font-medium">{v}</span> },
-    { title: t('projectReport.draft'), dataIndex: 'draft', width: 80, align: 'center',
-      render: (v: number) => <span className="text-slate-400">{v}</span> },
-    { title: t('projectReport.notStarted'), dataIndex: 'not_started', width: 80, align: 'center',
-      render: (v: number) => <span className="text-blue-400">{v}</span> },
-    { title: t('projectReport.inProgress'), dataIndex: 'in_progress', width: 80, align: 'center',
-      render: (v: number) => <span className={v > 0 ? 'text-green-600 font-medium' : 'text-slate-400'}>{v}</span> },
-    { title: t('projectReport.completed'), dataIndex: 'completed', width: 80, align: 'center',
-      render: (v: number) => <span className={v > 0 ? 'text-blue-600 font-medium' : 'text-slate-400'}>{v}</span> },
-    { title: t('projectReport.shelved'), dataIndex: 'shelved', width: 80, align: 'center',
-      render: (v: number) => <span className={v > 0 ? 'text-yellow-500 font-medium' : 'text-slate-400'}>{v}</span> },
-    { title: t('projectReport.completionRate'), dataIndex: 'completion_rate', width: 280, align: 'center',
+  // 展开时加载工时
+  const onExpand = async (expanded: boolean, record: ProjectReportStat) => {
+    if (!expanded || !record || hoursMap[record.project_id]) return
+    try {
+      const res = await projectApi.hoursSummary(record.project_id)
+      if (res.content) setHoursMap((prev) => ({ ...prev, [record.project_id]: res.content! }))
+    } catch { /* ignore */ }
+  }
+
+  // 构建树形数据：专案 → 需求 → 任务
+  type TreeRow = {
+    _key: string; _type: 'project' | 'req' | 'func'
+    name: string; status?: number; total: number; draft: number; not_started: number; in_progress: number; completed: number; shelved: number
+    total_hours: number; completion_rate: number; children?: TreeRow[]
+  }
+  const FUNC_STATUS_MAP_LOCAL: Record<number, string> = { 0: t('projectReport.draft'), 1: t('projectReport.notStarted'), 2: t('projectReport.inProgress'), 3: t('projectReport.inProgress'), 4: t('projectReport.completed'), 8: t('projectReport.shelved') }
+  const FUNC_STATUS_COLOR: Record<number, string> = { 0: 'default', 1: 'blue', 2: 'green', 3: 'green', 4: 'blue', 8: 'orange' }
+
+  const treeData: TreeRow[] = useMemo(() => data.map((p) => {
+    const hs = hoursMap[p.project_id]
+    const reqChildren: TreeRow[] | undefined = hs ? hs.requirements.map((req) => {
+      const funcChildren: TreeRow[] = hs.functions
+        .filter((f) => (f.req_id || '') === (req.req_id || ''))
+        .map((f) => ({
+          _key: `func-${f.func_id}`, _type: 'func' as const,
+          name: f.func_nm, status: f.status,
+          total: 0, draft: 0, not_started: 0, in_progress: 0, completed: 0, shelved: 0,
+          total_hours: f.total_hours, completion_rate: f.progress,
+        }))
+      return {
+        _key: `req-${p.project_id}-${req.req_id || 'none'}`, _type: 'req' as const,
+        name: req.req_nm || t('projectReport.noRequirement'), status: req.req_status,
+        total: req.total, draft: req.draft, not_started: req.not_started,
+        in_progress: req.in_progress, completed: req.completed, shelved: req.shelved,
+        total_hours: req.total_hours, completion_rate: req.completion_rate,
+        children: funcChildren.length > 0 ? funcChildren : undefined,
+      }
+    }) : undefined
+    return {
+      _key: `proj-${p.project_id}`, _type: 'project' as const,
+      name: p.project_nm, status: p.status,
+      total: p.total, draft: p.draft, not_started: p.not_started,
+      in_progress: p.in_progress, completed: p.completed, shelved: p.shelved,
+      total_hours: hs?.project_total_hours ?? 0, completion_rate: p.completion_rate,
+      children: reqChildren,
+    }
+  }), [data, hoursMap, t])
+
+  const rawColumns: ColumnsType<TreeRow> = [
+    { title: t('projectReport.project'), dataIndex: 'name', width: 240, ellipsis: true,
+      render: (v: string, r) => {
+        if (r._type === 'project') return <span className="font-semibold text-slate-800">{v}</span>
+        if (r._type === 'req') return <span className="font-medium text-purple-600 text-xs">{v}</span>
+        return <span className="text-slate-600 text-xs">{v}</span>
+      },
+    },
+    { title: t('common.status'), dataIndex: 'status', width: 110, align: 'center',
+      render: (s: number | undefined, r) => {
+        if (s == null) return null
+        if (r._type === 'project') { const m = PROJECT_STATUS_MAP[s]; return m ? <Tag color={m.color}>{m.label}</Tag> : <Tag>{s}</Tag> }
+        if (r._type === 'req') {
+          const REQ_ST: Record<number, [string, string]> = { 0: [t('projectDetail.reqStatus.draft'), 'default'], 1: [t('projectDetail.reqStatus.reviewing'), 'processing'], 2: [t('projectDetail.reqStatus.inProgress'), 'success'], 3: [t('projectDetail.reqStatus.rejected'), 'error'], 4: [t('projectDetail.reqStatus.completed'), 'blue'], 8: [t('projectDetail.reqStatus.shelved'), 'warning'] }
+          const [label, color] = REQ_ST[s] ?? [String(s), 'default']
+          return <Tag color={color} style={{ fontSize: 10 }}>{label}</Tag>
+        }
+        if (r._type === 'func') { return <Tag color={FUNC_STATUS_COLOR[s] ?? 'default'} style={{ fontSize: 10 }}>{FUNC_STATUS_MAP_LOCAL[s] ?? s}</Tag> }
+        return null
+      },
+    },
+    { title: t('projectReport.totalTasks'), dataIndex: 'total', width: 80, align: 'center',
+      render: (v: number, r) => r._type === 'func' ? null : <span className={r._type === 'project' ? 'text-blue-500 font-medium' : 'text-blue-500 text-xs'}>{v}</span> },
+    { title: t('projectReport.draft'), dataIndex: 'draft', width: 70, align: 'center',
+      render: (v: number, r) => r._type === 'func' ? null : <span className={r._type === 'project' ? 'text-slate-400' : 'text-slate-400 text-xs'}>{v}</span> },
+    { title: t('projectReport.notStarted'), dataIndex: 'not_started', width: 70, align: 'center',
+      render: (v: number, r) => r._type === 'func' ? null : <span className={r._type === 'project' ? 'text-blue-400' : 'text-blue-400 text-xs'}>{v}</span> },
+    { title: t('projectReport.inProgress'), dataIndex: 'in_progress', width: 70, align: 'center',
+      render: (v: number, r) => r._type === 'func' ? null : <span className={v > 0 ? (r._type === 'project' ? 'text-green-600 font-medium' : 'text-green-600 text-xs font-medium') : (r._type === 'project' ? 'text-slate-400' : 'text-slate-400 text-xs')}>{v}</span> },
+    { title: t('projectReport.completed'), dataIndex: 'completed', width: 70, align: 'center',
+      render: (v: number, r) => r._type === 'func' ? null : <span className={v > 0 ? (r._type === 'project' ? 'text-blue-600 font-medium' : 'text-blue-600 text-xs font-medium') : (r._type === 'project' ? 'text-slate-400' : 'text-slate-400 text-xs')}>{v}</span> },
+    { title: t('projectReport.shelved'), dataIndex: 'shelved', width: 70, align: 'center',
+      render: (v: number, r) => r._type === 'func' ? null : <span className={v > 0 ? (r._type === 'project' ? 'text-yellow-500 font-medium' : 'text-yellow-500 text-xs') : (r._type === 'project' ? 'text-slate-400' : 'text-slate-400 text-xs')}>{v}</span> },
+    { title: t('projectDetail.colTotalHours'), dataIndex: 'total_hours', width: 100, align: 'center',
+      render: (v: number, r) => v > 0
+        ? <span className={r._type === 'project' ? 'font-semibold text-blue-600 tabular-nums' : 'text-xs font-semibold text-blue-600 tabular-nums'}>{v}h</span>
+        : <span className="text-slate-300">—</span>,
+    },
+    { title: t('projectReport.completionRate'), dataIndex: 'completion_rate', width: 200, align: 'center',
       render: (r: number) => (
         <div className="flex items-center gap-2 justify-center">
-          <Progress percent={r} size="small" showInfo={false} strokeColor="#16a34a" trailColor="#e2e8f0" style={{ width: 180, marginBottom: 0 }} />
+          <Progress percent={r} size="small" showInfo={false} strokeColor="#16a34a" trailColor="#e2e8f0" style={{ width: 100, marginBottom: 0 }} />
           <span className="text-xs text-slate-500 w-10 text-center">{r}%</span>
         </div>
       ) },
@@ -108,7 +191,7 @@ const ProjectProgressTab: React.FC<{ data: ProjectReportStat[] }> = ({ data }) =
 
   return (
     <>
-      <div className="bg-white border border-slate-100 rounded-xl mb-4 flex items-center">
+      <div className="bg-white border border-slate-100 rounded-xl mb-4 flex items-center flex-wrap">
         <StatCard label={t('projectReport.project')} value={summary.projects} />
         <StatCard label={t('projectReport.totalTasks')} value={summary.total} />
         <StatCard label={t('projectReport.draft')} value={summary.draft} />
@@ -122,7 +205,21 @@ const ProjectProgressTab: React.FC<{ data: ProjectReportStat[] }> = ({ data }) =
         </div>
       </div>
       <div className="bg-white border border-slate-100 rounded-xl overflow-hidden">
-        <Table rowKey="project_id" columns={columns} components={tableComponents} dataSource={data} pagination={false} size="middle" scroll={{ x: 'max-content' }} />
+        <Table<TreeRow>
+          rowKey="_key"
+          columns={columns}
+          components={tableComponents}
+          dataSource={treeData}
+          pagination={false}
+          size="middle"
+          scroll={{ x: 'max-content' }}
+          indentSize={20}
+          expandable={{
+            onExpand: (expanded, record) => {
+              if (record._type === 'project') onExpand(expanded, data.find((p) => p.project_id === record._key.replace('proj-', ''))!)
+            },
+          }}
+        />
       </div>
     </>
   )

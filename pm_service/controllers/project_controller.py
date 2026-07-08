@@ -531,36 +531,77 @@ class ProjectController:
         # ── 需求维度 ────────────────────────────────
         req_ids = list({f.requirement_id for f in funcs if f.requirement_id})
         req_nm_map = {}
+        req_st_map: dict = {}
         if req_ids:
             reqs = db.session.query(RequirementModel).filter(RequirementModel.id.in_(req_ids)).all()
             req_nm_map = {r.id: r.req_nm for r in reqs}
+            req_st_map = {r.id: r.req_status for r in reqs}
         req_hours_agg: dict = {}
         req_overtime_agg: dict = {}
         for f in funcs:
             rid = f.requirement_id or "__no_req__"
             req_hours_agg[rid] = req_hours_agg.get(rid, 0) + func_hours.get(f.id, 0)
             req_overtime_agg[rid] = req_overtime_agg.get(rid, 0) + func_overtime.get(f.id, 0)
+        # 按需求统计任务状态分布
+        req_status_agg: dict = {}  # rid -> {total, draft, not_started, in_progress, completed, shelved, progress_sum}
+        for f in funcs:
+            rid = f.requirement_id or "__no_req__"
+            st = req_status_agg.setdefault(rid, {"total": 0, "draft": 0, "not_started": 0, "in_progress": 0, "completed": 0, "shelved": 0, "progress_sum": 0})
+            st["total"] += 1
+            st["progress_sum"] += (f.progress or 0)
+            s = f.function_status
+            if s == 0: st["draft"] += 1
+            elif s == 1: st["not_started"] += 1
+            elif s in (2, 3): st["in_progress"] += 1
+            elif s == 4: st["completed"] += 1
+            elif s == 8: st["shelved"] += 1
+
         req_list = []
         for rid, h in sorted(req_hours_agg.items(), key=lambda x: -x[1]):
+            st = req_status_agg.get(rid, {})
+            total_tasks = st.get("total", 0)
+            completed_tasks = st.get("completed", 0)
             req_list.append({
                 "req_id": rid if rid != "__no_req__" else "",
                 "req_nm": req_nm_map.get(rid, ""),
+                "req_status": req_st_map.get(rid),
                 "total_hours": round(h, 1),
                 "overtime_hours": round(req_overtime_agg.get(rid, 0), 1),
+                "total": total_tasks,
+                "draft": st.get("draft", 0),
+                "not_started": st.get("not_started", 0),
+                "in_progress": st.get("in_progress", 0),
+                "completed": completed_tasks,
+                "shelved": st.get("shelved", 0),
+                "completion_rate": round(completed_tasks / total_tasks * 100, 1) if total_tasks > 0 else 0,
             })
+        # 也加入没有工时但有任务的需求
+        for rid, st in req_status_agg.items():
+            if rid not in req_hours_agg:
+                total_tasks = st.get("total", 0)
+                completed_tasks = st.get("completed", 0)
+                req_list.append({
+                    "req_id": rid if rid != "__no_req__" else "",
+                    "req_nm": req_nm_map.get(rid, ""),
+                    "req_status": req_st_map.get(rid),
+                    "total_hours": 0, "overtime_hours": 0,
+                    "total": total_tasks, "draft": st.get("draft", 0),
+                    "not_started": st.get("not_started", 0), "in_progress": st.get("in_progress", 0),
+                    "completed": completed_tasks, "shelved": st.get("shelved", 0),
+                    "completion_rate": round(completed_tasks / total_tasks * 100, 1) if total_tasks > 0 else 0,
+                })
 
         # ── 任务维度结果 ─────────────────────────────
         func_list = []
         for f in funcs:
-            h = func_hours.get(f.id, 0)
-            if h <= 0:
-                continue
             func_list.append({
                 "func_id": f.id,
                 "func_nm": f.function_nm,
                 "req_id": f.requirement_id or "",
                 "group1": f.group1 or "",
-                "total_hours": round(h, 1),
+                "status": f.function_status,
+                "progress": f.progress or 0,
+                "total_hours": round(func_hours.get(f.id, 0), 1),
                 "overtime_hours": round(func_overtime.get(f.id, 0), 1),
             })
         func_list.sort(key=lambda x: -x["total_hours"])
