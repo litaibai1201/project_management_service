@@ -318,7 +318,7 @@ const DutyListPage: React.FC = () => {
     const all = sorted.map((d) => ({
       ...d, _sysSpan: 0, _reqSpan: 0, _grpSpan: 0,
       _sysNm: d.system_nm ?? '', _reqNm: reqNameMap[d.standalone_req_id ?? ''] ?? '', _grpNm: formatGroupName(d.group) || d.group || '',
-      _sysKey: `s::${d.system_id ?? d.system_nm}`, _reqKey: `r::${d.system_id}::${d.standalone_req_id || ''}`, _grpKey: `g::${d.system_id}::${d.standalone_req_id || ''}::${d.group || ''}`,
+      _sysKey: `s::${d.system_id ?? d.system_nm}`, _reqKey: d.standalone_req_id ? `r::${d.system_id}::${d.standalone_req_id}` : `r::noreq::${d.id}`, _grpKey: d.standalone_req_id ? `g::${d.system_id}::${d.standalone_req_id}::${d.group || ''}` : `g::noreq::${d.id}`,
     } as MergedDutyRow))
     const summarize = (rows: MergedDutyRow[]) => ({
       _summaryProgress: rows.length ? Math.round(rows.reduce((s, r) => s + (r.progress ?? 0), 0) / rows.length) : 0,
