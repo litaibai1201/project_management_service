@@ -21,6 +21,7 @@ import { useAppSelector } from '@/hooks/redux'
 import { useWorkNoToName } from '@/hooks/useWorkNoToName'
 import { useTranslation } from 'react-i18next'
 import DateInput from '@/components/common/DateInput'
+import ProgressPreCheckModal, { checkTaskDates, type PreCheckType } from '@/components/common/ProgressPreCheckModal'
 
 const { Text } = Typography
 
@@ -128,10 +129,7 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
   const sentinelRef  = useRef<HTMLDivElement>(null)
 
   // 更新进度前置检查
-  const [preCheckType, setPreCheckType] = useState<'start' | 'end' | 'overdue' | null>(null)
-  const [preCheckDate, setPreCheckDate] = useState('')
-  const [preCheckReason, setPreCheckReason] = useState('')
-  const [preCheckSaving, setPreCheckSaving] = useState(false)
+  const [preCheckType, setPreCheckType] = useState<PreCheckType>(null)
 
   // 搁置
   const [showHoldModal, setShowHoldModal] = useState(false)
@@ -259,35 +257,22 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
     return () => observer.disconnect()
   }, [loadMoreProgress])
 
-  const handlePreCheckSubmit = async () => {
-    if (!preCheckDate) { showToast.warning(t('function.pleaseSelectDate')); return }
-    setPreCheckSaving(true)
-    try {
-      if (preCheckType === 'start') {
-        await projectApi.updateFunction(projectId, functionId, { expected_start_date: preCheckDate })
-      } else if (preCheckType === 'end') {
-        await projectApi.updateFunction(projectId, functionId, { expected_end_date: preCheckDate })
-      } else if (preCheckType === 'overdue') {
-        await projectApi.rescheduleFunction(projectId, functionId, { new_end_date: preCheckDate, reason: preCheckReason || '' })
-      }
-      showToast.success(t('common.saveSuccess'))
-      setPreCheckType(null); setPreCheckDate(''); setPreCheckReason('')
-      loadData(); onRefresh?.()
-    } catch { /* global */ }
-    finally { setPreCheckSaving(false) }
+  const handlePreCheckSubmit = async (type: 'start' | 'end' | 'overdue', date: string, reason: string) => {
+    if (type === 'start') {
+      await projectApi.updateFunction(projectId, functionId, { expected_start_date: date })
+    } else if (type === 'end') {
+      await projectApi.updateFunction(projectId, functionId, { expected_end_date: date })
+    } else if (type === 'overdue') {
+      await projectApi.rescheduleFunction(projectId, functionId, { new_end_date: date, reason })
+    }
+    showToast.success(t('common.saveSuccess'))
+    loadData(); onRefresh?.()
   }
 
   const tryOpenProgressForm = () => {
     if (!funcData) return
-    if (!funcData.expected_start_date) {
-      setPreCheckType('start'); setPreCheckDate(''); return
-    }
-    if (!funcData.expected_end_date) {
-      setPreCheckType('end'); setPreCheckDate(''); return
-    }
-    if (funcData.expected_end_date < new Date().toISOString().slice(0, 10)) {
-      setPreCheckType('overdue'); setPreCheckDate(''); setPreCheckReason(''); return
-    }
+    const check = checkTaskDates(funcData.expected_start_date, funcData.expected_end_date)
+    if (check) { setPreCheckType(check); return }
     setShowForm((v) => !v)
   }
 
@@ -1187,42 +1172,12 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
       </div>
     </Modal>
 
-    {/* ── 更新進度前置檢查 Modal ─────────────────────────────────────────── */}
-    <Modal
-      open={!!preCheckType}
-      title={preCheckType === 'overdue' ? t('function.needExtendDateTitle') : preCheckType === 'start' ? t('function.needStartDateTitle') : t('function.needEndDateTitle')}
-      onCancel={() => { setPreCheckType(null); setPreCheckDate(''); setPreCheckReason('') }}
-      footer={
-        <div className="flex justify-end gap-2">
-          <Button onClick={() => { setPreCheckType(null); setPreCheckDate(''); setPreCheckReason('') }}>{t('common.cancel')}</Button>
-          <Button type="primary" loading={preCheckSaving} disabled={!preCheckDate} style={{ background: '#2563eb' }} onClick={handlePreCheckSubmit}>
-            {t('common.confirm')}
-          </Button>
-        </div>
-      }
-      width={420} destroyOnHidden
-    >
-      <div className="py-2 space-y-3">
-        <p className="text-sm text-slate-500">
-          {preCheckType === 'overdue' ? t('function.needExtendDate') : preCheckType === 'start' ? t('function.needStartDate') : t('function.needEndDate')}
-        </p>
-        {preCheckType === 'overdue' && funcData?.expected_end_date && (
-          <p className="text-xs text-slate-400">{t('function.currentDeadline', { date: funcData.expected_end_date })}</p>
-        )}
-        <div>
-          <div className="text-sm font-medium text-slate-700 mb-1">
-            {preCheckType === 'overdue' ? t('function.newExpectedEnd') : preCheckType === 'start' ? t('function.expectedStart') : t('function.expectedEnd')}
-          </div>
-          <DateInput value={preCheckDate} onChange={(v) => setPreCheckDate(v)} />
-        </div>
-        {preCheckType === 'overdue' && (
-          <div>
-            <div className="text-sm font-medium text-slate-700 mb-1">{t('function.rescheduleReason')}</div>
-            <Input.TextArea rows={2} value={preCheckReason} onChange={(e) => setPreCheckReason(e.target.value)} placeholder={t('function.rescheduleReasonPlaceholder')} />
-          </div>
-        )}
-      </div>
-    </Modal>
+    <ProgressPreCheckModal
+      type={preCheckType}
+      currentEndDate={funcData?.expected_end_date}
+      onClose={() => setPreCheckType(null)}
+      onSubmit={handlePreCheckSubmit}
+    />
     </>
   )
 }

@@ -28,6 +28,7 @@ import RichTextContent from '@/components/common/RichTextContent'
 import RichTextEditor from '@/components/common/RichTextEditor'
 import { projectApi } from '@/api/project.api'
 import { dutyApi } from '@/api/duty.api'
+import ProgressPreCheckModal, { checkTaskDates, type PreCheckType } from '@/components/common/ProgressPreCheckModal'
 import { systemApi } from '@/api/system.api'
 import { userApi } from '@/api/user.api'
 import { useTranslation } from 'react-i18next'
@@ -746,6 +747,8 @@ const DailyLogPage: React.FC = () => {
   const watchedPhase      = Form.useWatch('project_phase', form) as string | undefined
   const watchedHours      = Form.useWatch('hours',         form) as number | undefined
   const [syncProgress, setSyncProgress] = useState(true)
+  const [preCheckType, setPreCheckType] = useState<PreCheckType>(null)
+  const [preCheckTask, setPreCheckTask] = useState<{ type: 'project' | 'duty'; id: string; endDate?: string } | null>(null)
   const [fileList, setFileList] = useState<UploadFile[]>([])
   // Files already saved on the entry (non-progress source) — user can delete individual ones
   const [existingFiles, setExistingFiles] = useState<{ name: string; url: string; size?: number }[]>([])
@@ -1227,8 +1230,75 @@ const DailyLogPage: React.FC = () => {
     setModalOpen(true)
   }
 
-  // Save entry
-  const handleSaveEntry = async (values: Record<string, unknown>) => {
+  // 前置检查回调：设定日期后更新本地缓存，用户再次点确定时会重新检查
+  const handleDailyLogPreCheck = async (type: 'start' | 'end' | 'overdue', date: string, reason: string) => {
+    if (!preCheckTask) return
+    const taskId = preCheckTask.id
+    if (preCheckTask.type === 'project') {
+      const projId = selectedProject ?? ''
+      if (type === 'start') await projectApi.updateFunction(projId, taskId, { expected_start_date: date })
+      else if (type === 'end') await projectApi.updateFunction(projId, taskId, { expected_end_date: date })
+      else if (type === 'overdue') await projectApi.rescheduleFunction(projId, taskId, { new_end_date: date, reason })
+      // 更新本地 functionsMap 缓存
+      setFunctionsMap((prev) => {
+        const updated = { ...prev }
+        for (const key of Object.keys(updated)) {
+          updated[key] = updated[key].map((f) => {
+            if (f.id !== taskId) return f
+            if (type === 'start') return { ...f, expected_start_date: date }
+            if (type === 'end') return { ...f, expected_end_date: date }
+            return { ...f, expected_end_date: date }
+          })
+        }
+        return updated
+      })
+    } else {
+      if (type === 'start') await dutyApi.update(taskId, { expected_start_date: date })
+      else if (type === 'end') await dutyApi.update(taskId, { expected_end_date: date })
+      else if (type === 'overdue') await dutyApi.reschedule(taskId, date, reason)
+      // 更新本地 dutyOpts / systemDutiesMap 缓存
+      const updateDuty = (d: DutyOpt): DutyOpt => {
+        if (d.id !== taskId) return d
+        if (type === 'start') return { ...d, expected_start_date: date }
+        return { ...d, expected_end_date: date }
+      }
+      setDutyOpts((prev) => prev.map(updateDuty))
+      setSystemDutiesMap((prev) => {
+        const updated = { ...prev }
+        for (const key of Object.keys(updated)) updated[key] = updated[key].map(updateDuty)
+        return updated
+      })
+    }
+    showToast.success(t('common.saveSuccess'))
+  }
+
+  // 表单提交入口：先检查任务日期
+  const handleSaveEntry = (values: Record<string, unknown>) => {
+    const funcId = values.function_id as string | undefined
+    const dutyId = values.duty_id as string | undefined
+    // 仅在勾选同步进度且有进度值时检查
+    if (syncProgress && typeof values.progress === 'number' && (funcId || dutyId)) {
+      let startDate: string | undefined
+      let endDate: string | undefined
+      if (funcId) {
+        const f = Object.values(functionsMap).flat().find((fn) => fn.id === funcId)
+        startDate = f?.expected_start_date; endDate = f?.expected_end_date
+      } else if (dutyId) {
+        const d = dutyOpts.find((dd) => dd.id === dutyId) ?? Object.values(systemDutiesMap).flat().find((dd) => dd.id === dutyId)
+        startDate = d?.expected_start_date; endDate = d?.expected_end_date
+      }
+      const check = checkTaskDates(startDate, endDate)
+      if (check) {
+        setPreCheckTask({ type: funcId ? 'project' : 'duty', id: (funcId ?? dutyId)!, endDate })
+        setPreCheckType(check)
+        return
+      }
+    }
+    handleSaveEntryInner(values)
+  }
+
+  // Save entry (inner)
+  const handleSaveEntryInner = async (values: Record<string, unknown>) => {
     const cat = values.work_category as WorkCategory
 
     // ── 休假批量填写 ─────────────────────────────────────────────
@@ -1447,7 +1517,7 @@ const DailyLogPage: React.FC = () => {
       if (syncTaskId) {
         try {
           await dailyLogApi.syncTaskProgress(syncTaskType, syncTaskId, newEntry.progress)
-        } catch { /* best-effort, 同步失敗不影響日誌保存 */ }
+        } catch { /* best-effort */ }
       }
     }
 
@@ -1678,6 +1748,7 @@ const DailyLogPage: React.FC = () => {
   )
 
   return (
+    <>
     <Spin spinning={logsLoading} tip={t('common.loading')} size="large">
     <div className="p-6">
       {/* Header */}
@@ -2888,6 +2959,14 @@ const DailyLogPage: React.FC = () => {
 
     </div>
     </Spin>
+
+    <ProgressPreCheckModal
+      type={preCheckType}
+      currentEndDate={preCheckTask?.endDate}
+      onClose={() => { setPreCheckType(null); setPreCheckTask(null) }}
+      onSubmit={handleDailyLogPreCheck}
+    />
+    </>
   )
 }
 
