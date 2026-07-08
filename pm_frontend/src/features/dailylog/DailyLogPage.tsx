@@ -1129,7 +1129,7 @@ const DailyLogPage: React.FC = () => {
             const list = prev[projId] ?? []
             return list.some((f) => f.id === entry.function_id)
               ? prev
-              : { ...prev, [projId]: [...list, { id: entry.function_id!, name: entry.function_nm! }] }
+              : { ...prev, [projId]: [...list, { id: entry.function_id!, name: entry.function_nm!, expected_start_date: entry.expected_start_date, expected_end_date: entry.expected_end_date, progress: entry.progress }] }
           })
         }
       }
@@ -1161,7 +1161,7 @@ const DailyLogPage: React.FC = () => {
         setDutyOpts((prev) =>
           prev.some((d) => d.id === entry.duty_id)
             ? prev
-            : [...prev, { id: entry.duty_id!, name: entry.duty_nm! }]
+            : [...prev, { id: entry.duty_id!, name: entry.duty_nm!, expected_start_date: entry.expected_start_date, expected_end_date: entry.expected_end_date, progress: entry.progress }]
         )
       }
       // For system_req entries, restore selectedSystem so the duty dropdown
@@ -1282,10 +1282,13 @@ const DailyLogPage: React.FC = () => {
       let endDate: string | undefined
       if (funcId) {
         const f = Object.values(functionsMap).flat().find((fn) => fn.id === funcId)
-        startDate = f?.expected_start_date; endDate = f?.expected_end_date
+        startDate = f?.expected_start_date ?? editingEntry?.expected_start_date
+        endDate = f?.expected_end_date ?? editingEntry?.expected_end_date
       } else if (dutyId) {
-        const d = dutyOpts.find((dd) => dd.id === dutyId) ?? Object.values(systemDutiesMap).flat().find((dd) => dd.id === dutyId)
-        startDate = d?.expected_start_date; endDate = d?.expected_end_date
+        // systemDutiesMap 优先（从 API 加载的完整数据），再查 dutyOpts
+        const d = Object.values(systemDutiesMap).flat().find((dd) => dd.id === dutyId) ?? dutyOpts.find((dd) => dd.id === dutyId)
+        startDate = d?.expected_start_date ?? editingEntry?.expected_start_date
+        endDate = d?.expected_end_date ?? editingEntry?.expected_end_date
       }
       const check = checkTaskDates(startDate, endDate)
       if (check) {
@@ -1366,6 +1369,7 @@ const DailyLogPage: React.FC = () => {
     const dutyId = values.duty_id as string | undefined
 
     const selectedFunc = functionsMap[projId ?? '']?.find((f) => f.id === funcId)
+    const selectedDuty = dutyId ? (dutyOpts.find((d) => d.id === dutyId) ?? Object.values(systemDutiesMap).flat().find((d) => d.id === dutyId)) : undefined
     const isSuggestEdit = editingEntry?.entry_id.startsWith('suggest-') ?? false
 
     setSaving(true)
@@ -1412,8 +1416,8 @@ const DailyLogPage: React.FC = () => {
         source: (!editingEntry || editingEntry.source === 'manual') ? 'manual' : 'updated',
         suggest_id: editingEntry?.suggest_id,
         progress: values.progress as number | undefined,
-        expected_start_date: selectedFunc?.expected_start_date ?? editingEntry?.expected_start_date,
-        expected_end_date: selectedFunc?.expected_end_date ?? editingEntry?.expected_end_date,
+        expected_start_date: selectedFunc?.expected_start_date ?? selectedDuty?.expected_start_date ?? editingEntry?.expected_start_date,
+        expected_end_date: selectedFunc?.expected_end_date ?? selectedDuty?.expected_end_date ?? editingEntry?.expected_end_date,
         files: editingEntry?.source === 'progress'
           ? (editingEntry.files?.length ? editingEntry.files : undefined)
           : (existingFiles.length ? existingFiles : undefined),
@@ -1947,7 +1951,20 @@ const DailyLogPage: React.FC = () => {
               </div>
             ) : (
               <div className="space-y-3">
-                {groupDailyEntries(displayEntries).map((section) => {
+                {groupDailyEntries(displayEntries.map((e) => {
+                  if (e.expected_start_date && e.expected_end_date) return e
+                  // 补充缺失的日期：从 functionsMap / systemDutiesMap / dutyOpts 查找
+                  let start = e.expected_start_date
+                  let end = e.expected_end_date
+                  if (e.function_id) {
+                    const f = Object.values(functionsMap).flat().find((fn) => fn.id === e.function_id)
+                    if (f) { start = start || f.expected_start_date; end = end || f.expected_end_date }
+                  } else if (e.duty_id) {
+                    const d = Object.values(systemDutiesMap).flat().find((dd) => dd.id === e.duty_id) ?? dutyOpts.find((dd) => dd.id === e.duty_id)
+                    if (d) { start = start || d.expected_start_date; end = end || d.expected_end_date }
+                  }
+                  return (start !== e.expected_start_date || end !== e.expected_end_date) ? { ...e, expected_start_date: start, expected_end_date: end } : e
+                })).map((section) => {
                   const collapsed = collapsedSections.has(section.category)
                   return (
                     <div key={section.category} className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
