@@ -248,6 +248,15 @@ class ProgressAndHourApi(MethodView):
         return response_result(content=proj_ctrl.get_progress_and_hour(project_id))
 
 
+@blp.route("/<string:project_id>/hours_summary")
+class HoursSummaryApi(MethodView):
+    @jwt_required()
+    @blp.response(200, RspMsgDictSchema)
+    def get(self, project_id):
+        """专案工时汇总（需求/任务/成员维度）"""
+        return response_result(content=proj_ctrl.get_hours_summary(project_id))
+
+
 @blp.route("/project_group")
 class ProjectGroupApi(MethodView):
     @jwt_required()

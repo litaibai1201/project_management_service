@@ -510,6 +510,12 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
                 )}
               </div>
             </Descriptions.Item>
+            <Descriptions.Item label={t('projectDetail.colTotalHours')}>
+              {(funcData as unknown as { total_hours?: number }).total_hours
+                ? <span className="font-semibold text-blue-600">{(funcData as unknown as { total_hours?: number }).total_hours}h</span>
+                : <span className="text-slate-300">—</span>}
+              {(funcData as unknown as { overtime_hours?: number }).overtime_hours ? <span className="text-amber-500 text-xs ml-1">({t('projectDetail.overtime')} {(funcData as unknown as { overtime_hours?: number }).overtime_hours}h)</span> : null}
+            </Descriptions.Item>
             <Descriptions.Item label={t('common.createdAt')}>{(funcData as unknown as { created_at?: string }).created_at ?? '—'}</Descriptions.Item>
             {funcData.describe && (
               <Descriptions.Item label={t('function.describe')} span={2}><RichTextContent html={funcData.describe} /></Descriptions.Item>

@@ -110,6 +110,9 @@ const ProjectDetailPage: React.FC = () => {
   const [addFuncLoading,  setAddFuncLoading]   = useState(false)
   const [funcForm]                             = Form.useForm()
 
+  // ── 工时统计 ──────────────────────────────────────────────────────────────
+  const [hoursSummary, setHoursSummary] = useState<import('@/api/project.api').HoursSummary | null>(null)
+
   // ── Tab 控制 ──────────────────────────────────────────────────────────────
   const [activeTab,          setActiveTab]          = useState(() => {
     const tab = searchParams.get('tab')
@@ -221,6 +224,7 @@ const ProjectDetailPage: React.FC = () => {
       loadMilestones(id)
       loadFiles(id)
       loadRequirements(id)
+      loadHoursSummary(id)
     }
     return () => { dispatch(clearCurrent()) }
   }, [id, dispatch])
@@ -284,6 +288,10 @@ const ProjectDetailPage: React.FC = () => {
       setFiles(Array.isArray(res.content) ? (res.content as ProjectFile[]) : [])
     } catch { /* global */ }
     finally { setFilesLoading(false) }
+  }
+
+  const loadHoursSummary = (pid: string) => {
+    projectApi.hoursSummary(pid).then((res) => setHoursSummary(res.content ?? null)).catch(() => {})
   }
 
   const loadRequirements = async (pid: string) => {
@@ -1023,6 +1031,10 @@ const ProjectDetailPage: React.FC = () => {
       ),
     },
     {
+      title: t('projectDetail.colTotalHours'), dataIndex: 'total_hours', width: 80,
+      render: (v: number) => v ? <span className="text-xs font-medium text-slate-600 tabular-nums">{v}h</span> : <span className="text-slate-300 text-xs">—</span>,
+    },
+    {
       title: t('projectDetail.colResponsible'), dataIndex: 'responsible', width: 150,
       render: (v: string[], record) => {
         const isStage = record.group1 === STAGE_GROUP
@@ -1442,6 +1454,51 @@ const ProjectDetailPage: React.FC = () => {
                     }
                   </Descriptions.Item>
                 </Descriptions>
+
+                {/* ── 工时统计 ── */}
+                {hoursSummary && hoursSummary.project_total_hours > 0 && (
+                  <div className="mt-4">
+                    <div className="text-sm font-medium text-slate-600 mb-3">{t('projectDetail.hoursStatistics')}</div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                      <div className="bg-blue-50 rounded-lg p-3 text-center">
+                        <div className="text-2xl font-bold text-blue-600">{hoursSummary.project_total_hours}h</div>
+                        <div className="text-xs text-blue-500 mt-1">{t('projectDetail.totalHours')}</div>
+                      </div>
+                      <div className="bg-amber-50 rounded-lg p-3 text-center">
+                        <div className="text-2xl font-bold text-amber-600">{hoursSummary.project_overtime_hours}h</div>
+                        <div className="text-xs text-amber-500 mt-1">{t('projectDetail.overtimeHours')}</div>
+                      </div>
+                      <div className="bg-emerald-50 rounded-lg p-3 text-center">
+                        <div className="text-2xl font-bold text-emerald-600">{hoursSummary.members.length}</div>
+                        <div className="text-xs text-emerald-500 mt-1">{t('projectDetail.involvedMembers')}</div>
+                      </div>
+                      <div className="bg-violet-50 rounded-lg p-3 text-center">
+                        <div className="text-2xl font-bold text-violet-600">{hoursSummary.members.length > 0 ? Math.round(hoursSummary.project_total_hours / hoursSummary.members.length * 10) / 10 : 0}h</div>
+                        <div className="text-xs text-violet-500 mt-1">{t('projectDetail.avgHoursPerMember')}</div>
+                      </div>
+                    </div>
+
+                    {/* 成员工时排行 */}
+                    {hoursSummary.members.length > 0 && (
+                      <div className="border border-slate-100 rounded-lg overflow-hidden">
+                        <div className="bg-slate-50 px-3 py-2 text-xs font-medium text-slate-500">{t('projectDetail.memberHoursRank')}</div>
+                        <div className="divide-y divide-slate-50">
+                          {hoursSummary.members.slice(0, 10).map((m, i) => (
+                            <div key={m.work_no} className="flex items-center gap-3 px-3 py-2">
+                              <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${i < 3 ? 'bg-blue-500 text-white' : 'bg-slate-200 text-slate-500'}`}>{i + 1}</span>
+                              <span className="text-sm text-slate-700 flex-1 min-w-0 truncate">{m.name}</span>
+                              <span className="text-sm font-semibold text-slate-700 tabular-nums">{m.total_hours}h</span>
+                              {m.overtime_hours > 0 && <span className="text-[10px] text-amber-500">({t('projectDetail.overtime')} {m.overtime_hours}h)</span>}
+                              <div className="w-24 flex-shrink-0">
+                                <Progress percent={Math.round(m.total_hours / hoursSummary.project_total_hours * 100)} size="small" showInfo={false} strokeColor="#3b82f6" trailColor="#f1f5f9" />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </Card>
             ),
           },
@@ -1558,6 +1615,13 @@ const ProjectDetailPage: React.FC = () => {
                           <span className="text-xs text-slate-400">{v ?? 0}%</span>
                         </div>
                       ),
+                    },
+                    {
+                      title: t('projectDetail.colTotalHours'), width: 80,
+                      render: (_: unknown, req: Requirement) => {
+                        const h = hoursSummary?.requirements.find((r) => r.req_id === req.id)?.total_hours
+                        return h ? <span className="text-xs font-medium text-slate-600 tabular-nums">{h}h</span> : <span className="text-slate-300 text-xs">—</span>
+                      },
                     },
                     {
                       title: t('common.priority'), dataIndex: 'priority', width: 72,

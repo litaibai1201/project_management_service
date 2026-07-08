@@ -487,6 +487,117 @@ class ProjectController:
         )
         return {"progress": avg_progress, "total_hours": total_hours}
 
+    def get_hours_summary(self, project_id: str):
+        """专案工时汇总：按需求、任务、成员三个维度统计工时"""
+        from dbs.mysql_db.model_tables import RequirementModel, UserProfileModel
+
+        funcs = (
+            db.session.query(FunctionDataModel)
+            .filter_by(project_id=project_id)
+            .filter(FunctionDataModel.function_status != 9)
+            .all()
+        )
+        func_ids = [f.id for f in funcs]
+        if not func_ids:
+            return {
+                "project_total_hours": 0, "project_overtime_hours": 0,
+                "requirements": [], "functions": [], "members": [],
+            }
+
+        # 查询所有进度记录的工时
+        records = (
+            db.session.query(
+                ProgressRecordDataModel.function_id,
+                ProgressRecordDataModel.submitter,
+                ProgressRecordDataModel.time_consum,
+                ProgressRecordDataModel.overtime_hours,
+            )
+            .filter(ProgressRecordDataModel.function_id.in_(func_ids))
+            .all()
+        )
+
+        # ── 任务维度 ────────────────────────────────
+        func_map = {f.id: f for f in funcs}
+        func_hours: dict = {}
+        func_overtime: dict = {}
+        member_hours: dict = {}
+        member_overtime: dict = {}
+
+        for fid, submitter, tc, oh in records:
+            tc = float(tc or 0)
+            oh = float(oh or 0)
+            func_hours[fid] = func_hours.get(fid, 0) + tc
+            func_overtime[fid] = func_overtime.get(fid, 0) + oh
+            s = (submitter or "").strip().lower()
+            if s:
+                member_hours[s] = member_hours.get(s, 0) + tc
+                member_overtime[s] = member_overtime.get(s, 0) + oh
+
+        project_total = round(sum(func_hours.values()), 1)
+        project_overtime = round(sum(func_overtime.values()), 1)
+
+        # ── 需求维度 ────────────────────────────────
+        req_ids = list({f.requirement_id for f in funcs if f.requirement_id})
+        req_nm_map = {}
+        if req_ids:
+            reqs = db.session.query(RequirementModel).filter(RequirementModel.id.in_(req_ids)).all()
+            req_nm_map = {r.id: r.req_nm for r in reqs}
+        req_hours_agg: dict = {}
+        req_overtime_agg: dict = {}
+        for f in funcs:
+            rid = f.requirement_id or "__no_req__"
+            req_hours_agg[rid] = req_hours_agg.get(rid, 0) + func_hours.get(f.id, 0)
+            req_overtime_agg[rid] = req_overtime_agg.get(rid, 0) + func_overtime.get(f.id, 0)
+        req_list = []
+        for rid, h in sorted(req_hours_agg.items(), key=lambda x: -x[1]):
+            req_list.append({
+                "req_id": rid if rid != "__no_req__" else "",
+                "req_nm": req_nm_map.get(rid, ""),
+                "total_hours": round(h, 1),
+                "overtime_hours": round(req_overtime_agg.get(rid, 0), 1),
+            })
+
+        # ── 任务维度结果 ─────────────────────────────
+        func_list = []
+        for f in funcs:
+            h = func_hours.get(f.id, 0)
+            if h <= 0:
+                continue
+            func_list.append({
+                "func_id": f.id,
+                "func_nm": f.function_nm,
+                "req_id": f.requirement_id or "",
+                "group1": f.group1 or "",
+                "total_hours": round(h, 1),
+                "overtime_hours": round(func_overtime.get(f.id, 0), 1),
+            })
+        func_list.sort(key=lambda x: -x["total_hours"])
+
+        # ── 成员维度 ────────────────────────────────
+        work_nos = list(member_hours.keys())
+        name_map = {}
+        if work_nos:
+            profiles = db.session.query(UserProfileModel).filter(
+                db.func.lower(UserProfileModel.work_no).in_(work_nos)
+            ).all()
+            name_map = {p.work_no.lower(): p.name for p in profiles}
+        member_list = []
+        for wn, h in sorted(member_hours.items(), key=lambda x: -x[1]):
+            member_list.append({
+                "work_no": wn,
+                "name": name_map.get(wn, wn),
+                "total_hours": round(h, 1),
+                "overtime_hours": round(member_overtime.get(wn, 0), 1),
+            })
+
+        return {
+            "project_total_hours": project_total,
+            "project_overtime_hours": project_overtime,
+            "requirements": req_list,
+            "functions": func_list,
+            "members": member_list,
+        }
+
     def get_member_dynamics(self, project_id: str, page=1, size=20):
         from dbs.mysql_db.model_tables import UserProfileModel
         q = (
@@ -2143,7 +2254,14 @@ class FunctionController:
         f = _dao.find_active_function(function_id)
         if not f:
             raise ResourceNotFoundException(resource_type="功能任务")
-        return f.to_dict()
+        d = f.to_dict()
+        row = db.session.query(
+            db.func.sum(ProgressRecordDataModel.time_consum),
+            db.func.sum(ProgressRecordDataModel.overtime_hours),
+        ).filter_by(function_id=function_id).first()
+        d["total_hours"] = round(float(row[0] or 0), 1) if row else 0
+        d["overtime_hours"] = round(float(row[1] or 0), 1) if row else 0
+        return d
 
     def add_function(self, project_id: str, payload: dict, creator: str):
         from utils.exceptions import PermissionException
@@ -2421,7 +2539,7 @@ class FunctionController:
         f.update_at = CommonTools.get_now()
         db.session.commit()
 
-    def submit_function_completion(self, project_id: str, function_id: str, submitter: str):
+    def submit_function_completion(self, project_id: str, function_id: str, submitter: str, reviewer: list = None):
         """提交任务完结：
         - 若提交人是专案 PM → 直接设为已完结（status=4）
         - 否则 → 创建审核记录发给专案 PM，设为完结审核（status=3）
@@ -2697,10 +2815,28 @@ class FunctionController:
             reqs = db.session.query(RequirementModel).filter(RequirementModel.id.in_(req_ids)).all()
             req_nm_map = {r.id: r.req_nm for r in reqs}
 
+        # Batch-load hours per function
+        func_ids = [f.id for f in funcs]
+        hours_map: dict = {}
+        overtime_map: dict = {}
+        if func_ids:
+            hrs_rows = db.session.query(
+                ProgressRecordDataModel.function_id,
+                db.func.sum(ProgressRecordDataModel.time_consum),
+                db.func.sum(ProgressRecordDataModel.overtime_hours),
+            ).filter(
+                ProgressRecordDataModel.function_id.in_(func_ids)
+            ).group_by(ProgressRecordDataModel.function_id).all()
+            for fid, h, oh in hrs_rows:
+                hours_map[fid] = round(float(h or 0), 1)
+                overtime_map[fid] = round(float(oh or 0), 1)
+
         result = []
         for f in funcs:
             d = f.to_dict()
             d["requirement_nm"] = req_nm_map.get(f.requirement_id, "") if f.requirement_id else ""
+            d["total_hours"] = hours_map.get(f.id, 0)
+            d["overtime_hours"] = overtime_map.get(f.id, 0)
             result.append(d)
 
         return {

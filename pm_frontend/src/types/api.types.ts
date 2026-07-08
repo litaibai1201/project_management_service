@@ -219,6 +219,8 @@ export interface ProjectFunction {
   group2?: string
   requirement_id?: string
   requirement_nm?: string
+  total_hours?: number
+  overtime_hours?: number
 }
 
 export interface AddFunctionPayload {

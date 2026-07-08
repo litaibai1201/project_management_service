@@ -25,6 +25,14 @@ import {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+export interface HoursSummary {
+  project_total_hours: number
+  project_overtime_hours: number
+  requirements: { req_id: string; req_nm: string; total_hours: number; overtime_hours: number }[]
+  functions: { func_id: string; func_nm: string; req_id: string; group1: string; total_hours: number; overtime_hours: number }[]
+  members: { work_no: string; name: string; total_hours: number; overtime_hours: number }[]
+}
+
 export interface MemberReportStat {
   work_no:            string
   name:               string
@@ -139,6 +147,10 @@ export const projectApi = {
   /** GET /api/project/:id/progress_and_hour */
   progressAndHour: (id: string) =>
     get(`/project/${id}/progress_and_hour`),
+
+  /** GET /api/project/:id/hours_summary */
+  hoursSummary: (id: string): Promise<ApiResponse<HoursSummary>> =>
+    get(`/project/${id}/hours_summary`),
 
   /** GET /api/project/project_group */
   groups: (): Promise<ApiResponse<ProjectGroup[]>> =>
