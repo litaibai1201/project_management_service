@@ -31,7 +31,8 @@ export interface HoursSummaryReq {
 }
 export interface HoursSummaryFunc {
   func_id: string; func_nm: string; req_id: string; group1: string
-  status: number; progress: number; total_hours: number; overtime_hours: number
+  status: number; progress: number; expected_end_date?: string; end_time?: string
+  total_hours: number; overtime_hours: number
 }
 export interface HoursSummary {
   project_total_hours: number

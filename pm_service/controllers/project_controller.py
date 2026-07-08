@@ -601,6 +601,8 @@ class ProjectController:
                 "group1": f.group1 or "",
                 "status": f.function_status,
                 "progress": f.progress or 0,
+                "expected_end_date": (f.latest_expected_end_date or f.expected_end_date or ""),
+                "end_time": f.end_time or "",
                 "total_hours": round(func_hours.get(f.id, 0), 1),
                 "overtime_hours": round(func_overtime.get(f.id, 0), 1),
             })
