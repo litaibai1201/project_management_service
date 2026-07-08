@@ -556,17 +556,21 @@ const SystemProgressTab: React.FC<{ data: SystemReportStat[] }> = ({ data }) => 
 
   const rawColumns: ColumnsType<SystemReportStat> = [
     { title: t('projectReport.system'), dataIndex: 'sys_nm', width: 160, ellipsis: true },
-    { title: t('projectReport.totalTasks'), dataIndex: 'task_total', width: 90, align: 'center',
+    { title: t('projectReport.totalRequirements'), dataIndex: 'req_total', width: 80, align: 'center',
+      render: (v: number) => <span className="text-purple-500 font-medium">{v}</span> },
+    { title: t('projectReport.completedRequirements'), dataIndex: 'req_completed', width: 80, align: 'center',
+      render: (v: number) => <span className={v > 0 ? 'text-purple-600 font-medium' : 'text-slate-400'}>{v}</span> },
+    { title: t('projectReport.totalTasks'), dataIndex: 'task_total', width: 80, align: 'center',
       render: (v: number) => <span className="text-blue-500 font-medium">{v}</span> },
-    { title: t('projectReport.draftShort'), dataIndex: 'task_draft', width: 80, align: 'center',
+    { title: t('projectReport.draftShort'), dataIndex: 'task_draft', width: 70, align: 'center',
       render: (v: number) => <span className="text-slate-400">{v}</span> },
-    { title: t('projectReport.inProgress'), dataIndex: 'task_in_progress', width: 90, align: 'center',
+    { title: t('projectReport.inProgress'), dataIndex: 'task_in_progress', width: 80, align: 'center',
       render: (v: number) => <span className={v > 0 ? 'text-green-600 font-medium' : 'text-slate-400'}>{v}</span> },
-    { title: t('projectReport.completedAlt'), dataIndex: 'task_completed', width: 90, align: 'center',
+    { title: t('projectReport.completedAlt'), dataIndex: 'task_completed', width: 80, align: 'center',
       render: (v: number) => <span className={v > 0 ? 'text-blue-600 font-medium' : 'text-slate-400'}>{v}</span> },
-    { title: t('projectReport.shelved'), dataIndex: 'task_shelved', width: 80, align: 'center',
+    { title: t('projectReport.shelved'), dataIndex: 'task_shelved', width: 70, align: 'center',
       render: (v: number) => <span className={v > 0 ? 'text-yellow-500' : 'text-slate-400'}>{v}</span> },
-    { title: t('projectReport.completionRate'), dataIndex: 'task_completion_rate', width: 240, align: 'center',
+    { title: t('projectReport.completionRate'), dataIndex: 'task_completion_rate', width: 200, align: 'center',
       render: (v: number) => (
         <div className="flex items-center gap-2 justify-center">
           <Progress percent={v} size="small" showInfo={false} strokeColor="#16a34a" trailColor="#e2e8f0" style={{ width: 140, marginBottom: 0 }} />
