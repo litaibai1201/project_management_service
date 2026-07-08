@@ -530,8 +530,23 @@ const MemberOverdueTab: React.FC<{ data: MemberReportStat[] }> = ({ data }) => {
 
 // ─── System: Progress Tab ─────────────────────────────────────────────────────
 
-const SystemProgressTab: React.FC<{ data: SystemReportStat[] }> = ({ data }) => {
+const SystemProgressTab: React.FC<{
+  data: SystemReportStat[]
+  hoursMap: Record<string, import('@/api/project.api').HoursSummary>
+  onHoursMapChange: React.Dispatch<React.SetStateAction<Record<string, import('@/api/project.api').HoursSummary>>>
+}> = ({ data, hoursMap, onHoursMapChange }) => {
   const { t } = useTranslation()
+
+  // 页面加载时批量获取所有系统工时
+  useEffect(() => {
+    if (data.length === 0) return
+    for (const s of data) {
+      systemApi.hoursSummary(s.system_id)
+        .then((res) => { if (res.content) onHoursMapChange((prev) => ({ ...prev, [s.system_id]: res.content! })) })
+        .catch(() => {})
+    }
+  }, [data]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const summary = useMemo(() => ({
     systems:          data.length,
     req_total:        data.reduce((s, r) => s + r.req_total, 0),
@@ -545,36 +560,106 @@ const SystemProgressTab: React.FC<{ data: SystemReportStat[] }> = ({ data }) => 
   const taskRate = summary.task_total > 0 ? Math.round(summary.task_completed / summary.task_total * 1000) / 10 : 0
 
   const onExport = () => {
-    const rows = data.map((r) => [r.sys_nm,
-      r.task_total, r.task_draft, r.task_in_progress, r.task_completed, r.task_shelved, r.task_completion_rate])
-    rows.push([t('projectReport.subtotal'),
-      summary.task_total, '', summary.task_in_progress, summary.task_completed, '', taskRate])
+    const rows = data.map((r) => [r.sys_nm, r.req_total, r.req_completed,
+      r.task_total, r.task_draft, r.task_in_progress, r.task_completed, r.task_shelved,
+      hoursMap[r.system_id]?.project_total_hours ?? '', r.task_completion_rate])
+    rows.push([t('projectReport.subtotal'), summary.req_total, summary.req_completed,
+      summary.task_total, '', summary.task_in_progress, summary.task_completed, '', '', taskRate])
     downloadXlsx(t('projectReport.systemProgressReport'),
-      [t('projectReport.system'), t('projectReport.totalTasks'), t('projectReport.draftShort'), t('projectReport.inProgress'), t('projectReport.completedAlt'), t('projectReport.shelved'), t('projectReport.completionRatePct')],
-      rows, t('projectReport.systemProgressReport'), [18, 10, 8, 10, 10, 8, 12])
+      [t('projectReport.system'), t('projectReport.totalRequirements'), t('projectReport.completedRequirements'),
+       t('projectReport.totalTasks'), t('projectReport.draftShort'), t('projectReport.inProgress'), t('projectReport.completedAlt'), t('projectReport.shelved'),
+       t('projectDetail.totalHours'), t('projectReport.completionRatePct')],
+      rows, t('projectReport.systemProgressReport'), [18, 10, 10, 10, 8, 10, 10, 8, 10, 12])
   }
 
-  const rawColumns: ColumnsType<SystemReportStat> = [
-    { title: t('projectReport.system'), dataIndex: 'sys_nm', width: 160, ellipsis: true },
-    { title: t('projectReport.totalRequirements'), dataIndex: 'req_total', width: 80, align: 'center',
-      render: (v: number) => <span className="text-purple-500 font-medium">{v}</span> },
-    { title: t('projectReport.completedRequirements'), dataIndex: 'req_completed', width: 80, align: 'center',
-      render: (v: number) => <span className={v > 0 ? 'text-purple-600 font-medium' : 'text-slate-400'}>{v}</span> },
-    { title: t('projectReport.totalTasks'), dataIndex: 'task_total', width: 80, align: 'center',
-      render: (v: number) => <span className="text-blue-500 font-medium">{v}</span> },
-    { title: t('projectReport.draftShort'), dataIndex: 'task_draft', width: 70, align: 'center',
-      render: (v: number) => <span className="text-slate-400">{v}</span> },
-    { title: t('projectReport.inProgress'), dataIndex: 'task_in_progress', width: 80, align: 'center',
-      render: (v: number) => <span className={v > 0 ? 'text-green-600 font-medium' : 'text-slate-400'}>{v}</span> },
-    { title: t('projectReport.completedAlt'), dataIndex: 'task_completed', width: 80, align: 'center',
-      render: (v: number) => <span className={v > 0 ? 'text-blue-600 font-medium' : 'text-slate-400'}>{v}</span> },
-    { title: t('projectReport.shelved'), dataIndex: 'task_shelved', width: 70, align: 'center',
-      render: (v: number) => <span className={v > 0 ? 'text-yellow-500' : 'text-slate-400'}>{v}</span> },
-    { title: t('projectReport.completionRate'), dataIndex: 'task_completion_rate', width: 200, align: 'center',
+  // 树形数据
+  type SysTreeRow = {
+    _key: string; _type: 'system' | 'req' | 'func'
+    name: string; status?: number
+    req_total: number; req_completed: number
+    task_total: number; task_draft: number; task_in_progress: number; task_completed: number; task_shelved: number
+    total_hours: number; task_completion_rate: number
+    children?: SysTreeRow[]
+  }
+
+  const DUTY_ST: Record<number, [string, string]> = { 0: [t('projectReport.draft'), 'default'], 1: [t('projectReport.inProgress'), 'green'], 2: [t('projectReport.inProgress'), 'green'], 3: [t('projectReport.completed'), 'blue'], 6: [t('projectReport.notStarted'), 'blue'], 8: [t('projectReport.shelved'), 'orange'] }
+  const REQ_ST_SYS: Record<number, [string, string]> = { 0: [t('projectDetail.reqStatus.draft'), 'default'], 2: [t('projectDetail.reqStatus.inProgress'), 'success'], 4: [t('projectDetail.reqStatus.completed'), 'blue'], 8: [t('projectDetail.reqStatus.shelved'), 'warning'] }
+
+  const treeData: SysTreeRow[] = useMemo(() => data.map((s) => {
+    const hs = hoursMap[s.system_id]
+    const reqChildren: SysTreeRow[] | undefined = hs ? hs.requirements.map((req) => {
+      const tasks = hs.functions.filter((f) => (f.req_id || '') === (req.req_id || ''))
+      const funcChildren: SysTreeRow[] = tasks.map((f) => ({
+        _key: `func-${f.func_id}`, _type: 'func' as const,
+        name: f.func_nm, status: f.status,
+        req_total: 0, req_completed: 0,
+        task_total: 0, task_draft: 0, task_in_progress: 0, task_completed: 0, task_shelved: 0,
+        total_hours: f.total_hours, task_completion_rate: f.progress,
+      }))
+      return {
+        _key: `req-${s.system_id}-${req.req_id || 'none'}`, _type: 'req' as const,
+        name: req.req_nm || t('projectReport.noRequirement'), status: req.req_status,
+        req_total: 0, req_completed: 0,
+        task_total: req.total, task_draft: req.draft, task_in_progress: req.in_progress,
+        task_completed: req.completed, task_shelved: req.shelved,
+        total_hours: req.total_hours, task_completion_rate: req.completion_rate,
+        children: funcChildren.length > 0 ? funcChildren : undefined,
+      }
+    }) : undefined
+    return {
+      _key: `sys-${s.system_id}`, _type: 'system' as const,
+      name: s.sys_nm,
+      req_total: s.req_total, req_completed: s.req_completed,
+      task_total: s.task_total, task_draft: s.task_draft, task_in_progress: s.task_in_progress,
+      task_completed: s.task_completed, task_shelved: s.task_shelved,
+      total_hours: hs?.project_total_hours ?? 0,
+      task_completion_rate: hs && hs.functions.length > 0
+        ? round1(hs.functions.reduce((sum, f) => sum + (f.progress || 0), 0) / hs.functions.length)
+        : s.task_completion_rate,
+      children: reqChildren,
+    }
+  }), [data, hoursMap, t])
+
+  const rawColumns: ColumnsType<SysTreeRow> = [
+    { title: t('projectReport.system'), dataIndex: 'name', width: 200, ellipsis: true,
+      render: (v: string, r) => {
+        if (r._type === 'system') return <span className="font-semibold text-slate-800">{v}</span>
+        if (r._type === 'req') return <span className="font-medium text-purple-600 text-xs">{v}</span>
+        return <span className="text-slate-600 text-xs">{v}</span>
+      },
+    },
+    { title: t('common.status'), dataIndex: 'status', width: 100, align: 'center',
+      render: (s: number | undefined, r) => {
+        if (s == null) return null
+        if (r._type === 'req') { const [label, color] = REQ_ST_SYS[s] ?? [String(s), 'default']; return <Tag color={color} style={{ fontSize: 10 }}>{label}</Tag> }
+        if (r._type === 'func') { const [label, color] = DUTY_ST[s] ?? [String(s), 'default']; return <Tag color={color} style={{ fontSize: 10 }}>{label}</Tag> }
+        return null
+      },
+    },
+    { title: t('projectReport.totalRequirements'), dataIndex: 'req_total', width: 70, align: 'center',
+      render: (v: number, r) => r._type === 'system' ? <span className="text-purple-500 font-medium">{v}</span> : null },
+    { title: t('projectReport.completedRequirements'), dataIndex: 'req_completed', width: 70, align: 'center',
+      render: (v: number, r) => r._type === 'system' ? <span className={v > 0 ? 'text-purple-600 font-medium' : 'text-slate-400'}>{v}</span> : null },
+    { title: t('projectReport.totalTasks'), dataIndex: 'task_total', width: 70, align: 'center',
+      render: (v: number, r) => r._type === 'func' ? null : <span className={r._type === 'system' ? 'text-blue-500 font-medium' : 'text-blue-500 text-xs'}>{v}</span> },
+    { title: t('projectReport.draftShort'), dataIndex: 'task_draft', width: 60, align: 'center',
+      render: (v: number, r) => r._type === 'func' ? null : <span className="text-slate-400 text-xs">{v}</span> },
+    { title: t('projectReport.inProgress'), dataIndex: 'task_in_progress', width: 70, align: 'center',
+      render: (v: number, r) => r._type === 'func' ? null : <span className={v > 0 ? 'text-green-600 text-xs font-medium' : 'text-slate-400 text-xs'}>{v}</span> },
+    { title: t('projectReport.completedAlt'), dataIndex: 'task_completed', width: 70, align: 'center',
+      render: (v: number, r) => r._type === 'func' ? null : <span className={v > 0 ? 'text-blue-600 text-xs font-medium' : 'text-slate-400 text-xs'}>{v}</span> },
+    { title: t('projectReport.shelved'), dataIndex: 'task_shelved', width: 60, align: 'center',
+      render: (v: number, r) => r._type === 'func' ? null : <span className={v > 0 ? 'text-yellow-500 text-xs' : 'text-slate-400 text-xs'}>{v}</span> },
+    { title: t('projectDetail.colTotalHours'), dataIndex: 'total_hours', width: 90, align: 'center',
+      render: (v: number, r) => v > 0
+        ? <span className={r._type === 'system' ? 'font-semibold text-blue-600 tabular-nums' : 'text-xs font-semibold text-blue-600 tabular-nums'}>{v}h</span>
+        : <span className="text-slate-300">—</span>,
+    },
+    { title: t('projectReport.completionRate'), dataIndex: 'task_completion_rate', width: 180, align: 'center',
       render: (v: number) => (
         <div className="flex items-center gap-2 justify-center">
-          <Progress percent={v} size="small" showInfo={false} strokeColor="#16a34a" trailColor="#e2e8f0" style={{ width: 140, marginBottom: 0 }} />
-          <span className="text-xs text-slate-500 w-8 text-center">{v}%</span>
+          <Progress percent={v} size="small" showInfo={false} strokeColor="#16a34a" trailColor="#e2e8f0" style={{ width: 100, marginBottom: 0 }} />
+          <span className="text-xs text-slate-500 w-10 text-center">{v}%</span>
         </div>
       ) },
   ]
@@ -582,7 +667,7 @@ const SystemProgressTab: React.FC<{ data: SystemReportStat[] }> = ({ data }) => 
 
   return (
     <>
-      <div className="bg-white border border-slate-100 rounded-xl mb-4 flex items-center">
+      <div className="bg-white border border-slate-100 rounded-xl mb-4 flex items-center flex-wrap">
         <StatCard label={t('projectReport.system')} value={summary.systems} />
         <StatCard label={t('projectReport.totalRequirements')} value={summary.req_total} />
         <StatCard label={t('projectReport.completedRequirements')} value={summary.req_completed} color="#2563eb" />
@@ -596,7 +681,11 @@ const SystemProgressTab: React.FC<{ data: SystemReportStat[] }> = ({ data }) => 
         </div>
       </div>
       <div className="bg-white border border-slate-100 rounded-xl overflow-hidden">
-        <Table rowKey="system_id" columns={columns} components={tableComponents} dataSource={data} pagination={false} size="middle" scroll={{ x: 'max-content' }} />
+        <Table<SysTreeRow>
+          rowKey="_key" columns={columns} components={tableComponents}
+          dataSource={treeData} pagination={false} size="middle"
+          scroll={{ x: 'max-content' }} indentSize={20}
+        />
       </div>
     </>
   )
@@ -604,8 +693,14 @@ const SystemProgressTab: React.FC<{ data: SystemReportStat[] }> = ({ data }) => 
 
 // ─── System: Overdue Tab ──────────────────────────────────────────────────────
 
-const SystemOverdueTab: React.FC<{ data: SystemReportStat[] }> = ({ data }) => {
+const SystemOverdueTab: React.FC<{ data: SystemReportStat[]; hoursMap: Record<string, import('@/api/project.api').HoursSummary> }> = ({ data, hoursMap }) => {
   const { t } = useTranslation()
+  const today = useMemo(() => new Date().toISOString().slice(0, 10), [])
+
+  const isTaskOverdue = (f: import('@/api/project.api').HoursSummaryFunc) =>
+    (f.expected_end_date && f.expected_end_date < today && f.status !== 3) ||
+    (f.expected_end_date && f.end_time && f.end_time > f.expected_end_date && f.status === 3)
+
   const summary = useMemo(() => ({
     systems:                 data.length,
     task_pending:            data.reduce((s, r) => s + r.task_pending, 0),
@@ -630,23 +725,95 @@ const SystemOverdueTab: React.FC<{ data: SystemReportStat[] }> = ({ data }) => {
       rows, t('projectReport.systemOverdueReport'), [18, 12, 10, 10, 12, 12, 14])
   }
 
-  const rawColumns: ColumnsType<SystemReportStat> = [
-    { title: t('projectReport.system'), dataIndex: 'sys_nm', width: 150, ellipsis: true },
-    { title: t('projectReport.pendingTasks'), dataIndex: 'task_pending', width: 110, align: 'center',
-      render: (v: number) => <span className="text-blue-500 font-medium">{v}</span> },
-    { title: t('projectReport.notStarted'), dataIndex: 'task_not_started', width: 90, align: 'center',
-      render: (v: number) => <span className="text-blue-400">{v}</span> },
-    { title: t('projectReport.inProgress'), dataIndex: 'task_in_progress', width: 90, align: 'center',
-      render: (v: number) => <span className={v > 0 ? 'text-green-600 font-medium' : 'text-slate-400'}>{v}</span> },
-    { title: t('projectReport.overdueIncomplete'), dataIndex: 'task_overdue_incomplete', width: 110, align: 'center',
-      render: (v: number) => <span className={v > 0 ? 'text-red-500 font-semibold' : 'text-slate-400'}>{v}</span> },
-    { title: t('projectReport.overdueComplete'), dataIndex: 'task_overdue_complete', width: 110, align: 'center',
-      render: (v: number) => <span className={v > 0 ? 'text-orange-400 font-medium' : 'text-slate-400'}>{v}</span> },
-    { title: t('projectReport.taskOverdueRate'), dataIndex: 'task_overdue_rate', width: 230, align: 'center',
-      render: (v: number) => (
+  // 树形数据
+  type SysOdRow = {
+    _key: string; _type: 'system' | 'req' | 'func'
+    name: string; status?: number
+    pending: number; not_started: number; in_progress: number
+    overdue_incomplete: number; overdue_complete: number; overdue_hours: number
+    overdue_rate: number; children?: SysOdRow[]
+  }
+  const DUTY_ST_OD: Record<number, [string, string]> = { 0: [t('projectReport.draft'), 'default'], 1: [t('projectReport.inProgress'), 'green'], 2: [t('projectReport.inProgress'), 'green'], 3: [t('projectReport.completed'), 'blue'], 6: [t('projectReport.notStarted'), 'blue'], 8: [t('projectReport.shelved'), 'orange'] }
+  const REQ_ST_OD2: Record<number, [string, string]> = { 0: [t('projectDetail.reqStatus.draft'), 'default'], 2: [t('projectDetail.reqStatus.inProgress'), 'success'], 4: [t('projectDetail.reqStatus.completed'), 'blue'], 8: [t('projectDetail.reqStatus.shelved'), 'warning'] }
+
+  const treeData: SysOdRow[] = useMemo(() => data.map((s) => {
+    const hs = hoursMap[s.system_id]
+    const reqChildren: SysOdRow[] | undefined = hs ? hs.requirements.map((req) => {
+      const allTasks = hs.functions.filter((f) => (f.req_id || '') === (req.req_id || ''))
+      const overdueTasks = allTasks.filter(isTaskOverdue)
+      const pendingOrOverdueTasks = allTasks.filter((f) => f.status !== 3 || isTaskOverdue(f))
+      const funcChildren: SysOdRow[] = pendingOrOverdueTasks.map((f) => {
+        const od = isTaskOverdue(f)
+        return {
+          _key: `func-${f.func_id}`, _type: 'func' as const,
+          name: f.func_nm, status: f.status,
+          pending: 0, not_started: 0, in_progress: 0,
+          overdue_incomplete: od && f.status !== 3 ? 1 : 0,
+          overdue_complete: od && f.status === 3 ? 1 : 0,
+          overdue_hours: f.total_hours, overdue_rate: 0,
+        }
+      })
+      const odIncomplete = overdueTasks.filter((f) => f.status !== 3).length
+      const odComplete = overdueTasks.filter((f) => f.status === 3).length
+      const reqPending = req.total - req.completed - req.shelved
+      return {
+        _key: `req-${s.system_id}-${req.req_id || 'none'}`, _type: 'req' as const,
+        name: req.req_nm || t('projectReport.noRequirement'), status: req.req_status,
+        pending: reqPending, not_started: req.not_started, in_progress: req.in_progress,
+        overdue_incomplete: odIncomplete, overdue_complete: odComplete,
+        overdue_hours: round1(pendingOrOverdueTasks.reduce((sum, f) => sum + f.total_hours, 0)),
+        overdue_rate: allTasks.length > 0 ? round1(odIncomplete / allTasks.length * 100) : 0,
+        children: funcChildren.length > 0 ? funcChildren : undefined,
+      }
+    }).filter((r) => r.pending > 0) : undefined
+
+    const pendingHours = hs ? round1(hs.functions.filter((f) => f.status !== 3 || isTaskOverdue(f)).reduce((sum, f) => sum + f.total_hours, 0)) : 0
+    return {
+      _key: `sys-${s.system_id}`, _type: 'system' as const,
+      name: s.sys_nm,
+      pending: s.task_pending, not_started: s.task_not_started, in_progress: s.task_in_progress,
+      overdue_incomplete: s.task_overdue_incomplete, overdue_complete: s.task_overdue_complete,
+      overdue_hours: pendingHours, overdue_rate: s.task_overdue_rate,
+      children: reqChildren && reqChildren.length > 0 ? reqChildren : undefined,
+    }
+  }), [data, hoursMap, today, t]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const rawColumns: ColumnsType<SysOdRow> = [
+    { title: t('projectReport.system'), dataIndex: 'name', width: 200, ellipsis: true,
+      render: (v: string, r) => {
+        if (r._type === 'system') return <span className="font-semibold text-slate-800">{v}</span>
+        if (r._type === 'req') return <span className="font-medium text-purple-600 text-xs">{v}</span>
+        return <span className="text-slate-600 text-xs">{v}</span>
+      },
+    },
+    { title: t('common.status'), dataIndex: 'status', width: 100, align: 'center',
+      render: (s: number | undefined, r) => {
+        if (s == null) return null
+        if (r._type === 'req') { const [label, color] = REQ_ST_OD2[s] ?? [String(s), 'default']; return <Tag color={color} style={{ fontSize: 10 }}>{label}</Tag> }
+        if (r._type === 'func') { const [label, color] = DUTY_ST_OD[s] ?? [String(s), 'default']; return <Tag color={color} style={{ fontSize: 10 }}>{label}</Tag> }
+        return null
+      },
+    },
+    { title: t('projectReport.pendingTasks'), dataIndex: 'pending', width: 80, align: 'center',
+      render: (v: number, r) => r._type === 'func' ? null : <span className={r._type === 'system' ? 'text-blue-500 font-medium' : 'text-blue-500 text-xs'}>{v}</span> },
+    { title: t('projectReport.notStarted'), dataIndex: 'not_started', width: 70, align: 'center',
+      render: (v: number, r) => r._type === 'func' ? null : <span className="text-blue-400 text-xs">{v}</span> },
+    { title: t('projectReport.inProgress'), dataIndex: 'in_progress', width: 70, align: 'center',
+      render: (v: number, r) => r._type === 'func' ? null : <span className={v > 0 ? 'text-green-600 text-xs font-medium' : 'text-slate-400 text-xs'}>{v}</span> },
+    { title: t('projectReport.overdueIncomplete'), dataIndex: 'overdue_incomplete', width: 80, align: 'center',
+      render: (v: number, r) => r._type === 'func' ? null : <span className={v > 0 ? 'text-red-500 font-semibold' : 'text-slate-400'}>{v}</span> },
+    { title: t('projectReport.overdueComplete'), dataIndex: 'overdue_complete', width: 80, align: 'center',
+      render: (v: number, r) => r._type === 'func' ? null : <span className={v > 0 ? 'text-orange-400 font-medium' : 'text-slate-400'}>{v}</span> },
+    { title: t('projectDetail.colTotalHours'), dataIndex: 'overdue_hours', width: 90, align: 'center',
+      render: (v: number, r) => v > 0
+        ? <span className={r._type === 'system' ? 'font-semibold text-red-500 tabular-nums' : 'text-xs font-semibold text-red-500 tabular-nums'}>{v}h</span>
+        : <span className="text-slate-300">—</span>,
+    },
+    { title: t('projectReport.overdueRate'), dataIndex: 'overdue_rate', width: 180, align: 'center',
+      render: (r: number, row) => row._type === 'func' ? null : (
         <div className="flex items-center gap-2 justify-center">
-          <Progress percent={v} size="small" showInfo={false} strokeColor="#ef4444" trailColor="#e2e8f0" style={{ width: 150, marginBottom: 0 }} />
-          <span className="text-xs text-slate-500 w-8 text-center">{v}%</span>
+          <Progress percent={r} size="small" showInfo={false} strokeColor="#ef4444" trailColor="#e2e8f0" style={{ width: 80, marginBottom: 0 }} />
+          <span className="text-xs text-slate-500 w-10 text-center">{r}%</span>
         </div>
       ) },
   ]
@@ -654,7 +821,7 @@ const SystemOverdueTab: React.FC<{ data: SystemReportStat[] }> = ({ data }) => {
 
   return (
     <>
-      <div className="bg-white border border-slate-100 rounded-xl mb-4 flex items-center">
+      <div className="bg-white border border-slate-100 rounded-xl mb-4 flex items-center flex-wrap">
         <StatCard label={t('projectReport.system')} value={summary.systems} />
         <StatCard label={t('projectReport.pendingTasks')} value={summary.task_pending} />
         <StatCard label={t('projectReport.notStarted')} value={summary.task_not_started} />
@@ -667,7 +834,11 @@ const SystemOverdueTab: React.FC<{ data: SystemReportStat[] }> = ({ data }) => {
         </div>
       </div>
       <div className="bg-white border border-slate-100 rounded-xl overflow-hidden">
-        <Table rowKey="system_id" columns={columns} components={tableComponents} dataSource={data} pagination={false} size="middle" scroll={{ x: 'max-content' }} />
+        <Table<SysOdRow>
+          rowKey="_key" columns={columns} components={tableComponents}
+          dataSource={treeData} pagination={false} size="middle"
+          scroll={{ x: 'max-content' }} indentSize={20}
+        />
       </div>
     </>
   )
@@ -685,6 +856,7 @@ const ProjectReportPage: React.FC = () => {
   const [systemData,  setSystemData]  = useState<SystemReportStat[]>([])
   const [loading,     setLoading]     = useState(true)
   const [projectHoursMap, setProjectHoursMap] = useState<Record<string, import('@/api/project.api').HoursSummary>>({})
+  const [systemHoursMap, setSystemHoursMap] = useState<Record<string, import('@/api/project.api').HoursSummary>>({})
 
   useEffect(() => {
     Promise.all([
@@ -710,8 +882,8 @@ const ProjectReportPage: React.FC = () => {
       label: t('projectReport.tabSystem'),
       children: (
         <Tabs items={[
-          { key: 'progress', label: t('projectReport.systemProgressReport'), children: loading ? null : <SystemProgressTab data={systemData} /> },
-          { key: 'overdue',  label: t('projectReport.systemOverdueReport'), children: loading ? null : <SystemOverdueTab  data={systemData} /> },
+          { key: 'progress', label: t('projectReport.systemProgressReport'), children: loading ? null : <SystemProgressTab data={systemData} hoursMap={systemHoursMap} onHoursMapChange={setSystemHoursMap} /> },
+          { key: 'overdue',  label: t('projectReport.systemOverdueReport'), children: loading ? null : <SystemOverdueTab  data={systemData} hoursMap={systemHoursMap} /> },
         ]} />
       ),
     },

@@ -573,7 +573,7 @@ class ProjectController:
                 "in_progress": st.get("in_progress", 0),
                 "completed": completed_tasks,
                 "shelved": st.get("shelved", 0),
-                "completion_rate": round(completed_tasks / total_tasks * 100, 1) if total_tasks > 0 else 0,
+                "completion_rate": round(st.get("progress_sum", 0) / total_tasks, 1) if total_tasks > 0 else 0,
             })
         # 也加入没有工时但有任务的需求
         for rid, st in req_status_agg.items():
@@ -588,7 +588,7 @@ class ProjectController:
                     "total": total_tasks, "draft": st.get("draft", 0),
                     "not_started": st.get("not_started", 0), "in_progress": st.get("in_progress", 0),
                     "completed": completed_tasks, "shelved": st.get("shelved", 0),
-                    "completion_rate": round(completed_tasks / total_tasks * 100, 1) if total_tasks > 0 else 0,
+                    "completion_rate": round(st.get("progress_sum", 0) / total_tasks, 1) if total_tasks > 0 else 0,
                 })
 
         # ── 任务维度结果 ─────────────────────────────

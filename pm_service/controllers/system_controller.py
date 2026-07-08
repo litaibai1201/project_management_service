@@ -100,21 +100,59 @@ class SystemController:
         if req_ids:
             reqs = db.session.query(StandaloneReqModel).filter(StandaloneReqModel.id.in_(req_ids)).all()
             req_nm_map = {r.id: r.req_nm for r in reqs}
+        # 按需求聚合工时和任务统计
         req_agg: dict = {}
         req_ot_agg: dict = {}
+        req_status_agg: dict = {}
         for d in duties:
             rid = d.standalone_req_id or "__no_req__"
             req_agg[rid] = req_agg.get(rid, 0) + duty_hours.get(d.id, 0)
             req_ot_agg[rid] = req_ot_agg.get(rid, 0) + duty_overtime.get(d.id, 0)
-        req_list = [{"req_id": rid if rid != "__no_req__" else "", "req_nm": req_nm_map.get(rid, ""),
-                      "total_hours": round(h, 1), "overtime_hours": round(req_ot_agg.get(rid, 0), 1)}
-                     for rid, h in sorted(req_agg.items(), key=lambda x: -x[1])]
+            st = req_status_agg.setdefault(rid, {"total": 0, "draft": 0, "not_started": 0, "in_progress": 0, "completed": 0, "shelved": 0, "progress_sum": 0})
+            st["total"] += 1
+            st["progress_sum"] += (d.progress or 0)
+            s = d.duty_status
+            if s == 0: st["draft"] += 1
+            elif s == 6: st["not_started"] += 1
+            elif s in (1, 2): st["in_progress"] += 1
+            elif s == 3: st["completed"] += 1
+            elif s == 8: st["shelved"] += 1
 
-        # 任务维度
-        func_list = [{"func_id": d.id, "func_nm": d.duty_nm, "req_id": d.standalone_req_id or "",
-                       "group1": d.group or "", "total_hours": round(duty_hours.get(d.id, 0), 1),
-                       "overtime_hours": round(duty_overtime.get(d.id, 0), 1)}
-                      for d in duties if duty_hours.get(d.id, 0) > 0]
+        # 需求状态
+        req_st_map: dict = {}
+        if req_ids:
+            for r in db.session.query(StandaloneReqModel).filter(StandaloneReqModel.id.in_(req_ids)).all():
+                req_st_map[r.id] = r.req_status
+
+        all_req_ids = set(req_agg.keys()) | set(req_status_agg.keys())
+        req_list = []
+        for rid in sorted(all_req_ids, key=lambda x: -(req_agg.get(x, 0))):
+            st = req_status_agg.get(rid, {})
+            total_tasks = st.get("total", 0)
+            completed_tasks = st.get("completed", 0)
+            req_list.append({
+                "req_id": rid if rid != "__no_req__" else "",
+                "req_nm": req_nm_map.get(rid, ""),
+                "req_status": req_st_map.get(rid),
+                "total_hours": round(req_agg.get(rid, 0), 1),
+                "overtime_hours": round(req_ot_agg.get(rid, 0), 1),
+                "total": total_tasks, "draft": st.get("draft", 0),
+                "not_started": st.get("not_started", 0), "in_progress": st.get("in_progress", 0),
+                "completed": completed_tasks, "shelved": st.get("shelved", 0),
+                "completion_rate": round(st.get("progress_sum", 0) / total_tasks, 1) if total_tasks > 0 else 0,
+            })
+
+        # 任务维度（包含所有任务，不只有工时的）
+        func_list = []
+        for d in duties:
+            func_list.append({
+                "func_id": d.id, "func_nm": d.duty_nm, "req_id": d.standalone_req_id or "",
+                "group1": d.group or "", "status": d.duty_status, "progress": d.progress or 0,
+                "expected_end_date": (d.latest_expected_end_date if hasattr(d, 'latest_expected_end_date') else d.expected_end_date) or "",
+                "end_time": d.end_time or "",
+                "total_hours": round(duty_hours.get(d.id, 0), 1),
+                "overtime_hours": round(duty_overtime.get(d.id, 0), 1),
+            })
         func_list.sort(key=lambda x: -x["total_hours"])
 
         # 成员维度
