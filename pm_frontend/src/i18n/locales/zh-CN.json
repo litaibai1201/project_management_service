@@ -1629,6 +1629,7 @@
     "createFailed": "建立失败",
     "updateSuccess": "更新成功",
     "orgTreeTitle": "组织层级树（以第一主管为准）",
+    "searchByWorkNoOrName": "搜索工号/姓名",
     "hierarchyTableTitle": "人员层级表",
     "setSupervisorTitle": "设定「{{name}}」的直属主管",
     "supervisorMultiple": "直属主管（可多选）",

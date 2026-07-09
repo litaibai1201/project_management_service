@@ -1619,6 +1619,7 @@
     "noSupervisor": "(None)",
     "setSupervisor": "Set Supervisor",
     "orgTreeTitle": "Organization Hierarchy Tree",
+    "searchByWorkNoOrName": "Search by ID / Name",
     "hierarchyTableTitle": "Staff Hierarchy Table",
     "setSupervisorTitle": "Set supervisor for \"{{name}}\"",
     "supervisorMultiple": "Supervisor (multiple)",

@@ -1593,6 +1593,7 @@
     "noSupervisor": "(ไม่มี)",
     "setSupervisor": "ตั้งหัวหน้า",
     "orgTreeTitle": "แผนผังองค์กร",
+    "searchByWorkNoOrName": "ค้นหาด้วยรหัส/ชื่อ",
     "hierarchyTableTitle": "ตารางลำดับชั้น",
     "setSupervisorTitle": "ตั้งหัวหน้าให้ \"{{name}}\"",
     "supervisorMultiple": "หัวหน้า (หลายคน)",

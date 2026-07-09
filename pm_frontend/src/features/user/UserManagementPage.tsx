@@ -111,9 +111,13 @@ const HierarchyTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor }) => 
   const { t } = useTranslation()
   const [editTarget, setEditTarget] = useState<HierarchyRow | null>(null)
   const [hierarchy, setHierarchy] = useState<HierarchyRow[]>([])
+  const [hierarchySearch, setHierarchySearch] = useState('')
   const [isSavingHierarchy, setIsSavingHierarchy] = useState(false)
   const [editForm] = Form.useForm()
-  const treeData = buildTree(hierarchy)
+  const filteredHierarchy = hierarchySearch
+    ? hierarchy.filter((r) => r.work_no.toLowerCase().includes(hierarchySearch.toLowerCase()) || r.name.toLowerCase().includes(hierarchySearch.toLowerCase()))
+    : hierarchy
+  const treeData = buildTree(filteredHierarchy)
 
   const loadHierarchy = () => {
     Promise.all([
@@ -216,6 +220,7 @@ const HierarchyTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor }) => 
           <Card
             variant="borderless" className="shadow-sm"
             title={<span className="text-sm font-semibold text-slate-700">{t('user.orgTreeTitle')}</span>}
+            extra={<Input.Search placeholder={t('user.searchByWorkNoOrName')} allowClear size="small" style={{ width: 200 }} value={hierarchySearch} onChange={(e) => setHierarchySearch(e.target.value)} />}
             styles={{ body: { padding: '8px 16px 16px' } }}
           >
             <Tree
@@ -238,7 +243,7 @@ const HierarchyTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor }) => 
               rowKey="work_no"
               columns={hierarchyColumns}
               components={tableComponents}
-              dataSource={hierarchy}
+              dataSource={filteredHierarchy}
               pagination={false}
               size="small"
               scroll={{ x: 500 }}
@@ -261,11 +266,17 @@ const HierarchyTab: React.FC<{ isSupervisor: boolean }> = ({ isSupervisor }) => 
             <Select
               mode="multiple"
               allowClear
+              showSearch
               placeholder={t('user.supervisorMultiplePlaceholder')}
-              optionFilterProp="label"
+              filterOption={(input, option) => {
+                const v = (option?.value as string ?? '').toLowerCase()
+                const l = (option?.label as string ?? '').toLowerCase()
+                const kw = input.toLowerCase()
+                return v.includes(kw) || l.includes(kw)
+              }}
               options={hierarchy
                 .filter((r) => r.work_no !== editTarget?.work_no)
-                .map((r) => ({ value: r.work_no, label: `${r.name}（${r.position}）` }))
+                .map((r) => ({ value: r.work_no, label: `${r.name}（${r.work_no}）` }))
               }
             />
           </Form.Item>
