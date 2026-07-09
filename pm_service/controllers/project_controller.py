@@ -916,6 +916,97 @@ class ProjectController:
             supervisor_work_no=work_no
         ).first() is not None
 
+    def _batch_enrich_reviews(self, records, viewer_work_no: str = "", viewer_is_supervisor: bool = False):
+        """批量填充审核记录的关联名称，避免 N+1 查询"""
+        from dbs.mysql_db.model_tables import UserProfileModel, TemporaryDutyModel
+        from tables.system_table import SystemModel
+
+        # 收集所有需要查询的 ID
+        proj_ids = list({r.project_id for r in records if r.project_id})
+        func_ids = list({r.function_id for r in records if r.function_id})
+        duty_ids = list({r.duty_id for r in records if r.duty_id})
+        sys_ids  = list({r.system_id for r in records if r.system_id})
+
+        # 批量查询
+        proj_map = {p.id: p.project_nm for p in db.session.query(ProjectDataModel).filter(ProjectDataModel.id.in_(proj_ids)).all()} if proj_ids else {}
+        func_map = {f.id: f.function_nm for f in db.session.query(FunctionDataModel).filter(FunctionDataModel.id.in_(func_ids)).all()} if func_ids else {}
+        duty_map = {d.id: d.duty_nm for d in db.session.query(TemporaryDutyModel).filter(TemporaryDutyModel.id.in_(duty_ids)).all()} if duty_ids else {}
+        sys_map  = {s.id: s.sys_nm for s in db.session.query(SystemModel).filter(SystemModel.id.in_(sys_ids)).all()} if sys_ids else {}
+
+        # 批量查询所有涉及的用户姓名
+        all_wnos: set = set()
+        for r in records:
+            if r.submitter: all_wnos.add(r.submitter.lower())
+            if r.approval_nodes_json:
+                try:
+                    for n in json.loads(r.approval_nodes_json):
+                        wn = n.get("approver_work_no") or n.get("approver", "")
+                        if wn: all_wnos.add(wn.lower())
+                except Exception:
+                    pass
+            if r.reviewer:
+                try:
+                    for wn in json.loads(r.reviewer):
+                        if wn: all_wnos.add(wn.lower())
+                except Exception:
+                    pass
+        user_map = {}
+        if all_wnos:
+            for u in db.session.query(UserProfileModel).filter(db.func.lower(UserProfileModel.work_no).in_(list(all_wnos))).all():
+                user_map[u.work_no.lower()] = u.name
+
+        # 填充每条记录
+        result = []
+        for r in records:
+            d = r.to_dict(
+                project_nm=proj_map.get(r.project_id),
+                function_nm=func_map.get(r.function_id),
+                duty_nm=duty_map.get(r.duty_id),
+                system_nm=sys_map.get(r.system_id) if r.system_id else None,
+            )
+            # 提交人姓名
+            sub_nm = user_map.get((r.submitter or "").lower())
+            if sub_nm:
+                d["submitter_name"] = sub_nm
+            # 老记录补充 approval_nodes
+            if not d.get("approval_nodes"):
+                reviewers = d.get("reviewer") or []
+                if isinstance(reviewers, str):
+                    try: reviewers = json.loads(reviewers)
+                    except Exception: reviewers = [reviewers]
+                nodes = []
+                for i, wk in enumerate(reviewers):
+                    nm = user_map.get(wk.lower(), wk)
+                    nodes.append({
+                        "node_id": f"legacy_{i}", "order": i + 1,
+                        "approver": nm, "approver_work_no": wk,
+                        "status": 1 if d.get("status") == 2 else 0,
+                        "is_countersign": False,
+                        "approved_at": d.get("updated_at") if d.get("status") == 2 else None,
+                        "comment": None,
+                    })
+                d["approval_nodes"] = nodes
+            # 补充审批节点中的姓名
+            if d.get("approval_nodes"):
+                for n in d["approval_nodes"]:
+                    wn = (n.get("approver_work_no") or n.get("approver", "")).lower()
+                    if wn in user_map:
+                        n["approver"] = user_map[wn]
+            # 标记 is_my_turn
+            if viewer_work_no and d["approval_nodes"]:
+                nodes = d["approval_nodes"]
+                viewer_wn_lower = viewer_work_no.lower()
+                sorted_nodes = sorted(nodes, key=lambda n: n.get("order", 0))
+                first_pending = next((n for n in sorted_nodes if n.get("status") == 0), None)
+                is_listed_turn = (first_pending is not None and first_pending.get("approver_work_no", "").lower() == viewer_wn_lower)
+                already_acted = any(n.get("approver_work_no", "").lower() == viewer_wn_lower for n in nodes)
+                is_supervisor_override = (viewer_is_supervisor and not already_acted and r.apply_type_code == "project_complete" and r.apply_status == 1 and first_pending is not None)
+                d["is_my_turn"] = is_listed_turn or is_supervisor_override
+            else:
+                d["is_my_turn"] = False
+            result.append(d)
+        return result
+
     def get_review_list(self, page=1, size=20, work_no=None):
         from sqlalchemy import or_
         q = db.session.query(ReviewApplyModel).filter(
@@ -925,7 +1016,6 @@ class ProjectController:
         if work_no:
             wn_lower = work_no.lower()
             if is_sup:
-                # 主管可以看到：（1）自己是审核人的记录，（2）所有专案完结申请
                 q = q.filter(or_(
                     db.func.lower(ReviewApplyModel.reviewer).like(f"%{wn_lower}%"),
                     db.func.lower(ReviewApplyModel.approval_nodes_json).like(f"%{wn_lower}%"),
@@ -941,10 +1031,7 @@ class ProjectController:
         return {
             "total_count": total,
             "total_page": (total + size - 1) // size,
-            "data_list": [
-                self._enrich_review(r, viewer_work_no=work_no or "", viewer_is_supervisor=is_sup)
-                for r in records
-            ],
+            "data_list": self._batch_enrich_reviews(records, viewer_work_no=work_no or "", viewer_is_supervisor=is_sup),
         }
 
     def get_my_submitted_reviews(self, page=1, size=50, work_no=None):
@@ -957,10 +1044,7 @@ class ProjectController:
         return {
             "total_count": total,
             "total_page": (total + size - 1) // size,
-            "data_list": [
-                self._enrich_review(r, viewer_work_no=work_no or "", viewer_is_supervisor=False)
-                for r in records
-            ],
+            "data_list": self._batch_enrich_reviews(records, viewer_work_no=work_no or "", viewer_is_supervisor=False),
         }
 
     def get_all_reviews(self, work_no=None):

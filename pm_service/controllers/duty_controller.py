@@ -831,7 +831,7 @@ class DutyController:
         return {
             "total_count": total,
             "total_page": (total + size - 1) // size,
-            "data_list": [proj_ctrl._enrich_review(r, viewer_work_no=work_no or "") for r in records],
+            "data_list": proj_ctrl._batch_enrich_reviews(records, viewer_work_no=work_no or ""),
         }
 
     def approve_review(self, review_id: str, status: int, reject_reason: str = "",
