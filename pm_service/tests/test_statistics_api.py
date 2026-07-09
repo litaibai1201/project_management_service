@@ -70,6 +70,18 @@ class TestPersonalStats:
             data = resp.get_json()
             assert data["code"] == "S10000"
 
+    def test_personal_stats_has_requirement_dist(self, client, auth_token, app):
+        """个人工时分析应包含需求分布"""
+        with app.app_context():
+            resp = json_get(client, "/api/statistics/personal_stats", token=auth_token)
+            data = resp.get_json()
+            assert data["code"] == "S10000"
+            content = data["content"]
+            assert "requirement_dist" in content
+            assert isinstance(content["requirement_dist"], list)
+            assert "project_dist" in content
+            assert "category_dist" in content
+
 
 class TestProgressReport:
     """进度报告"""

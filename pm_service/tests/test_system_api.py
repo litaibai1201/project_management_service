@@ -218,3 +218,20 @@ class TestSystemGroups:
             data = resp.get_json()
             assert data["code"] == "S10000"
             assert len(data["content"]) >= 2
+
+
+class TestSystemHoursSummary:
+    """系统工时汇总"""
+
+    def test_hours_summary(self, client, auth_token, app, db):
+        with app.app_context():
+            grant_admin_role(app, db, "T001")
+            sid = create_system(client, auth_token)
+            resp = json_get(client, f"/api/system/{sid}/hours_summary", token=auth_token)
+            data = resp.get_json()
+            assert data["code"] == "S10000"
+            content = data["content"]
+            assert "project_total_hours" in content
+            assert isinstance(content["requirements"], list)
+            assert isinstance(content["functions"], list)
+            assert isinstance(content["members"], list)

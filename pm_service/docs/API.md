@@ -150,8 +150,9 @@ Token 通过 `/api/user/login`（普通用户）或 `/api/sys_admin/login`（系
 | 方法 | 路径                               | 描述                         | 需要认证 |
 |------|------------------------------------|------------------------------|----------|
 | GET  | `/api/project/report_stats`        | 专案进度报表统计             | 是       |
-| GET  | `/api/project/member_report_stats` | 成员报表统计                 | 是       |
+| GET  | `/api/project/member_report_stats` | 成员报表统计（含来源明细）   | 是       |
 | GET  | `/api/project/wbs_overview`        | 专案进度总览（WBS 结构）     | 是       |
+| GET  | `/api/project/<project_id>/hours_summary` | 专案工时汇总（需求/任务/成员维度） | 是 |
 
 #### 3.5 功能任务（Function）
 
@@ -435,6 +436,7 @@ Token 通过 `/api/user/login`（普通用户）或 `/api/sys_admin/login`（系
 | GET    | `/api/system/<system_id>`  | 获取系统详情（所有已登录用户可查）  | 是       |
 | PUT    | `/api/system/<system_id>`  | 更新系统（仅管理员）                | 是       |
 | DELETE | `/api/system/<system_id>`  | 删除系统（仅管理员）                | 是       |
+| GET    | `/api/system/<system_id>/hours_summary` | 系统工时汇总（需求/任务/成员维度） | 是 |
 
 ---
 
