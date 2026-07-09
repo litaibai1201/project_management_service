@@ -1125,9 +1125,10 @@ const StatisticsPage: React.FC = () => {
 
   // Personal detail cache: workNo -> data
   type PersonalStat = {
-    project_dist:    { name: string; hours: number }[]
-    category_dist:   { name: string; hours: number }[]
-    weekly_overtime: { week: string; normal: number; overtime: number }[]
+    project_dist:      { name: string; hours: number }[]
+    requirement_dist?: { name: string; hours: number }[]
+    category_dist:     { name: string; hours: number }[]
+    weekly_overtime:   { week: string; normal: number; overtime: number }[]
   }
   const [personalCache, setPersonalCache] = useState<Record<string, PersonalStat>>({})
   const [personalLoading, setPersonalLoading] = useState<Record<string, boolean>>({})
@@ -1278,15 +1279,16 @@ const StatisticsPage: React.FC = () => {
   // ── Individual member work-hours detail (used in both manager drill-down and engineer self-view) ──
   const renderPersonalDetail = (workNo: string, _memberName: string) => {
     const detail = personalCache[workNo]
-    const projectData    = detail?.project_dist    ?? []
-    const categoryData   = detail?.category_dist   ?? []
-    const overtimeData   = detail?.weekly_overtime  ?? []
+    const projectData    = detail?.project_dist      ?? []
+    const reqData        = detail?.requirement_dist  ?? []
+    const categoryData   = detail?.category_dist     ?? []
+    const overtimeData   = detail?.weekly_overtime    ?? []
     const totalProjHours = projectData.reduce((s: number, d: { hours: number }) => s + d.hours, 0)
+    const totalReqHours  = reqData.reduce((s: number, d: { hours: number }) => s + d.hours, 0)
     return (
       <div className="space-y-4">
-        {/* 3 pie charts */}
         <Row gutter={[16, 16]}>
-          <Col xs={24} md={8}>
+          <Col xs={24} md={6}>
             <Card variant="borderless" className="shadow-sm h-full" title={<span className="text-sm font-semibold text-slate-700">{t('statistics.projectHoursDist')}</span>} styles={{ body: { paddingTop: 4 } }}>
               <ResponsiveContainer width="100%" height={180}>
                 <PieChart>
@@ -1309,7 +1311,30 @@ const StatisticsPage: React.FC = () => {
               </div>
             </Card>
           </Col>
-          <Col xs={24} md={8}>
+          <Col xs={24} md={6}>
+            <Card variant="borderless" className="shadow-sm h-full" title={<span className="text-sm font-semibold text-slate-700">{t('statistics.requirementHoursDist')}</span>} styles={{ body: { paddingTop: 4 } }}>
+              <ResponsiveContainer width="100%" height={180}>
+                <PieChart>
+                  <Pie data={reqData} dataKey="hours" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={68} paddingAngle={2}>
+                    {reqData.map((_: unknown, i: number) => <Cell key={i} fill={PIE_PALETTE[i % PIE_PALETTE.length]} />)}
+                  </Pie>
+                  <RTooltip formatter={(v: number, name: string) => [`${v}h`, name]} contentStyle={{ borderRadius: 8, fontSize: 11, border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="flex flex-col gap-1">
+                {reqData.map((d: { name: string; hours: number }, i: number) => (
+                  <div key={d.name} className="flex items-center gap-2 text-xs">
+                    <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: PIE_PALETTE[i % PIE_PALETTE.length] }} />
+                    <span className="text-slate-600 truncate flex-1">{d.name}</span>
+                    <span className="text-slate-400 font-medium">{d.hours}h</span>
+                    <span className="text-slate-300 w-8 text-right">{totalReqHours > 0 ? Math.round((d.hours / totalReqHours) * 100) : 0}%</span>
+                  </div>
+                ))}
+                {reqData.length === 0 && <span className="text-xs text-slate-300">{t('common.noData')}</span>}
+              </div>
+            </Card>
+          </Col>
+          <Col xs={24} md={6}>
             <Card variant="borderless" className="shadow-sm h-full" title={<span className="text-sm font-semibold text-slate-700">{t('statistics.categoryDist')}</span>} styles={{ body: { paddingTop: 4 } }}>
               <ResponsiveContainer width="100%" height={180}>
                 <PieChart>
@@ -1331,7 +1356,7 @@ const StatisticsPage: React.FC = () => {
               </div>
             </Card>
           </Col>
-          <Col xs={24} md={8}>
+          <Col xs={24} md={6}>
             <Card variant="borderless" className="shadow-sm h-full"
               style={{ display: 'flex', flexDirection: 'column' }}
               title={<span className="text-sm font-semibold text-slate-700">{t('statistics.normalVsOvertime')}</span>}

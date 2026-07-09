@@ -384,18 +384,20 @@ class StatisticsController:
         logs = list(col.find(log_query).sort("log_date", 1))
 
         project_map: dict  = {}   # project_nm -> hours
+        req_map: dict      = {}   # requirement_nm -> hours
         category_map: dict = {}   # category   -> hours
         weekly_map: dict   = {}   # week_key   -> {normal, overtime}
         leave_hours_total  = 0.0
 
         CATEGORY_LABEL = {
-            "project":  "專案任務",
-            "duty":     "AR",
-            "meeting":  "會議",
-            "training": "培訓",
-            "cr_ar":    "CR/AR",
-            "leave":    "休假",
-            "other":    "其他",
+            "project":    "專案任務",
+            "system_req": "系統需求",
+            "duty":       "AR",
+            "meeting":    "會議",
+            "training":   "培訓",
+            "cr_ar":      "CR/AR",
+            "leave":      "休假",
+            "other":      "其他",
         }
 
         for lg in logs:
@@ -407,12 +409,26 @@ class StatisticsController:
                 hours    = float(t.get("work_hours") or 0)
                 is_ot    = bool(t.get("is_overtime"))
                 ot_hours = float(t.get("overtime_hours") or 0) if is_ot else 0
-                # 专案分布（project 类型才有 project_nm）
-                if t.get("task_type") == "project":
+                task_type = t.get("task_type") or ""
+                category  = t.get("category") or task_type
+                # 工时分布（专案按专案名，系统按系统名）
+                if task_type == "project":
                     proj = t.get("project_nm") or t.get("task_nm") or "未知专案"
                     project_map[proj] = round(project_map.get(proj, 0) + hours, 1)
+                elif category == "system_req" or t.get("system_nm"):
+                    sys_nm = t.get("system_nm") or "未知系统"
+                    project_map[sys_nm] = round(project_map.get(sys_nm, 0) + hours, 1)
+                # 需求分布
+                req_nm = t.get("requirement_nm") or ""
+                if req_nm:
+                    req_map[req_nm] = round(req_map.get(req_nm, 0) + hours, 1)
                 # 分类分布
-                cat_key = "project" if t.get("task_type") == "project" else "duty"
+                if task_type == "project":
+                    cat_key = "project"
+                elif category == "system_req" or t.get("system_nm"):
+                    cat_key = "system_req"
+                else:
+                    cat_key = "duty"
                 cat_label = CATEGORY_LABEL.get(cat_key, cat_key)
                 category_map[cat_label] = round(category_map.get(cat_label, 0) + hours, 1)
                 # 周加班
@@ -435,6 +451,7 @@ class StatisticsController:
                     self._add_weekly_overtime(log_date, hours, ot_hours, weekly_map)
 
         project_dist  = [{"name": k, "hours": v} for k, v in sorted(project_map.items(),  key=lambda x: -x[1])]
+        req_dist      = [{"name": k, "hours": v} for k, v in sorted(req_map.items(),     key=lambda x: -x[1])]
         category_dist = [{"name": k, "hours": v} for k, v in sorted(category_map.items(), key=lambda x: -x[1])]
         weekly_overtime = [
             {"week": k, "normal": round(v["total"] - v["overtime"], 1), "overtime": v["overtime"]}
@@ -442,10 +459,11 @@ class StatisticsController:
         ]
 
         return {
-            "project_dist":    project_dist,
-            "category_dist":   category_dist,
-            "weekly_overtime":  weekly_overtime,
-            "leave_hours":      round(leave_hours_total, 1),
+            "project_dist":      project_dist,
+            "requirement_dist":  req_dist,
+            "category_dist":     category_dist,
+            "weekly_overtime":   weekly_overtime,
+            "leave_hours":       round(leave_hours_total, 1),
         }
 
     @staticmethod
