@@ -1253,8 +1253,8 @@ const DailyLogPage: React.FC = () => {
         return updated
       })
     } else {
-      if (type === 'start') await dutyApi.update(taskId, { expected_start_date: date })
-      else if (type === 'end') await dutyApi.update(taskId, { expected_end_date: date })
+      if (type === 'start') await dutyApi.setDates(taskId, { expected_start_date: date })
+      else if (type === 'end') await dutyApi.setDates(taskId, { expected_end_date: date })
       else if (type === 'overdue') await dutyApi.reschedule(taskId, date, reason)
       // 更新本地 dutyOpts / systemDutiesMap 缓存
       const updateDuty = (d: DutyOpt): DutyOpt => {
@@ -1276,8 +1276,8 @@ const DailyLogPage: React.FC = () => {
   const handleSaveEntry = (values: Record<string, unknown>) => {
     const funcId = values.function_id as string | undefined
     const dutyId = values.duty_id as string | undefined
-    // 仅在勾选同步进度且有进度值时检查
-    if (syncProgress && typeof values.progress === 'number' && (funcId || dutyId)) {
+    // 只要选择了任务，就校验日期（无论是否填写进度）
+    if (funcId || dutyId) {
       let startDate: string | undefined
       let endDate: string | undefined
       if (funcId) {
@@ -1285,7 +1285,6 @@ const DailyLogPage: React.FC = () => {
         startDate = f?.expected_start_date ?? editingEntry?.expected_start_date
         endDate = f?.expected_end_date ?? editingEntry?.expected_end_date
       } else if (dutyId) {
-        // systemDutiesMap 优先（从 API 加载的完整数据），再查 dutyOpts
         const d = Object.values(systemDutiesMap).flat().find((dd) => dd.id === dutyId) ?? dutyOpts.find((dd) => dd.id === dutyId)
         startDate = d?.expected_start_date ?? editingEntry?.expected_start_date
         endDate = d?.expected_end_date ?? editingEntry?.expected_end_date
@@ -1839,8 +1838,16 @@ const DailyLogPage: React.FC = () => {
       <div className="flex items-center gap-3 mb-5 bg-white rounded-xl border border-slate-100 shadow-sm px-4 py-3">
         <Button icon={<ChevronLeftIcon className="w-4 h-4" />} type="text" size="small" onClick={() => navigate(-1)} />
         <div className="flex items-center gap-2 flex-1">
-          <CalendarDaysIcon className="w-4 h-4 text-slate-400" />
-          <span className="font-semibold text-slate-700 text-sm">{dateLabel}</span>
+          <DatePicker
+            value={currentDate}
+            onChange={(d) => { if (d) setCurrentDate(d) }}
+            allowClear={false}
+            suffixIcon={<CalendarDaysIcon className="w-4 h-4 text-slate-400" />}
+            style={{ width: 'auto', border: 'none', boxShadow: 'none', padding: 0, background: 'transparent' }}
+            className="daily-log-date-picker"
+            inputReadOnly
+            format={() => dateLabel}
+          />
           {viewMode === 'day' && statusBadge}
         </div>
         <Button size="small" onClick={goToday} className="text-xs">{t('dailyLog.today')}</Button>
@@ -2523,7 +2530,7 @@ const DailyLogPage: React.FC = () => {
                 </Form.Item>
                 {hasTaskLink && (
                   <Form.Item name="progress" label={t('dailyLog.progressLabel')}
-                    rules={[{ type: 'number', min: 0, max: 100, message: '0-100' }]}>
+                    rules={[{ required: true, message: t('dailyLog.pleaseInputProgress') }, { type: 'number', min: 0, max: 100, message: '0-100' }]}>
                     <InputNumber min={0} max={100} step={1} precision={0} style={{ width: '100%' }} suffix="%" />
                   </Form.Item>
                 )}

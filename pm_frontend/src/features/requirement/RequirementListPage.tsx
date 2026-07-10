@@ -363,10 +363,12 @@ const RequirementListPage: React.FC = () => {
     },
     {
       title: t('common.expectedEndDate'), dataIndex: 'expected_end_date', width: 120,
+      sorter: (a: ProjectReqItem, b: ProjectReqItem) => (a.expected_end_date ?? '').localeCompare(b.expected_end_date ?? ''),
       render: (v: string, r: ProjectReqItem) => [4, 8].includes(r.status) ? <span className="text-slate-300 text-xs">—</span> : <DaysLeftBadge date={v} />,
     },
     {
       title: t('common.createdAt'), dataIndex: 'created_at', width: 105,
+      sorter: (a: ProjectReqItem, b: ProjectReqItem) => (a.created_at ?? '').localeCompare(b.created_at ?? ''),
       render: (v: string) => <span className="text-slate-400 text-xs">{v ? v.slice(0, 10) : '—'}</span>,
     },
     {
@@ -456,6 +458,7 @@ const RequirementListPage: React.FC = () => {
     },
     {
       title: t('common.expectedEndDate'), dataIndex: 'expected_end_date', width: 110,
+      sorter: (a: StandaloneReq, b: StandaloneReq) => (a.expected_end_date ?? '').localeCompare(b.expected_end_date ?? ''),
       render: (v: string, r: StandaloneReq) => [4, 8].includes(r.status) ? <span className="text-slate-300 text-xs">—</span> : <DaysLeftBadge date={v} />,
     },
     {
@@ -466,6 +469,7 @@ const RequirementListPage: React.FC = () => {
     },
     {
       title: t('common.createdAt'), dataIndex: 'created_at', width: 110,
+      sorter: (a: StandaloneReq, b: StandaloneReq) => (a.created_at ?? '').localeCompare(b.created_at ?? ''),
       render: (v: string) => <span className="text-slate-400 text-xs">{v ? v.slice(0, 10) : '—'}</span>,
     },
     {

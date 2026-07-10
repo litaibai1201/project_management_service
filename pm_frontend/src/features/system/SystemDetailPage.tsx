@@ -578,7 +578,16 @@ const groupedArDuties = useMemo(() => {
       if (!map.has(g)) map.set(g, [])
       map.get(g)!.push(d)
     })
-    return [...map.entries()].map(([name, items]) => ({ name, items }))
+    return [...map.entries()]
+      .sort(([, aItems], [, bItems]) => {
+        const aMin = aItems.reduce((m, d) => { const c = (d as unknown as { created_at?: string }).created_at ?? ''; return c < m ? c : m }, '\uffff')
+        const bMin = bItems.reduce((m, d) => { const c = (d as unknown as { created_at?: string }).created_at ?? ''; return c < m ? c : m }, '\uffff')
+        return aMin.localeCompare(bMin)
+      })
+      .map(([name, items]) => ({
+        name,
+        items: items.sort((a, b) => ((a as unknown as { created_at?: string }).created_at ?? '').localeCompare((b as unknown as { created_at?: string }).created_at ?? '')),
+      }))
   }, [displayedArDuties])
 const groupedByReq = useMemo(() => {
     // 「我的」模式下顯示：我是需求負責人 或 我負責的任務所屬的需求
@@ -597,7 +606,16 @@ const groupedByReq = useMemo(() => {
         if (!groupMap.has(g)) groupMap.set(g, [])
         groupMap.get(g)!.push(d)
       })
-      const subGroups = [...groupMap.entries()].map(([gName, gItems]) => ({ name: gName, items: gItems }))
+      const subGroups = [...groupMap.entries()]
+        .sort(([, aItems], [, bItems]) => {
+          const aMin = aItems.reduce((m, d) => { const c = (d as unknown as { created_at?: string }).created_at ?? ''; return c < m ? c : m }, '\uffff')
+          const bMin = bItems.reduce((m, d) => { const c = (d as unknown as { created_at?: string }).created_at ?? ''; return c < m ? c : m }, '\uffff')
+          return aMin.localeCompare(bMin)
+        })
+        .map(([gName, gItems]) => ({
+          name: gName,
+          items: gItems.sort((a, b) => ((a as unknown as { created_at?: string }).created_at ?? '').localeCompare((b as unknown as { created_at?: string }).created_at ?? '')),
+        }))
       const avgProgress  = items.length ? Math.round(items.reduce((s, d) => s + (d.progress ?? 0), 0) / items.length) : 0
       const overdueCount = items.filter((d) => {
         if (d.status === 3) {
@@ -660,6 +678,7 @@ const groupedByReq = useMemo(() => {
     },
     {
       title: t('system.expectedEnd'), dataIndex: 'expected_end_date', width: 100,
+      sorter: (a: StandaloneReq, b: StandaloneReq) => (a.expected_end_date ?? '').localeCompare(b.expected_end_date ?? ''),
       render: (v: string) => <span className="text-xs text-slate-500">{v || '—'}</span>,
     },
     {
@@ -886,6 +905,7 @@ const groupedByReq = useMemo(() => {
     },
     {
       title: t('common.expectedStartDate'), dataIndex: 'expected_start_date', width: 130,
+      sorter: (a: TemporaryDuty, b: TemporaryDuty) => (a.expected_start_date ?? '').localeCompare(b.expected_start_date ?? ''),
       render: (v: string, r: TemporaryDuty) => {
         if (!v) {
           const req = reqList.find((rq) => rq.id === r.standalone_req_id)
@@ -903,6 +923,7 @@ const groupedByReq = useMemo(() => {
     },
     {
       title: t('system.expectedEnd'), dataIndex: 'expected_end_date', width: 130,
+      sorter: (a: TemporaryDuty, b: TemporaryDuty) => (a.expected_end_date ?? '').localeCompare(b.expected_end_date ?? ''),
       render: (v: string, r: TemporaryDuty) => {
         if (!v) {
           const req = reqList.find((rq) => rq.id === r.standalone_req_id)
@@ -931,6 +952,11 @@ const groupedByReq = useMemo(() => {
           </span>
         )
       },
+    },
+    {
+      title: t('common.createdAt'), dataIndex: 'created_at', width: 100,
+      sorter: (a: TemporaryDuty, b: TemporaryDuty) => ((a as unknown as {created_at?:string}).created_at ?? '').localeCompare((b as unknown as {created_at?:string}).created_at ?? ''),
+      render: (v: string) => <span className="text-xs text-slate-400">{v ? v.slice(0, 10) : '—'}</span>,
     },
     {
       title: t('system.action'), key: 'action', width: 90, fixed: 'right',

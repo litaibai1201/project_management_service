@@ -237,7 +237,12 @@ const ProjectListPage: React.FC = () => {
     {
       title: t('common.expectedEndDate'), dataIndex: 'expected_end_date', width: 120,
       render: (v: string, row: ProjectListItem) => <DaysLeftBadge date={v} status={row.status} />,
-      sorter: true,
+      sorter: (a, b) => (a.expected_end_date ?? '').localeCompare(b.expected_end_date ?? ''),
+    },
+    {
+      title: t('common.createdAt'), dataIndex: 'created_at', width: 100,
+      sorter: (a, b) => ((a as unknown as {created_at?:string}).created_at ?? '').localeCompare((b as unknown as {created_at?:string}).created_at ?? ''),
+      render: (v: string) => <span className="text-xs text-slate-400">{v ? String(v).slice(0, 10) : '—'}</span>,
     },
     {
       title: 'WBS', key: 'wbs', width: 60,

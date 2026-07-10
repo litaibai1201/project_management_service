@@ -938,22 +938,25 @@ const ProjectDetailPage: React.FC = () => {
       if (!map.has(g)) map.set(g, [])
       map.get(g)!.push(f)
     })
-    return Array.from(map.entries()).map(([name, items]) => ({
-      name,
-      items,
-      count: items.length,
-      avgProgress: Math.round(items.reduce((s, f) => s + (f.progress ?? 0), 0) / items.length),
-      overdueCount: items.filter((f) => f.expected_end_date && new Date(f.expected_end_date) < new Date() && f.status !== 4).length,
-    }))
+    return Array.from(map.entries()).map(([name, items]) => {
+      items.sort((a, b) => ((b as unknown as { created_at?: string }).created_at ?? '').localeCompare((a as unknown as { created_at?: string }).created_at ?? ''))
+      return {
+        name,
+        items,
+        count: items.length,
+        avgProgress: Math.round(items.reduce((s, f) => s + (f.progress ?? 0), 0) / items.length),
+        overdueCount: items.filter((f) => f.expected_end_date && new Date(f.expected_end_date) < new Date() && f.status !== 4).length,
+      }
+    })
   }, [displayedFunctions])
 
   const groupedByRequirement = useMemo(() => {
-    const map = new Map<string, { reqNm: string; expectedEndDate: string; items: ProjectFunction[] }>()
+    const map = new Map<string, { reqNm: string; createdAt: string; items: ProjectFunction[] }>()
     displayedFunctions.forEach((f) => {
       const key = f.requirement_id || '__none__'
       if (!map.has(key)) {
         const req = f.requirement_id ? requirements.find((r) => r.id === f.requirement_id) : undefined
-        map.set(key, { reqNm: req ? req.req_nm : t('projectDetail.noLinkedReq'), expectedEndDate: req?.expected_end_date ?? '', items: [] })
+        map.set(key, { reqNm: req ? req.req_nm : t('projectDetail.noLinkedReq'), createdAt: (req as unknown as { created_at?: string })?.created_at ?? '', items: [] })
       }
       map.get(key)!.items.push(f)
     })
@@ -961,31 +964,35 @@ const ProjectDetailPage: React.FC = () => {
       .sort(([a, av], [b, bv]) => {
         if (a === '__none__') return 1
         if (b === '__none__') return -1
-        // sort by requirement expected_end_date ascending; no date → last
-        const da = av.expectedEndDate, db = bv.expectedEndDate
+        // sort by requirement created_at descending; no date → last
+        const da = av.createdAt, db = bv.createdAt
         if (!da && !db) return 0
         if (!da) return 1
         if (!db) return -1
-        return da < db ? -1 : da > db ? 1 : 0
+        return da > db ? -1 : da < db ? 1 : 0
       })
-      .map(([key, { reqNm, expectedEndDate, items }]) => {
+      .map(([key, { reqNm, items }]) => {
         const groupMap = new Map<string, ProjectFunction[]>()
         items.forEach((f) => {
           const g = formatGroupName(f.group1) || f.group1 || t('common.ungrouped')
           if (!groupMap.has(g)) groupMap.set(g, [])
           groupMap.get(g)!.push(f)
         })
-        const subGroups = [...groupMap.entries()].map(([gName, gItems]) => ({
-          name: gName,
-          items: gItems,
-          count: gItems.length,
-          avgProgress: gItems.length ? Math.round(gItems.reduce((s, f) => s + (f.progress ?? 0), 0) / gItems.length) : 0,
-          overdueCount: gItems.filter((f) => f.expected_end_date && new Date(f.expected_end_date) < new Date() && f.status !== 4).length,
-        }))
+        const subGroups = [...groupMap.entries()].map(([gName, gItems]) => {
+          gItems.sort((a, b) => ((b as unknown as { created_at?: string }).created_at ?? '').localeCompare((a as unknown as { created_at?: string }).created_at ?? ''))
+          return {
+            name: gName,
+            items: gItems,
+            count: gItems.length,
+            avgProgress: gItems.length ? Math.round(gItems.reduce((s, f) => s + (f.progress ?? 0), 0) / gItems.length) : 0,
+            overdueCount: gItems.filter((f) => f.expected_end_date && new Date(f.expected_end_date) < new Date() && f.status !== 4).length,
+          }
+        })
+        const req = key !== '__none__' ? requirements.find((r) => r.id === key) : undefined
         return {
           key,
           reqNm,
-          expectedEndDate,
+          expectedEndDate: req?.expected_end_date ?? '',
           subGroups,
           count: items.length,
           avgProgress: items.length ? Math.round(items.reduce((s, f) => s + (f.progress ?? 0), 0) / items.length) : 0,
@@ -1094,6 +1101,7 @@ const ProjectDetailPage: React.FC = () => {
     },
     {
       title: t('common.expectedStartDate'), dataIndex: 'expected_start_date', width: 110,
+      sorter: (a, b) => (a.expected_start_date ?? '').localeCompare(b.expected_start_date ?? ''),
       render: (v: string, record) => {
         if (!v) {
           const canSet = isPm && record.status !== 0 && record.status !== 4 && record.status !== 9
@@ -1120,6 +1128,7 @@ const ProjectDetailPage: React.FC = () => {
     },
     {
       title: t('common.expectedEndDate'), dataIndex: 'expected_end_date', width: 110,
+      sorter: (a, b) => (a.expected_end_date ?? '').localeCompare(b.expected_end_date ?? ''),
       render: (v: string, record) => {
         if (!v) {
           // PM 可在任务非草稿、非完结时设定日期（仅一次）
@@ -1163,6 +1172,11 @@ const ProjectDetailPage: React.FC = () => {
           </span>
         )
       },
+    },
+    {
+      title: t('common.createdAt'), dataIndex: 'created_at', width: 100,
+      sorter: (a, b) => ((a as unknown as {created_at?:string}).created_at ?? '').localeCompare((b as unknown as {created_at?:string}).created_at ?? ''),
+      render: (v: string) => <span className="text-xs text-slate-400">{v ? String(v).slice(0, 10) : '—'}</span>,
     },
     {
       title: t('common.operation'), key: 'action', width: isPm ? 110 : 80, fixed: 'right',
@@ -1318,7 +1332,7 @@ const ProjectDetailPage: React.FC = () => {
     <div className="p-6">
       {/* Back + Title */}
       <div className="flex items-start gap-3 mb-5">
-        <Button icon={<ArrowLeftIcon className="w-4 h-4" />} onClick={() => navigate(-1)} type="text" className="mt-1" />
+        <Button icon={<ArrowLeftIcon className="w-4 h-4" />} onClick={() => window.history.length > 1 ? navigate(-1) : navigate('/projects')} type="text" className="mt-1" />
         <div className="flex-1">
           <h1 className="text-2xl font-bold text-slate-800">{current.project_nm}</h1>
           <div className="flex flex-wrap items-center gap-2 mt-1.5">
@@ -1629,6 +1643,7 @@ const ProjectDetailPage: React.FC = () => {
                     },
                     {
                       title: t('projectDetail.expectedComplete'), dataIndex: 'expected_end_date', width: 100,
+                      sorter: (a: Requirement, b: Requirement) => (a.expected_end_date ?? '').localeCompare(b.expected_end_date ?? ''),
                       render: (v: string) => <span className="text-xs text-slate-500">{v || '—'}</span>,
                     },
                     {
@@ -1636,6 +1651,11 @@ const ProjectDetailPage: React.FC = () => {
                       render: (_: unknown, req: Requirement) => req.benefit_amount != null
                         ? <span className="text-xs text-emerald-600">{req.benefit_amount} {benefitUnitLabel(req.benefit_unit ?? "元/年")}</span>
                         : <span className="text-xs text-slate-300">—</span>,
+                    },
+                    {
+                      title: t('common.createdAt'), width: 100,
+                      sorter: (a: Requirement, b: Requirement) => ((a as unknown as {created_at?:string}).created_at ?? '').localeCompare((b as unknown as {created_at?:string}).created_at ?? ''),
+                      render: (_: unknown, req: Requirement) => <span className="text-xs text-slate-400">{(req as unknown as { created_at?: string }).created_at ? String((req as unknown as { created_at?: string }).created_at).slice(0, 10) : '—'}</span>,
                     },
                     {
                       title: t('common.operation'), width: 148, align: 'center' as const,

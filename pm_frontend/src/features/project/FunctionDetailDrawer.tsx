@@ -567,8 +567,8 @@ const FunctionDetailDrawer: React.FC<FunctionDetailDrawerProps> = ({
                   <Form.Item name="progress" label={t('function.completionPct')} rules={[{ required: true }]}>
                     <InputNumber min={1} max={100} style={{ width: '100%' }} suffix="%" />
                   </Form.Item>
-                  <Form.Item name="time_consum" label={t('function.timeConsumed')}>
-                    <InputNumber min={0} step={0.5} style={{ width: '100%' }} suffix="h" />
+                  <Form.Item name="time_consum" label={t('function.timeConsumed')} rules={[{ required: true, message: t('function.pleaseInputTimeConsumed') }]}>
+                    <InputNumber min={0.01} step={0.5} style={{ width: '100%' }} suffix="h" />
                   </Form.Item>
                 </div>
                 <div className="grid grid-cols-2 gap-x-3">

@@ -17,12 +17,12 @@ class RequirementDAO(BaseDAO):
         return db.session.query(RequirementModel).filter_by(id=req_id).first()
 
     def list_by_project(self, project_id: str):
-        """获取专案下所有未删除的需求（按创建时间升序）"""
+        """获取专案下所有未删除的需求（按创建时间倒序）"""
         return (
             db.session.query(RequirementModel)
             .filter_by(project_id=project_id)
             .filter(RequirementModel.req_status != 9)
-            .order_by(RequirementModel.created_at.asc())
+            .order_by(RequirementModel.created_at.desc())
             .all()
         )
 

@@ -467,9 +467,9 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose, onRefresh })
   const handlePreCheckSubmit = async (type: 'start' | 'end' | 'overdue', date: string, reason: string) => {
     if (!duty) return
     if (type === 'start') {
-      await dutyApi.update(duty.id, { expected_start_date: date })
+      await dutyApi.setDates(duty.id, { expected_start_date: date })
     } else if (type === 'end') {
-      await dutyApi.update(duty.id, { expected_end_date: date })
+      await dutyApi.setDates(duty.id, { expected_end_date: date })
     } else if (type === 'overdue') {
       await dutyApi.reschedule(duty.id, date, reason)
     }
@@ -737,8 +737,8 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose, onRefresh })
                     <Form.Item name="progress" label={t('duty.detail.completionPercent')} rules={[{ required: true }]}>
                       <InputNumber min={1} max={100} style={{ width: '100%' }} suffix="%" />
                     </Form.Item>
-                    <Form.Item name="time_consum" label={t('duty.detail.timeConsumed')}>
-                      <InputNumber min={0} step={0.5} style={{ width: '100%' }} suffix="h" />
+                    <Form.Item name="time_consum" label={t('duty.detail.timeConsumed')} rules={[{ required: true, message: t('function.pleaseInputTimeConsumed') }]}>
+                      <InputNumber min={0.01} step={0.5} style={{ width: '100%' }} suffix="h" />
                     </Form.Item>
                   </div>
                   <div className="grid grid-cols-2 gap-x-3">

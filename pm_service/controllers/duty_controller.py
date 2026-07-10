@@ -980,7 +980,7 @@ class DutyController:
     def get_task_list(self, work_no: str, page=1, size=20):
         q = dao.query_task_list(work_no)
         total = q.count()
-        duties = q.offset((page-1)*size).limit(size).all()
+        duties = q.order_by(TemporaryDutyModel.created_at.desc()).offset((page-1)*size).limit(size).all()
         enriched = dao.enrich_duty_list(duties)
         return {
             "total_count": total,

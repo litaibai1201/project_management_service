@@ -113,14 +113,46 @@ const DutyListPage: React.FC = () => {
     _summaryProgress?: number; _summaryEndDate?: string; _summaryPm?: string; _summaryStatus?: number; _summaryCount?: number
   }
   const mergedFuncRows = useMemo((): MergedFuncRow[] => {
+    // 计算每个专案的最新 created_at（倒序用），每个需求/分组的最早 created_at（升序用）
+    const projLatest = new Map<string, string>()
+    const reqEarliest = new Map<string, string>()
+    const grpEarliest = new Map<string, string>()
+    filteredMyFunctions.forEach((f) => {
+      const ca = (f as unknown as { created_at?: string }).created_at ?? ''
+      // 专案：取最新
+      const prevP = projLatest.get(f.project_id) ?? ''
+      if (ca > prevP) projLatest.set(f.project_id, ca)
+      // 需求：取最早
+      const rk = `${f.project_id}::${f.requirement_nm ?? ''}`
+      const prevR = reqEarliest.get(rk)
+      if (prevR === undefined || ca < prevR) reqEarliest.set(rk, ca)
+      // 分组：取最早
+      const gk = `${f.project_id}::${f.requirement_nm ?? ''}::${f.group1 ?? ''}`
+      const prevG = grpEarliest.get(gk)
+      if (prevG === undefined || ca < prevG) grpEarliest.set(gk, ca)
+    })
     const sorted = [...filteredMyFunctions].sort((a, b) => {
-      // 先按 project_id 分组（确保同一专案不被拆开），再按名称排序
-      if (a.project_id !== b.project_id) return (a.project_nm ?? '').localeCompare(b.project_nm ?? '')
-      const r = (a.requirement_nm ?? '').localeCompare(b.requirement_nm ?? '')
-      if (r !== 0) return r
-      const g = (a.group1 ?? '').localeCompare(b.group1 ?? '')
-      if (g !== 0) return g
-      return (a.function_nm ?? '').localeCompare(b.function_nm ?? '')
+      // 专案按最新任务 created_at 倒序
+      if (a.project_id !== b.project_id) {
+        const pa = projLatest.get(a.project_id) ?? '', pb = projLatest.get(b.project_id) ?? ''
+        return pb.localeCompare(pa)
+      }
+      // 同一专案内，需求按最早任务 created_at 升序
+      const ra = a.requirement_nm ?? '', rb = b.requirement_nm ?? ''
+      if (ra !== rb) {
+        const rka = `${a.project_id}::${ra}`, rkb = `${b.project_id}::${rb}`
+        return (reqEarliest.get(rka) ?? '').localeCompare(reqEarliest.get(rkb) ?? '')
+      }
+      // 同一需求内，分组按最早任务 created_at 升序
+      const ga = a.group1 ?? '', gb = b.group1 ?? ''
+      if (ga !== gb) {
+        const gka = `${a.project_id}::${ra}::${ga}`, gkb = `${b.project_id}::${rb}::${gb}`
+        return (grpEarliest.get(gka) ?? '').localeCompare(grpEarliest.get(gkb) ?? '')
+      }
+      // 同一分组内，任务按 created_at 升序
+      const ca = (a as unknown as { created_at?: string }).created_at ?? ''
+      const cb = (b as unknown as { created_at?: string }).created_at ?? ''
+      return ca.localeCompare(cb)
     })
     // 确保同一 project_id 的所有行都有 project_nm（取第一个非空值）
     const projNmMap = new Map<string, string>()
@@ -306,14 +338,42 @@ const DutyListPage: React.FC = () => {
     _isSummary?: 'sys' | 'req' | 'grp'; _summaryProgress?: number; _summaryEndDate?: string; _summaryCount?: number
   }
   const mergedDutyRows = useMemo((): MergedDutyRow[] => {
+    // 计算每个系统的最新 created_at（倒序），每个需求/分组的最早 created_at（升序）
+    const sysLatest = new Map<string, string>()
+    const sysReqEarliest = new Map<string, string>()
+    const sysGrpEarliest = new Map<string, string>()
+    displayedSysTasks.forEach((d) => {
+      const ca = (d as unknown as { created_at?: string }).created_at ?? ''
+      const sk = d.system_id ?? d.system_nm ?? ''
+      const prevS = sysLatest.get(sk) ?? ''
+      if (ca > prevS) sysLatest.set(sk, ca)
+      const rk = `${sk}::${d.standalone_req_id ?? ''}`
+      const prevR = sysReqEarliest.get(rk)
+      if (prevR === undefined || ca < prevR) sysReqEarliest.set(rk, ca)
+      const gk = `${rk}::${d.group ?? ''}`
+      const prevG = sysGrpEarliest.get(gk)
+      if (prevG === undefined || ca < prevG) sysGrpEarliest.set(gk, ca)
+    })
     const sorted = [...displayedSysTasks].sort((a, b) => {
-      const s = (a.system_nm ?? '').localeCompare(b.system_nm ?? '')
-      if (s !== 0) return s
-      const r = (reqNameMap[a.standalone_req_id ?? ''] ?? '').localeCompare(reqNameMap[b.standalone_req_id ?? ''] ?? '')
-      if (r !== 0) return r
-      const g = (a.group ?? '').localeCompare(b.group ?? '')
-      if (g !== 0) return g
-      return (a.duty_nm ?? '').localeCompare(b.duty_nm ?? '')
+      // 系统按最新任务 created_at 倒序
+      const sa = a.system_id ?? a.system_nm ?? '', sb = b.system_id ?? b.system_nm ?? ''
+      if (sa !== sb) return (sysLatest.get(sb) ?? '').localeCompare(sysLatest.get(sa) ?? '')
+      // 同一系统内，需求按最早任务 created_at 升序
+      const ra = a.standalone_req_id ?? '', rb = b.standalone_req_id ?? ''
+      if (ra !== rb) {
+        const rka = `${sa}::${ra}`, rkb = `${sb}::${rb}`
+        return (sysReqEarliest.get(rka) ?? '').localeCompare(sysReqEarliest.get(rkb) ?? '')
+      }
+      // 同一需求内，分组按最早任务 created_at 升序
+      const ga = a.group ?? '', gb = b.group ?? ''
+      if (ga !== gb) {
+        const gka = `${sa}::${ra}::${ga}`, gkb = `${sb}::${rb}::${gb}`
+        return (sysGrpEarliest.get(gka) ?? '').localeCompare(sysGrpEarliest.get(gkb) ?? '')
+      }
+      // 同一分组内，任务按 created_at 升序
+      const ca = (a as unknown as { created_at?: string }).created_at ?? ''
+      const cb = (b as unknown as { created_at?: string }).created_at ?? ''
+      return ca.localeCompare(cb)
     })
     const all = sorted.map((d) => ({
       ...d, _sysSpan: 0, _reqSpan: 0, _grpSpan: 0,
@@ -559,6 +619,7 @@ const DutyListPage: React.FC = () => {
     },
     {
       title: t('common.expectedStartDate'), dataIndex: 'expected_start_date', width: 130,
+      sorter: (a: MyFunction, b: MyFunction) => (a.expected_start_date ?? '').localeCompare(b.expected_start_date ?? ''),
       render: (v: string, r: MyFunction) => {
         if (!v) {
           const isPm = r.project_pm?.toLowerCase() === workNo.toLowerCase()
@@ -575,6 +636,7 @@ const DutyListPage: React.FC = () => {
     },
     {
       title: t('common.expectedEndDate'), dataIndex: 'expected_end_date', width: 130,
+      sorter: (a: MyFunction, b: MyFunction) => (a.expected_end_date ?? '').localeCompare(b.expected_end_date ?? ''),
       render: (v: string, r: MyFunction) => {
         if (!v || !dayjs(v).isValid()) {
           const isPm = r.project_pm?.toLowerCase() === workNo.toLowerCase()
@@ -593,6 +655,11 @@ const DutyListPage: React.FC = () => {
         if (days <= 7) return <span className="days-warning">{t('common.daysLeft', { days })}</span>
         return <span className="days-ok">{v}</span>
       },
+    },
+    {
+      title: t('common.createdAt'), dataIndex: 'created_at', width: 100,
+      sorter: (a: MyFunction, b: MyFunction) => ((a as unknown as {created_at?:string}).created_at ?? '').localeCompare((b as unknown as {created_at?:string}).created_at ?? ''),
+      render: (v: string) => <span className="text-xs text-slate-400">{v ? v.slice(0, 10) : '—'}</span>,
     },
     {
       title: t('common.operation'), key: 'action', width: 90, fixed: 'right',
@@ -656,8 +723,12 @@ const DutyListPage: React.FC = () => {
       render: (v: number) => { const p = PRIORITY_MAP[v]; return p ? <Tag color={p.color} style={{ fontSize: 11 }}>{p.label}</Tag> : v },
     },
     {
-      title: t('common.createdAt'), dataIndex: 'creator', width: 90,
+      title: t('projectDetail.creator'), dataIndex: 'creator', width: 70,
       render: (v: string) => <span className="text-sm text-slate-600">{toName(v) || '—'}</span>,
+    },
+    {
+      title: t('projectDetail.colTotalHours'), dataIndex: 'total_hours', width: 65,
+      render: (v: number) => v ? <span className="text-xs font-medium text-slate-600 tabular-nums">{v}h</span> : <span className="text-slate-300 text-xs">—</span>,
     },
     {
       title: t('function.assignee'), dataIndex: 'responsible', width: 150,
@@ -724,9 +795,15 @@ const DutyListPage: React.FC = () => {
     },
     {
       title: t('common.expectedEndDate'), dataIndex: 'expected_end_date', width: 120,
+      sorter: (a: TemporaryDuty, b: TemporaryDuty) => (a.expected_end_date ?? '').localeCompare(b.expected_end_date ?? ''),
       render: (v: string, r: TemporaryDuty) => r.status === 8
         ? <span className="text-slate-300 text-xs">{v || '—'}</span>
         : <DaysLeftBadge date={v} />,
+    },
+    {
+      title: t('common.createdAt'), dataIndex: 'created_at', width: 100,
+      sorter: (a: TemporaryDuty, b: TemporaryDuty) => ((a as unknown as {created_at?:string}).created_at ?? '').localeCompare((b as unknown as {created_at?:string}).created_at ?? ''),
+      render: (v: string) => <span className="text-xs text-slate-400">{v ? v.slice(0, 10) : '—'}</span>,
     },
     {
       title: t('common.operation'), key: 'action', width: 80, fixed: 'right',
@@ -812,6 +889,7 @@ const DutyListPage: React.FC = () => {
     },
     {
       title: t('common.expectedStartDate'), dataIndex: 'expected_start_date', width: 130,
+      sorter: (a: TemporaryDuty, b: TemporaryDuty) => (a.expected_start_date ?? '').localeCompare(b.expected_start_date ?? ''),
       render: (v: string, r: TemporaryDuty) => {
         if (!v) {
           const isReqResp = (reqRespMap[r.standalone_req_id ?? ''] ?? []).some((wn: string) => wn.toLowerCase() === workNo.toLowerCase())
@@ -828,6 +906,7 @@ const DutyListPage: React.FC = () => {
     },
     {
       title: t('common.expectedEndDate'), dataIndex: 'expected_end_date', width: 130,
+      sorter: (a: TemporaryDuty, b: TemporaryDuty) => (a.expected_end_date ?? '').localeCompare(b.expected_end_date ?? ''),
       render: (v: string, r: TemporaryDuty) => {
         if (!v || !dayjs(v).isValid()) {
           const isReqResp = (reqRespMap[r.standalone_req_id ?? ''] ?? []).some((wn: string) => wn.toLowerCase() === workNo.toLowerCase())
@@ -846,6 +925,11 @@ const DutyListPage: React.FC = () => {
         if (days <= 7) return <span className="days-warning">{t('common.daysLeft', { days })}</span>
         return <span className="days-ok">{v}</span>
       },
+    },
+    {
+      title: t('common.createdAt'), dataIndex: 'created_at', width: 100,
+      sorter: (a: TemporaryDuty, b: TemporaryDuty) => ((a as unknown as {created_at?:string}).created_at ?? '').localeCompare((b as unknown as {created_at?:string}).created_at ?? ''),
+      render: (v: string) => <span className="text-xs text-slate-400">{v ? v.slice(0, 10) : '—'}</span>,
     },
     {
       title: t('common.operation'), key: 'action', width: 90, fixed: 'right',

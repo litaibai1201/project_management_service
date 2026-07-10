@@ -2910,7 +2910,7 @@ class FunctionController:
         if status is not None:
             q = q.filter(FunctionDataModel.function_status == status)
         total = q.count()
-        funcs = q.order_by(FunctionDataModel.expected_end_date.asc()).offset((page - 1) * size).limit(size).all()
+        funcs = q.order_by(FunctionDataModel.created_at.desc()).offset((page - 1) * size).limit(size).all()
 
         # 批量查专案信息
         proj_ids = list({f.project_id for f in funcs})
@@ -2954,7 +2954,7 @@ class FunctionController:
         if requirement_id:
             q = q.filter(FunctionDataModel.requirement_id == requirement_id)
         total = q.count()
-        funcs = q.offset((page - 1) * size).limit(size).all()
+        funcs = q.order_by(FunctionDataModel.created_at.desc()).offset((page - 1) * size).limit(size).all()
 
         # Lazy backfill: derive start_time/end_time from progress records for tasks missing them
         needs_commit = False
