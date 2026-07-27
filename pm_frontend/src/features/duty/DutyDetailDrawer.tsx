@@ -544,7 +544,7 @@ const DutyDetailDrawer: React.FC<Props> = ({ open, dutyId, onClose, onRefresh })
           const isResponsible = (duty.responsible ?? []).some((w) => w.toLowerCase() === (workNo?.toLowerCase() ?? ''))
           const canAct = isCreator || isResponsible
           const canReqHold = duty.standalone_req_id
-            ? reqResponsible.some((w) => w.toLowerCase() === (workNo ?? '').toLowerCase())
+            ? reqResponsible.some((w) => w.toLowerCase() === (workNo ?? '').toLowerCase()) || isResponsible
             : canAct
           const isOverdue = duty.expected_end_date && duty.expected_end_date < new Date().toISOString().slice(0, 10)
           return (

@@ -2648,17 +2648,20 @@ class FunctionController:
 
     def reschedule_function(self, function_id: str, new_end_date: str, reason: str, operator: str):
         """
-        延期任务：仅专案PM可操作，更新最新预计完成时间，记录延期历史。
+        延期任务：专案PM或任务责任人可操作，更新最新预计完成时间，记录延期历史。
         """
         from utils.exceptions import PermissionException
         f = _dao.find_active_function(function_id)
         if not f:
             raise ResourceNotFoundException(resource_type="功能任务")
 
-        # 仅专案PM可延期
+        # 专案PM或任务责任人可延期
         project = _dao.find_project_by_id(f.project_id)
-        if not project or operator.lower() != (project.project_pm or "").lower():
-            raise PermissionException(msg="僅專案PM可進行任務延期操作")
+        is_pm = project and operator.lower() == (project.project_pm or "").lower()
+        responsible_list = json.loads(f.responsible) if f.responsible else []
+        is_responsible = operator.lower() in [r.lower() for r in responsible_list]
+        if not is_pm and not is_responsible:
+            raise PermissionException(msg="僅專案PM或任務責任人可進行任務延期操作")
 
         # 当前生效的截止日期
         current_end = f.latest_expected_end_date or f.expected_end_date or ""

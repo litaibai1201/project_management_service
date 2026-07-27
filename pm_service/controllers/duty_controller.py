@@ -361,8 +361,15 @@ class DutyController:
 
         is_creator = d.creator.lower() == operator.lower()
         is_responsible = operator.lower() in [w.lower() for w in responsible]
-        if not is_creator and not is_responsible:
-            raise PermissionException("只有建立人或負責人可進行延期操作")
+        is_req_responsible = False
+        if d.standalone_req_id:
+            from tables.standalone_req_table import StandaloneReqModel
+            req = StandaloneReqModel.query.get(d.standalone_req_id)
+            if req and req.responsible:
+                req_resp = json.loads(req.responsible) if isinstance(req.responsible, str) else []
+                is_req_responsible = operator.lower() in [w.lower() for w in req_resp]
+        if not is_creator and not is_responsible and not is_req_responsible:
+            raise PermissionException("只有建立人、任務負責人或需求責任人可進行延期操作")
 
         current_end = d.latest_expected_end_date or d.expected_end_date or ""
         history = []
