@@ -484,12 +484,14 @@ const DutyListPage: React.FC = () => {
     }))
   }, [displayedList])
 
-  // 同步 scope（主管/非主管）→ 觸發重新拉取
+  // 同步 scope 到 query 并拉取列表（scope 就绪后才发请求）
   useEffect(() => {
-    dispatch(setDutyQuery({ scope: arScope, page: 1 }))
-  }, [dispatch, arScope])
-
-  useEffect(() => { dispatch(fetchDutyListThunk(query)) }, [dispatch, query])
+    if (query.scope !== arScope) {
+      dispatch(setDutyQuery({ scope: arScope, page: 1 }))
+    } else {
+      dispatch(fetchDutyListThunk(query))
+    }
+  }, [dispatch, arScope, query])
 
   const silentRefreshAll = useCallback(async () => {
     try {

@@ -13,6 +13,7 @@ class DutyListQuerySchema(BaseSchema):
     responsible = fields.Str(load_default="")
     system_id = fields.Str(load_default="")
     standalone_req_id = fields.Str(load_default=None, allow_none=True)
+    scope = fields.Str(load_default="")
 
 
 class CreateDutySchema(BaseSchema):
