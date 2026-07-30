@@ -187,30 +187,31 @@ def encode_to_base64(string):
 def _extract_request_body(request):
     """提取和处理请求体"""
     if request.content_type and "multipart/form-data" in request.content_type:
-        # 处理文件上传
-        for file in request.files.values():
-            file.stream.seek(0)
-        files_info = {
-            name: {
-                "filename": file.filename,
-                "size": len(file.read()),
+        try:
+            files_info = {}
+            for name, file in request.files.items():
+                pos = file.stream.tell()
+                file.stream.seek(0, 2)
+                size = file.stream.tell()
+                file.stream.seek(pos)
+                files_info[name] = {"filename": file.filename, "size": size}
+            return {
+                "form": {k: v[:200] if isinstance(v, str) and len(v) > 200 else v
+                         for k, v in request.form.items()},
+                "files": files_info,
             }
-            for name, file in request.files.items()
-        }
-        for file in request.files.values():
-            file.stream.seek(0)
-        return {
-            "form": request.form.to_dict(),
-            "files": files_info,
-        }
+        except Exception:
+            return {
+                "type": "multipart/form-data",
+                "content_length": request.content_length,
+            }
     else:
-        # 处理JSON请求
         req_body = request.get_data(as_text=True)
         if req_body:
             try:
                 req_body = json.loads(req_body)
                 if "password" in req_body:
-                    req_body["password"] = encode_to_base64(["password"])
+                    req_body["password"] = encode_to_base64(req_body["password"])
             except Exception:
                 pass
         return req_body
