@@ -205,16 +205,20 @@ def _extract_request_body(request):
                 "type": "multipart/form-data",
                 "content_length": request.content_length,
             }
-    else:
-        req_body = request.get_data(as_text=True)
-        if req_body:
-            try:
-                req_body = json.loads(req_body)
-                if "password" in req_body:
+    elif request.is_json:
+        # 用 get_json() 讀取以確保 _cached_json 被填充，
+        # 避免 Werkzeug 3.x stream 被消費後 webargs 讀不到資料
+        req_body = request.get_json(silent=True)
+        if req_body and isinstance(req_body, dict):
+            req_body = dict(req_body)  # 複製以免污染 cached JSON
+            if "password" in req_body:
+                try:
                     req_body["password"] = encode_to_base64(req_body["password"])
-            except Exception:
-                pass
+                except Exception:
+                    pass
         return req_body
+    else:
+        return request.get_data(as_text=True)
 
 
 @flask_hooks.before_request
