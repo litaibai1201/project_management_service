@@ -21,6 +21,10 @@ export const authApi = {
   login: (payload: LoginPayload): Promise<ApiResponse<LoginContent>> =>
     post<LoginContent>('/user/login', payload),
 
+  /** POST /api/user/sso/login — IDaaS JWT SSO */
+  ssoLogin: (token: string): Promise<ApiResponse<LoginContent>> =>
+    post<LoginContent>('/user/sso/login', { token }),
+
   /** GET /api/user/index */
   getIndex: (): Promise<ApiResponse<UserIndexContent>> =>
     get<UserIndexContent>('/user/index'),

@@ -117,7 +117,9 @@
     "location": "登入地點",
     "locationRequired": "請選擇登入地點",
     "loginHint": "請使用工號登入",
-    "appTitle": "專案管理系統"
+    "appTitle": "專案管理系統",
+    "or": "或",
+    "ssoLogin": "IDaaS 單點登入"
   },
   "notification": {
     "title": "通知",

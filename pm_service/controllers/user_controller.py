@@ -1,10 +1,14 @@
 # -*- coding: utf-8 -*-
 """用户控制器"""
 import json
-
+import os
+import jwt
+from jwt.algorithms import RSAAlgorithm
+from jwt.utils import force_bytes
+from utils.auth import create_token
 from utils.tools import CommonTools
 from utils.exceptions import (
-    ResourceNotFoundException, ResourceExistsException, BusinessException
+    AuthenticationException, ResourceNotFoundException, ResourceExistsException, BusinessException
 )
 from dbs.mysql_db import db
 from tables.user_table import (
@@ -291,6 +295,81 @@ class UserController:
             "is_admin":     False,
             "is_supervisor": is_supervisor,
         }
+
+    def sso_login(self, payload) -> dict:
+        """IDaaS JWT SSO 登录：验证 IDaaS 签发的 JWT，提取 externalId 作为 work_no"""
+
+        id_token = payload.get("id_token", "")
+        target_url = payload.get("target_url", "")
+
+        if not id_token.strip():
+            raise AuthenticationException(msg="id_token不能为空")
+
+        try:
+            algo = RSAAlgorithm(RSAAlgorithm.SHA256)
+            pem_key_path = os.path.join(
+                os.path.dirname(os.path.dirname(__file__)), "jwt_public_key_pkc8.pem"
+            )
+            with open(pem_key_path, "r") as f:
+                public_key = algo.prepare_key(f.read())
+            token_info = jwt.decode(
+                force_bytes(id_token),
+                key=public_key,
+                algorithms="RS256",
+                options={"verify_aud": False},
+            )
+
+            user_info = json.loads(json.dumps(token_info))
+            print(user_info)
+
+            work_no = (user_info.get("username") or "").strip().lower()
+            if not work_no:
+                raise BusinessException(msg="IDaaS 令牌缺少 username", code="F20003")
+
+            idaas_name = user_info.get("name") or work_no
+
+            user = _dao.find_by_work_no_exact(work_no)
+            if not user:
+                user = UserProfileModel(
+                    work_no=work_no,
+                    name=idaas_name,
+                    department=user_info.get("ouName") or "",
+                    password="",
+                )
+                _dao.add(user)
+                _dao.commit()
+            elif user.name == work_no and idaas_name != work_no:
+                user.name = idaas_name
+                _dao.commit()
+
+            role_info = self.get_user_role(work_no) or {
+                "role_code": None,
+                "role_name": None,
+            }
+            is_supervisor = _dao.is_supervisor(work_no)
+
+            identity = {
+                "empid": work_no,
+                "username": user.name,
+                "is_admin": False,
+                "role_code": role_info["role_code"],
+                "location": "",
+            }
+            access_token = create_token(identity=work_no, additional_claims=identity)
+            return {
+                "access_token": access_token,
+                "work_no": work_no,
+                "name": user.name,
+                "department": user.department or "",
+                "role_code": role_info["role_code"],
+                "role_name": role_info["role_name"],
+                "is_admin": False,
+                "is_supervisor": is_supervisor,
+            }
+        except AuthenticationException:
+            raise
+        except Exception as e:
+            raise AuthenticationException(msg=f"idaas token验证失败: {str(e)}")
 
     def _verify_ldap(self, work_no: str, password: str, location: str = "") -> None:
         """调用第三方 LDAP 接口验证身份；失败时抛出 BusinessException"""

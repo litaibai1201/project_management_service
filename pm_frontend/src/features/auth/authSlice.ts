@@ -49,6 +49,18 @@ export const loginThunk = createAsyncThunk(
   },
 )
 
+export const ssoLoginThunk = createAsyncThunk(
+  'auth/ssoLogin',
+  async (idaasToken: string, { rejectWithValue }) => {
+    try {
+      const res = await authApi.ssoLogin(idaasToken)
+      return res.content
+    } catch (err: unknown) {
+      return rejectWithValue((err as Error).message || 'SSO Login failed')
+    }
+  },
+)
+
 export const fetchIndexThunk = createAsyncThunk(
   'auth/fetchIndex',
   async (_, { rejectWithValue }) => {
@@ -87,6 +99,27 @@ const authSlice = createSlice({
     setManagerView(state, action: PayloadAction<boolean>) {
       state.isManagerView = action.payload
     },
+    ssoLoginDirect(state, action: PayloadAction<LoginContent>) {
+      state.token         = action.payload.access_token
+      state.workNo        = action.payload.work_no
+      state.name          = action.payload.name
+      state.department    = action.payload.department ?? null
+      state.roleCode      = action.payload.role_code
+      state.roleName      = action.payload.role_name
+      state.isSupervisor  = action.payload.is_supervisor ?? false
+      state.isAdmin       = action.payload.is_admin ?? false
+      state.isManagerView = action.payload.is_supervisor ?? false
+      tokenStorage.set(action.payload.access_token)
+      userStorage.set({
+        workNo:       action.payload.work_no,
+        name:         action.payload.name,
+        department:   action.payload.department ?? '',
+        roleCode:     action.payload.role_code,
+        roleName:     action.payload.role_name,
+        isSupervisor: action.payload.is_supervisor ?? false,
+        isAdmin:      action.payload.is_admin ?? false,
+      })
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -120,11 +153,41 @@ const authSlice = createSlice({
         state.isLoading = false
         state.error     = action.payload as string
       })
+      .addCase(ssoLoginThunk.pending, (state) => {
+        state.isLoading = true
+        state.error     = null
+      })
+      .addCase(ssoLoginThunk.fulfilled, (state, action: PayloadAction<LoginContent>) => {
+        state.isLoading     = false
+        state.token         = action.payload.access_token
+        state.workNo        = action.payload.work_no
+        state.name          = action.payload.name
+        state.department    = action.payload.department ?? null
+        state.roleCode      = action.payload.role_code
+        state.roleName      = action.payload.role_name
+        state.isSupervisor  = action.payload.is_supervisor ?? false
+        state.isAdmin       = action.payload.is_admin ?? false
+        state.isManagerView = action.payload.is_supervisor ?? false
+        tokenStorage.set(action.payload.access_token)
+        userStorage.set({
+          workNo:       action.payload.work_no,
+          name:         action.payload.name,
+          department:   action.payload.department ?? '',
+          roleCode:     action.payload.role_code,
+          roleName:     action.payload.role_name,
+          isSupervisor: action.payload.is_supervisor ?? false,
+          isAdmin:      action.payload.is_admin ?? false,
+        })
+      })
+      .addCase(ssoLoginThunk.rejected, (state, action) => {
+        state.isLoading = false
+        state.error     = action.payload as string
+      })
       .addCase(fetchIndexThunk.fulfilled, (state, action: PayloadAction<UserIndexContent>) => {
         state.indexData = action.payload
       })
   },
 })
 
-export const { logout, restoreSession, setManagerView } = authSlice.actions
+export const { logout, restoreSession, setManagerView, ssoLoginDirect } = authSlice.actions
 export default authSlice.reducer

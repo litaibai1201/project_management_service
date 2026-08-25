@@ -10,6 +10,17 @@ class LoginSchema(BaseSchema):
     location = fields.Str(load_default="", metadata={"description": "登录地点"})
 
 
+class SSOLoginSchema(BaseSchema):
+    """idaas登录请求 Schema"""
+
+    id_token = fields.Str(
+        required=True, metadata={"description": "idaas传来的id_token"}
+    )
+    target_url = fields.Str(
+        required=False, metadata={"description": "idaas平台的前端回调地址（不含路径）"}
+    )
+
+
 class CreateUserSchema(BaseSchema):
     work_no = fields.Str(required=True)
     name = fields.Str(required=True)

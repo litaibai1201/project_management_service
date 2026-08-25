@@ -117,7 +117,9 @@
     "location": "Login Location",
     "locationRequired": "Please select login location",
     "loginHint": "Please login with your employee ID",
-    "appTitle": "Project Management System"
+    "appTitle": "Project Management System",
+    "or": "or",
+    "ssoLogin": "IDaaS Single Sign-On"
   },
   "notification": {
     "title": "Notifications",

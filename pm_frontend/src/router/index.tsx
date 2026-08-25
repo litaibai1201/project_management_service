@@ -10,6 +10,7 @@ import AdminLayout  from '@/features/admin/AdminLayout'
 
 // ─── Lazy Page Imports ────────────────────────────────────────────────────────
 const LoginPage        = lazy(() => import('@/features/auth/LoginPage'))
+const SsoCallbackPage  = lazy(() => import('@/features/auth/SsoCallbackPage'))
 
 // Admin Pages
 const AdminDashboard   = lazy(() => import('@/features/admin/dashboard/AdminDashboard'))
@@ -54,6 +55,16 @@ const router = createBrowserRouter([
     element: (
       <Suspense fallback={<PageLoader />}>
         <LoginPage />
+      </Suspense>
+    ),
+  },
+
+  // SSO callback (public)
+  {
+    path:    '/sso/callback',
+    element: (
+      <Suspense fallback={<PageLoader />}>
+        <SsoCallbackPage />
       </Suspense>
     ),
   },

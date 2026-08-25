@@ -122,6 +122,25 @@ const LoginPage: React.FC = () => {
             </Button>
           </Form.Item>
         </Form>
+
+        {/* IDaaS SSO */}
+        {import.meta.env.VITE_IDAAS_LOGIN_URL && (
+          <>
+            <div className="flex items-center gap-3 my-5">
+              <div className="flex-1 h-px bg-slate-200" />
+              <span className="text-xs text-slate-400">{t('auth.or')}</span>
+              <div className="flex-1 h-px bg-slate-200" />
+            </div>
+            <Button
+              size="large"
+              block
+              className="h-11 text-base font-medium"
+              onClick={() => { window.location.href = import.meta.env.VITE_IDAAS_LOGIN_URL }}
+            >
+              {t('auth.ssoLogin')}
+            </Button>
+          </>
+        )}
       </div>
     </div>
   )

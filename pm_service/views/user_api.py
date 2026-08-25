@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """用户管理接口 Blueprint"""
+import os
 from flask import request
 from flask.views import MethodView
 from flask_smorest import Blueprint
@@ -7,7 +8,7 @@ from utils.auth import jwt_required, get_identity
 from utils.response import response_result
 from controllers.user_controller import UserController
 from serializes.user_serialize import (
-    LoginSchema, CreateUserSchema, UpdateUserSchema, HierarchySchema,
+    LoginSchema, CreateUserSchema, SSOLoginSchema, UpdateUserSchema, HierarchySchema,
     QueryUsersSchema, SubordinateQuerySchema, PageSchema,
     LatestNewsQuerySchema, MyProjectsQuerySchema, MyDutiesQuerySchema,
 )
@@ -31,6 +32,46 @@ class LoginApi(MethodView):
             location=payload.get("location", ""),
         )
         return response_result(content=result)
+
+@blp.route("/sso/login")
+class SsoLoginApi(MethodView):
+
+    @blp.arguments(SSOLoginSchema, location="query")
+    def get(self, payload):
+        """IDaaS JWT SSO 登录 — 验证成功后重定向到前端回调页"""
+        from flask import redirect
+        from urllib.parse import urlencode
+        import json as _json
+
+        target_url = payload.get("target_url", "")
+        from urllib.parse import urlparse
+        if target_url:
+            parsed = urlparse(target_url)
+            frontend_origin = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else ""
+        else:
+            frontend_origin = ""
+        if not frontend_origin:
+            frontend_origin = os.environ.get("FRONTEND_ORIGIN", "http://localhost:3000")
+
+        try:
+            result = ctrl.sso_login(payload)
+            params = urlencode({
+                "token": result["access_token"],
+                "user": _json.dumps({
+                    "work_no": result["work_no"],
+                    "name": result["name"],
+                    "department": result.get("department", ""),
+                    "role_code": result.get("role_code") or "",
+                    "role_name": result.get("role_name") or "",
+                    "is_admin": result.get("is_admin", False),
+                    "is_supervisor": result.get("is_supervisor", False),
+                }, ensure_ascii=False),
+                "target_url": target_url or "/",
+            })
+            return redirect(f"{frontend_origin}/sso/callback?{params}")
+        except Exception as e:
+            params = urlencode({"error": str(e), "target_url": target_url or "/"})
+            return redirect(f"{frontend_origin}/sso/callback?{params}")
 
 
 @blp.route("/index")
